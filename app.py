@@ -1,121 +1,230 @@
 import datetime
-import bs4
-import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-import yfinance as yf
+import pandas as pd
 
-# Seite konfigurieren
-st.set_page_config(page_title="Wikifolio Live-Tracking", layout="wide")
-st.title("📈 Wikifolio Live-Performance vs. Modellpfade")
+# Page Configuration
+st.set_page_config(
+    page_title="Wikifolio Core Terminal", 
+    page_icon="⚡", 
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Futuristisches CSS-Design Inject
+st.markdown("""
+<style>
+    /* Dark Futuristic Theme */
+    .stApp {
+        background-color: #0B0E14;
+        color: #E2E8F0;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    
+    /* Header Styling */
+    .terminal-header {
+        background: linear-gradient(135deg, rgba(20, 26, 38, 0.8), rgba(15, 23, 42, 0.9));
+        border: 1px solid rgba(0, 240, 255, 0.2);
+        box-shadow: 0 0 20px rgba(0, 240, 255, 0.1);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 24px;
+        backdrop-filter: blur(10px);
+    }
+    .terminal-title {
+        font-size: 1.5rem;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        background: linear-gradient(90deg, #00F0FF, #7000FF);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin: 0;
+    }
+    .terminal-subtitle {
+        font-size: 0.8rem;
+        color: #64748B;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-top: 4px;
+    }
+
+    /* Metric Cards (Glassmorphism) */
+    .metric-card {
+        background: rgba(18, 24, 38, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 12px;
+        backdrop-filter: blur(8px);
+        transition: transform 0.2s, border 0.2s;
+    }
+    .metric-card:hover {
+        border-color: rgba(0, 240, 255, 0.4);
+        transform: translateY(-2px);
+    }
+    .metric-label {
+        font-size: 0.75rem;
+        color: #94A3B8;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .metric-val {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #F8FAFC;
+        margin: 4px 0;
+    }
+    .badge-pos {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        background: rgba(0, 255, 163, 0.15);
+        color: #00FFA3;
+        border: 1px solid rgba(0, 255, 163, 0.3);
+    }
+    .badge-neg {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        background: rgba(255, 0, 85, 0.15);
+        color: #FF0055;
+        border: 1px solid rgba(255, 0, 85, 0.3);
+    }
+    
+    /* Hide Streamlit Native Overheads */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+</style>
+""", unsafe_html=True)
 
 # Parameter
 ISIN = "DE000LS9VFS2"
-TICKERS = ["LS9VFS.F", "LS9VFS.SG", "LS9VFS"]
+WIKIFOLIO_ID = "wf000ls9vf"
 KAUFDATUM = datetime.date(2025, 8, 7)
 EINSTIEGSKURS = 160.68
-STARTKAPITAL = 20000.0
 ENTNAHME_PM = 180.0
 
-def get_ls_live_price(isin):
-    """Holt den tagesaktuellen Kurs direkt von Lang & Schwarz."""
+@st.cache_data(ttl=300)
+def fetch_wikifolio_data():
+    """Holt Kurse & Historie direkt über die Wikifolio API."""
     try:
-        url = f"https://www.ls-tc.de/de/zertifikat/{isin}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        res = requests.get(url, headers=headers, timeout=4)
+        url = f"https://www.wikifolio.com/api/wikifolio/{WIKIFOLIO_ID}/chartdata"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=6)
         if res.status_code == 200:
-            soup = bs4.BeautifulSoup(res.text, "html.parser")
-            price_element = soup.find("span", {"id": "price-val"})
-            if price_element:
-                raw_price = price_element.text.strip()
-                clean_price = raw_price.replace(".", "").replace(",", ".")
-                val = float(clean_price)
-                if val > 0:
-                    return val
+            data = res.json()
+            # Datenstruktur in DataFrame umwandeln
+            points = data.get("ChartPoints", [])
+            df = pd.DataFrame(points)
+            if not df.empty:
+                df["Date"] = pd.to_datetime(df["Date"])
+                df.set_index("Date", inplace=True)
+                df.rename(columns={"Close": "Close"}, inplace=True)
+                df = df[df.index.date >= KAUFDATUM]
+                return df
     except Exception:
         pass
     return None
 
-def fetch_historical_data():
-    """Holt historische Daten mit Zeitpuffer für Wochenenden/Feiertage."""
-    start_buffer = KAUFDATUM - datetime.timedelta(days=30)
-    
-    for ticker in TICKERS:
-        try:
-            df_ticker = yf.Ticker(ticker).history(start=start_buffer)
-            if not df_ticker.empty and len(df_ticker) > 0:
-                # Bereinigung und Sortierung
-                df_ticker = df_ticker.sort_index()
-                df_ticker["Close"] = df_ticker["Close"].ffill()
-                # Nur Daten ab Kaufdatum filtern
-                df_filtered = df_ticker[df_ticker.index.date >= KAUFDATUM].copy()
-                if not df_filtered.empty:
-                    return df_filtered, ticker
-        except Exception:
-            continue
-    return None, None
+# --- HEADER RENDERN ---
+st.markdown("""
+<div class="terminal-header">
+    <div class="terminal-title">WIKIFOLIO // QUANT DASHBOARD</div>
+    <div class="terminal-subtitle">Live Tracking & Performance Matrix</div>
+</div>
+""", unsafe_html=True)
 
-# --- DATENBESCHAFFUNG ---
-aktueller_kurs = get_ls_live_price(ISIN)
-daten_quelle = "Lang & Schwarz (Echtzeit)"
+df = fetch_wikifolio_data()
 
-df, verwendeter_ticker = fetch_historical_data()
-
-# Fallback-Kette für den aktuellen Kurs
-if aktueller_kurs is None:
-    if df is not None and not df.empty:
-        aktueller_kurs = float(df["Close"].iloc[-1])
-        daten_quelle = f"Yahoo Finance ({verwendeter_ticker} - Letzter Schlusskurs)"
-    else:
-        aktueller_kurs = EINSTIEGSKURS
-        daten_quelle = "Notfall-Fallback (Einstiegskurs)"
-
-# --- DASHBOARD RENDERN ---
 if df is not None and not df.empty:
+    aktueller_kurs = float(df["Close"].iloc[-1])
     letztes_datum = df.index[-1].strftime("%d.%m.%Y")
     aktuelle_perf = ((aktueller_kurs - EINSTIEGSKURS) / EINSTIEGSKURS) * 100
     df["Performance_%"] = ((df["Close"] - EINSTIEGSKURS) / EINSTIEGSKURS) * 100
 
-    # Status-Box
-    st.info(
-        f"📅 **Stand Daten:** {letztes_datum} | "
-        f"💰 **Kurs ({daten_quelle}):** {aktueller_kurs:.2f} € ({aktuelle_perf:+.2f}%)"
-    )
+    # Key Metrics Bar (Mobile Optimized Glass Cards)
+    c1, c2, c3 = st.columns(3)
+    
+    badge_class = "badge-pos" if aktuelle_perf >= 0 else "badge-neg"
+    sign = "+" if aktuelle_perf >= 0 else ""
 
-    # Interaktiver Chart
+    with c1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Einstiegskurs</div>
+            <div class="metric-val">{EINSTIEGSKURS:.2f} €</div>
+        </div>
+        """, unsafe_html=True)
+
+    with c2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Aktueller Kurs</div>
+            <div class="metric-val">{aktueller_kurs:.2f} €</div>
+            <span class="{badge_class}">{sign}{aktuelle_perf:.2f}%</span>
+        </div>
+        """, unsafe_html=True)
+
+    with c3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Monatl. Entnahme</div>
+            <div class="metric-val">{ENTNAHME_PM:.2f} €</div>
+        </div>
+        """, unsafe_html=True)
+
+    # Futuristic Chart
     fig = go.Figure()
+
+    # Glowing Trendline
     fig.add_trace(go.Scatter(
         x=df.index, 
         y=df["Performance_%"], 
         mode="lines", 
-        name="Tatsächlicher Verlauf",
-        line=dict(color="#00FF7F", width=2)
+        name="Performance",
+        line=dict(color="#00F0FF", width=3),
+        fill='tozeroy',
+        fillcolor='rgba(0, 240, 255, 0.05)'
     ))
-    fig.add_hline(y=0, line_dash="dash", line_color="gray", annotation_text="Einstieg")
-    fig.update_layout(
-        title="Performance-Entwicklung ab Kaufdatum (%)",
-        xaxis_title="Datum",
-        yaxis_title="Gewinn / Verlust in %",
-        template="plotly_dark",
-        hovermode="x unified"
-    )
-    st.plotly_chart(fig, use_container_width=True)
 
-    # Kennzahlen
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Einstiegskurs", f"{EINSTIEGSKURS:.2f} €")
-    col2.metric("Aktueller Kurs", f"{aktueller_kurs:.2f} €", f"{aktuelle_perf:+.2f}%")
-    col3.metric("Monatl. Entnahme", f"{ENTNAHME_PM:.2f} €")
+    # Baseline
+    fig.add_hline(
+        y=0, 
+        line_dash="dot", 
+        line_color="#FF0055", 
+        annotation_text="Einstieg", 
+        annotation_position="bottom right",
+        annotation_font=dict(color="#FF0055", size=10)
+    )
+
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.05)',
+            tickfont=dict(color='#64748B', size=10)
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.05)',
+            ticksuffix="%",
+            tickfont=dict(color='#64748B', size=10)
+        ),
+        hovermode="x unified",
+        showlegend=False,
+        height=320
+    )
+
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+    st.caption(f"⚡ Live-Sync: {letztes_datum} | Source: Wikifolio Core API")
 
 else:
-    # Wenn alle historischen Datenquellen versagen, aber die App nutzbar bleiben soll
-    st.warning("⚠️ Live-Chart derzeit nicht verfügbar (Wochenende/Börsenpause). Letzte bekannte Kennzahlen:")
-    aktuelle_perf = ((aktueller_kurs - EINSTIEGSKURS) / EINSTIEGSKURS) * 100
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Einstiegskurs", f"{EINSTIEGSKURS:.2f} €")
-    col2.metric("Aktueller Kurs", f"{aktueller_kurs:.2f} €", f"{aktuelle_perf:+.2f}%")
-    col3.metric("Monatl. Entnahme", f"{ENTNAHME_PM:.2f} €")
+    st.error("⚠️ Signal unterbrochen: Marktdaten konnten nicht geladen werden.")
