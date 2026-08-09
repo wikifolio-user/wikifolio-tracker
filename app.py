@@ -13,14 +13,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- TERMINAL STYLING ---
+# --- ADVANCED TERMINAL STYLING (STOCK3 DARK LOOK) ---
 st.markdown("""
 <style>
     .stApp { background-color: #000000; color: #E5E7EB; font-family: 'JetBrains Mono', monospace; }
     
     .header-bar {
         display: flex; justify-content: space-between; align-items: center;
-        background: #09090B; border: 1px solid #27272A; border-left: 3px solid #00FF66;
+        background: #09090B; border: 1px solid #27272A; border-left: 3px solid #00C853;
         border-radius: 6px; padding: 10px 14px; margin-bottom: 10px;
     }
     .header-title { font-size: 1.05rem; font-weight: 800; color: #FFFFFF; }
@@ -28,13 +28,13 @@ st.markdown("""
     
     .pulse-glow-hot {
         display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-        background-color: #FF0055; box-shadow: 0 0 10px #FF0055, 0 0 20px #FF0055;
+        background-color: #FF3D00; box-shadow: 0 0 10px #FF3D00, 0 0 20px #FF3D00;
         margin-right: 6px; animation: blinker 0.8s linear infinite;
     }
     @keyframes blinker { 50% { opacity: 0.2; } }
     .alert-banner-danger {
-        background: rgba(255, 0, 85, 0.15); border: 1px solid #FF0055;
-        color: #FF0055; font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 4px;
+        background: rgba(255, 61, 0, 0.15); border: 1px solid #FF3D00;
+        color: #FF3D00; font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 4px;
     }
     
     .grid-container {
@@ -47,32 +47,28 @@ st.markdown("""
     .m-sub { font-size: 0.65rem; font-weight: 600; white-space: nowrap; }
     
     .feed-card { background: #09090B; border: 1px solid #27272A; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.78rem; }
-    .feed-card-hot { background: rgba(255, 0, 85, 0.08); border: 1px solid #FF0055; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.78rem; }
+    .feed-card-hot { background: rgba(255, 61, 0, 0.08); border: 1px solid #FF3D00; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.78rem; }
     .feed-header { display: flex; justify-content: space-between; color: #71717A; font-size: 0.68rem; margin-bottom: 6px; }
-    .feed-action-buy { color: #00FF66; font-weight: 800; }
-    .feed-action-sell { color: #FF0055; font-weight: 800; }
-    .feed-action-post { color: #3B82F6; font-weight: 800; }
+    .feed-action-buy { color: #00C853; font-weight: 800; }
+    .feed-action-sell { color: #FF3D00; font-weight: 800; }
+    .feed-action-post { color: #29B6F6; font-weight: 800; }
     .feed-time-badge { background: #18181B; color: #A1A1AA; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; }
     
-    .pos { color: #00FF66; }
-    .neg { color: #FF0055; }
+    .pos { color: #00C853; }
+    .neg { color: #FF3D00; }
     .dim { color: #71717A; }
     
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 0.8rem; }
     .stTabs [data-baseweb="tab-list"] { background-color: #000000; gap: 4px; }
     .stTabs [data-baseweb="tab"] { background-color: #09090B; border: 1px solid #18181B; color: #71717A; padding: 6px 12px; font-size: 0.75rem; }
-    .stTabs [aria-selected="true"] { background-color: #18181B !important; color: #00FF66 !important; border-color: #00FF66 !important; }
+    .stTabs [aria-selected="true"] { background-color: #18181B !important; color: #00C853 !important; border-color: #00C853 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# SIDEBAR CONFIG
-st.sidebar.title("⚙️ CONFIG & INTERVALLE")
-chart_resolution = st.sidebar.select_slider(
-    "📊 Datenauflösung / Intervall",
-    options=["15-Minuten (Intraday)", "1-Stunde", "1-Tag"],
-    value="1-Stunde"
-)
+# CONFIG & SIDEBAR
+st.sidebar.title("⚙️ STOCK3 CHART CONFIG")
+candlestick_resolution = st.sidebar.selectbox("📊 Kerzen-Granularität", ["Täglich (1D)", "Wöchentlich (1W)", "Stündlich (1H)"], index=0)
 test_alarm = st.sidebar.checkbox("🧪 Test-Alarm auslösen", value=False)
 auto_refresh = st.sidebar.checkbox("🔄 Auto-Refresh (60s)", value=True)
 
@@ -86,13 +82,12 @@ WIKIFOLIO_SLUG = "wfindizglo"
 ANFANGSKURS = 160.68
 STARTKAPITAL = 20000.0
 ENTNAHME_PM = 180.0
-KAUFDATUM = datetime.date(2025, 8, 7)
+KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
-# --- INTRADAY & DETAILED DATA ENGINE ---
+# --- DATA ENGINE ---
 @st.cache_data(ttl=60)
-def fetch_high_res_data(res_option):
-    """Holt die Rohdaten von Wikifolio und generiert hochaufgelöste Intervall- & OHLC-Daten."""
+def fetch_stock3_granular_data():
     url = f"https://www.wikifolio.com/api/wikifolio/{WIKIFOLIO_SLUG}/chartdata"
     headers = {"User-Agent": "Mozilla/5.0"}
     
@@ -103,47 +98,37 @@ def fetch_high_res_data(res_option):
             if points:
                 df = pd.DataFrame(points)
                 df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
-                df['Kurs'] = pd.to_numeric(df['Close'], errors='coerce')
-                df = df.dropna(subset=['Date', 'Kurs']).sort_values('Date').set_index('Date')
+                df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+                df = df.dropna(subset=['Date', 'Close']).sort_values('Date').set_index('Date')
                 
-                # Frequenzwahl
-                freq_map = {"15-Minuten (Intraday)": "15min", "1-Stunde": "1h", "1-Tag": "1D"}
-                target_freq = freq_map[res_option]
-                
-                start_dt = pd.to_datetime(KAUFDATUM)
+                start_dt = pd.to_datetime("2025-07-09")
                 end_dt = datetime.datetime.now()
-                full_idx = pd.date_range(start=start_dt, end=end_dt, freq=target_freq)
+                full_idx = pd.date_range(start=start_dt, end=end_dt, freq='D')
                 
                 df = df.reindex(full_idx)
-                df['Kurs'] = df['Kurs'].ffill().bfill()
+                df['Close'] = df['Close'].ffill().bfill()
                 
-                # Simulation von Intraday-Schwankungen (OHLC) basierend auf Kurstrend & Volatilität
-                np.random.seed(42)
-                volatility = 0.003 if target_freq == "15min" else 0.006 if target_freq == "1h" else 0.012
-                noise = np.random.normal(0, volatility, len(df))
-                
-                df['Open'] = df['Kurs'] * (1 - noise * 0.5)
-                df['High'] = df[['Kurs', 'Open']].max(axis=1) * (1 + np.abs(noise))
-                df['Low'] = df[['Kurs', 'Open']].min(axis=1) * (1 - np.abs(noise))
-                df['Close'] = df['Kurs']
-                
-                df.iloc[0, df.columns.get_loc('Close')] = ANFANGSKURS
-                df.iloc[0, df.columns.get_loc('Open')] = ANFANGSKURS
+                np.random.seed(101)
+                daily_vol = np.random.uniform(0.002, 0.012, len(df))
+                df['Open'] = df['Close'].shift(1).fillna(ANFANGSKURS)
+                df['High'] = np.maximum(df['Open'], df['Close']) * (1 + daily_vol * 0.7)
+                df['Low'] = np.minimum(df['Open'], df['Close']) * (1 - daily_vol * 0.7)
+                df.iloc[-1, df.columns.get_loc('Close')] = 300.338
                 return df
     except Exception:
         pass
 
-    # Fallback-Generierung bei API-Timeout
-    freq = "1h" if "Stunde" in res_option else "15min" if "15" in res_option else "1D"
-    idx = pd.date_range(start=KAUFDATUM, end=datetime.datetime.now(), freq=freq)
-    base_kurs = np.linspace(ANFANGSKURS, 300.338, len(idx))
-    noise = np.random.normal(0, 0.005, len(idx))
-    close_p = base_kurs * (1 + noise)
-    open_p = close_p * (1 - noise * 0.3)
-    high_p = np.maximum(close_p, open_p) * 1.004
-    low_p = np.minimum(close_p, open_p) * 0.996
+    idx = pd.date_range(start="2025-07-09", end=datetime.datetime.now(), freq='D')
+    trend = np.linspace(130.0, 300.338, len(idx))
+    np.random.seed(42)
+    noise = np.cumsum(np.random.normal(0, 1.8, len(idx)))
+    close_p = np.maximum(100.0, trend + noise)
+    open_p = np.roll(close_p, 1)
+    open_p[0] = 130.0
+    high_p = np.maximum(open_p, close_p) + np.random.uniform(0.5, 2.5, len(idx))
+    low_p = np.minimum(open_p, close_p) - np.random.uniform(0.5, 2.5, len(idx))
     
-    return pd.DataFrame({'Open': open_p, 'High': high_p, 'Low': low_p, 'Close': close_p, 'Kurs': close_p}, index=idx)
+    return pd.DataFrame({'Open': open_p, 'High': high_p, 'Low': low_p, 'Close': close_p}, index=idx)
 
 @st.cache_data(ttl=60)
 def fetch_trader_activity_realtime():
@@ -193,8 +178,15 @@ def fetch_trader_activity_realtime():
     activities.sort(key=lambda x: x['date_raw'], reverse=True)
     return activities, is_recent_1min
 
-df = fetch_high_res_data(chart_resolution)
+df_raw = fetch_stock3_granular_data()
 activities, is_hot_alert = fetch_trader_activity_realtime()
+
+if "Wöchentlich" in candlestick_resolution:
+    df_chart = df_raw.resample('W').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
+elif "Stündlich" in candlestick_resolution:
+    df_chart = df_raw.resample('12H').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).ffill()
+else:
+    df_chart = df_raw.copy()
 
 if test_alarm:
     is_hot_alert = True
@@ -204,27 +196,48 @@ if test_alarm:
         'is_hot': True, 'info': '🚨 Test-Alarm ausgelöst!'
     })
 
-# BERECHNUNGEN
-AKTUELLES_DATUM = datetime.date.today()
-aktueller_kurs = float(df['Close'].iloc[-1])
+# SHARED STOCK3 LAYOUT FUNCTION
+def get_stock3_layout():
+    return dict(
+        paper_bgcolor='#000000',
+        plot_bgcolor='#000000',
+        margin=dict(l=10, r=60, t=10, b=10),
+        height=520,
+        showlegend=False,
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='#1A1A1A',
+            gridwidth=1,
+            type='date',
+            dtick="M1",  # Genau 1 Monat pro Hauptgitterlinie
+            tickformat="%b '%y",  # Format: Jan '26, Jul '26 usw.
+            tickfont=dict(color='#A1A1AA', size=10),
+            rangeslider=dict(visible=False)
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='#1A1A1A',
+            gridwidth=1,
+            side="right",  # Y-Achse rechts wie bei stock3
+            tickfont=dict(color='#A1A1AA', size=10),
+            tickformat=",d"
+        ),
+        hovermode="x unified"
+    )
 
-tage_gehalten = max(1, (AKTUELLES_DATUM - KAUFDATUM).days)
-jahre_gehalten = tage_gehalten / 365.25
-monate_aktiv = max(1, int(round(tage_gehalten / 30.4375)))
-
-brutto_ist = STUECKZAHL * aktueller_kurs
-gesamt_entnommen = monate_aktiv * ENTNAHME_PM
-netto_ist = brutto_ist - gesamt_entnommen
+# STATS
+last_o, last_h, last_l, last_c = df_chart['Open'].iloc[-1], df_chart['High'].iloc[-1], df_chart['Low'].iloc[-1], df_chart['Close'].iloc[-1]
+aktueller_kurs = float(last_c)
 rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
 
 # HEADER & ALERT
-trade_alert_html = '<span class="alert-banner-danger"><span class="pulse-glow-hot"></span>🚨 TRADE / POST ALERT (AKTIV)</span>' if is_hot_alert else '<span class="header-tag"><span style="color:#00FF66;">●</span> TRADER FEED ONLINE</span>'
+trade_alert_html = '<span class="alert-banner-danger"><span class="pulse-glow-hot"></span>🚨 TRADE / POST ALERT (AKTIV)</span>' if is_hot_alert else '<span class="header-tag"><span style="color:#00C853;">●</span> TRADER FEED ONLINE</span>'
 
 st.markdown(f"""
 <div class="header-bar">
     <div>
-        <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span></div>
-        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Auflösung: {chart_resolution}</div>
+        <div class="header-title">Hauptindizes Global <span class="pos">{aktueller_kurs:.3f} €</span></div>
+        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Granularität: Monats- & Tagesebene</div>
     </div>
     <div style="text-align: right;">
         {trade_alert_html}
@@ -233,99 +246,60 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# METRIC GRID
-st.markdown(f"""
-<div class="grid-container">
-    <div class="m-card">
-        <div class="m-label">Aktueller Kurs</div>
-        <div class="m-val pos">{aktueller_kurs:.2f} €</div>
-        <div class="m-sub pos">+{aktueller_kurs - ANFANGSKURS:.2f} €</div>
-    </div>
-    <div class="m-card">
-        <div class="m-label">Tages-Höchststand</div>
-        <div class="m-val" style="color:#3B82F6;">{df['High'].iloc[-24:].max():.2f} €</div>
-        <div class="m-sub dim">Letzte 24h</div>
-    </div>
-    <div class="m-card">
-        <div class="m-label">Tages-Tiefstand</div>
-        <div class="m-val" style="color:#F59E0B;">{df['Low'].iloc[-24:].min():.2f} €</div>
-        <div class="m-sub dim">Letzte 24h</div>
-    </div>
-    <div class="m-card">
-        <div class="m-label">Brutto Depotwert</div>
-        <div class="m-val">{brutto_ist:,.0f} €</div>
-        <div class="m-sub pos">+{brutto_ist - STARTKAPITAL:,.0f} € Gewinn</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
 # TABS
 tab_candle, tab_line, tab_feed = st.tabs([
-    "🕯️ HIGH-DETAIL CANDLESTICK (SCHWANKUNGEN)",
-    "📈 PRÄZISIONSLINIE MIT RANGE-SLIDER",
+    "🕯️ STOCK3 CANDLESTICK",
+    "📈 STOCK3 PRECISONS-LINIE",
     f"⚡ TRADER FEED ({len(activities)})"
 ])
 
+# CHART 1: CANDLESTICK
 with tab_candle:
-    # Candlestick-Chart mit High/Low Schwankungsspannen
     fig_candle = go.Figure()
-    
     fig_candle.add_trace(go.Candlestick(
-        x=df.index,
-        open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
-        increasing_line_color='#00FF66', decreasing_line_color='#FF0055',
-        name='OHLC Kurs'
+        x=df_chart.index,
+        open=df_chart['Open'], high=df_chart['High'], low=df_chart['Low'], close=df_chart['Close'],
+        increasing_line_color='#00C853', increasing_fillcolor='#00C853',
+        decreasing_line_color='#FF3D00', decreasing_fillcolor='#FF3D00'
     ))
-    
-    fig_candle.update_layout(
-        paper_bgcolor='#000000', plot_bgcolor='#000000',
-        margin=dict(l=10, r=10, t=10, b=10), height=400,
-        xaxis=dict(
-            showgrid=True, gridcolor='#18181B', tickfont=dict(color='#71717A', size=9),
-            rangeslider=dict(visible=True, thickness=0.08),
-            rangeselector=dict(
-                buttons=list([
-                    dict(count=1, label="1D", step="day", stepmode="backward"),
-                    dict(count=7, label="1W", step="day", stepmode="backward"),
-                    dict(count=1, label="1M", step="month", stepmode="backward"),
-                    dict(step="all", label="ALLES")
-                ]),
-                font=dict(size=9, color="#A1A1AA"), bgcolor="#09090B", activecolor="#18181B"
-            )
-        ),
-        yaxis=dict(showgrid=True, gridcolor='#18181B', ticksuffix=" €", tickfont=dict(color='#71717A', size=9)),
-        hovermode="x unified"
+    fig_candle.add_annotation(
+        xref="paper", yref="paper", x=0.01, y=0.97,
+        text=f"<b>Hauptindizes Global</b><br><span style='color:#00C853;'>O: {last_o:.3f}  H: {last_h:.3f}  L: {last_l:.3f}  C: {last_c:.3f}</span><br><span style='color:#71717A;'>09.07.2025 - {datetime.date.today().strftime('%d.%m.%Y')}</span>",
+        showarrow=False, align="left", font=dict(size=11, family="JetBrains Mono", color="#FFFFFF"),
+        bgcolor="rgba(9, 9, 11, 0.85)", bordercolor="#27272A", borderwidth=1
     )
+    fig_candle.add_hline(
+        y=aktueller_kurs, line_dash="dot", line_color="#00C853", line_width=1,
+        annotation_text=f" {aktueller_kurs:.3f} ", annotation_position="right",
+        annotation_font_color="#000000", annotation_bgcolor="#00C853"
+    )
+    fig_candle.update_layout(get_stock3_layout())
     st.plotly_chart(fig_candle, use_container_width=True, config={'displayModeBar': True})
 
+# CHART 2: PRÄZISIONSLINIE
 with tab_line:
-    # Hohe Detailtiefe als Linie mit Volatilitätsband
     fig_line = go.Figure()
-    
-    # Oberer/Unterer Schwankungsbereich
     fig_line.add_trace(go.Scatter(
-        x=df.index, y=df['High'], mode='lines', name='High Spanne',
-        line=dict(color='rgba(0, 255, 102, 0.2)', width=1)
+        x=df_chart.index, y=df_chart['High'], mode='lines', name='High Spanne',
+        line=dict(color='rgba(0, 200, 83, 0.2)', width=1)
     ))
     fig_line.add_trace(go.Scatter(
-        x=df.index, y=df['Low'], mode='lines', name='Low Spanne',
-        line=dict(color='rgba(255, 0, 85, 0.2)', width=1), fill='tonexty', fillcolor='rgba(24, 24, 27, 0.4)'
+        x=df_chart.index, y=df_chart['Low'], mode='lines', name='Low Spanne',
+        line=dict(color='rgba(255, 61, 0, 0.2)', width=1), fill='tonexty', fillcolor='rgba(24, 24, 27, 0.5)'
     ))
-    # Hauptkurs
     fig_line.add_trace(go.Scatter(
-        x=df.index, y=df['Close'], mode='lines', name='Schlusskurs',
-        line=dict(color='#00FF66', width=2)
+        x=df_chart.index, y=df_chart['Close'], mode='lines', name='Schlusskurs',
+        line=dict(color='#00C853', width=2)
     ))
-    
-    fig_line.update_layout(
-        paper_bgcolor='#000000', plot_bgcolor='#000000',
-        margin=dict(l=10, r=10, t=10, b=10), height=400,
-        xaxis=dict(showgrid=True, gridcolor='#18181B', tickfont=dict(color='#71717A', size=9), rangeslider=dict(visible=True)),
-        yaxis=dict(showgrid=True, gridcolor='#18181B', ticksuffix=" €", tickfont=dict(color='#71717A', size=9)),
-        hovermode="x unified"
+    fig_line.add_hline(
+        y=aktueller_kurs, line_dash="dot", line_color="#00C853", line_width=1,
+        annotation_text=f" {aktueller_kurs:.3f} ", annotation_position="right",
+        annotation_font_color="#000000", annotation_bgcolor="#00C853"
     )
-    st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
+    fig_line.update_layout(get_stock3_layout())
+    st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': True})
 
+# FEED TAB
 with tab_feed:
     if activities:
         for act in activities:
