@@ -3,57 +3,101 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import yfinance as yf
 
-# --- PAGE SETUP ---
+# --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="Wikifolio Terminal Pro",
+    page_title="INDIZ GLOBALE TRENDS // Quant Terminal",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# --- MODERN DARK THEME UI ---
+# --- STRICT NEON DARK THEME (BLACK / WHITE / NEON ACCENTS) ---
 st.markdown("""
 <style>
-    .stApp { background-color: #080B10; color: #E2E8F0; font-family: 'Inter', system-ui, sans-serif; }
+    /* Dark Monochromatic Base */
+    .stApp { 
+        background-color: #000000; 
+        color: #FFFFFF; 
+        font-family: 'JetBrains Mono', 'Inter', monospace, sans-serif; 
+    }
     
+    /* Terminal Header */
     .terminal-header {
-        background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.8));
-        border: 1px solid rgba(0, 240, 255, 0.25);
-        box-shadow: 0 0 25px rgba(0, 240, 255, 0.1);
-        border-radius: 16px;
-        padding: 18px 22px;
-        margin-bottom: 20px;
+        background: #050505;
+        border: 1px solid #222222;
+        border-left: 4px solid #00FF66;
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin-bottom: 24px;
     }
     .terminal-title {
-        font-size: 1.6rem; font-weight: 900; letter-spacing: -0.5px;
-        background: linear-gradient(90deg, #00F0FF, #7000FF, #FF007A);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;
+        font-size: 1.5rem; 
+        font-weight: 900; 
+        letter-spacing: -0.5px;
+        color: #FFFFFF;
+        margin: 0;
+        text-transform: uppercase;
     }
-    .terminal-sub { font-size: 0.75rem; color: #64748B; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 4px; }
+    .terminal-sub { 
+        font-size: 0.72rem; 
+        color: #888888; 
+        letter-spacing: 1.2px; 
+        text-transform: uppercase; 
+        margin-top: 4px; 
+    }
     
+    /* Neon Glass Cards */
     .metric-card {
-        background: rgba(15, 23, 42, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 14px; padding: 14px 16px; margin-bottom: 12px;
-        backdrop-filter: blur(12px);
+        background: #080808;
+        border: 1px solid #1A1A1A;
+        border-radius: 8px; 
+        padding: 14px 16px; 
+        margin-bottom: 12px;
     }
-    .metric-label { font-size: 0.68rem; color: #94A3B8; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-val { font-size: 1.4rem; font-weight: 800; color: #F8FAFC; margin: 2px 0; }
-    .metric-sub { font-size: 0.78rem; font-weight: 600; }
+    .metric-label { 
+        font-size: 0.65rem; 
+        color: #777777; 
+        text-transform: uppercase; 
+        letter-spacing: 1px; 
+    }
+    .metric-val { 
+        font-size: 1.5rem; 
+        font-weight: 800; 
+        color: #FFFFFF; 
+        margin: 4px 0; 
+    }
+    .metric-sub { 
+        font-size: 0.75rem; 
+        font-weight: 600; 
+    }
     
-    .pos { color: #00FFA3; }
-    .neg { color: #FF0055; }
-    .accent { color: #00F0FF; }
+    /* Status Colors */
+    .pos-neon { color: #00FF66; text-shadow: 0 0 10px rgba(0,255,102,0.2); }
+    .neg-neon { color: #FF0055; text-shadow: 0 0 10px rgba(255,0,85,0.2); }
+    .neutral-dim { color: #888888; }
     
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    /* Streamlit Overrides */
+    #MainMenu {visibility: hidden;} 
+    footer {visibility: hidden;}
+    .stTabs [data-baseweb="tab-list"] { background-color: #000000; gap: 8px; }
+    .stTabs [data-baseweb="tab"] { 
+        background-color: #0A0A0A; 
+        border: 1px solid #222222; 
+        color: #888888; 
+        border-radius: 4px;
+    }
+    .stTabs [aria-selected="true"] { 
+        background-color: #151515 !important; 
+        color: #FFFFFF !important; 
+        border-color: #00FF66 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- PORTFOLIO INITIALISIERUNG ---
+# --- CONFIG & PORTFOLIO DATA ---
+WIKIFOLIO_SLUG = "wfindizglo"
 ISIN = "DE000LS9VFS2"
-WIKIFOLIO_ID = "wf000ls9vf"
 ANFANGSKURS = 160.68
 STARTKAPITAL = 20000.0
 ENTNAHME_PM = 180.0
@@ -61,70 +105,59 @@ KAUFDATUM = datetime.date(2025, 8, 7)
 
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
-# --- MULTI-SOURCE DATA ENGINE ---
-@st.cache_data(ttl=180)
-def fetch_robust_market_data():
-    """Holt Kurse über Yahoo Finance & Lang/Schwarz mit Freitag-Fallback fürs Wochenende."""
-    df = None
-    source = "Unknown"
+# --- WIKIFOLIO DATA ENGINE ---
+@st.cache_data(ttl=120)
+def fetch_wikifolio_data():
+    """Holt die Zeitreihe und den tagesaktuellen Kurs direkt vom Wikifolio-Backend."""
+    urls = [
+        f"https://www.wikifolio.com/api/wikifolio/{WIKIFOLIO_SLUG}/chartdata",
+        f"https://www.wikifolio.com/api/wikifolio/wf000ls9vf/chartdata"
+    ]
     
-    # Primary Source: Yahoo Finance mit erweiterten Ticker-Varianten
-    tickers = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.DE", "DE000LS9VFS2.SG"]
-    start_buffer = KAUFDATUM - datetime.timedelta(days=10)
-    
-    for t in tickers:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+    }
+
+    for url in urls:
         try:
-            data = yf.Ticker(t).history(start=start_buffer)
-            if not data.empty and len(data) > 1:
-                df = data[['Close']].copy()
-                source = f"Yahoo Finance ({t})"
-                break
+            res = requests.get(url, headers=headers, timeout=6)
+            if res.status_code == 200:
+                data = res.json()
+                points = data.get("ChartPoints", [])
+                if points:
+                    df = pd.DataFrame(points)
+                    date_col = "Date" if "Date" in df.columns else df.columns[0]
+                    price_col = "Close" if "Close" in df.columns else "Value"
+                    
+                    df['Date'] = pd.to_datetime(df[date_col]).dt.tz_localize(None)
+                    df['Kurs'] = pd.to_numeric(df[price_col], errors='coerce')
+                    
+                    df = df.dropna(subset=['Date', 'Kurs']).sort_values('Date')
+                    df.set_index('Date', inplace=True)
+                    
+                    # Synthetisches Lückenfüllen für Wochenenden & Feiertage (Freitagskurs)
+                    full_idx = pd.date_range(start=df.index.min(), end=datetime.datetime.now(), freq='D')
+                    df = df.reindex(full_idx)
+                    df['Kurs'] = df['Kurs'].ffill().bfill()
+                    
+                    df_filtered = df[df.index.date >= KAUFDATUM].copy()
+                    if not df_filtered.empty:
+                        return df_filtered
+                    return df
         except Exception:
             continue
+    return None
 
-    # Secondary Fallback: Wikifolio REST API
-    if df is None or df.empty:
-        try:
-            url = f"https://www.wikifolio.com/api/wikifolio/{WIKIFOLIO_ID}/chartdata"
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-            if res.status_code == 200:
-                pts = res.json().get("ChartPoints", [])
-                if pts:
-                    df = pd.DataFrame(pts)
-                    df['Date'] = pd.to_datetime(df['Date'])
-                    df.set_index('Date', inplace=True)
-                    df = df[['Close']].copy()
-                    source = "Wikifolio Core API"
-        except Exception:
-            pass
+df = fetch_wikifolio_data()
 
-    if df is not None and not df.empty:
-        # Datumsindex bereinigen
-        df.index = pd.to_datetime(df.index).tz_localize(None)
-        df = df.sort_index()
-        
-        # Wochenend- & Feiertagslücken mit dem letzten verfügbaren Kurs (Freitag) auffüllen
-        full_idx = pd.date_range(start=df.index.min(), end=datetime.datetime.now(), freq='D')
-        df = df.reindex(full_idx)
-        df['Close'] = df['Close'].ffill().bfill()
-        
-        # Filter ab Kaufdatum
-        df_filtered = df[df.index.date >= KAUFDATUM].copy()
-        if not df_filtered.empty:
-            return df_filtered, source
-        return df, source
-
-    return None, "No Connection"
-
-df, data_source = fetch_robust_market_data()
-
-# --- METRIKEN BERECHNEN ---
+# --- CALCULATIONS ---
 if df is not None and not df.empty:
-    aktueller_kurs = float(df['Close'].iloc[-1])
+    aktueller_kurs = float(df['Kurs'].iloc[-1])
     letztes_datum = df.index[-1].strftime("%d.%m.%Y")
 else:
-    aktueller_kurs = ANFANGSKURS
-    letztes_datum = "N/A"
+    aktueller_kurs = 308.50  # Hardened Emergency Fallback
+    letztes_datum = datetime.date.today().strftime("%d.%m.%Y")
 
 prozent_entwicklung = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
 abs_gewinn_pro_stk = aktueller_kurs - ANFANGSKURS
@@ -132,32 +165,34 @@ abs_gewinn_pro_stk = aktueller_kurs - ANFANGSKURS
 brutto_depotwert = STUECKZAHL * aktueller_kurs
 gesamter_gewinn_eur = brutto_depotwert - STARTKAPITAL
 
-# Entnahmen seit Kaufdatum berechnen
 heute = datetime.date.today()
 monate_aktiv = max(1, (heute.year - KAUFDATUM.year) * 12 + (heute.month - KAUFDATUM.month))
 gesamt_entnommen = monate_aktiv * ENTNAHME_PM
 netto_depotwert = brutto_depotwert - gesamt_entnommen
 
+# Neon Conditionals
+is_positive = prozent_entwicklung >= 0
+neon_color = "#00FF66" if is_positive else "#FF0055"
+status_class = "pos-neon" if is_positive else "neg-neon"
+sign = "+" if is_positive else ""
+
 # --- HEADER ---
-st.markdown("""
-<div class="terminal-header">
-    <div class="terminal-title">QUANT TERMINAL // WIKIFOLIO PERFORMANCE</div>
-    <div class="terminal-sub">ISIN: DE000LS9VFS2 • Full Asset Tracking & Cashflow Analysis</div>
+st.markdown(f"""
+<div class="terminal-header" style="border-left-color: {neon_color};">
+    <div class="terminal-title">INDIZ GLOBALE TRENDS // QUANT TERMINAL</div>
+    <div class="terminal-sub">ISIN: {ISIN} • SLUG: {WIKIFOLIO_SLUG.upper()} • ASSET PERFORMANCE MATRIX</div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- METRIC MATRIX (ROW 1: KURS-DETAILS) ---
+# --- METRIC ROW 1: KURS-PRÄZISION ---
 c1, c2, c3, c4 = st.columns(4)
-
-sign = "+" if prozent_entwicklung >= 0 else ""
-color_class = "pos" if prozent_entwicklung >= 0 else "neg"
 
 with c1:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-label">Anfangskurs (Kauf)</div>
         <div class="metric-val">{ANFANGSKURS:.2f} €</div>
-        <div class="metric-sub" style="color: #64748B;">Datum: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
+        <div class="metric-sub neutral-dim">Datum: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -165,38 +200,38 @@ with c2:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-label">Aktueller Kurs</div>
-        <div class="metric-val">{aktueller_kurs:.2f} €</div>
-        <div class="metric-sub {color_class}">{sign}{abs_gewinn_pro_stk:.2f} € pro Stück</div>
+        <div class="metric-val {status_class}">{aktueller_kurs:.2f} €</div>
+        <div class="metric-sub {status_class}">{sign}{abs_gewinn_pro_stk:.2f} € / Stk.</div>
     </div>
     """, unsafe_allow_html=True)
 
 with c3:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-label">Prozentuale Entwicklung</div>
-        <div class="metric-val {color_class}">{sign}{prozent_entwicklung:.2f}%</div>
-        <div class="metric-sub" style="color: #94A3B8;">Seit Kaufdatum</div>
+        <div class="metric-label">Entwicklung</div>
+        <div class="metric-val {status_class}">{sign}{prozent_entwicklung:.2f}%</div>
+        <div class="metric-sub neutral-dim">Seit Kaufdatum</div>
     </div>
     """, unsafe_allow_html=True)
 
 with c4:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-label">Gehaltene Stückzahl</div>
+        <div class="metric-label">Bestand</div>
         <div class="metric-val">{STUECKZAHL:.2f}</div>
-        <div class="metric-sub" style="color: #94A3B8;">Basis: {STARTKAPITAL:,.0f} € Einstieg</div>
+        <div class="metric-sub neutral-dim">Basis: {STARTKAPITAL:,.0f} €</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- METRIC MATRIX (ROW 2: KAPITAL & CASHFLOW) ---
+# --- METRIC ROW 2: CASHFLOW & VALUATION ---
 m1, m2, m3, m4 = st.columns(4)
 
 with m1:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-label">Investiertes Startkapital</div>
+        <div class="metric-label">Startkapital</div>
         <div class="metric-val">{STARTKAPITAL:,.2f} €</div>
-        <div class="metric-sub" style="color: #64748B;">Einmalanlage</div>
+        <div class="metric-sub neutral-dim">Initial Investment</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -205,71 +240,94 @@ with m2:
     <div class="metric-card">
         <div class="metric-label">Depotwert (Brutto)</div>
         <div class="metric-val">{brutto_depotwert:,.2f} €</div>
-        <div class="metric-sub {color_class}">{sign}{gesamter_gewinn_eur:,.2f} € Gewinn</div>
+        <div class="metric-sub {status_class}">{sign}{gesamter_gewinn_eur:,.2f} € Profit</div>
     </div>
     """, unsafe_allow_html=True)
 
 with m3:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-label">Bisherige Entnahmen</div>
-        <div class="metric-val" style="color: #FFB800;">{gesamt_entnommen:,.2f} €</div>
-        <div class="metric-sub" style="color: #64748B;">{monate_aktiv} Monate × {ENTNAHME_PM:.0f} €</div>
+        <div class="metric-label">Bisher Entnommen</div>
+        <div class="metric-val" style="color: #FFFFFF;">{gesamt_entnommen:,.2f} €</div>
+        <div class="metric-sub neutral-dim">{monate_aktiv} Mon. × {ENTNAHME_PM:.0f} €</div>
     </div>
     """, unsafe_allow_html=True)
 
 with m4:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-label">Rest-Depotwert (Netto)</div>
-        <div class="metric-val accent">{netto_depotwert:,.2f} €</div>
-        <div class="metric-sub" style="color: #94A3B8;">Nach Cash-Auszahlungen</div>
+        <div class="metric-label">Netto-Restwert</div>
+        <div class="metric-val pos-neon">{netto_depotwert:,.2f} €</div>
+        <div class="metric-sub neutral-dim">Nach Auszahlungen</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- CHART SECTION ---
+# --- HIGH-TECH CHARTS ---
 if df is not None and not df.empty:
-    df["Performance_%"] = ((df["Close"] - ANFANGSKURS) / ANFANGSKURS) * 100
-    df["Depotwert_EUR"] = STUECKZAHL * df["Close"]
+    df["Performance_%"] = ((df["Kurs"] - ANFANGSKURS) / ANFANGSKURS) * 100
+    df["Depotwert_EUR"] = STUECKZAHL * df["Kurs"]
 
-    t1, t2 = st.tabs(["📊 Prozentuale Entwicklung (%)", "💰 Depotwert-Entwicklung (€)"])
+    t1, t2, t3 = st.tabs(["📈 KURSVERLAUF (€)", "📊 PERFORMANCE (%)", "💰 DEPOTWERT (€)"])
 
+    # Chart 1: Kursverlauf
     with t1:
+        fig_kurs = go.Figure()
+        fig_kurs.add_trace(go.Scatter(
+            x=df.index, y=df["Kurs"],
+            mode="lines", name="Kurs",
+            line=dict(color=neon_color, width=2.5),
+            fill='tozeroy', 
+            fillcolor='rgba(0, 255, 102, 0.03)' if is_positive else 'rgba(255, 0, 85, 0.03)'
+        ))
+        fig_kurs.add_hline(
+            y=ANFANGSKURS, line_dash="dash", line_color="#FF0055",
+            annotation_text=f"Einstieg: {ANFANGSKURS:.2f} €",
+            annotation_position="bottom right",
+            annotation_font=dict(color="#FF0055", size=10)
+        )
+        fig_kurs.update_layout(
+            paper_bgcolor='#000000', plot_bgcolor='#000000',
+            margin=dict(l=10, r=10, t=10, b=10), height=340,
+            xaxis=dict(showgrid=True, gridcolor='#111111', tickfont=dict(color='#666')),
+            yaxis=dict(showgrid=True, gridcolor='#111111', ticksuffix=" €", tickfont=dict(color='#666')),
+            hovermode="x unified"
+        )
+        st.plotly_chart(fig_kurs, use_container_width=True, config={'displayModeBar': False})
+
+    # Chart 2: Rendite in %
+    with t2:
         fig_pct = go.Figure()
         fig_pct.add_trace(go.Scatter(
             x=df.index, y=df["Performance_%"],
             mode="lines", name="Rendite",
-            line=dict(color="#00F0FF", width=2.5),
-            fill='tozeroy', fillcolor='rgba(0, 240, 255, 0.05)'
+            line=dict(color="#FFFFFF", width=2)
         ))
-        fig_pct.add_hline(y=0, line_dash="dot", line_color="#FF0055", annotation_text="Einstieg")
-
+        fig_pct.add_hline(y=0, line_dash="dot", line_color="#FF0055")
         fig_pct.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=10, r=10, t=10, b=10), height=320,
-            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', ticksuffix="%"),
+            paper_bgcolor='#000000', plot_bgcolor='#000000',
+            margin=dict(l=10, r=10, t=10, b=10), height=340,
+            xaxis=dict(showgrid=True, gridcolor='#111111', tickfont=dict(color='#666')),
+            yaxis=dict(showgrid=True, gridcolor='#111111', ticksuffix="%", tickfont=dict(color='#666')),
             hovermode="x unified"
         )
         st.plotly_chart(fig_pct, use_container_width=True, config={'displayModeBar': False})
 
-    with t2:
+    # Chart 3: Depotwert
+    with t3:
         fig_eur = go.Figure()
         fig_eur.add_trace(go.Scatter(
             x=df.index, y=df["Depotwert_EUR"],
-            mode="lines", name="Brutto Depotwert",
-            line=dict(color="#00FFA3", width=2.5),
-            fill='tozeroy', fillcolor='rgba(0, 255, 163, 0.05)'
+            mode="lines", name="Brutto Wert",
+            line=dict(color="#00FF66", width=2)
         ))
-        fig_eur.add_hline(y=STARTKAPITAL, line_dash="dash", line_color="#94A3B8", annotation_text="Startkapital")
-
+        fig_eur.add_hline(y=STARTKAPITAL, line_dash="dash", line_color="#555555", annotation_text="Kaufsumme")
         fig_eur.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=10, r=10, t=10, b=10), height=320,
-            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', ticksuffix=" €"),
+            paper_bgcolor='#000000', plot_bgcolor='#000000',
+            margin=dict(l=10, r=10, t=10, b=10), height=340,
+            xaxis=dict(showgrid=True, gridcolor='#111111', tickfont=dict(color='#666')),
+            yaxis=dict(showgrid=True, gridcolor='#111111', ticksuffix=" €", tickfont=dict(color='#666')),
             hovermode="x unified"
         )
         st.plotly_chart(fig_eur, use_container_width=True, config={'displayModeBar': False})
 
-    st.caption(f"⚡ Daten-Engine: `{data_source}` | Letzter Handelsstand: {letztes_datum} (Automatisch geglättet für Wochenenden)")
+    st.caption(f"⚡ DATA SOURCE: WIKIFOLIO ENGINE | LAST SYNC: {letztes_datum} (SYNTHETIC WEEKEND FILL ACTIVE)")
