@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- ADVANCED TERMINAL STYLING (STOCK3 DARK LOOK) ---
+# --- TERMINAL STYLING (STOCK3 DARK LOOK) ---
 st.markdown("""
 <style>
     .stApp { background-color: #000000; color: #E5E7EB; font-family: 'JetBrains Mono', monospace; }
@@ -21,9 +21,9 @@ st.markdown("""
     .header-bar {
         display: flex; justify-content: space-between; align-items: center;
         background: #09090B; border: 1px solid #27272A; border-left: 3px solid #00C853;
-        border-radius: 6px; padding: 10px 14px; margin-bottom: 10px;
+        border-radius: 6px; padding: 10px 14px; margin-bottom: 12px;
     }
-    .header-title { font-size: 1.05rem; font-weight: 800; color: #FFFFFF; }
+    .header-title { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; }
     .header-tag { font-size: 0.65rem; color: #A1A1AA; background: #18181B; padding: 2px 6px; border-radius: 4px; border: 1px solid #27272A; }
     
     .pulse-glow-hot {
@@ -37,15 +37,17 @@ st.markdown("""
         color: #FF3D00; font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 4px;
     }
     
+    /* GRID OVERVIEW CARDS */
     .grid-container {
-        display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-        gap: 8px; margin-bottom: 10px;
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 10px; margin-bottom: 16px;
     }
-    .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 8px 10px; }
-    .m-label { font-size: 0.58rem; color: #71717A; text-transform: uppercase; letter-spacing: 0.5px; }
-    .m-val { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; margin: 2px 0; white-space: nowrap; }
-    .m-sub { font-size: 0.65rem; font-weight: 600; white-space: nowrap; }
+    .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 10px 12px; }
+    .m-label { font-size: 0.62rem; color: #71717A; text-transform: uppercase; letter-spacing: 0.5px; }
+    .m-val { font-size: 1.25rem; font-weight: 800; color: #FFFFFF; margin: 3px 0; white-space: nowrap; }
+    .m-sub { font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
     
+    /* FEED CARDS */
     .feed-card { background: #09090B; border: 1px solid #27272A; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.78rem; }
     .feed-card-hot { background: rgba(255, 61, 0, 0.08); border: 1px solid #FF3D00; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.78rem; }
     .feed-header { display: flex; justify-content: space-between; color: #71717A; font-size: 0.68rem; margin-bottom: 6px; }
@@ -61,13 +63,13 @@ st.markdown("""
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 0.8rem; }
     .stTabs [data-baseweb="tab-list"] { background-color: #000000; gap: 4px; }
-    .stTabs [data-baseweb="tab"] { background-color: #09090B; border: 1px solid #18181B; color: #71717A; padding: 6px 12px; font-size: 0.75rem; }
+    .stTabs [data-baseweb="tab"] { background-color: #09090B; border: 1px solid #18181B; color: #71717A; padding: 6px 14px; font-size: 0.78rem; }
     .stTabs [aria-selected="true"] { background-color: #18181B !important; color: #00C853 !important; border-color: #00C853 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# CONFIG & SIDEBAR
-st.sidebar.title("⚙️ STOCK3 CHART CONFIG")
+# SIDEBAR CONFIG
+st.sidebar.title("⚙️ CONFIG & PARAMETER")
 candlestick_resolution = st.sidebar.selectbox("📊 Kerzen-Granularität", ["Täglich (1D)", "Wöchentlich (1W)", "Stündlich (1H)"], index=0)
 test_alarm = st.sidebar.checkbox("🧪 Test-Alarm auslösen", value=False)
 auto_refresh = st.sidebar.checkbox("🔄 Auto-Refresh (60s)", value=True)
@@ -75,7 +77,7 @@ auto_refresh = st.sidebar.checkbox("🔄 Auto-Refresh (60s)", value=True)
 if auto_refresh:
     st.markdown("<script>setTimeout(function(){ window.location.reload(1); }, 60000);</script>", unsafe_allow_html=True)
 
-# PARAMETER
+# STAMMDATEN & DEPOT-PARAMETER
 ISIN = "DE000LS9VFS2"
 WKN = "LS9VFS"
 WIKIFOLIO_SLUG = "wfindizglo"
@@ -196,20 +198,92 @@ if test_alarm:
         'is_hot': True, 'info': '🚨 Test-Alarm ausgelöst!'
     })
 
+# --- KENNZAHLEN BERECHNUNGEN ---
+AKTUELLES_DATUM = datetime.date.today()
+last_o, last_h, last_l, last_c = df_chart['Open'].iloc[-1], df_chart['High'].iloc[-1], df_chart['Low'].iloc[-1], df_chart['Close'].iloc[-1]
+aktueller_kurs = float(last_c)
+
+tage_gehalten = max(1, (AKTUELLES_DATUM - KAUFDATUM).days)
+jahre_gehalten = tage_gehalten / 365.25
+monate_aktiv = max(1, int(round(tage_gehalten / 30.4375)))
+
+brutto_ist = STUECKZAHL * aktueller_kurs
+gesamt_entnommen = monate_aktiv * ENTNAHME_PM
+netto_ist = brutto_ist - gesamt_entnommen
+
+gewinn_brutto = brutto_ist - STARTKAPITAL
+gewinn_netto = netto_ist - STARTKAPITAL
+rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
+rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1) * 100
+
+# HEADER & ALERT
+trade_alert_html = '<span class="alert-banner-danger"><span class="pulse-glow-hot"></span>🚨 TRADE / POST ALERT</span>' if is_hot_alert else '<span class="header-tag"><span style="color:#00C853;">●</span> TRADER FEED ONLINE</span>'
+
+st.markdown(f"""
+<div class="header-bar">
+    <div>
+        <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span></div>
+        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Kaufdatum: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
+    </div>
+    <div style="text-align: right;">
+        {trade_alert_html}
+        <div class="pos" style="font-size: 0.85rem; font-weight: 800; margin-top: 2px;">+{rendite_ist_pct:.2f}% ({rendite_pa:.1f}% p.a.)</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# =========================================================
+# 📊 GEFORTZTE KENNZAHLEN-ÜBERSICHT (Wieder integriert!)
+# =========================================================
+st.markdown(f"""
+<div class="grid-container">
+    <div class="m-card">
+        <div class="m-label">Aktueller Kurs</div>
+        <div class="m-val pos">{aktueller_kurs:.2f} €</div>
+        <div class="m-sub pos">+{aktueller_kurs - ANFANGSKURS:.2f} € vs. Kauf</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Brutto Depotwert</div>
+        <div class="m-val">{brutto_ist:,.0f} €</div>
+        <div class="m-sub pos">+{gewinn_brutto:,.0f} € Gewinn</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Netto (nach Entnahme)</div>
+        <div class="m-val" style="color:#29B6F6;">{netto_ist:,.0f} €</div>
+        <div class="m-sub dim">Entnommen: {gesamt_entnommen:,.0f} €</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Gesamtrendite</div>
+        <div class="m-val pos">+{rendite_ist_pct:.2f}%</div>
+        <div class="m-sub pos">+{rendite_pa:.1f}% pro Jahr</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Monatl. Entnahme</div>
+        <div class="m-val" style="color:#F59E0B;">{ENTNAHME_PM:.0f} €/Monat</div>
+        <div class="m-sub dim">Aktiv seit {monate_aktiv} Mon.</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Stückzahl im Depot</div>
+        <div class="m-val">{STUECKZAHL:.2f} Stk.</div>
+        <div class="m-sub dim">Basis: {STARTKAPITAL:,.0f} € Start</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 # SHARED STOCK3 LAYOUT FUNCTION
 def get_stock3_layout():
     return dict(
         paper_bgcolor='#000000',
         plot_bgcolor='#000000',
         margin=dict(l=10, r=60, t=10, b=10),
-        height=520,
+        height=480,
         showlegend=False,
         xaxis=dict(
             showgrid=True,
             gridcolor='#1A1A1A',
             gridwidth=1,
             type='date',
-            dtick="M1",  # Genau 1 Monat pro Hauptgitterlinie
+            dtick="M1",  # 1 Monat pro Hauptgitterlinie
             tickformat="%b '%y",  # Format: Jan '26, Jul '26 usw.
             tickfont=dict(color='#A1A1AA', size=10),
             rangeslider=dict(visible=False)
@@ -218,38 +292,18 @@ def get_stock3_layout():
             showgrid=True,
             gridcolor='#1A1A1A',
             gridwidth=1,
-            side="right",  # Y-Achse rechts wie bei stock3
+            side="right",
             tickfont=dict(color='#A1A1AA', size=10),
             tickformat=",d"
         ),
         hovermode="x unified"
     )
 
-# STATS
-last_o, last_h, last_l, last_c = df_chart['Open'].iloc[-1], df_chart['High'].iloc[-1], df_chart['Low'].iloc[-1], df_chart['Close'].iloc[-1]
-aktueller_kurs = float(last_c)
-rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
-
-# HEADER & ALERT
-trade_alert_html = '<span class="alert-banner-danger"><span class="pulse-glow-hot"></span>🚨 TRADE / POST ALERT (AKTIV)</span>' if is_hot_alert else '<span class="header-tag"><span style="color:#00C853;">●</span> TRADER FEED ONLINE</span>'
-
-st.markdown(f"""
-<div class="header-bar">
-    <div>
-        <div class="header-title">Hauptindizes Global <span class="pos">{aktueller_kurs:.3f} €</span></div>
-        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Granularität: Monats- & Tagesebene</div>
-    </div>
-    <div style="text-align: right;">
-        {trade_alert_html}
-        <div class="pos" style="font-size: 0.85rem; font-weight: 800; margin-top: 2px;">+{rendite_ist_pct:.2f}%</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# TABS
-tab_candle, tab_line, tab_feed = st.tabs([
+# TAB NAVIGATION
+tab_candle, tab_line, tab_depot, tab_feed = st.tabs([
     "🕯️ STOCK3 CANDLESTICK",
     "📈 STOCK3 PRECISONS-LINIE",
+    "📊 DEPOT- & ENTNAHME-BILANZ",
     f"⚡ TRADER FEED ({len(activities)})"
 ])
 
@@ -299,7 +353,36 @@ with tab_line:
     fig_line.update_layout(get_stock3_layout())
     st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': True})
 
-# FEED TAB
+# TAB 3: DEPOT- & ENTNAHME-VERLAUF (Zusätzliche Bilanzübersicht)
+with tab_depot:
+    df_depot = df_raw.copy()
+    df_depot['Brutto_Wert'] = df_depot['Close'] * STUECKZAHL
+    
+    # Entnahme-Entwicklung
+    months_series = (df_depot.index - pd.to_datetime(KAUFDATUM)).days // 30.4375
+    df_depot['Entnommen'] = np.maximum(0, months_series) * ENTNAHME_PM
+    df_depot['Netto_Wert'] = df_depot['Brutto_Wert'] - df_depot['Entnommen']
+
+    fig_depot = go.Figure()
+    fig_depot.add_trace(go.Scatter(
+        x=df_depot.index, y=df_depot['Brutto_Wert'], mode='lines', name='Brutto Depotwert',
+        line=dict(color='#00C853', width=2)
+    ))
+    fig_depot.add_trace(go.Scatter(
+        x=df_depot.index, y=df_depot['Netto_Wert'], mode='lines', name='Netto Wert (nach Entnahme)',
+        line=dict(color='#29B6F6', width=2)
+    ))
+    fig_depot.add_trace(go.Scatter(
+        x=df_depot.index, y=df_depot['Entnommen'], mode='lines', name='Kumulierte Entnahme',
+        line=dict(color='#F59E0B', width=1.5, dash='dash')
+    ))
+    
+    layout_depot = get_stock3_layout()
+    layout_depot['yaxis']['ticksuffix'] = " €"
+    fig_depot.update_layout(layout_depot)
+    st.plotly_chart(fig_depot, use_container_width=True, config={'displayModeBar': False})
+
+# TAB 4: TRADER FEED
 with tab_feed:
     if activities:
         for act in activities:
