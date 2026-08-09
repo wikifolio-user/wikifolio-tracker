@@ -1,5 +1,6 @@
 import datetime
 import bs4
+import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
@@ -11,7 +12,7 @@ st.title("📈 Wikifolio Live-Performance vs. Modellpfade")
 
 # Parameter
 ISIN = "DE000LS9VFS2"
-TICKER_YFINANCE = "LS9VFS.F"
+TICKERS = ["LS9VFS.F", "LS9VFS.SG", "LS9VFS"]
 KAUFDATUM = datetime.date(2025, 8, 7)
 EINSTIEGSKURS = 160.68
 STARTKAPITAL = 20000.0
@@ -22,7 +23,7 @@ def get_ls_live_price(isin):
     try:
         url = f"https://www.ls-tc.de/de/zertifikat/{isin}"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
         res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -31,46 +32,60 @@ def get_ls_live_price(isin):
             if price_element:
                 raw_price = price_element.text.strip()
                 clean_price = raw_price.replace(".", "").replace(",", ".")
-                return float(clean_price)
+                val = float(clean_price)
+                if val > 0:
+                    return val
     except Exception:
         pass
     return None
 
-# 1. Primär: Live-Kurs von Lang & Schwarz abrufen
+def fetch_historical_data():
+    """Holt historische Daten mit Zeitpuffer für Wochenenden/Feiertage."""
+    start_buffer = KAUFDATUM - datetime.timedelta(days=30)
+    
+    for ticker in TICKERS:
+        try:
+            df_ticker = yf.Ticker(ticker).history(start=start_buffer)
+            if not df_ticker.empty and len(df_ticker) > 0:
+                # Bereinigung und Sortierung
+                df_ticker = df_ticker.sort_index()
+                df_ticker["Close"] = df_ticker["Close"].ffill()
+                # Nur Daten ab Kaufdatum filtern
+                df_filtered = df_ticker[df_ticker.index.date >= KAUFDATUM].copy()
+                if not df_filtered.empty:
+                    return df_filtered, ticker
+        except Exception:
+            continue
+    return None, None
+
+# --- DATENBESCHAFFUNG ---
 aktueller_kurs = get_ls_live_price(ISIN)
 daten_quelle = "Lang & Schwarz (Echtzeit)"
 
-# 2. Historische Daten von Yahoo Finance laden
-df = None
-try:
-    ticker_obj = yf.Ticker(TICKER_YFINANCE)
-    df = ticker_obj.history(start=KAUFDATUM)
-    if df.empty:
-        df = yf.Ticker("LS9VFS").history(start=KAUFDATUM)
-except Exception:
-    df = None
+df, verwendeter_ticker = fetch_historical_data()
 
-if df is not None and not df.empty:
-    df["Close"] = df["Close"].ffill()
-    
-    # Falls Lang & Schwarz nicht geantwortet hat, Yahoo-Schlusskurs nutzen
-    if aktueller_kurs is None:
+# Fallback-Kette für den aktuellen Kurs
+if aktueller_kurs is None:
+    if df is not None and not df.empty:
         aktueller_kurs = float(df["Close"].iloc[-1])
-        daten_quelle = "Yahoo Finance (Fallback)"
-    
+        daten_quelle = f"Yahoo Finance ({verwendeter_ticker} - Letzter Schlusskurs)"
+    else:
+        aktueller_kurs = EINSTIEGSKURS
+        daten_quelle = "Notfall-Fallback (Einstiegskurs)"
+
+# --- DASHBOARD RENDERN ---
+if df is not None and not df.empty:
     letztes_datum = df.index[-1].strftime("%d.%m.%Y")
-    
-    # Berechnungen
     aktuelle_perf = ((aktueller_kurs - EINSTIEGSKURS) / EINSTIEGSKURS) * 100
     df["Performance_%"] = ((df["Close"] - EINSTIEGSKURS) / EINSTIEGSKURS) * 100
 
-    # Status-Box im Dashboard
+    # Status-Box
     st.info(
-        f"📅 **Stand:** {letztes_datum} | "
+        f"📅 **Stand Daten:** {letztes_datum} | "
         f"💰 **Kurs ({daten_quelle}):** {aktueller_kurs:.2f} € ({aktuelle_perf:+.2f}%)"
     )
 
-    # Chart erstellen
+    # Interaktiver Chart
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df.index, 
@@ -89,15 +104,18 @@ if df is not None and not df.empty:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # Kennzahlen-Übersicht
+    # Kennzahlen
     col1, col2, col3 = st.columns(3)
     col1.metric("Einstiegskurs", f"{EINSTIEGSKURS:.2f} €")
     col2.metric("Aktueller Kurs", f"{aktueller_kurs:.2f} €", f"{aktuelle_perf:+.2f}%")
     col3.metric("Monatl. Entnahme", f"{ENTNAHME_PM:.2f} €")
 
 else:
-    if aktueller_kurs is not None:
-        st.warning("Historische Chartdaten derzeit nicht verfügbar, aber Live-Kurs geladen.")
-        st.metric("Aktueller Kurs (L&S)", f"{aktueller_kurs:.2f} €")
-    else:
-        st.error("Weder Lang & Schwarz noch Yahoo Finance lieferten Daten. Bitte später erneut versuchen.")
+    # Wenn alle historischen Datenquellen versagen, aber die App nutzbar bleiben soll
+    st.warning("⚠️ Live-Chart derzeit nicht verfügbar (Wochenende/Börsenpause). Letzte bekannte Kennzahlen:")
+    aktuelle_perf = ((aktueller_kurs - EINSTIEGSKURS) / EINSTIEGSKURS) * 100
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Einstiegskurs", f"{EINSTIEGSKURS:.2f} €")
+    col2.metric("Aktueller Kurs", f"{aktueller_kurs:.2f} €", f"{aktuelle_perf:+.2f}%")
+    col3.metric("Monatl. Entnahme", f"{ENTNAHME_PM:.2f} €")
