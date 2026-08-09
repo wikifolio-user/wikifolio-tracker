@@ -15,11 +15,11 @@ st.set_page_config(
 )
 
 # -------------------------------------------------------------------
-# ⚙️ DISCORD WEBHOOK URL
+# ⚙️ DISCORD WEBHOOK URL & DB FILE
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1536127717622153236/WUsjAZmJjobz42r3zYtxJFS2rBWDLGXGfPKkxDPTMJHBmp8HmcgViaH9guzWoxUoz_Lc"
+DB_FILE = "trades_db.json"
 # -------------------------------------------------------------------
 
-DB_FILE = "trades_db.json"
 WIKIFOLIO_SLUG = "wfindizglo"
 ISIN = "DE000LS9VFS2"
 WKN = "LS9VFS"
@@ -28,6 +28,22 @@ STARTKAPITAL = 20000.0
 ENTNAHME_PM = 180.0
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
+
+# --- DATENBANK HELPER (TRADES & KOMMENTARE) ---
+def load_db():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_db(data):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+
+db_events = load_db()
 
 # --- TERMINAL STYLING ---
 st.markdown("""
@@ -131,23 +147,25 @@ df_chart['Kumulierte_Entnahme'] = df_chart['Monate_aktiv'] * ENTNAHME_PM
 df_chart['Depotwert_Netto'] = df_chart['Depotwert_Brutto'] - df_chart['Kumulierte_Entnahme']
 df_chart['Startkapital'] = STARTKAPITAL
 
-# HEADER BAR (FIXED BADGE WRAP)
+# HEADER BAR (Sauber platziert: Badge & Performance nebeneinander)
 st.markdown(f"""
 <div class="header-bar">
     <div style="flex: 1; min-width: 220px;">
         <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span></div>
         <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Kaufdatum: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
-    <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
         <span style="color:#00C853; font-size:0.68rem; font-weight:700; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; white-space:nowrap;">
             ● MONITORING: 5-MIN DROP (&le; -2%)
         </span>
-        <div class="pos" style="font-size: 0.85rem; font-weight: 800;">+{rendite_ist_pct:.2f}% ({rendite_pa:.1f}% p.a.)</div>
+        <div class="pos" style="font-size: 0.9rem; font-weight: 800; white-space: nowrap;">
+            +{rendite_ist_pct:.2f}% <span style="font-size: 0.75rem; color: #A1A1AA;">({rendite_pa:.1f}% p.a.)</span>
+        </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# GRID OVERVIEW: DETAILLIERTER VERMÖGENSAUFBAU
+# GRID OVERVIEW
 st.markdown(f"""
 <div class="grid-container">
     <div class="m-card">
@@ -158,59 +176,55 @@ st.markdown(f"""
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
         <div class="m-val pos">{brutto_ist:,.0f} €</div>
-        <div class="m-sub pos">+{gewinn_brutto:,.0f} € (+{rendite_ist_pct:.1f}%)</div>
+        <div class="m-sub pos">+{gewinn_brutto:,.0f} € Gewinn</div>
     </div>
     <div class="m-card">
-        <div class="m-label">Kumulierte Entnahme</div>
-        <div class="m-val neg">-{gesamt_entnommen:,.0f} €</div>
-        <div class="m-sub dim">{monate_aktiv} Monate × {ENTNAHME_PM:,.0f} €/Monat</div>
-    </div>
-    <div class="m-card">
-        <div class="m-label">Netto Substanz</div>
+        <div class="m-label">Netto (Nach Entnahme)</div>
         <div class="m-val blue">{netto_ist:,.0f} €</div>
-        <div class="m-sub pos">+{netto_ist - STARTKAPITAL:,.0f} € netto über Start</div>
+        <div class="m-sub dim">Entnommen: {gesamt_entnommen:,.0f} €</div>
     </div>
     <div class="m-card">
-        <div class="m-label">Tagesveränderung</div>
+        <div class="m-label">Veränderung vs. Vortag</div>
         <div class="m-val {'pos' if tages_verenderung_pct >= 0 else 'neg'}">{tages_verenderung_pct:+.2f}%</div>
         <div class="m-sub dim">Schluss Vortag: {vortag_kurs:.2f} €</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Registrierte Events</div>
+        <div class="m-val" style="color: #FFB300;">{len(db_events)}</div>
+        <div class="m-sub dim">Trades & Kommentare</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# TABS
-tab_wealth, tab_candle, tab_profit = st.tabs([
-    "📈 VERMÖGENSAUFBAU & SUBSTANZ",
-    "🕯️ TAGES-CANDLESTICK",
-    "📊 TÄGLICHER GEWINN / VERLUST (€)"
+# TABS (Inklusive neuem Trader-Log Tab)
+tab_wealth, tab_trades, tab_candle = st.tabs([
+    "📈 VERMÖGENS- & SUBSTANZAUFBAU",
+    "📝 TRADER-LOG (TRADES & KOMMENTARE)",
+    "🕯️ TAGES-CANDLESTICK"
 ])
 
-# TAB: VERMÖGENSAUFBAU & SUBSTANZ
+# TAB 1: VERMÖGENS- & SUBSTANZAUFBAU
 with tab_wealth:
-    st.subheader("🏛️ Verlauf Vermögensaufbau & Entnahme-Substanz")
+    st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>🏛️ Verlauf Vermögensaufbau & Entnahme-Substanz</div>", unsafe_allow_html=True)
     
     fig_wealth = go.Figure()
     
-    # Startkapital Referenz
     fig_wealth.add_trace(go.Scatter(
         x=df_chart.index, y=df_chart['Startkapital'],
         name="Startkapital", line=dict(color='#71717A', width=1.5, dash='dash')
     ))
     
-    # Kumulierte Entnahme (Fläche)
     fig_wealth.add_trace(go.Scatter(
         x=df_chart.index, y=df_chart['Kumulierte_Entnahme'],
         name="Entnommen (Summe)", line=dict(color='#FF3D00', width=1.5),
         fill='tozeroy', fillcolor='rgba(255, 61, 0, 0.08)'
     ))
     
-    # Netto Depotwert
     fig_wealth.add_trace(go.Scatter(
         x=df_chart.index, y=df_chart['Depotwert_Netto'],
         name="Netto-Wert (nach Entnahme)", line=dict(color='#29B6F6', width=2)
     ))
 
-    # Brutto Depotwert
     fig_wealth.add_trace(go.Scatter(
         x=df_chart.index, y=df_chart['Depotwert_Brutto'],
         name="Brutto-Depotwert", line=dict(color='#00C853', width=2.5)
@@ -218,26 +232,79 @@ with tab_wealth:
 
     fig_wealth.update_layout(
         paper_bgcolor='#000000', plot_bgcolor='#000000',
-        margin=dict(l=10, r=60, t=20, b=10), height=420,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color='#E5E7EB', size=11)),
+        margin=dict(l=10, r=60, t=50, b=10), height=420,
+        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1, font=dict(color='#E5E7EB', size=11)),
         xaxis=dict(showgrid=True, gridcolor='#1A1A1A', type='date', tickfont=dict(color='#A1A1AA')),
         yaxis=dict(showgrid=True, gridcolor='#1A1A1A', side="right", tickformat=",.0f €", tickfont=dict(color='#A1A1AA')),
         hovermode="x unified"
     )
     st.plotly_chart(fig_wealth, use_container_width=True)
 
-    # SAUBERE SUBSTANZ-AUFSTELLUNG (TABELLE)
-    st.markdown("### 📊 Monatlicher Vermögensstatus & Substanzrechnung")
+# TAB 2: TRADER-LOG (NEU: Trades & Kommentare speichern & anzeigen)
+with tab_trades:
+    st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>📝 Trader-Protokoll: Trades & Live-Kommentare</div>", unsafe_allow_html=True)
     
-    # Aggregation auf Monatsende
-    df_monthly = df_chart.resample('ME').last().copy()
-    df_monthly['Monat'] = df_monthly.index.strftime('%B %Y')
-    df_monthly['Brutto (€)'] = df_monthly['Depotwert_Brutto'].map('{:,.2f} €'.format)
-    df_monthly['Entnommen (€)'] = df_monthly['Kumulierte_Entnahme'].map('-{:,.2f} €'.format)
-    df_monthly['Netto (€)'] = df_monthly['Depotwert_Netto'].map('{:,.2f} €'.format)
-    df_monthly['Wertzuwachs Brutto (€)'] = (df_monthly['Depotwert_Brutto'] - STARTKAPITAL).map('{:+,.2f} €'.format)
+    with st.form("trade_input_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns([2, 2, 3])
+        with col1:
+            event_typ = st.selectbox("Typ", ["Trade (Kauf/Verkauf)", "Trader-Kommentar", "Wichtiger Hinweis"])
+        with col2:
+            event_datum = st.date_input("Datum", datetime.date.today())
+        with col3:
+            event_titel = st.text_input("Titel / Aktie / Kurzbeschreibung", placeholder="z.B. NVIDIA Kauf oder Markt-Update")
+        
+        event_inhalt = st.text_area("Details / Kommentartext des Traders", placeholder="Hier den vollständigen Kommentar oder Ordereinzelheiten eintragen...")
+        submitted = st.form_submit_button("💾 Event speichern")
+        
+        if submitted and event_titel:
+            new_entry = {
+                "id": len(db_events) + 1,
+                "typ": event_typ,
+                "datum": event_datum.strftime('%Y-%m-%d'),
+                "titel": event_titel,
+                "inhalt": event_inhalt
+            }
+            db_events.insert(0, new_entry)
+            save_db(db_events)
+            st.success("Erfolgreich in der Datenbank gespeichert!")
+            st.rerun()
 
-    st.dataframe(
-        df_monthly[['Monat', 'Brutto (€)', 'Entnommen (€)', 'Netto (€)', 'Wertzuwachs Brutto (€)']].sort_index(ascending=False),
-        use_container_width=True, hide_index=True
+    st.markdown("---")
+    st.markdown("### 📋 Historie der gespeicherten Events")
+    
+    if len(db_events) == 0:
+        st.info("Bisher wurden keine Trades oder Kommentare manuell gespeichert. Nutzen Sie das obige Formular, um Einträge hinzuzufügen.")
+    else:
+        for ev in db_events:
+            st.markdown(f"""
+            <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #71717A; margin-bottom: 4px;">
+                    <span><b>[{ev.get('typ', 'Event')}]</b></span>
+                    <span>{ev.get('datum')}</span>
+                </div>
+                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem; margin-bottom: 4px;">{ev.get('titel')}</div>
+                <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# TAB 3: TAGES-CANDLESTICK
+with tab_candle:
+    st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>🕯️ Intraday / Historischer Candlestick-Chart</div>", unsafe_allow_html=True)
+    
+    fig_candle = go.Figure(data=[go.Candlestick(
+        x=df_chart.index,
+        open=df_chart['Open'],
+        high=df_chart['High'],
+        low=df_chart['Low'],
+        close=df_chart['Close'],
+        increasing_line_color='#00C853',
+        decreasing_line_color='#FF3D00'
+    )])
+    fig_candle.update_layout(
+        paper_bgcolor='#000000', plot_bgcolor='#000000',
+        margin=dict(l=10, r=60, t=30, b=10), height=450,
+        xaxis=dict(showgrid=True, gridcolor='#1A1A1A', type='date', tickfont=dict(color='#A1A1AA')),
+        yaxis=dict(showgrid=True, gridcolor='#1A1A1A', side="right", tickfont=dict(color='#A1A1AA')),
+        showlegend=False
     )
+    st.plotly_chart(fig_candle, use_container_width=True)
