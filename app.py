@@ -64,7 +64,7 @@ st.markdown("""
 
 # --- DISCORD ALERT FUNCTION ---
 def send_discord_alert(data):
-    """Sendet Trade-Signale, Kommentare, 5-Minuten-Update & Intraday -2% Drops an Discord."""
+    """Sendet Trade-Signale, Kommentare & reine Intraday -2% Drops an Discord."""
     if not DISCORD_WEBHOOK_URL:
         return
 
@@ -81,19 +81,9 @@ def send_discord_alert(data):
         color = 16711680  # Rot
         description = f"Der Livekurs liegt aktuell **{data['change_pct']:.2f}%** unter dem gestrigen Schlusskurs!"
         fields = [
-            {"name": "Aktueller Kurs", "value": f"**{data['price']:.3f} €**", "inline": True},
+            {"name": "Aktueller Livekurs", "value": f"**{data['price']:.3f} €**", "inline": True},
             {"name": "Vortags-Schlusskurs", "value": f"**{data['prev_close']:.3f} €**", "inline": True},
             {"name": "Zeitpunkt", "value": f"{data['date_raw']}", "inline": False}
-        ]
-        
-    elif item_type == 'LIVE_5MIN':
-        title = "⏱️ 5-MINUTEN LIVE KURS UPDATE"
-        color = 65535  # Cyan / Hellblau
-        change_sign = "+" if data['change_pct'] >= 0 else ""
-        description = f"**Aktueller Kurs: {data['price']:.3f} €** ({change_sign}{data['change_pct']:.2f}% vs. Vortag)"
-        fields = [
-            {"name": "Brutto Depotwert", "value": f"{data['brutto']:.2f} €", "inline": True},
-            {"name": "Zeitstempel", "value": f"{data['date_raw']}", "inline": True}
         ]
         
     else:  # TRADE
@@ -228,14 +218,14 @@ def process_feed_and_notify(df_chart):
     except Exception as e:
         print(f"Comment Fetch Error: {e}")
 
-    # 3. KURSABWEICHUNG ZUM VORTAGS-SCHLUSSKURS (5-MINUTEN PRÜFUNG)
+    # 3. KURSABWEICHUNG PRÜFEN (HEUTIGER LIVEKURS VS. VORTAGS-SCHLUSSKURS)
     current_price = float(df_chart['Close'].iloc[-1])
     prev_close = float(df_chart['Close'].iloc[-2]) if len(df_chart) > 1 else current_price
     change_vs_prev_close_pct = ((current_price - prev_close) / prev_close) * 100
 
     five_min_slot = now.strftime('%Y-%m-%d %H:') + str(now.minute // 5 * 5).zfill(2)
 
-    # 3a. PRÜFUNG AUF <= -2% INTRADAY DROP
+    # DISCORD-ALARM NUR BEI <= -2% DROPDOWN
     if change_vs_prev_close_pct <= -2.0:
         drop_id = f"INTRADAY_DROP_{five_min_slot}"
         if drop_id not in stored_items:
@@ -252,23 +242,6 @@ def process_feed_and_notify(df_chart):
             has_new = True
             send_discord_alert(drop_data)
 
-    # 3b. REGELMÄSSIGES 5-MINUTEN LIVE KURS-UPDATE PER DISCORD
-    live_id = f"LIVE_5MIN_{five_min_slot}"
-    if live_id not in stored_items:
-        live_data = {
-            'id': live_id,
-            'type': 'LIVE_5MIN',
-            'price': current_price,
-            'prev_close': prev_close,
-            'change_pct': change_vs_prev_close_pct,
-            'brutto': current_price * STUECKZAHL,
-            'date_raw': now_str,
-            'first_seen': now_str
-        }
-        stored_items[live_id] = live_data
-        has_new = True
-        send_discord_alert(live_data)
-
     # AUF FESTPLATTE SICHERN
     if has_new:
         with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -280,7 +253,7 @@ def process_feed_and_notify(df_chart):
     item_list.sort(key=lambda x: x['date_dt'], reverse=True)
     return item_list
 
-# AUTOMATISCHER REFRESH ALLE 5 MINUTEN (300 SEKUNDEN)
+# AUTOMATISCHER SKRIPT-REFRESH ALLE 5 MINUTEN (300 SEKUNDEN) FÜR DIE HINTERGRUND-PRÜFUNG
 st.markdown("<script>setTimeout(function(){ window.location.reload(1); }, 300000);</script>", unsafe_allow_html=True)
 
 # DATEN LADEVERLAUF
@@ -311,7 +284,7 @@ st.markdown(f"""
         <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Kaufdatum: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
     <div style="text-align: right;">
-        <span style="color:#00C853; font-size:0.75rem; font-weight:800; background:#18181B; padding:3px 8px; border-radius:4px; border:1px solid #27272A;">● 5-MIN LIVE MONITORING (INTRADAY DROP CHECK)</span>
+        <span style="color:#00C853; font-size:0.75rem; font-weight:800; background:#18181B; padding:3px 8px; border-radius:4px; border:1px solid #27272A;">● 5-MIN INTRADAY DROP MONITORING (<= -2%)</span>
         <div class="pos" style="font-size: 0.85rem; font-weight: 800; margin-top: 4px;">+{rendite_ist_pct:.2f}% ({rendite_pa:.1f}% p.a.)</div>
     </div>
 </div>
@@ -343,12 +316,12 @@ st.markdown(f"""
     <div class="m-card">
         <div class="m-label">Registrierte Events</div>
         <div class="m-val" style="color:#F59E0B;">{len(feed_list)}</div>
-        <div class="m-sub dim">Trades, Drops & Updates</div>
+        <div class="m-sub dim">Trades, Kommentare & Drops</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# SIDEBAR TEST BUTTONS
+# SIDEBAR TEST BUTTON
 st.sidebar.subheader("🧪 Test-Funktionen")
 if st.sidebar.button("Test-Intraday-Drop (-2.2%)"):
     test_drop = {
@@ -361,31 +334,11 @@ if st.sidebar.button("Test-Intraday-Drop (-2.2%)"):
     send_discord_alert(test_drop)
     st.sidebar.error("Test Intraday Drop-Alarm gesendet!")
 
-if st.sidebar.button("Test 5-Min Live-Update"):
-    test_live = {
-        'type': 'LIVE_5MIN',
-        'price': aktueller_kurs,
-        'prev_close': vortag_kurs,
-        'change_pct': tages_verenderung_pct,
-        'brutto': brutto_ist,
-        'date_raw': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-    send_discord_alert(test_live)
-    st.sidebar.success("Test Live-Update gesendet!")
-
-# --- 1. RESAMPLING AUF MONATSBASIS FÜR CANDLESTICK ---
-df_monthly = df_chart.resample('ME').agg({
-    'Open': 'first',
-    'High': 'max',
-    'Low': 'min',
-    'Close': 'last'
-}).dropna()
-
-# --- 2. BERECHNUNG DES MONATLICHEN GEWINNS / VERLUSTS IN EURO ---
-df_monthly['Depotwert'] = df_monthly['Close'] * STUECKZAHL
-df_monthly['Monats_G_V'] = df_monthly['Depotwert'].diff()
-if not df_monthly.empty:
-    df_monthly.iloc[0, df_monthly.columns.get_loc('Monats_G_V')] = df_monthly.iloc[0]['Depotwert'] - STARTKAPITAL
+# --- BERECHNUNG DES TÄGLICHEN GEWINNS / VERLUSTS IN EURO (FÜR TAB 2) ---
+df_chart['Depotwert'] = df_chart['Close'] * STUECKZAHL
+df_chart['Tages_G_V'] = df_chart['Depotwert'].diff()
+if not df_chart.empty:
+    df_chart.iloc[0, df_chart.columns.get_loc('Tages_G_V')] = df_chart.iloc[0]['Depotwert'] - STARTKAPITAL
 
 def get_stock3_layout():
     return dict(
@@ -407,36 +360,35 @@ def get_stock3_layout():
 
 # TABS
 tab_candle, tab_profit, tab_feed = st.tabs([
-    "🕯️ MONATS-CANDLESTICK",
-    "📊 MONATLICHER GEWINN / VERLUST (€)",
+    "🕯️ TAGES-CANDLESTICK",
+    "📊 TÄGLICHER GEWINN / VERLUST (€)",
     f"⚡ LIVE FEED & EVENT SPEICHER ({len(feed_list)})"
 ])
 
-# TAB 1: MONATS-CANDLESTICK CHART
+# TAB 1: TAGES-CANDLESTICK CHART
 with tab_candle:
     fig_candle = go.Figure()
     fig_candle.add_trace(go.Candlestick(
-        x=df_monthly.index,
-        open=df_monthly['Open'],
-        high=df_monthly['High'],
-        low=df_monthly['Low'],
-        close=df_monthly['Close'],
+        x=df_chart.index,
+        open=df_chart['Open'],
+        high=df_chart['High'],
+        low=df_chart['Low'],
+        close=df_chart['Close'],
         increasing_line_color='#00C853', increasing_fillcolor='#00C853',
         decreasing_line_color='#FF3D00', decreasing_fillcolor='#FF3D00'
     ))
     fig_candle.update_layout(get_stock3_layout())
     st.plotly_chart(fig_candle, use_container_width=True, config={'displayModeBar': True})
 
-# TAB 2: MONATLICHER GEWINN / VERLUST IN EURO
+# TAB 2: TÄGLICHER GEWINN / VERLUST IN EURO
 with tab_profit:
-    colors = ['#00C853' if val >= 0 else '#FF3D00' for val in df_monthly['Monats_G_V']]
+    colors = ['#00C853' if val >= 0 else '#FF3D00' for val in df_chart['Tages_G_V']]
     fig_profit = go.Figure()
     fig_profit.add_trace(go.Bar(
-        x=df_monthly.index,
-        y=df_monthly['Monats_G_V'],
+        x=df_chart.index,
+        y=df_chart['Tages_G_V'],
         marker_color=colors,
-        text=[f"{val:+,.0f} €" for val in df_monthly['Monats_G_V']],
-        textposition='outside'
+        hovertemplate="%{x|%d.%m.%Y}: %{y:+,.2f} €<extra></extra>"
     ))
     layout_profit = get_stock3_layout()
     layout_profit['yaxis']['tickformat'] = "+,d"
@@ -462,13 +414,6 @@ with tab_feed:
                 <div style="background:#09090B; border:1px solid #27272A; border-left:4px solid #FF3D00; padding:10px; margin-bottom:8px; border-radius:4px;">
                     <b style="color:#FF3D00">🚨 INTRADAY DROP-ALARM (<= -2% vs. Vortag)</b> — Kurs: {item['price']:.3f} € ({item['change_pct']:.2f}%)
                     <br><small style="color:#71717A">Vortags-Schlusskurs: {item['prev_close']:.3f} € | Erkannt am: {item['date_raw']}</small>
-                </div>
-                """, unsafe_allow_html=True)
-            elif item_type == 'LIVE_5MIN':
-                st.markdown(f"""
-                <div style="background:#09090B; border:1px solid #27272A; border-left:4px solid #00E5FF; padding:10px; margin-bottom:8px; border-radius:4px;">
-                    <b style="color:#00E5FF">⏱️ 5-MINUTEN LIVE UPDATE</b> — Kurs: {item['price']:.3f} € ({item['change_pct']:+.2f}% vs. Vortag)
-                    <br><small style="color:#71717A">Aktualisiert am: {item['date_raw']}</small>
                 </div>
                 """, unsafe_allow_html=True)
             else:
