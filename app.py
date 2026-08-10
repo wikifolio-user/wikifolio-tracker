@@ -314,7 +314,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# TABS (Hier sind alle 4 Tabs korrekt definiert)
+# TABS
 (
     tab_wealth,
     tab_trades,
@@ -521,9 +521,9 @@ with tab_forecast:
 
   forecast_data = []
 
-  # 1. Startjahr (Kaufdatum & Startkapital) hinzufügen
+  # 1. Startjahr (Kurzer Name für sauberes Layout im Chart)
   forecast_data.append({
-      "Jahr": "Startjahr (09.07.25)",
+      "Jahr": "Start (2025)",
       "Datum": KAUFDATUM.strftime("%d.%m.%Y"),
       "Brutto Depotwert": STARTKAPITAL,
       "Gesamter Gewinn": 0.0,
@@ -531,7 +531,7 @@ with tab_forecast:
       "Kumulierte Entnahme": 0.0,
   })
 
-  # 2. Heutiger Stand (Jahr 0)
+  # 2. Heute (Jahr 0)
   current_date_val = datetime.date.today()
   forecast_data.append({
       "Jahr": "Heute (Jahr 0)",
@@ -566,7 +566,7 @@ with tab_forecast:
 
   df_forecast = pd.DataFrame(forecast_data)
 
-  # Plotly Chart
+  # Plotly Chart (Gerade Achsenbeschriftung tickangle=0)
   fig_forecast = go.Figure()
   fig_forecast.add_trace(
       go.Scatter(
@@ -613,6 +613,7 @@ with tab_forecast:
           showgrid=True,
           gridcolor="#1A1A1A",
           tickfont=dict(color="#A1A1AA"),
+          tickangle=0,  # Hält die Beschriftung immer waagerecht
       ),
       yaxis=dict(
           showgrid=True,
@@ -626,42 +627,44 @@ with tab_forecast:
   )
   st.plotly_chart(fig_forecast, use_container_width=True)
 
-  st.markdown("### 📊 Tabellarische Übersicht (Gestochen scharf)")
+  st.markdown("### 📊 Tabellarische Übersicht")
 
-  # HTML-Tabelle für gestochen scharfe Darstellung ohne Blur-Effekte
-  html_table = """
-    <div style="overflow-x: auto; border: 1px solid #27272A; border-radius: 6px; background-color: #09090B;">
-        <table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #E5E7EB; text-align: left;">
-            <thead>
-                <tr style="border-bottom: 1px solid #27272A; background-color: #121216; color: #A1A1AA; font-size: 0.78rem; text-transform: uppercase;">
-                    <th style="padding: 12px 16px;">Jahr</th>
-                    <th style="padding: 12px 16px;">Datum</th>
-                    <th style="padding: 12px 16px; text-align: right;">Brutto Depotwert</th>
-                    <th style="padding: 12px 16px; text-align: right;">Gesamter Gewinn</th>
-                    <th style="padding: 12px 16px; text-align: right;">Netto Depotwert</th>
-                    <th style="padding: 12px 16px; text-align: right;">Kum. Entnahme</th>
-                </tr>
-            </thead>
-            <tbody>
-    """
-
+  # HTML-String ohne führende Zeilenumbrüche/Einrückungen, um Codeblock-Verhalten zu verhindern
+  table_rows = []
   for idx, row in df_forecast.iterrows():
     bg_style = "background-color: #121216;" if idx == 0 else ""
-    html_table += f"""
-            <tr style="border-bottom: 1px solid #18181B; {bg_style}">
-                <td style="padding: 10px 16px; font-weight: 600; color: #FFFFFF;">{row['Jahr']}</td>
-                <td style="padding: 10px 16px; color: #CBD5E1;">{row['Datum']}</td>
-                <td style="padding: 10px 16px; text-align: right; color: #00C853; font-weight: 600;">{fmt(row['Brutto Depotwert'])} €</td>
-                <td style="padding: 10px 16px; text-align: right; color: #CBD5E1;">{fmt(row['Gesamter Gewinn'])} €</td>
-                <td style="padding: 10px 16px; text-align: right; color: #29B6F6;">{fmt(row['Netto Depotwert'])} €</td>
-                <td style="padding: 10px 16px; text-align: right; color: #FF3D00;">{fmt(row['Kumulierte Entnahme'])} €</td>
-            </tr>
-        """
+    table_rows.append(
+        f'<tr style="border-bottom: 1px solid #18181B; {bg_style}">'
+        f'<td style="padding: 10px 14px; font-weight: 600;'
+        f' color: #FFFFFF;">{row["Jahr"]}</td>'
+        f'<td style="padding: 10px 14px; color: #CBD5E1;">{row["Datum"]}</td>'
+        '<td style="padding: 10px 14px; text-align: right; color: #00C853;'
+        f' font-weight: 600;">{fmt(row["Brutto Depotwert"])} €</td>'
+        '<td style="padding: 10px 14px; text-align: right;'
+        f' color: #CBD5E1;">{fmt(row["Gesamter Gewinn"])} €</td>'
+        '<td style="padding: 10px 14px; text-align: right;'
+        f' color: #29B6F6;">{fmt(row["Netto Depotwert"])} €</td>'
+        '<td style="padding: 10px 14px; text-align: right;'
+        f' color: #FF3D00;">{fmt(row["Kumulierte Entnahme"])} €</td>'
+        "</tr>"
+    )
 
-  html_table += """
-            </tbody>
-        </table>
-    </div>
-    """
+  html_table = f"""<div style="overflow-x: auto; border: 1px solid #27272A; border-radius: 6px; background-color: #09090B; margin-top: 10px;">
+<table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: #E5E7EB; text-align: left;">
+<thead>
+<tr style="border-bottom: 1px solid #27272A; background-color: #121216; color: #A1A1AA; font-size: 0.75rem; text-transform: uppercase;">
+<th style="padding: 12px 14px;">Jahr</th>
+<th style="padding: 12px 14px;">Datum</th>
+<th style="padding: 12px 14px; text-align: right;">Brutto Depotwert</th>
+<th style="padding: 12px 14px; text-align: right;">Gesamter Gewinn</th>
+<th style="padding: 12px 14px; text-align: right;">Netto Depotwert</th>
+<th style="padding: 12px 14px; text-align: right;">Kum. Entnahme</th>
+</tr>
+</thead>
+<tbody>
+{"".join(table_rows)}
+</tbody>
+</table>
+</div>"""
 
   st.markdown(html_table, unsafe_allow_html=True)
