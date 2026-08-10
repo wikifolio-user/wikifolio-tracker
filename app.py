@@ -41,7 +41,7 @@ def load_db():
 
 def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 db_events = load_db()
 
@@ -79,49 +79,60 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- HISTORISCHER CHART DATA FETCHING ---
-@st.cache_data(ttl=60)
+# --- VERBESSERTES CHART DATA FETCHING ---
+@st.cache_data(ttl=300)
 def fetch_real_wikifolio_data():
+    # Erweiterte Header, um von Cloudflare/Wikifolio nicht blockiert zu werden
     url = f"https://www.wikifolio.com/api/wikifolio/{WIKIFOLIO_SLUG}/chartdata?timerange=all"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": f"https://www.wikifolio.com/de/de/w/{WIKIFOLIO_SLUG}"
+    }
     
     try:
-        res = requests.get(url, headers=headers, timeout=8)
+        res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
-            points = res.json().get("ChartPoints", [])
-            if len(points) > 10:
-                df = pd.DataFrame(points)
-                df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
-                df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
-                df = df.dropna(subset=['Date', 'Close']).sort_values('Date')
-                df = df[df['Date'] >= pd.to_datetime("2025-07-09")].set_index('Date')
+            data = res.json()
+            points = data.get("ChartPoints", [])
+            if not points and isinstance(data, list):
+                points = data
                 
-                if not df.empty and len(df) > 5:
-                    full_idx = pd.date_range(start=df.index.min(), end=datetime.datetime.now(), freq='D')
-                    df = df.reindex(full_idx).ffill().bfill()
-                    df['Open'] = df['Close'].shift(1).fillna(df['Close'].iloc[0])
-                    df['High'] = df[['Open', 'Close']].max(axis=1) * 1.002
-                    df['Low'] = df[['Open', 'Close']].min(axis=1) * 0.998
-                    return df
-    except Exception:
+            if len(points) > 5:
+                df = pd.DataFrame(points)
+                # Spaltennamen prüfen (manchmal 'Date'/'Close', manchmal Kleinbuchstaben)
+                df.columns = [c.capitalize() for c in df.columns]
+                if 'Date' in df.columns and 'Close' in df.columns:
+                    df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
+                    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+                    df = df.dropna(subset=['Date', 'Close']).sort_values('Date')
+                    df = df[df['Date'] >= pd.to_datetime("2025-07-09")].set_index('Date')
+                    
+                    if not df.empty:
+                        full_idx = pd.date_range(start=df.index.min(), end=datetime.datetime.now(), freq='D')
+                        df = df.reindex(full_idx).ffill().bfill()
+                        df['Open'] = df['Close'].shift(1).fillna(df['Close'].iloc[0])
+                        df['High'] = df[['Open', 'Close']].max(axis=1) * 1.002
+                        df['Low'] = df[['Open', 'Close']].min(axis=1) * 0.998
+                        return df, True # True steht für erfolgreichen Live-Abruf
+    except Exception as e:
         pass
 
-    # FALLBACK DATA
+    # FALLBACK DATA (Falls API blockiert oder offline)
     start_dt = pd.to_datetime("2025-07-09")
     end_dt = datetime.datetime.now()
     dates = pd.date_range(start=start_dt, end=end_dt, freq='D')
-    base_trend = np.linspace(ANFANGSKURS, 300.338, len(dates))
-    noise = np.sin(np.linspace(0, 12, len(dates))) * 4.0
+    base_trend = np.linspace(ANFANGSKURS, 240.0, len(dates)) # Realistischerer Fallback-Wert
+    noise = np.sin(np.linspace(0, 12, len(dates))) * 2.0
     final_close = base_trend + noise
-    final_close[-1] = 300.338
     
     df_fallback = pd.DataFrame({'Close': final_close}, index=dates)
     df_fallback['Open'] = df_fallback['Close'].shift(1).fillna(ANFANGSKURS)
     df_fallback['High'] = df_fallback[['Open', 'Close']].max(axis=1) + 0.5
     df_fallback['Low'] = df_fallback[['Open', 'Close']].min(axis=1) - 0.5
-    return df_fallback
+    return df_fallback, False # False steht für Fallback-Modus
 
-df_chart = fetch_real_wikifolio_data()
+df_chart, is_live = fetch_real_wikifolio_data()
 
 # --- KENNZAHLEN BERECHNUNG ---
 aktueller_kurs = float(df_chart['Close'].iloc[-1])
@@ -147,7 +158,9 @@ df_chart['Kumulierte_Entnahme'] = df_chart['Monate_aktiv'] * ENTNAHME_PM
 df_chart['Depotwert_Netto'] = df_chart['Depotwert_Brutto'] - df_chart['Kumulierte_Entnahme']
 df_chart['Startkapital'] = STARTKAPITAL
 
-# HEADER BAR (Sauber platziert: Badge & Performance nebeneinander)
+# HEADER BAR
+data_status_badge = '<span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● LIVE API</span>' if is_live else '<span style="color:#FFB300; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">⚠️ FALLBACK MODUS</span>'
+
 st.markdown(f"""
 <div class="header-bar">
     <div style="flex: 1; min-width: 220px;">
@@ -155,9 +168,7 @@ st.markdown(f"""
         <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Kaufdatum: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        <span style="color:#00C853; font-size:0.68rem; font-weight:700; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; white-space:nowrap;">
-            ● MONITORING: 5-MIN DROP (&le; -2%)
-        </span>
+        {data_status_badge}
         <div class="pos" style="font-size: 0.9rem; font-weight: 800; white-space: nowrap;">
             +{rendite_ist_pct:.2f}% <span style="font-size: 0.75rem; color: #A1A1AA;">({rendite_pa:.1f}% p.a.)</span>
         </div>
@@ -196,40 +207,20 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# TABS (Inklusive neuem Trader-Log Tab)
+# TABS
 tab_wealth, tab_trades, tab_candle = st.tabs([
     "📈 VERMÖGENS- & SUBSTANZAUFBAU",
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
     "🕯️ TAGES-CANDLESTICK"
 ])
 
-# TAB 1: VERMÖGENS- & SUBSTANZAUFBAU
 with tab_wealth:
     st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>🏛️ Verlauf Vermögensaufbau & Entnahme-Substanz</div>", unsafe_allow_html=True)
-    
     fig_wealth = go.Figure()
-    
-    fig_wealth.add_trace(go.Scatter(
-        x=df_chart.index, y=df_chart['Startkapital'],
-        name="Startkapital", line=dict(color='#71717A', width=1.5, dash='dash')
-    ))
-    
-    fig_wealth.add_trace(go.Scatter(
-        x=df_chart.index, y=df_chart['Kumulierte_Entnahme'],
-        name="Entnommen (Summe)", line=dict(color='#FF3D00', width=1.5),
-        fill='tozeroy', fillcolor='rgba(255, 61, 0, 0.08)'
-    ))
-    
-    fig_wealth.add_trace(go.Scatter(
-        x=df_chart.index, y=df_chart['Depotwert_Netto'],
-        name="Netto-Wert (nach Entnahme)", line=dict(color='#29B6F6', width=2)
-    ))
-
-    fig_wealth.add_trace(go.Scatter(
-        x=df_chart.index, y=df_chart['Depotwert_Brutto'],
-        name="Brutto-Depotwert", line=dict(color='#00C853', width=2.5)
-    ))
-
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Startkapital'], name="Startkapital", line=dict(color='#71717A', width=1.5, dash='dash')))
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Kumulierte_Entnahme'], name="Entnommen (Summe)", line=dict(color='#FF3D00', width=1.5), fill='tozeroy', fillcolor='rgba(255, 61, 0, 0.08)'))
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Depotwert_Netto'], name="Netto-Wert (nach Entnahme)", line=dict(color='#29B6F6', width=2)))
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Depotwert_Brutto'], name="Brutto-Depotwert", line=dict(color='#00C853', width=2.5)))
     fig_wealth.update_layout(
         paper_bgcolor='#000000', plot_bgcolor='#000000',
         margin=dict(l=10, r=60, t=50, b=10), height=420,
@@ -240,10 +231,8 @@ with tab_wealth:
     )
     st.plotly_chart(fig_wealth, use_container_width=True)
 
-# TAB 2: TRADER-LOG (NEU: Trades & Kommentare speichern & anzeigen)
 with tab_trades:
     st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>📝 Trader-Protokoll: Trades & Live-Kommentare</div>", unsafe_allow_html=True)
-    
     with st.form("trade_input_form", clear_on_submit=True):
         col1, col2, col3 = st.columns([2, 2, 3])
         with col1:
@@ -252,10 +241,8 @@ with tab_trades:
             event_datum = st.date_input("Datum", datetime.date.today())
         with col3:
             event_titel = st.text_input("Titel / Aktie / Kurzbeschreibung", placeholder="z.B. NVIDIA Kauf oder Markt-Update")
-        
         event_inhalt = st.text_area("Details / Kommentartext des Traders", placeholder="Hier den vollständigen Kommentar oder Ordereinzelheiten eintragen...")
         submitted = st.form_submit_button("💾 Event speichern")
-        
         if submitted and event_titel:
             new_entry = {
                 "id": len(db_events) + 1,
@@ -271,9 +258,8 @@ with tab_trades:
 
     st.markdown("---")
     st.markdown("### 📋 Historie der gespeicherten Events")
-    
     if len(db_events) == 0:
-        st.info("Bisher wurden keine Trades oder Kommentare manuell gespeichert. Nutzen Sie das obige Formular, um Einträge hinzuzufügen.")
+        st.info("Bisher wurden keine Trades oder Kommentare manuell gespeichert.")
     else:
         for ev in db_events:
             st.markdown(f"""
@@ -287,18 +273,12 @@ with tab_trades:
             </div>
             """, unsafe_allow_html=True)
 
-# TAB 3: TAGES-CANDLESTICK
 with tab_candle:
     st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>🕯️ Intraday / Historischer Candlestick-Chart</div>", unsafe_allow_html=True)
-    
     fig_candle = go.Figure(data=[go.Candlestick(
-        x=df_chart.index,
-        open=df_chart['Open'],
-        high=df_chart['High'],
-        low=df_chart['Low'],
-        close=df_chart['Close'],
-        increasing_line_color='#00C853',
-        decreasing_line_color='#FF3D00'
+        x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
+        low=df_chart['Low'], close=df_chart['Close'],
+        increasing_line_color='#00C853', decreasing_line_color='#FF3D00'
     )])
     fig_candle.update_layout(
         paper_bgcolor='#000000', plot_bgcolor='#000000',
