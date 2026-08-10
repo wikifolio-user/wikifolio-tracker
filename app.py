@@ -521,7 +521,7 @@ with tab_forecast:
 
   forecast_data = []
 
-  # 1. Startjahr (Kurzer Name für sauberes Layout im Chart)
+  # 1. Startjahr
   forecast_data.append({
       "Jahr": "Start (2025)",
       "Datum": KAUFDATUM.strftime("%d.%m.%Y"),
@@ -566,7 +566,7 @@ with tab_forecast:
 
   df_forecast = pd.DataFrame(forecast_data)
 
-  # Plotly Chart (Gerade Achsenbeschriftung tickangle=0)
+  # Plotly Chart
   fig_forecast = go.Figure()
   fig_forecast.add_trace(
       go.Scatter(
@@ -613,7 +613,7 @@ with tab_forecast:
           showgrid=True,
           gridcolor="#1A1A1A",
           tickfont=dict(color="#A1A1AA"),
-          tickangle=0,  # Hält die Beschriftung immer waagerecht
+          tickangle=0,
       ),
       yaxis=dict(
           showgrid=True,
@@ -629,36 +629,38 @@ with tab_forecast:
 
   st.markdown("### 📊 Tabellarische Übersicht")
 
-  # HTML-String ohne führende Zeilenumbrüche/Einrückungen, um Codeblock-Verhalten zu verhindern
+  # HTML-Tabelle mit erzwungener Zeileneinheit (white-space: nowrap) gegen unschöne Umbrüche
   table_rows = []
   for idx, row in df_forecast.iterrows():
     bg_style = "background-color: #121216;" if idx == 0 else ""
     table_rows.append(
         f'<tr style="border-bottom: 1px solid #18181B; {bg_style}">'
-        f'<td style="padding: 10px 14px; font-weight: 600;'
-        f' color: #FFFFFF;">{row["Jahr"]}</td>'
-        f'<td style="padding: 10px 14px; color: #CBD5E1;">{row["Datum"]}</td>'
-        '<td style="padding: 10px 14px; text-align: right; color: #00C853;'
-        f' font-weight: 600;">{fmt(row["Brutto Depotwert"])} €</td>'
-        '<td style="padding: 10px 14px; text-align: right;'
-        f' color: #CBD5E1;">{fmt(row["Gesamter Gewinn"])} €</td>'
-        '<td style="padding: 10px 14px; text-align: right;'
-        f' color: #29B6F6;">{fmt(row["Netto Depotwert"])} €</td>'
-        '<td style="padding: 10px 14px; text-align: right;'
-        f' color: #FF3D00;">{fmt(row["Kumulierte Entnahme"])} €</td>'
+        f'<td style="padding: 12px 16px; font-weight: 600; color: #FFFFFF;'
+        f' white-space: nowrap;">{row["Jahr"]}</td>'
+        f'<td style="padding: 12px 16px; color: #CBD5E1; white-space:'
+        f' nowrap;">{row["Datum"]}</td>'
+        '<td style="padding: 12px 16px; text-align: right; color: #00C853;'
+        ' font-weight: 600; white-space: nowrap;">'
+        f'{fmt(row["Brutto Depotwert"])} €</td>'
+        '<td style="padding: 12px 16px; text-align: right; color: #CBD5E1;'
+        f' white-space: nowrap;">{fmt(row["Gesamter Gewinn"])} €</td>'
+        '<td style="padding: 12px 16px; text-align: right; color: #29B6F6;'
+        f' white-space: nowrap;">{fmt(row["Netto Depotwert"])} €</td>'
+        '<td style="padding: 12px 16px; text-align: right; color: #FF3D00;'
+        f' white-space: nowrap;">{fmt(row["Kumulierte Entnahme"])} €</td>'
         "</tr>"
     )
 
   html_table = f"""<div style="overflow-x: auto; border: 1px solid #27272A; border-radius: 6px; background-color: #09090B; margin-top: 10px;">
-<table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: #E5E7EB; text-align: left;">
+<table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #E5E7EB; text-align: left;">
 <thead>
-<tr style="border-bottom: 1px solid #27272A; background-color: #121216; color: #A1A1AA; font-size: 0.75rem; text-transform: uppercase;">
-<th style="padding: 12px 14px;">Jahr</th>
-<th style="padding: 12px 14px;">Datum</th>
-<th style="padding: 12px 14px; text-align: right;">Brutto Depotwert</th>
-<th style="padding: 12px 14px; text-align: right;">Gesamter Gewinn</th>
-<th style="padding: 12px 14px; text-align: right;">Netto Depotwert</th>
-<th style="padding: 12px 14px; text-align: right;">Kum. Entnahme</th>
+<tr style="border-bottom: 1px solid #27272A; background-color: #121216; color: #A1A1AA; font-size: 0.78rem; text-transform: uppercase;">
+<th style="padding: 14px 16px; white-space: nowrap;">Jahr</th>
+<th style="padding: 14px 16px; white-space: nowrap;">Datum</th>
+<th style="padding: 14px 16px; text-align: right; white-space: nowrap;">Brutto Depotwert</th>
+<th style="padding: 14px 16px; text-align: right; white-space: nowrap;">Gesamter Gewinn</th>
+<th style="padding: 14px 16px; text-align: right; white-space: nowrap;">Netto Depotwert</th>
+<th style="padding: 14px 16px; text-align: right; white-space: nowrap;">Kum. Entnahme</th>
 </tr>
 </thead>
 <tbody>
