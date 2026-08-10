@@ -126,7 +126,7 @@ if st.sidebar.button("🔔 Test-Alarm an Discord senden"):
         "Fehler beim Senden oder Cooldown aktiv (max. 1 Alarm pro Stunde)."
     )
 
-# --- TERMINAL STYLING ---
+# --- TERMINAL STYLING (Schriftgrößen & Farben angepasst) ---
 st.markdown(
     """
 <style>
@@ -143,14 +143,16 @@ st.markdown(
         display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 12px; margin-bottom: 20px;
     }
-    .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 12px 14px; }
-    .m-label { font-size: 0.65rem; color: #71717A; text-transform: uppercase; letter-spacing: 0.5px; }
-    .m-val { font-size: 1.3rem; font-weight: 800; color: #FFFFFF; margin: 4px 0; white-space: nowrap; }
-    .m-sub { font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+    .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 14px 16px; }
+    
+    /* Hier wurden Schriftgröße und Helligkeit der Grautöne erhöht */
+    .m-label { font-size: 0.75rem; color: #A1A1AA; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+    .m-val { font-size: 1.4rem; font-weight: 800; color: #FFFFFF; margin: 6px 0; white-space: nowrap; }
+    .m-sub { font-size: 0.85rem; font-weight: 600; white-space: nowrap; color: #CBD5E1; }
     
     .pos { color: #00C853; }
     .neg { color: #FF3D00; }
-    .dim { color: #71717A; }
+    .dim { color: #CBD5E1; }
     .blue { color: #29B6F6; }
     .orange { color: #FF3D00; }
     
@@ -259,56 +261,56 @@ rendite_mo = (
     ((aktueller_kurs / ANFANGSKURS) ** (1 / max(1, monate_gehalten))) - 1
 ) * 100
 
-# HEADER BAR (Ohne Prozentangaben)
+# HEADER BAR
 st.markdown(
     f"""
 <div class="header-bar">
     <div style="flex: 1; min-width: 220px;">
-        <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span> <span style="font-size:0.75rem; color:#A1A1AA;">({aktuelles_datum_str})</span></div>
-        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
+        <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span> <span style="font-size:0.8rem; color:#CBD5E1;">({aktuelles_datum_str})</span></div>
+        <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● LIVE (&le; -1% ALARM)</span>
+        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● LIVE (&le; -1% ALARM)</span>
     </div>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (Inklusive prozentualer Veränderung p.a. & monatlich unter Brutto Depotwert)
+# GRID OVERVIEW
 st.markdown(
     f"""
 <div class="grid-container">
     <div class="m-card">
         <div class="m-label">Veränderung vs. Vortag</div>
         <div class="m-val {'pos' if tages_verenderung_pct >= 0 else 'neg'}">{tages_verenderung_pct:+.2f}%</div>
-        <div class="m-sub dim">Schluss ({vortag_datum_str}): {vortag_kurs:.2f} €</div>
+        <div class="m-sub">Schluss ({vortag_datum_str}): {vortag_kurs:.2f} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
         <div class="m-val pos">{fmt(brutto_ist)} €</div>
         <div class="m-sub pos">+{fmt(gewinn_brutto)} € Gewinn ({rendite_ist_pct:.2f}%)</div>
-        <div class="m-sub dim" style="margin-top: 2px;">Ø {rendite_pa:.1f}% p.a. | {rendite_mo:+.2f}% mtl.</div>
+        <div class="m-sub" style="margin-top: 4px; color: #CBD5E1;">Ø {rendite_pa:.1f}% p.a. | {rendite_mo:+.2f}% mtl.</div>
     </div>
     <div class="m-card">
         <div class="m-label">Netto (Nach Entnahme)</div>
         <div class="m-val blue">{fmt(netto_ist)} €</div>
-        <div class="m-sub dim">Aktueller Depotwert bereinigt</div>
+        <div class="m-sub">Aktueller Depotwert bereinigt</div>
     </div>
     <div class="m-card">
         <div class="m-label">Entnommenes Kapital</div>
         <div class="m-val orange">{fmt(gesamt_entnommen)} €</div>
-        <div class="m-sub dim">Monatlich: {fmt(ENTNAHME_PM)} €</div>
+        <div class="m-sub">Monatlich: {fmt(ENTNAHME_PM)} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
         <div class="m-val">{fmt(STARTKAPITAL)} €</div>
-        <div class="m-sub dim">Kauf ({KAUFDATUM.strftime('%d.%m.%Y')}): {ANFANGSKURS:.2f} €</div>
+        <div class="m-sub">Kauf ({KAUFDATUM.strftime('%d.%m.%Y')}): {ANFANGSKURS:.2f} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Registrierte Events</div>
         <div class="m-val" style="color: #FFB300;">{len(db_events)}</div>
-        <div class="m-sub dim">Trades & Kommentare</div>
+        <div class="m-sub">Trades & Kommentare</div>
     </div>
 </div>
 """,
