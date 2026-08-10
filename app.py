@@ -258,6 +258,21 @@ rendite_mo = (
 
 mtl_gewinn_avg = gewinn_brutto / max(1, monate_gehalten)
 
+# --- BERECHNUNG DES 100.000 € MEILENSTEINS FÜR DAS DASHBOARD ---
+sim_b = brutto_ist
+meilenstein_datum_str = "Bereits erreicht"
+milestone_reached = sim_b >= 100000.0
+
+if not milestone_reached:
+  for m_i in range(1, 120):
+    sim_b = sim_b * (1 + (rendite_mo / 100.0))
+    if sim_b >= 100000.0:
+      ms_date = datetime.date.today() + pd.DateOffset(months=m_i)
+      meilenstein_datum_str = ms_date.strftime("%m.%Y")
+      break
+  if not milestone_reached and sim_b < 100000.0:
+    meilenstein_datum_str = "> 10 Jahre"
+
 # HEADER BAR
 st.markdown(
     f"""
@@ -274,7 +289,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW
+# GRID OVERVIEW (Inkl. 100k-Ziel unter Entnommenes Kapital)
 st.markdown(
     f"""
 <div class="grid-container">
@@ -298,6 +313,7 @@ st.markdown(
         <div class="m-label">Entnommenes Kapital</div>
         <div class="m-val orange">{fmt(gesamt_entnommen)} €</div>
         <div class="m-sub">Monatlich: {fmt(ENTNAHME_PM)} €</div>
+        <div class="m-sub" style="margin-top: 4px; color: #00C853;">🎯 100k-Ziel: <b>{meilenstein_datum_str}</b></div>
     </div>
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
