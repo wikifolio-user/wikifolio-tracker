@@ -6,7 +6,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -32,13 +31,17 @@ ENTNAHME_PM = 180.0
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
-# --- AUTO-REFRESH (ALLE 5 MINUTEN = 300.000 ms) ---
-st_autorefresh(interval=5 * 60 * 1000, key="datarefresh")
+# --- NATIVES AUTO-REFRESH (ALLE 5 MINUTEN / 300 SEKUNDEN) ---
+st.markdown(
+    """
+    <meta http-equiv="refresh" content="300">
+""",
+    unsafe_allow_html=True,
+)
 
 
 # --- DISCORD ALERT LOGIC ---
 def send_discord_alert(pct_change, current_price):
-  # Cooldown-Prüfung (verhindert Spam, falls Kurs länger im Minus bleibt)
   last_alert_time = None
   if os.path.exists(ALARM_STATE_FILE):
     try:
@@ -97,8 +100,8 @@ db_events = load_db()
 # --- SIDEBAR: KURS-STEUERUNG & ALARM-TEST ---
 st.sidebar.markdown("### ⚙️ Kurs & Monitoring")
 st.sidebar.info(
-    "Bezugsquelle: Börse Stuttgart (XSTU)\nAutom. Prüfung alle 5 Min. bei"
-    " Abweichung ≤ -1%."
+    "Bezugsquelle: Börse Stuttgart (XSTU)\nAuto-Refresh alle 5 Min. (Browser"
+    " Meta-Refresh)."
 )
 aktueller_kurs_input = st.sidebar.number_input(
     "Aktueller Kurs (€)", value=301.24, step=0.01, format="%.2f"
@@ -198,7 +201,6 @@ rendite_pa = (
     ((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1
 ) * 100
 
-# VERMÖGENS-METRIKEN FÜR CHART & TABELLEN
 df_chart["Depotwert_Brutto"] = df_chart["Close"] * STUECKZAHL
 df_chart["Tage_seit_Kauf"] = (df_chart.index - pd.to_datetime(KAUFDATUM)).days
 df_chart["Monate_aktiv"] = (
