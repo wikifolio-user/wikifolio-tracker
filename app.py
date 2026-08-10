@@ -289,7 +289,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (Mit eigenem Unterpunkt / eigener Karte für den 100k-Meilenstein)
+# GRID OVERVIEW (100k-Meilenstein nun direkt ÜBER „Entnommenes Kapital“ positioniert)
 st.markdown(
     f"""
 <div class="grid-container">
@@ -309,15 +309,15 @@ st.markdown(
         <div class="m-val blue">{fmt(netto_ist)} €</div>
         <div class="m-sub">Aktueller Depotwert bereinigt</div>
     </div>
-    <div class="m-card">
-        <div class="m-label">Entnommenes Kapital</div>
-        <div class="m-val orange">{fmt(gesamt_entnommen)} €</div>
-        <div class="m-sub">Monatlich: {fmt(ENTNAHME_PM)} €</div>
-    </div>
     <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
         <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
         <div class="m-val" style="color: #00C853; font-size: 1.25rem;">{meilenstein_datum_str}</div>
         <div class="m-sub" style="color: #CBD5E1;">Prognostiziertes Ziel-Datum</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Entnommenes Kapital</div>
+        <div class="m-val orange">{fmt(gesamt_entnommen)} €</div>
+        <div class="m-sub">Monatlich: {fmt(ENTNAHME_PM)} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
