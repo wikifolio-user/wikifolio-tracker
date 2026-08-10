@@ -1,0 +1,32 @@
+name: Wikifolio Session Sync
+
+on:
+  schedule:
+    - cron: '0 */8 * * *' # Läuft alle 8 Stunden (schont den Server & umgeht Sperren)
+  workflow_dispatch: # Erlaubt den manuellen Start über GitHub
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests beautifulsoup4
+
+      - name: Updater-Skript ausführen (mit Cookie aus den Secrets)
+        env:
+          WIKIFOLIO_COOKIE: ${{ secrets.WIKIFOLIO_COOKIE }}
+        run: python update_trades.py
+
+      - name: Automatischen Commit der JSON-Datei ausführen
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-sync trades and comments via session cookie"
+          file_pattern: trades_db.json
