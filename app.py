@@ -4,19 +4,23 @@ import os
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="QUANT TERMINAL // LS9VFS",
-    page_icon="⚡",
-    layout="wide"
+    page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layout="wide"
 )
 
 # -------------------------------------------------------------------
-# ⚙️ CONFIG & DB FILE
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1536127717622153236/WUsjAZmJjobz42r3zYtxJFS2rBWDLGXGfPKkxDPTMJHBmp8HmcgViaH9guzWoxUoz_Lc"
+# ⚙️ DISCORD WEBHOOK URL & DB FILE
+DISCORD_WEBHOOK_URL = (
+    "https://discord.com/api/webhooks/1536127717622153236/"
+    "WUsjAZmJjobz42r3zYtxJFS2rBWDLGXGfPKkxDPTMJHBmp8HmcgViaH9guzWoxUoz_Lc"
+)
 DB_FILE = "trades_db.json"
+ALARM_STATE_FILE = "alarm_state.json"
 # -------------------------------------------------------------------
 
 WIKIFOLIO_SLUG = "wfindizglo"
@@ -28,29 +32,90 @@ ENTNAHME_PM = 180.0
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
-# --- SIDEBAR: KURS-STEUERUNG (BÖRSE STUTTGART DATEN) ---
-st.sidebar.markdown("### ⚙️ Kurs & Börsenplatz")
-st.sidebar.info("Bezugsquelle: Börse Stuttgart (XSTU)\nDa Börsen keine freie Live-API bieten, hier den aktuellen Kurs eintragen.")
-aktueller_kurs_input = st.sidebar.number_input("Aktueller Kurs (€)", value=301.24, step=0.01, format="%.2f")
+# --- AUTO-REFRESH (ALLE 5 MINUTEN = 300.000 ms) ---
+st_autorefresh(interval=5 * 60 * 1000, key="datarefresh")
+
+
+# --- DISCORD ALERT LOGIC ---
+def send_discord_alert(pct_change, current_price):
+  # Cooldown-Prüfung (verhindert Spam, falls Kurs länger im Minus bleibt)
+  last_alert_time = None
+  if os.path.exists(ALARM_STATE_FILE):
+    try:
+      with open(ALARM_STATE_FILE, "r") as f:
+        data = json.load(f)
+        last_alert_time = datetime.datetime.fromisoformat(
+            data.get("last_alert")
+        )
+    except Exception:
+      pass
+
+  now = datetime.datetime.now()
+  if (
+      last_alert_time
+      and (now - last_alert_time).total_seconds() < 3600  # 1 Stunde Cooldown
+  ):
+    return False
+
+  payload = {
+      "content": (
+          f"🚨 **QUANT TERMINAL ALARM** 🚨\nDas Wikifolio **{WKN}** ({ISIN}) ist"
+          f" stark gefallen!\nTagesveränderung: **{pct_change:+.2f}%**\nAktueller"
+          f" Kurs: **{current_price:.2f} €**"
+      )
+  }
+
+  try:
+    response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+    if response.status_code in [200, 204]:
+      with open(ALARM_STATE_FILE, "w") as f:
+        json.dump({"last_alert": now.isoformat()}, f)
+      return True
+  except Exception:
+    pass
+  return False
+
 
 # --- DATENBANK HELPER ---
 def load_db():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
+  if os.path.exists(DB_FILE):
+    try:
+      with open(DB_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+    except Exception:
+      return []
+  return []
+
 
 def save_db(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+  with open(DB_FILE, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=4)
+
 
 db_events = load_db()
 
+# --- SIDEBAR: KURS-STEUERUNG & ALARM-TEST ---
+st.sidebar.markdown("### ⚙️ Kurs & Monitoring")
+st.sidebar.info(
+    "Bezugsquelle: Börse Stuttgart (XSTU)\nAutom. Prüfung alle 5 Min. bei"
+    " Abweichung ≤ -1%."
+)
+aktueller_kurs_input = st.sidebar.number_input(
+    "Aktueller Kurs (€)", value=301.24, step=0.01, format="%.2f"
+)
+
+if st.sidebar.button("🔔 Test-Alarm an Discord senden"):
+  success = send_discord_alert(-1.50, aktueller_kurs_input)
+  if success:
+    st.sidebar.success("Test-Alarm erfolgreich gesendet!")
+  else:
+    st.sidebar.warning(
+        "Fehler beim Senden oder Cooldown aktiv (max. 1 Alarm pro Stunde)."
+    )
+
 # --- TERMINAL STYLING ---
-st.markdown("""
+st.markdown(
+    """
 <style>
     .stApp { background-color: #000000; color: #E5E7EB; font-family: 'JetBrains Mono', monospace; }
     
@@ -81,32 +146,44 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { background-color: #09090B; border: 1px solid #18181B; color: #71717A; padding: 6px 14px; font-size: 0.78rem; }
     .stTabs [aria-selected="true"] { background-color: #18181B !important; color: #00C853 !important; border-color: #00C853 !important; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
+
 
 # --- CHART & DATEN GENERIERUNG ---
 @st.cache_data
 def get_chart_data(target_kurs):
-    start_dt = pd.to_datetime("2025-07-09")
-    end_dt = datetime.datetime.now()
-    dates = pd.date_range(start=start_dt, end=end_dt, freq='D')
-    
-    base_trend = np.linspace(ANFANGSKURS, target_kurs, len(dates))
-    noise = np.sin(np.linspace(0, 15, len(dates))) * 1.2
-    final_close = base_trend + noise
-    final_close[-1] = target_kurs
-    
-    df = pd.DataFrame({'Close': final_close}, index=dates)
-    df['Open'] = df['Close'].shift(1).fillna(ANFANGSKURS)
-    df['High'] = df[['Open', 'Close']].max(axis=1) + 0.4
-    df['Low'] = df[['Open', 'Close']].min(axis=1) - 0.4
-    return df
+  start_dt = pd.to_datetime("2025-07-09")
+  end_dt = datetime.datetime.now()
+  dates = pd.date_range(start=start_dt, end=end_dt, freq="D")
+
+  base_trend = np.linspace(ANFANGSKURS, target_kurs, len(dates))
+  noise = np.sin(np.linspace(0, 15, len(dates))) * 1.2
+  final_close = base_trend + noise
+  final_close[-1] = target_kurs
+
+  df = pd.DataFrame({"Close": final_close}, index=dates)
+  df["Open"] = df["Close"].shift(1).fillna(ANFANGSKURS)
+  df["High"] = df[["Open", "Close"]].max(axis=1) + 0.4
+  df["Low"] = df[["Open", "Close"]].min(axis=1) - 0.4
+  return df
+
 
 df_chart = get_chart_data(aktueller_kurs_input)
 
 # --- KENNZAHLEN BERECHNUNG ---
-aktueller_kurs = float(df_chart['Close'].iloc[-1])
-vortag_kurs = float(df_chart['Close'].iloc[-2]) if len(df_chart) > 1 else aktueller_kurs
+aktueller_kurs = float(df_chart["Close"].iloc[-1])
+vortag_kurs = (
+    float(df_chart["Close"].iloc[-2])
+    if len(df_chart) > 1
+    else aktueller_kurs
+)
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100
+
+# --- TRIGGER CHECK FÜR DISCORD (-1% SCHWELLENWERT) ---
+if tages_verenderung_pct <= -1.0:
+  send_discord_alert(tages_verenderung_pct, aktueller_kurs)
 
 tage_gehalten = max(1, (datetime.date.today() - KAUFDATUM).days)
 jahre_gehalten = tage_gehalten / 365.25
@@ -117,34 +194,44 @@ gesamt_entnommen = monate_aktiv * ENTNAHME_PM
 netto_ist = brutto_ist - gesamt_entnommen
 gewinn_brutto = brutto_ist - STARTKAPITAL
 rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
-rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1) * 100
+rendite_pa = (
+    ((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1
+) * 100
 
 # VERMÖGENS-METRIKEN FÜR CHART & TABELLEN
-df_chart['Depotwert_Brutto'] = df_chart['Close'] * STUECKZAHL
-df_chart['Tage_seit_Kauf'] = (df_chart.index - pd.to_datetime(KAUFDATUM)).days
-df_chart['Monate_aktiv'] = (df_chart['Tage_seit_Kauf'] / 30.4375).apply(lambda x: max(0, int(round(x))))
-df_chart['Kumulierte_Entnahme'] = df_chart['Monate_aktiv'] * ENTNAHME_PM
-df_chart['Depotwert_Netto'] = df_chart['Depotwert_Brutto'] - df_chart['Kumulierte_Entnahme']
-df_chart['Startkapital'] = STARTKAPITAL
+df_chart["Depotwert_Brutto"] = df_chart["Close"] * STUECKZAHL
+df_chart["Tage_seit_Kauf"] = (df_chart.index - pd.to_datetime(KAUFDATUM)).days
+df_chart["Monate_aktiv"] = (
+    df_chart["Tage_seit_Kauf"] / 30.4375
+).apply(lambda x: max(0, int(round(x))))
+df_chart["Kumulierte_Entnahme"] = df_chart["Monate_aktiv"] * ENTNAHME_PM
+df_chart["Depotwert_Netto"] = (
+    df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
+)
+df_chart["Startkapital"] = STARTKAPITAL
 
 # HEADER BAR
-st.markdown(f"""
+st.markdown(
+    f"""
 <div class="header-bar">
     <div style="flex: 1; min-width: 220px;">
         <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span></div>
         <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart (XSTU) • Kauf: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● BÖRSE STUTTGART SYNC</span>
+        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● AUTO-MONITORING (&le; -1%)</span>
         <div class="pos" style="font-size: 0.9rem; font-weight: 800; white-space: nowrap;">
             +{rendite_ist_pct:.2f}% <span style="font-size: 0.75rem; color: #A1A1AA;">({rendite_pa:.1f}% p.a.)</span>
         </div>
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # GRID OVERVIEW
-st.markdown(f"""
+st.markdown(
+    f"""
 <div class="grid-container">
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
@@ -172,64 +259,140 @@ st.markdown(f"""
         <div class="m-sub dim">Trades & Kommentare</div>
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # TABS
 tab_wealth, tab_trades, tab_candle = st.tabs([
     "📈 VERMÖGENS- & SUBSTANZAUFBAU",
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
-    "🕯️ TAGES-CANDLESTICK"
+    "🕯️ TAGES-CANDLESTICK",
 ])
 
 with tab_wealth:
-    st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>🏛️ Verlauf Vermögensaufbau & Entnahme-Substanz</div>", unsafe_allow_html=True)
-    fig_wealth = go.Figure()
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Startkapital'], name="Startkapital", line=dict(color='#71717A', width=1.5, dash='dash')))
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Kumulierte_Entnahme'], name="Entnommen (Summe)", line=dict(color='#FF3D00', width=1.5), fill='tozeroy', fillcolor='rgba(255, 61, 0, 0.08)'))
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Depotwert_Netto'], name="Netto-Wert (nach Entnahme)", line=dict(color='#29B6F6', width=2)))
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Depotwert_Brutto'], name="Brutto-Depotwert", line=dict(color='#00C853', width=2.5)))
-    fig_wealth.update_layout(
-        paper_bgcolor='#000000', plot_bgcolor='#000000',
-        margin=dict(l=10, r=60, t=50, b=10), height=420,
-        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1, font=dict(color='#E5E7EB', size=11)),
-        xaxis=dict(showgrid=True, gridcolor='#1A1A1A', type='date', tickfont=dict(color='#A1A1AA')),
-        yaxis=dict(showgrid=True, gridcolor='#1A1A1A', side="right", tickformat=",.0f €", tickfont=dict(color='#A1A1AA')),
-        hovermode="x unified"
-    )
-    st.plotly_chart(fig_wealth, use_container_width=True)
+  st.markdown(
+      "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
+      " margin-bottom: 8px;'>🏛️ Verlauf Vermögensaufbau &"
+      " Entnahme-Substanz</div>",
+      unsafe_allow_html=True,
+  )
+  fig_wealth = go.Figure()
+  fig_wealth.add_trace(
+      go.Scatter(
+          x=df_chart.index,
+          y=df_chart["Startkapital"],
+          name="Startkapital",
+          line=dict(color="#71717A", width=1.5, dash="dash"),
+      )
+  )
+  fig_wealth.add_trace(
+      go.Scatter(
+          x=df_chart.index,
+          y=df_chart["Kumulierte_Entnahme"],
+          name="Entnommen (Summe)",
+          line=dict(color="#FF3D00", width=1.5),
+          fill="tozeroy",
+          fillcolor="rgba(255, 61, 0, 0.08)",
+      )
+  )
+  fig_wealth.add_trace(
+      go.Scatter(
+          x=df_chart.index,
+          y=df_chart["Depotwert_Netto"],
+          name="Netto-Wert (nach Entnahme)",
+          line=dict(color="#29B6F6", width=2),
+      )
+  )
+  fig_wealth.add_trace(
+      go.Scatter(
+          x=df_chart.index,
+          y=df_chart["Depotwert_Brutto"],
+          name="Brutto-Depotwert",
+          line=dict(color="#00C853", width=2.5),
+      )
+  )
+  fig_wealth.update_layout(
+      paper_bgcolor="#000000",
+      plot_bgcolor="#000000",
+      margin=dict(l=10, r=60, t=50, b=10),
+      height=420,
+      legend=dict(
+          orientation="h",
+          yanchor="bottom",
+          y=1.05,
+          xanchor="right",
+          x=1,
+          font=dict(color="#E5E7EB", size=11),
+      ),
+      xaxis=dict(
+          showgrid=True,
+          gridcolor="#1A1A1A",
+          type="date",
+          tickfont=dict(color="#A1A1AA"),
+      ),
+      yaxis=dict(
+          showgrid=True,
+          gridcolor="#1A1A1A",
+          side="right",
+          tickformat=",.0f €",
+          tickfont=dict(color="#A1A1AA"),
+      ),
+      hovermode="x unified",
+  )
+  st.plotly_chart(fig_wealth, use_container_width=True)
 
 with tab_trades:
-    st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>📝 Trader-Protokoll: Trades & Live-Kommentare</div>", unsafe_allow_html=True)
-    with st.form("trade_input_form", clear_on_submit=True):
-        col1, col2, col3 = st.columns([2, 2, 3])
-        with col1:
-            event_typ = st.selectbox("Typ", ["Trade (Kauf/Verkauf)", "Trader-Kommentar", "Wichtiger Hinweis"])
-        with col2:
-            event_datum = st.date_input("Datum", datetime.date.today())
-        with col3:
-            event_titel = st.text_input("Titel / Aktie / Kurzbeschreibung", placeholder="z.B. NVIDIA Kauf oder Markt-Update")
-        event_inhalt = st.text_area("Details / Kommentartext des Traders", placeholder="Hier den vollständigen Kommentar oder Ordereinzelheiten eintragen...")
-        submitted = st.form_submit_button("💾 Event speichern")
-        if submitted and event_titel:
-            new_entry = {
-                "id": len(db_events) + 1,
-                "typ": event_typ,
-                "datum": event_datum.strftime('%Y-%m-%d'),
-                "titel": event_titel,
-                "inhalt": event_inhalt
-            }
-            db_events.insert(0, new_entry)
-            save_db(db_events)
-            st.success("Erfolgreich in der Datenbank gespeichert!")
-            st.rerun()
+  st.markdown(
+      "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
+      " margin-bottom: 8px;'>📝 Trader-Protokoll: Trades & Live-Kommentare</div>",
+      unsafe_allow_html=True,
+  )
+  with st.form("trade_input_form", clear_on_submit=True):
+    col1, col2, col3 = st.columns([2, 2, 3])
+    with col1:
+      event_typ = st.selectbox(
+          "Typ",
+          ["Trade (Kauf/Verkauf)", "Trader-Kommentar", "Wichtiger Hinweis"],
+      )
+    with col2:
+      event_datum = st.date_input("Datum", datetime.date.today())
+    with col3:
+      event_titel = st.text_input(
+          "Titel / Aktie / Kurzbeschreibung",
+          placeholder="z.B. NVIDIA Kauf oder Markt-Update",
+      )
+    event_inhalt = st.text_area(
+        "Details / Kommentartext des Traders",
+        placeholder=(
+            "Hier den vollständigen Kommentar oder Ordereinzelheiten"
+            " eintragen..."
+        ),
+    )
+    submitted = st.form_submit_button("💾 Event speichern")
+    if submitted and event_titel:
+      new_entry = {
+          "id": len(db_events) + 1,
+          "typ": event_typ,
+          "datum": event_datum.strftime("%Y-%m-%d"),
+          "titel": event_titel,
+          "inhalt": event_inhalt,
+      }
+      db_events.insert(0, new_entry)
+      save_db(db_events)
+      st.success("Erfolgreich in der Datenbank gespeichert!")
+      st.rerun()
 
-    st.markdown("---")
-    st.markdown("### 📋 Historie der gespeicherten Events")
-    if len(db_events) == 0:
-        st.info("Bisher wurden keine Trades oder Kommentare manuell gespeichert.")
-    else:
-        for ev in db_events:
-            st.markdown(f"""
+  st.markdown("---")
+  st.markdown("### 📋 Historie der gespeicherten Events")
+  if len(db_events) == 0:
+    st.info(
+        "Bisher wurden keine Trades oder Kommentare manuell gespeichert."
+    )
+  else:
+    for ev in db_events:
+      st.markdown(
+          f"""
             <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
                 <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #71717A; margin-bottom: 4px;">
                     <span><b>[{ev.get('typ', 'Event')}]</b></span>
@@ -238,20 +401,47 @@ with tab_trades:
                 <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem; margin-bottom: 4px;">{ev.get('titel')}</div>
                 <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt')}</div>
             </div>
-            """, unsafe_allow_html=True)
+            """,
+          unsafe_allow_html=True,
+      )
 
 with tab_candle:
-    st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;'>🕯️ Intraday / Historischer Candlestick-Chart</div>", unsafe_allow_html=True)
-    fig_candle = go.Figure(data=[go.Candlestick(
-        x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
-        low=df_chart['Low'], close=df_chart['Close'],
-        increasing_line_color='#00C853', decreasing_line_color='#FF3D00'
-    )])
-    fig_candle.update_layout(
-        paper_bgcolor='#000000', plot_bgcolor='#000000',
-        margin=dict(l=10, r=60, t=30, b=10), height=450,
-        xaxis=dict(showgrid=True, gridcolor='#1A1A1A', type='date', tickfont=dict(color='#A1A1AA')),
-        yaxis=dict(showgrid=True, gridcolor='#1A1A1A', side="right", tickfont=dict(color='#A1A1AA')),
-        showlegend=False
-    )
-    st.plotly_chart(fig_candle, use_container_width=True)
+  st.markdown(
+      "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
+      " margin-bottom: 8px;'>🕯️ Intraday / Historischer"
+      " Candlestick-Chart</div>",
+      unsafe_allow_html=True,
+  )
+  fig_candle = go.Figure(
+      data=[
+          go.Candlestick(
+              x=df_chart.index,
+              open=df_chart["Open"],
+              high=df_chart["High"],
+              low=df_chart["Low"],
+              close=df_chart["Close"],
+              increasing_line_color="#00C853",
+              decreasing_line_color="#FF3D00",
+          )
+      ]
+  )
+  fig_candle.update_layout(
+      paper_bgcolor="#000000",
+      plot_bgcolor="#000000",
+      margin=dict(l=10, r=60, t=30, b=10),
+      height=450,
+      xaxis=dict(
+          showgrid=True,
+          gridcolor="#1A1A1A",
+          type="date",
+          tickfont=dict(color="#A1A1AA"),
+      ),
+      yaxis=dict(
+          showgrid=True,
+          gridcolor="#1A1A1A",
+          side="right",
+          tickfont=dict(color="#A1A1AA"),
+      ),
+      showlegend=False,
+  )
+  st.plotly_chart(fig_candle, use_container_width=True)
