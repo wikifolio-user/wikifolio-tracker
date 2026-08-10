@@ -164,22 +164,35 @@ st.markdown(
 )
 
 
-# --- CHART & DATEN GENERIERUNG ---
+# --- REALISTISCHE CHART- & DATEN GENERIERUNG ---
 @st.cache_data
 def get_chart_data(target_kurs):
   start_dt = pd.to_datetime("2025-07-09")
   end_dt = datetime.datetime.now()
   dates = pd.date_range(start=start_dt, end=end_dt, freq="h")
 
-  base_trend = np.linspace(ANFANGSKURS, target_kurs, len(dates))
-  noise = np.sin(np.linspace(0, 30, len(dates))) * 0.8
-  final_close = base_trend + noise
-  final_close[-1] = target_kurs
+  np.random.seed(42)  # Fester Seed für stabiles, organisches Rauschen
+  n = len(dates)
+
+  # Realistischerer Random Walk / kumulierte Schwankungen statt starrer Linie
+  trend = np.linspace(ANFANGSKURS, target_kurs, n)
+  # Erzeuge organische Marktschwankungen (Random Walk mit Mean Reversion)
+  steps = np.random.normal(loc=0.0, scale=0.35, size=n)
+  random_walk = np.cumsum(steps)
+  # Sanft zur Linie hin ausrichten, damit es am Ende exakt auf den Zielkurs trifft
+  random_walk = random_walk - np.linspace(0, random_walk[-1], n)
+
+  final_close = trend + random_walk
+  final_close[-1] = target_kurs  # Exakter Endpunkt auf aktuellen Input
 
   df = pd.DataFrame({"Close": final_close}, index=dates)
   df["Open"] = df["Close"].shift(1).fillna(ANFANGSKURS)
-  df["High"] = df[["Open", "Close"]].max(axis=1) + 0.2
-  df["Low"] = df[["Open", "Close"]].min(axis=1) - 0.2
+  df["High"] = df[["Open", "Close"]].max(axis=1) + np.abs(
+      np.random.normal(0.1, 0.05, n)
+  )
+  df["Low"] = df[["Open", "Close"]].min(axis=1) - np.abs(
+      np.random.normal(0.1, 0.05, n)
+  )
   return df
 
 
@@ -206,7 +219,7 @@ letztes_update_zeit = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S Uhr")
 if tages_verenderung_pct <= -1.0:
   send_discord_alert(tages_verenderung_pct, aktueller_kurs)
 
-# Korrekte Entnahme-Berechnung auf Monatsbasis (ohne Stundendplikation)
+# Korrekte Entnahme-Berechnung auf Monatsbasis
 start_dt = pd.to_datetime("2025-07-09")
 
 
@@ -310,7 +323,7 @@ with tab_wealth:
   st.markdown(
       "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
       " margin-bottom: 8px;'>🏛️ Verlauf Vermögensaufbau &"
-      " Entnahme-Substanz (Granular & Monatsbasis)</div>",
+      " Entnahme-Substanz (Realistisch simuliert)</div>",
       unsafe_allow_html=True,
   )
   fig_wealth = go.Figure()
