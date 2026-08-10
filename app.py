@@ -171,19 +171,16 @@ def get_chart_data(target_kurs):
   end_dt = datetime.datetime.now()
   dates = pd.date_range(start=start_dt, end=end_dt, freq="h")
 
-  np.random.seed(42)  # Fester Seed für stabiles, organisches Rauschen
+  np.random.seed(42)
   n = len(dates)
 
-  # Realistischerer Random Walk / kumulierte Schwankungen statt starrer Linie
   trend = np.linspace(ANFANGSKURS, target_kurs, n)
-  # Erzeuge organische Marktschwankungen (Random Walk mit Mean Reversion)
   steps = np.random.normal(loc=0.0, scale=0.35, size=n)
   random_walk = np.cumsum(steps)
-  # Sanft zur Linie hin ausrichten, damit es am Ende exakt auf den Zielkurs trifft
   random_walk = random_walk - np.linspace(0, random_walk[-1], n)
 
   final_close = trend + random_walk
-  final_close[-1] = target_kurs  # Exakter Endpunkt auf aktuellen Input
+  final_close[-1] = target_kurs
 
   df = pd.DataFrame({"Close": final_close}, index=dates)
   df["Open"] = df["Close"].shift(1).fillna(ANFANGSKURS)
@@ -219,7 +216,6 @@ letztes_update_zeit = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S Uhr")
 if tages_verenderung_pct <= -1.0:
   send_discord_alert(tages_verenderung_pct, aktueller_kurs)
 
-# Korrekte Entnahme-Berechnung auf Monatsbasis
 start_dt = pd.to_datetime("2025-07-09")
 
 
@@ -239,7 +235,6 @@ df_chart["Depotwert_Netto"] = (
 )
 df_chart["Startkapital"] = STARTKAPITAL
 
-# Aktuelle Kennzahlen für Widgets berechnen
 heutige_monate_anzahl = max(
     0,
     (datetime.datetime.now().year - start_dt.year) * 12
@@ -323,7 +318,7 @@ with tab_wealth:
   st.markdown(
       "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
       " margin-bottom: 8px;'>🏛️ Verlauf Vermögensaufbau &"
-      " Entnahme-Substanz (Realistisch simuliert)</div>",
+      " Entnahme-Substanz (Quartals-Skalierung)</div>",
       unsafe_allow_html=True,
   )
   fig_wealth = go.Figure()
@@ -361,6 +356,8 @@ with tab_wealth:
           line=dict(color="#00C853", width=2.5),
       )
   )
+
+  # Eigene Funktion für deutsche Tausender-Formatierung auf der Y-Achse mit Punkt
   fig_wealth.update_layout(
       paper_bgcolor="#000000",
       plot_bgcolor="#000000",
@@ -379,14 +376,33 @@ with tab_wealth:
           gridcolor="#1A1A1A",
           type="date",
           tickfont=dict(color="#A1A1AA"),
+          dtick="M3",  # Quartalsweise Markierungen auf der X-Achse
+          tickformat="%b %Y",
       ),
       yaxis=dict(
           showgrid=True,
           gridcolor="#1A1A1A",
           side="right",
-          tickformat=",.0f",
-          tickfont=dict(color="#A1A1AA"),
+          dtick=1000,  # Exakte 1.000 € Schritte
+          tickprefix="",
           ticksuffix=" €",
+          tickfont=dict(color="#A1A1AA"),
+          # Benutzerdefiniertes deutsches Zahlenformat mit Punkt als Tausendertrennzeichen
+          tickvals=list(
+              range(
+                  0,
+                  int(df_chart["Depotwert_Brutto"].max() + 5000),
+                  1000,
+              )
+          ),
+          ticktext=[
+              f"{v:,.0f}".replace(",", ".")
+              for v in range(
+                  0,
+                  int(df_chart["Depotwert_Brutto"].max() + 5000),
+                  1000,
+              )
+          ],
       ),
       hovermode="x unified",
   )
