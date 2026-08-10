@@ -145,7 +145,6 @@ st.markdown(
     }
     .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 14px 16px; }
     
-    /* Hier wurden Schriftgröße und Helligkeit der Grautöne erhöht */
     .m-label { font-size: 0.75rem; color: #A1A1AA; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
     .m-val { font-size: 1.4rem; font-weight: 800; color: #FFFFFF; margin: 6px 0; white-space: nowrap; }
     .m-sub { font-size: 0.85rem; font-weight: 600; white-space: nowrap; color: #CBD5E1; }
@@ -261,6 +260,9 @@ rendite_mo = (
     ((aktueller_kurs / ANFANGSKURS) ** (1 / max(1, monate_gehalten))) - 1
 ) * 100
 
+# Monatlicher Bruttogewinn-Durchschnitt (absolut) für die Prognose
+mtl_gewinn_avg = gewinn_brutto / max(1, monate_gehalten)
+
 # HEADER BAR
 st.markdown(
     f"""
@@ -289,7 +291,7 @@ st.markdown(
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
         <div class="m-val pos">{fmt(brutto_ist)} €</div>
-        <div class="m-sub pos">+{fmt(gewinn_brutto)} € ({rendite_ist_pct:.2f}%) | Ø +{fmt(gewinn_brutto / max(1, monate_gehalten), 2)} € mtl.</div>
+        <div class="m-sub pos">+{fmt(gewinn_brutto)} € ({rendite_ist_pct:.2f}%) | Ø +{fmt(mtl_gewinn_avg, 2)} € mtl.</div>
         <div class="m-sub" style="margin-top: 4px; color: #CBD5E1;">Ø {rendite_pa:.1f}% p.a. | {rendite_mo:+.2f}% mtl.</div>
     </div>
     <div class="m-card">
@@ -317,11 +319,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# TABS
-tab_wealth, tab_trades, tab_candle = st.tabs([
+# TABS (inkl. Neuem Tab am Ende)
+tab_wealth, tab_trades, tab_candle, tab_forecast = st.tabs([
     "📈 VERMÖGENS- & SUBSTANZAUFBAU",
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
     "🕯️ TAGES-CANDLESTICK",
+    "🔮 ZUKUNFTS-PROGNOSE (5 JAHRE)",
 ])
 
 with tab_wealth:
@@ -459,7 +462,7 @@ with tab_trades:
           placeholder="z.B. NVIDIA Kauf oder Markt-Update",
       )
     event_inhalt = st.text_area(
-        "Details / Kommentartext des Traders",
+        "Details / Kommentartext du Traders",
         placeholder=(
             "Hier den vollständigen Kommentar oder Ordereinzelheiten"
             " eintragen..."
@@ -477,7 +480,7 @@ with tab_trades:
       db_events.insert(0, new_entry)
       save_db(db_events)
       st.success("Erfolgreich in der Datenbank gespeichert!")
-      st.rerun()
+      st.rerurn()
 
 with tab_candle:
   st.markdown(
@@ -519,3 +522,132 @@ with tab_candle:
       showlegend=False,
   )
   st.plotly_chart(fig_candle, use_container_width=True)
+
+with tab_forecast:
+  st.markdown(
+      "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
+      " margin-bottom: 8px;'>🔮 5-Jahres-Zukunftsprognose (Basierend auf aktuellem"
+      " Brutto-Monatsdurchschnitt)</div>",
+      unsafe_allow_html=True,
+  )
+  st.info(
+      f"Die Prognose projiziert den bisherigen durchschnittlichen"
+      f" Bruttogewinn von ca. **+{fmt(mtl_gewinn_avg, 2)} € / Monat** (bzw."
+      f" geometrisch **{rendite_mo:+.2f}% mtl.**) über die kommenden 5 Jahre"
+      " fort."
+  )
+
+  # Berechnungs-Logik für 5 Jahre (60 Monate)
+  forecast_data = []
+  current_date_val = datetime.date.today()
+  sim_brutto = brutto_ist
+  sim_netto = netto_ist
+  sim_entnahme_kumuliert = gesamt_entnommen
+
+  # Wir speichern Jahr 0 (heute)
+  forecast_data.append({
+      "Jahr": "Heute (Jahr 0)",
+      "Datum": current_date_val.strftime("%d.%m.%Y"),
+      "Brutto Depotwert": sim_brutto,
+      "Gesamter Gewinn": sim_brutto - STARTKAPITAL,
+      "Netto Depotwert": sim_netto,
+      "Kumulierte Entnahme": sim_entnahme_kumuliert,
+  })
+
+  # Projektion Jahr 1 bis 5 (jeweils in 12-Monats-Schritten via Zinseszins & linearer Entnahme)
+  for y in range(1, 6):
+    # Monatliche Simulation für dieses Jahr (Zinseszins auf Brutto + fortlaufende monatliche Entnahme)
+    for m in range(12):
+      sim_brutto = sim_brutto * (1 + (rendite_mo / 100.0))
+      sim_entnahme_kumuliert += ENTNAHME_PM
+
+    sim_netto = sim_brutto - sim_entnahme_kumuliert
+    fut_date = current_date_val + datetime.timedelta(days=y * 365)
+
+    forecast_data.append({
+        "Jahr": f"Jahr +{y}",
+        "Datum": fut_date.strftime("%d.%m.%Y"),
+        "Brutto Depotwert": sim_brutto,
+        "Gesamter Gewinn": sim_brutto - STARTKAPITAL,
+        "Netto Depotwert": sim_netto,
+        "Kumulierte Entnahme": sim_entnahme_kumuliert,
+    })
+
+  df_forecast = pd.DataFrame(forecast_data)
+
+  # Plotly Chart für die Prognose
+  fig_forecast = go.Figure()
+  fig_forecast.add_trace(
+      go.Scatter(
+          x=df_forecast["Jahr"],
+          y=df_forecast["Brutto Depotwert"],
+          name="Projizierter Brutto-Wert",
+          mode="lines+markers+text",
+          line=dict(color="#00C853", width=3),
+          text=[f"{fmt(val)} €" for val in df_forecast["Brutto Depotwert"]],
+          textposition="top center",
+          textfont=dict(color="#00C853", size=11),
+      )
+  )
+  fig_forecast.add_trace(
+      go.Scatter(
+          x=df_forecast["Jahr"],
+          y=df_forecast["Netto Depotwert"],
+          name="Projizierter Netto-Wert (nach Entnahme)",
+          mode="lines+markers",
+          line=dict(color="#29B6F6", width=2, dash="dash"),
+      )
+  )
+  fig_forecast.add_trace(
+      go.Scatter(
+          x=df_forecast["Jahr"],
+          y=df_forecast["Kumulierte Entnahme"],
+          name="Kumulierte Entnahmen",
+          mode="lines+markers",
+          line=dict(color="#FF3D00", width=2, dash="dot"),
+      )
+  )
+
+  fig_forecast.update_layout(
+      paper_bgcolor="#000000",
+      plot_bgcolor="#000000",
+      margin=dict(l=10, r=30, t=50, b=40),
+      height=400,
+      legend=dict(
+          orientation="h",
+          yanchor="bottom",
+          y=1.05,
+          xanchor="right",
+          x=1,
+          font=dict(color="#E5E7EB", size=11),
+      ),
+      xaxis=dict(
+          showgrid=True,
+          gridcolor="#1A1A1A",
+          tickfont=dict(color="#A1A1AA"),
+      ),
+      yaxis=dict(
+          showgrid=True,
+          gridcolor="#1A1A1A",
+          side="right",
+          tickprefix="",
+          ticksuffix=" €",
+          tickfont=dict(color="#A1A1AA"),
+      ),
+      hovermode="x unified",
+  )
+  st.plotly_chart(fig_forecast, use_container_width=True)
+
+  st.markdown("### 📊 Tabellarische Übersicht der nächsten 5 Jahre")
+
+  # Formatierte Tabelle für die Anzeige
+  df_display = df_forecast.copy()
+  for col in [
+      "Brutto Depotwert",
+      "Gesamter Gewinn",
+      "Netto Depotwert",
+      "Kumulierte Entnahme",
+  ]:
+    df_display[col] = df_display[col].apply(lambda x: f"{fmt(x)} €")
+
+  st.dataframe(df_display, use_container_width=True, hide_index=True)
