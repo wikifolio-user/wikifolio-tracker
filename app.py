@@ -126,7 +126,7 @@ if st.sidebar.button("🔔 Test-Alarm an Discord senden"):
         "Fehler beim Senden oder Cooldown aktiv (max. 1 Alarm pro Stunde)."
     )
 
-# --- TERMINAL STYLING (Mit Padding unten gegen Verdeckung) ---
+# --- TERMINAL STYLING ---
 st.markdown(
     """
 <style>
@@ -140,7 +140,7 @@ st.markdown(
     .header-title { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; }
     
     .grid-container {
-        display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 12px; margin-bottom: 20px;
     }
     .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 12px 14px; }
@@ -152,6 +152,7 @@ st.markdown(
     .neg { color: #FF3D00; }
     .dim { color: #71717A; }
     .blue { color: #29B6F6; }
+    .orange { color: #FF3D00; }
     
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
@@ -273,7 +274,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (Optimiert für volle Sichtbarkeit der Karten)
+# GRID OVERVIEW (Inklusive separatem Entnahme-Punkt unter Netto)
 st.markdown(
     f"""
 <div class="grid-container">
@@ -290,7 +291,12 @@ st.markdown(
     <div class="m-card">
         <div class="m-label">Netto (Nach Entnahme)</div>
         <div class="m-val blue">{fmt(netto_ist)} €</div>
-        <div class="m-sub dim">Entnommen: {fmt(gesamt_entnommen)} € ({fmt(ENTNAHME_PM)}€/Mo.)</div>
+        <div class="m-sub dim">Aktueller Depotwert bereinigt</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Entnommenes Kapital</div>
+        <div class="m-val orange">{fmt(gesamt_entnommen)} €</div>
+        <div class="m-sub dim">Monatlich: {fmt(ENTNAHME_PM)} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Veränderung vs. Vortag</div>
@@ -330,16 +336,7 @@ with tab_wealth:
           line=dict(color="#71717A", width=1.5, dash="dash"),
       )
   )
-  fig_wealth.add_trace(
-      go.Scatter(
-          x=df_chart.index,
-          y=df_chart["Kumulierte_Entnahme"],
-          name="Entnommen (Summe, mtl. Stufen)",
-          line=dict(color="#FF3D00", width=1.5, shape="hv"),
-          fill="tozeroy",
-          fillcolor="rgba(255, 61, 0, 0.08)",
-      )
-  )
+  # Entnommenes Kapital wurde hier aus dem Chart entfernt
   fig_wealth.add_trace(
       go.Scatter(
           x=df_chart.index,
@@ -360,9 +357,7 @@ with tab_wealth:
   fig_wealth.update_layout(
       paper_bgcolor="#000000",
       plot_bgcolor="#000000",
-      margin=dict(
-          l=10, r=60, t=50, b=40
-      ),  # Unten mehr Abstand, damit das Datum nicht verdeckt wird
+      margin=dict(l=10, r=60, t=50, b=40),
       height=420,
       legend=dict(
           orientation="h",
@@ -381,10 +376,7 @@ with tab_wealth:
           tickformat="%b %Y",
           range=[
               df_chart.index[0],
-              df_chart.index[-1]
-              + pd.Timedelta(
-                  days=20
-              ),  # Puffer am rechten Rand für das aktuelle Datum
+              df_chart.index[-1] + pd.Timedelta(days=20),
           ],
       ),
       yaxis=dict(
