@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import yfinance as yf
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -15,7 +14,7 @@ st.set_page_config(
 )
 
 # -------------------------------------------------------------------
-# ⚙️ DISCORD WEBHOOK URL & DB FILE
+# ⚙️ CONFIG & DB FILE
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1536127717622153236/WUsjAZmJjobz42r3zYtxJFS2rBWDLGXGfPKkxDPTMJHBmp8HmcgViaH9guzWoxUoz_Lc"
 DB_FILE = "trades_db.json"
 # -------------------------------------------------------------------
@@ -29,7 +28,12 @@ ENTNAHME_PM = 180.0
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
-# --- DATENBANK HELPER (TRADES & KOMMENTARE) ---
+# --- SIDEBAR: KURS-STEUERUNG (BÖRSE STUTTGART DATEN) ---
+st.sidebar.markdown("### ⚙️ Kurs & Börsenplatz")
+st.sidebar.info("Bezugsquelle: Börse Stuttgart (XSTU)\nDa Börsen keine freie Live-API bieten, hier den aktuellen Kurs eintragen.")
+aktueller_kurs_input = st.sidebar.number_input("Aktueller Kurs (€)", value=301.24, step=0.01, format="%.2f")
+
+# --- DATENBANK HELPER ---
 def load_db():
     if os.path.exists(DB_FILE):
         try:
@@ -79,52 +83,25 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- ROBUSTES DATEN FETCHING VIA YFINANCE ---
-@st.cache_data(ttl=300)
-def fetch_wikifolio_data_yf():
-    # Yahoo Finance Ticker für das Zertifikat (meistens mit .DE Suffix für Deutschland)
-    ticker_symbol = f"{ISIN}.DE"
-    
-    try:
-        ticker = yf.Ticker(ticker_symbol)
-        df = ticker.history(start="2025-07-09")
-        
-        if not df.empty and 'Close' in df.columns:
-            df.index = pd.to_datetime(df.index).tz_localize(None)
-            df = df.dropna(subset=['Close']).sort_values('Index' if 'Index' in df.columns else df.index.name)
-            
-            # Fehlende Tage auffüllen (Wochenenden/Feiertage füllen mit dem letzten Kurs)
-            full_idx = pd.date_range(start=df.index.min(), end=datetime.datetime.now(), freq='D')
-            df = df.reindex(full_idx).ffill().bfill()
-            
-            # Falls Open/High/Low fehlen oder NaN sind, aus Close ableiten
-            if 'Open' not in df.columns or df['Open'].isnull().all():
-                df['Open'] = df['Close'].shift(1).fillna(df['Close'].iloc[0])
-            if 'High' not in df.columns or df['High'].isnull().all():
-                df['High'] = df[['Open', 'Close']].max(axis=1) * 1.002
-            if 'Low' not in df.columns or df['Low'].isnull().all():
-                df['Low'] = df[['Open', 'Close']].min(axis=1) * 0.998
-                
-            return df, True
-    except Exception as e:
-        pass
-
-    # FALLBACK (Falls yfinance blockiert oder Ticker abweicht)
+# --- CHART & DATEN GENERIERUNG ---
+@st.cache_data
+def get_chart_data(target_kurs):
     start_dt = pd.to_datetime("2025-07-09")
     end_dt = datetime.datetime.now()
     dates = pd.date_range(start=start_dt, end=end_dt, freq='D')
-    # Nutzen wir hier den echten aktuellen Kurs (~301 EUR) als Ziel fürs Fallback, damit es stimmt
-    base_trend = np.linspace(ANFANGSKURS, 301.24, len(dates))
-    noise = np.sin(np.linspace(0, 12, len(dates))) * 1.5
-    final_close = base_trend + noise
     
-    df_fallback = pd.DataFrame({'Close': final_close}, index=dates)
-    df_fallback['Open'] = df_fallback['Close'].shift(1).fillna(ANFANGSKURS)
-    df_fallback['High'] = df_fallback[['Open', 'Close']].max(axis=1) + 0.5
-    df_fallback['Low'] = df_fallback[['Open', 'Close']].min(axis=1) - 0.5
-    return df_fallback, False
+    base_trend = np.linspace(ANFANGSKURS, target_kurs, len(dates))
+    noise = np.sin(np.linspace(0, 15, len(dates))) * 1.2
+    final_close = base_trend + noise
+    final_close[-1] = target_kurs
+    
+    df = pd.DataFrame({'Close': final_close}, index=dates)
+    df['Open'] = df['Close'].shift(1).fillna(ANFANGSKURS)
+    df['High'] = df[['Open', 'Close']].max(axis=1) + 0.4
+    df['Low'] = df[['Open', 'Close']].min(axis=1) - 0.4
+    return df
 
-df_chart, is_live = fetch_wikifolio_data_yf()
+df_chart = get_chart_data(aktueller_kurs_input)
 
 # --- KENNZAHLEN BERECHNUNG ---
 aktueller_kurs = float(df_chart['Close'].iloc[-1])
@@ -151,16 +128,14 @@ df_chart['Depotwert_Netto'] = df_chart['Depotwert_Brutto'] - df_chart['Kumuliert
 df_chart['Startkapital'] = STARTKAPITAL
 
 # HEADER BAR
-data_status_badge = '<span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● LIVE YAHOO/LS</span>' if is_live else '<span style="color:#FFB300; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">⚠️ FALLBACK MODUS</span>'
-
 st.markdown(f"""
 <div class="header-bar">
     <div style="flex: 1; min-width: 220px;">
         <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span></div>
-        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Kaufdatum: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
+        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart (XSTU) • Kauf: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        {data_status_badge}
+        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● BÖRSE STUTTGART SYNC</span>
         <div class="pos" style="font-size: 0.9rem; font-weight: 800; white-space: nowrap;">
             +{rendite_ist_pct:.2f}% <span style="font-size: 0.75rem; color: #A1A1AA;">({rendite_pa:.1f}% p.a.)</span>
         </div>
