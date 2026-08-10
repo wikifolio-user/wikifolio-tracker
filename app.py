@@ -274,14 +274,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW
+# GRID OVERVIEW (Veränderung vs. Vortag und Anfangskapital getauscht)
 st.markdown(
     f"""
 <div class="grid-container">
     <div class="m-card">
-        <div class="m-label">Anfangskapital</div>
-        <div class="m-val">{fmt(STARTKAPITAL)} €</div>
-        <div class="m-sub dim">Kauf: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
+        <div class="m-label">Veränderung vs. Vortag</div>
+        <div class="m-val {'pos' if tages_verenderung_pct >= 0 else 'neg'}">{tages_verenderung_pct:+.2f}%</div>
+        <div class="m-sub dim">Schluss ({vortag_datum_str}): {vortag_kurs:.2f} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
@@ -299,9 +299,9 @@ st.markdown(
         <div class="m-sub dim">Monatlich: {fmt(ENTNAHME_PM)} €</div>
     </div>
     <div class="m-card">
-        <div class="m-label">Veränderung vs. Vortag</div>
-        <div class="m-val {'pos' if tages_verenderung_pct >= 0 else 'neg'}">{tages_verenderung_pct:+.2f}%</div>
-        <div class="m-sub dim">Schluss ({vortag_datum_str}): {vortag_kurs:.2f} €</div>
+        <div class="m-label">Anfangskapital</div>
+        <div class="m-val">{fmt(STARTKAPITAL)} €</div>
+        <div class="m-sub dim">Kauf: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
     <div class="m-card">
         <div class="m-label">Registrierte Events</div>
