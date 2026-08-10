@@ -254,8 +254,12 @@ jahre_gehalten = tage_gehalten / 365.25
 rendite_pa = (
     ((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1
 ) * 100
+monate_gehalten = max(1, jahre_gehalten * 12)
+rendite_mo = (
+    ((aktueller_kurs / ANFANGSKURS) ** (1 / max(1, monate_gehalten))) - 1
+) * 100
 
-# HEADER BAR
+# HEADER BAR (Ohne Prozentangaben)
 st.markdown(
     f"""
 <div class="header-bar">
@@ -265,16 +269,13 @@ st.markdown(
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
         <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● LIVE (&le; -1% ALARM)</span>
-        <div class="pos" style="font-size: 0.9rem; font-weight: 800; white-space: nowrap;">
-            +{rendite_ist_pct:.2f}% <span style="font-size: 0.75rem; color: #A1A1AA;">({rendite_pa:.1f}% p.a.)</span>
-        </div>
     </div>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (Inklusive Anfangskaufkurs bei Anfangskapital)
+# GRID OVERVIEW (Inklusive prozentualer Veränderung p.a. & monatlich unter Brutto Depotwert)
 st.markdown(
     f"""
 <div class="grid-container">
@@ -286,7 +287,8 @@ st.markdown(
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
         <div class="m-val pos">{fmt(brutto_ist)} €</div>
-        <div class="m-sub pos">+{fmt(gewinn_brutto)} € Gewinn</div>
+        <div class="m-sub pos">+{fmt(gewinn_brutto)} € Gewinn ({rendite_ist_pct:.2f}%)</div>
+        <div class="m-sub dim" style="margin-top: 2px;">Ø {rendite_pa:.1f}% p.a. | {rendite_mo:+.2f}% mtl.</div>
     </div>
     <div class="m-card">
         <div class="m-label">Netto (Nach Entnahme)</div>
