@@ -26,12 +26,12 @@ WIKIFOLIO_SLUG = "wfindizglo"
 ISIN = "DE000LS9VFS2"
 WKN = "LS9VFS"
 ANFANGSKURS = 160.68
-STARTKAPITAL = 20000.0
-ENTNAHME_PM = 180.0
+STARTKAPITAL = 13000.0  # Angepasst auf 13.000 €
+ENTNAHME_PM = 70.0  # Angepasst auf 70 € pro Monat
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
-# --- NATIVES AUTO-REFRESH (ALLE 5 MINUTEN / 300 SEKUNDEN) ---
+# NATIVES AUTO-REFRESH (ALLE 5 MINUTEN / 300 SEKUNDEN)
 st.markdown(
     """
     <meta http-equiv="refresh" content="300">
@@ -175,7 +175,7 @@ def get_chart_data(target_kurs):
 
 df_chart = get_chart_data(aktueller_kurs_input)
 
-# --- KENNZAHLEN BERECHNUNG ---
+# --- KENNZAHLEN & DATUMS-ERFASSUNG ---
 aktueller_kurs = float(df_chart["Close"].iloc[-1])
 vortag_kurs = (
     float(df_chart["Close"].iloc[-2])
@@ -183,6 +183,14 @@ vortag_kurs = (
     else aktueller_kurs
 )
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100
+
+aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
+vortag_datum_str = (
+    df_chart.index[-2].strftime("%d.%m.%Y")
+    if len(df_chart) > 1
+    else aktuelles_datum_str
+)
+letztes_update_zeit = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S Uhr")
 
 # --- TRIGGER CHECK FÜR DISCORD (-1% SCHWELLENWERT) ---
 if tages_verenderung_pct <= -1.0:
@@ -217,11 +225,11 @@ st.markdown(
     f"""
 <div class="header-bar">
     <div style="flex: 1; min-width: 220px;">
-        <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span></div>
-        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart (XSTU) • Kauf: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
+        <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f} €</span> <span style="font-size:0.75rem; color:#A1A1AA;">({aktuelles_datum_str})</span></div>
+        <div class="dim" style="font-size: 0.65rem; margin-top:2px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● AUTO-MONITORING (&le; -1%)</span>
+        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● LIVE (&le; -1% ALARM)</span>
         <div class="pos" style="font-size: 0.9rem; font-weight: 800; white-space: nowrap;">
             +{rendite_ist_pct:.2f}% <span style="font-size: 0.75rem; color: #A1A1AA;">({rendite_pa:.1f}% p.a.)</span>
         </div>
@@ -231,14 +239,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW
+# GRID OVERVIEW (MIT 13.000€ STARTKAPITAL & 70€ ENTHANME)
 st.markdown(
     f"""
 <div class="grid-container">
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
         <div class="m-val">{STARTKAPITAL:,.0f} €</div>
-        <div class="m-sub dim">Kaufkurs: {ANFANGSKURS:.2f} €</div>
+        <div class="m-sub dim">Kauf: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
@@ -248,12 +256,12 @@ st.markdown(
     <div class="m-card">
         <div class="m-label">Netto (Nach Entnahme)</div>
         <div class="m-val blue">{netto_ist:,.0f} €</div>
-        <div class="m-sub dim">Entnommen: {gesamt_entnommen:,.0f} €</div>
+        <div class="m-sub dim">Entnommen: {gesamt_entnommen:,.0f} € ({ENTNAHME_PM:.0f}€/Mo.)</div>
     </div>
     <div class="m-card">
         <div class="m-label">Veränderung vs. Vortag</div>
         <div class="m-val {'pos' if tages_verenderung_pct >= 0 else 'neg'}">{tages_verenderung_pct:+.2f}%</div>
-        <div class="m-sub dim">Schluss Vortag: {vortag_kurs:.2f} €</div>
+        <div class="m-sub dim">Schluss ({vortag_datum_str}): {vortag_kurs:.2f} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Registrierte Events</div>
