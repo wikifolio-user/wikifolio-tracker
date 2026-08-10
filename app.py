@@ -169,7 +169,7 @@ st.markdown(
 def get_chart_data(target_kurs):
   start_dt = pd.to_datetime("2025-07-09")
   end_dt = datetime.datetime.now()
-  dates = pd.date_range(start=start_dt, end=end_dt, freq="h")  # Stündliche Auflösung
+  dates = pd.date_range(start=start_dt, end=end_dt, freq="h")
 
   base_trend = np.linspace(ANFANGSKURS, target_kurs, len(dates))
   noise = np.sin(np.linspace(0, 30, len(dates))) * 0.8
@@ -206,24 +206,20 @@ letztes_update_zeit = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S Uhr")
 if tages_verenderung_pct <= -1.0:
   send_discord_alert(tages_verenderung_pct, aktueller_kurs)
 
-# Exakte monatliche Entnahme-Logik (Stufenform)
+# Korrekte Entnahme-Berechnung auf Monatsbasis (ohne Stundendplikation)
 start_dt = pd.to_datetime("2025-07-09")
 
 
-def berechne_kumulierte_entnahme(dt):
-  # Zählt wie viele volle Monate seit dem Start vergangen sind
+def berechne_monatliche_entnahme(dt):
   monate = (dt.year - start_dt.year) * 12 + (dt.month - start_dt.month)
   if dt.day < start_dt.day:
     monate -= 1
   return max(0, monate) * ENTNAHME_PM
 
 
-df_chart["Monate_aktiv"] = [
-    berechne_kumulierte_entnahme(ts) for ts in df_chart.index
+df_chart["Kumulierte_Entnahme"] = [
+    berechne_monatliche_entnahme(ts) for ts in df_chart.index
 ]
-df_chart["Kumulierte_Entnahme"] = (
-    df_chart["Monate_aktiv"] * ENTNAHME_PM
-)  # Bleibt flach bis zum Monatstag, springt dann exakt
 df_chart["Depotwert_Brutto"] = df_chart["Close"] * STUECKZAHL
 df_chart["Depotwert_Netto"] = (
     df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
@@ -231,8 +227,15 @@ df_chart["Depotwert_Netto"] = (
 df_chart["Startkapital"] = STARTKAPITAL
 
 # Aktuelle Kennzahlen für Widgets berechnen
-heutige_monate = berechne_kumulierte_entnahme(datetime.datetime.now())
-gesamt_entnommen = heutige_monate * ENTNAHME_PM
+heutige_monate_anzahl = max(
+    0,
+    (datetime.datetime.now().year - start_dt.year) * 12
+    + (datetime.datetime.now().month - start_dt.month),
+)
+if datetime.datetime.now().day < start_dt.day:
+  heutige_monate_anzahl -= 1
+gesamt_entnommen = heutige_monate_anzahl * ENTNAHME_PM
+
 brutto_ist = STUECKZAHL * aktueller_kurs
 netto_ist = brutto_ist - gesamt_entnommen
 gewinn_brutto = brutto_ist - STARTKAPITAL
