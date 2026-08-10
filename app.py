@@ -1,11 +1,11 @@
 import datetime
 import json
 import os
-import requests
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import yfinance as yf
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -79,60 +79,52 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- VERBESSERTES CHART DATA FETCHING ---
+# --- ROBUSTES DATEN FETCHING VIA YFINANCE ---
 @st.cache_data(ttl=300)
-def fetch_real_wikifolio_data():
-    # Erweiterte Header, um von Cloudflare/Wikifolio nicht blockiert zu werden
-    url = f"https://www.wikifolio.com/api/wikifolio/{WIKIFOLIO_SLUG}/chartdata?timerange=all"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": f"https://www.wikifolio.com/de/de/w/{WIKIFOLIO_SLUG}"
-    }
+def fetch_wikifolio_data_yf():
+    # Yahoo Finance Ticker für das Zertifikat (meistens mit .DE Suffix für Deutschland)
+    ticker_symbol = f"{ISIN}.DE"
     
     try:
-        res = requests.get(url, headers=headers, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            points = data.get("ChartPoints", [])
-            if not points and isinstance(data, list):
-                points = data
+        ticker = yf.Ticker(ticker_symbol)
+        df = ticker.history(start="2025-07-09")
+        
+        if not df.empty and 'Close' in df.columns:
+            df.index = pd.to_datetime(df.index).tz_localize(None)
+            df = df.dropna(subset=['Close']).sort_values('Index' if 'Index' in df.columns else df.index.name)
+            
+            # Fehlende Tage auffüllen (Wochenenden/Feiertage füllen mit dem letzten Kurs)
+            full_idx = pd.date_range(start=df.index.min(), end=datetime.datetime.now(), freq='D')
+            df = df.reindex(full_idx).ffill().bfill()
+            
+            # Falls Open/High/Low fehlen oder NaN sind, aus Close ableiten
+            if 'Open' not in df.columns or df['Open'].isnull().all():
+                df['Open'] = df['Close'].shift(1).fillna(df['Close'].iloc[0])
+            if 'High' not in df.columns or df['High'].isnull().all():
+                df['High'] = df[['Open', 'Close']].max(axis=1) * 1.002
+            if 'Low' not in df.columns or df['Low'].isnull().all():
+                df['Low'] = df[['Open', 'Close']].min(axis=1) * 0.998
                 
-            if len(points) > 5:
-                df = pd.DataFrame(points)
-                # Spaltennamen prüfen (manchmal 'Date'/'Close', manchmal Kleinbuchstaben)
-                df.columns = [c.capitalize() for c in df.columns]
-                if 'Date' in df.columns and 'Close' in df.columns:
-                    df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
-                    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
-                    df = df.dropna(subset=['Date', 'Close']).sort_values('Date')
-                    df = df[df['Date'] >= pd.to_datetime("2025-07-09")].set_index('Date')
-                    
-                    if not df.empty:
-                        full_idx = pd.date_range(start=df.index.min(), end=datetime.datetime.now(), freq='D')
-                        df = df.reindex(full_idx).ffill().bfill()
-                        df['Open'] = df['Close'].shift(1).fillna(df['Close'].iloc[0])
-                        df['High'] = df[['Open', 'Close']].max(axis=1) * 1.002
-                        df['Low'] = df[['Open', 'Close']].min(axis=1) * 0.998
-                        return df, True # True steht für erfolgreichen Live-Abruf
+            return df, True
     except Exception as e:
         pass
 
-    # FALLBACK DATA (Falls API blockiert oder offline)
+    # FALLBACK (Falls yfinance blockiert oder Ticker abweicht)
     start_dt = pd.to_datetime("2025-07-09")
     end_dt = datetime.datetime.now()
     dates = pd.date_range(start=start_dt, end=end_dt, freq='D')
-    base_trend = np.linspace(ANFANGSKURS, 240.0, len(dates)) # Realistischerer Fallback-Wert
-    noise = np.sin(np.linspace(0, 12, len(dates))) * 2.0
+    # Nutzen wir hier den echten aktuellen Kurs (~301 EUR) als Ziel fürs Fallback, damit es stimmt
+    base_trend = np.linspace(ANFANGSKURS, 301.24, len(dates))
+    noise = np.sin(np.linspace(0, 12, len(dates))) * 1.5
     final_close = base_trend + noise
     
     df_fallback = pd.DataFrame({'Close': final_close}, index=dates)
     df_fallback['Open'] = df_fallback['Close'].shift(1).fillna(ANFANGSKURS)
     df_fallback['High'] = df_fallback[['Open', 'Close']].max(axis=1) + 0.5
     df_fallback['Low'] = df_fallback[['Open', 'Close']].min(axis=1) - 0.5
-    return df_fallback, False # False steht für Fallback-Modus
+    return df_fallback, False
 
-df_chart, is_live = fetch_real_wikifolio_data()
+df_chart, is_live = fetch_wikifolio_data_yf()
 
 # --- KENNZAHLEN BERECHNUNG ---
 aktueller_kurs = float(df_chart['Close'].iloc[-1])
@@ -159,7 +151,7 @@ df_chart['Depotwert_Netto'] = df_chart['Depotwert_Brutto'] - df_chart['Kumuliert
 df_chart['Startkapital'] = STARTKAPITAL
 
 # HEADER BAR
-data_status_badge = '<span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● LIVE API</span>' if is_live else '<span style="color:#FFB300; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">⚠️ FALLBACK MODUS</span>'
+data_status_badge = '<span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">● LIVE YAHOO/LS</span>' if is_live else '<span style="color:#FFB300; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.68rem;">⚠️ FALLBACK MODUS</span>'
 
 st.markdown(f"""
 <div class="header-bar">
