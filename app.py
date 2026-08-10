@@ -274,7 +274,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (Inklusive separatem Entnahme-Punkt unter Netto)
+# GRID OVERVIEW
 st.markdown(
     f"""
 <div class="grid-container">
@@ -336,7 +336,6 @@ with tab_wealth:
           line=dict(color="#71717A", width=1.5, dash="dash"),
       )
   )
-  # Entnommenes Kapital wurde hier aus dem Chart entfernt
   fig_wealth.add_trace(
       go.Scatter(
           x=df_chart.index,
@@ -413,6 +412,34 @@ with tab_trades:
       " margin-bottom: 8px;'>📝 Trader-Protokoll: Trades & Live-Kommentare</div>",
       unsafe_allow_html=True,
   )
+
+  # 1. Historie oben
+  st.markdown("### 📋 Historie der gespeicherten Events")
+  if len(db_events) == 0:
+    st.info(
+        "Bisher wurden keine Trades oder Kommentare manuell oder automatisch"
+        " gespeichert."
+    )
+  else:
+    for ev in db_events:
+      st.markdown(
+          f"""
+            <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #71717A; margin-bottom: 4px;">
+                    <span><b>[{ev.get('typ', 'Event')}]</b></span>
+                    <span>{ev.get('datum')}</span>
+                </div>
+                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem; margin-bottom: 4px;">{ev.get('titel')}</div>
+                <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt')}</div>
+            </div>
+            """,
+          unsafe_allow_html=True,
+      )
+
+  st.markdown("---")
+
+  # 2. Eingabeformular darunter
+  st.markdown("### ✍️ Neuen Eintrag erfassen")
   with st.form("trade_input_form", clear_on_submit=True):
     col1, col2, col3 = st.columns([2, 2, 3])
     with col1:
@@ -447,28 +474,6 @@ with tab_trades:
       save_db(db_events)
       st.success("Erfolgreich in der Datenbank gespeichert!")
       st.rerun()
-
-  st.markdown("---")
-  st.markdown("### 📋 Historie der gespeicherten Events")
-  if len(db_events) == 0:
-    st.info(
-        "Bisher wurden keine Trades oder Kommentare manuell gespeichert."
-    )
-  else:
-    for ev in db_events:
-      st.markdown(
-          f"""
-            <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #71717A; margin-bottom: 4px;">
-                    <span><b>[{ev.get('typ', 'Event')}]</b></span>
-                    <span>{ev.get('datum')}</span>
-                </div>
-                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem; margin-bottom: 4px;">{ev.get('titel')}</div>
-                <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt')}</div>
-            </div>
-            """,
-          unsafe_allow_html=True,
-      )
 
 with tab_candle:
   st.markdown(
