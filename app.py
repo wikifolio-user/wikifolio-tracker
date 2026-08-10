@@ -289,7 +289,7 @@ st.markdown(
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
         <div class="m-val pos">{fmt(brutto_ist)} €</div>
-        <div class="m-sub pos">+{fmt(gewinn_brutto)} € Gewinn ({rendite_ist_pct:.2f}%)</div>
+        <div class="m-sub pos">+{fmt(gewinn_brutto)} € ({rendite_ist_pct:.2f}%) | Ø +{fmt(gewinn_brutto / max(1, monate_gehalten), 2)} € mtl.</div>
         <div class="m-sub" style="margin-top: 4px; color: #CBD5E1;">Ø {rendite_pa:.1f}% p.a. | {rendite_mo:+.2f}% mtl.</div>
     </div>
     <div class="m-card">
