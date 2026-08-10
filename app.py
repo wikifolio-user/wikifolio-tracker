@@ -258,7 +258,7 @@ rendite_mo = (
 
 mtl_gewinn_avg = gewinn_brutto / max(1, monate_gehalten)
 
-# --- BERECHNUNG DES 100.000 € MEILENSTEINS FÜR DAS DASHBOARD ---
+# --- BERECHNUNG DES 100.000 € MEILENSTEINS ---
 sim_b = brutto_ist
 meilenstein_datum_str = "Bereits erreicht"
 milestone_reached = sim_b >= 100000.0
@@ -289,7 +289,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (Inkl. 100k-Ziel unter Entnommenes Kapital)
+# GRID OVERVIEW (Mit eigenem Unterpunkt / eigener Karte für den 100k-Meilenstein)
 st.markdown(
     f"""
 <div class="grid-container">
@@ -313,17 +313,16 @@ st.markdown(
         <div class="m-label">Entnommenes Kapital</div>
         <div class="m-val orange">{fmt(gesamt_entnommen)} €</div>
         <div class="m-sub">Monatlich: {fmt(ENTNAHME_PM)} €</div>
-        <div class="m-sub" style="margin-top: 4px; color: #00C853;">🎯 100k-Ziel: <b>{meilenstein_datum_str}</b></div>
+    </div>
+    <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
+        <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
+        <div class="m-val" style="color: #00C853; font-size: 1.25rem;">{meilenstein_datum_str}</div>
+        <div class="m-sub" style="color: #CBD5E1;">Prognostiziertes Ziel-Datum</div>
     </div>
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
         <div class="m-val">{fmt(STARTKAPITAL)} €</div>
         <div class="m-sub">Kauf ({KAUFDATUM.strftime('%d.%m.%Y')}): {ANFANGSKURS:.2f} €</div>
-    </div>
-    <div class="m-card">
-        <div class="m-label">Registrierte Events</div>
-        <div class="m-val" style="color: #FFB300;">{len(db_events)}</div>
-        <div class="m-sub">Trades & Kommentare</div>
     </div>
 </div>
 """,
