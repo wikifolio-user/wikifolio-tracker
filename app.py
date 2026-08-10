@@ -126,7 +126,7 @@ if st.sidebar.button("🔔 Test-Alarm an Discord senden"):
         "Fehler beim Senden oder Cooldown aktiv (max. 1 Alarm pro Stunde)."
     )
 
-# --- TERMINAL STYLING ---
+# --- TERMINAL STYLING (Mit Padding unten gegen Verdeckung) ---
 st.markdown(
     """
 <style>
@@ -140,7 +140,7 @@ st.markdown(
     .header-title { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; }
     
     .grid-container {
-        display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
         gap: 12px; margin-bottom: 20px;
     }
     .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 12px 14px; }
@@ -154,7 +154,7 @@ st.markdown(
     .blue { color: #29B6F6; }
     
     #MainMenu, footer, header { visibility: hidden; }
-    .block-container { padding-top: 0.8rem; padding-bottom: 0.8rem; }
+    .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
     .stTabs [data-baseweb="tab-list"] { background-color: #000000; gap: 4px; }
     .stTabs [data-baseweb="tab"] { background-color: #09090B; border: 1px solid #18181B; color: #71717A; padding: 6px 14px; font-size: 0.78rem; }
     .stTabs [aria-selected="true"] { background-color: #18181B !important; color: #00C853 !important; border-color: #00C853 !important; }
@@ -273,7 +273,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW
+# GRID OVERVIEW (Optimiert für volle Sichtbarkeit der Karten)
 st.markdown(
     f"""
 <div class="grid-container">
@@ -357,11 +357,12 @@ with tab_wealth:
       )
   )
 
-  # Eigene Funktion für deutsche Tausender-Formatierung auf der Y-Achse mit Punkt
   fig_wealth.update_layout(
       paper_bgcolor="#000000",
       plot_bgcolor="#000000",
-      margin=dict(l=10, r=60, t=50, b=10),
+      margin=dict(
+          l=10, r=60, t=50, b=40
+      ),  # Unten mehr Abstand, damit das Datum nicht verdeckt wird
       height=420,
       legend=dict(
           orientation="h",
@@ -376,18 +377,24 @@ with tab_wealth:
           gridcolor="#1A1A1A",
           type="date",
           tickfont=dict(color="#A1A1AA"),
-          dtick="M3",  # Quartalsweise Markierungen auf der X-Achse
+          dtick="M3",
           tickformat="%b %Y",
+          range=[
+              df_chart.index[0],
+              df_chart.index[-1]
+              + pd.Timedelta(
+                  days=20
+              ),  # Puffer am rechten Rand für das aktuelle Datum
+          ],
       ),
       yaxis=dict(
           showgrid=True,
           gridcolor="#1A1A1A",
           side="right",
-          dtick=1000,  # Exakte 1.000 € Schritte
+          dtick=1000,
           tickprefix="",
           ticksuffix=" €",
           tickfont=dict(color="#A1A1AA"),
-          # Benutzerdefiniertes deutsches Zahlenformat mit Punkt als Tausendertrennzeichen
           tickvals=list(
               range(
                   0,
@@ -494,7 +501,7 @@ with tab_candle:
   fig_candle.update_layout(
       paper_bgcolor="#000000",
       plot_bgcolor="#000000",
-      margin=dict(l=10, r=60, t=30, b=10),
+      margin=dict(l=10, r=60, t=30, b=40),
       height=450,
       xaxis=dict(
           showgrid=True,
