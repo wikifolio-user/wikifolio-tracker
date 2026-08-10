@@ -1,28 +1,48 @@
 import datetime
+from bs4 import BeautifulSoup
 import requests
 import streamlit as st
 
 
 @st.cache_data(ttl=300)  # Kurs für 5 Minuten cachen
-def get_wikifolio_ls_price(isin="DE000LS9VFS2"):
-  """Holt den Echtzeitkurs direkt über die offizielle Kurs-Schnittstelle."""
+def get_ls_wikifolio_price(isin="DE000LS9VFS2"):
+  """Holt den Live-Kurs direkt von der Lang & Schwarz Kursseite für das Wikifolio."""
   try:
-    # Direkte Abfrage der Lang & Schwarz Kursdaten (wird von Wikifolio genutzt)
-    url = f"https://www.ls-tc.de/_api/stock/instrument/{isin}"
+    # Direkte URL zur offiziellen Lang & Schwarz Seite des Wikifolios
+    url = f"https://www.ls-tc.de/de/wikifolio/3865540"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+            " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
     }
     response = requests.get(url, headers=headers, timeout=5)
 
     if response.status_code == 200:
-      data = response.json()
-      # Extrahiere den aktuellen Preis
-      price = float(data.get("price", {}.get("last", 0)))
-      # Formatierter Zeitstempel
-      date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+      soup = BeautifulSoup(response.text, "html.parser")
 
-      if price > 0:
+      # Wir suchen nach dem Kurs-Container auf der Seite
+      # Alternativ extrahieren wir den Text direkt über strukturierte Elemente
+      price_element = soup.find(
+          "span", class_="info-list-value"
+      )  # Fallback-Suche
+      # Sponsoren/Live-Kurs Direktfilter per Textsuche im HTML oder via CSS-Selektor
+      # Bei L&S steht der Hauptkurs meist in einem prominenten Element
+      text_content = soup.get_text()
+
+      # Wir nutzen einen robusteren Weg über die bekannten Klassen von ls-tc.de:
+      # Der aktuelle Kurs steht meist direkt hinter dem Namen oder im Chart-Bereich
+      import re
+      # Suche nach dem Kurswert im Format X.XXX,XXXX €
+      match = re.search(
+          r"(\d{3},\d{4})\s*€", text_content
+      )   z.B. 300,7890 € oder ähnlich
+      if match:
+        price_str = match.group(1).replace(".", "").replace(",", ".")
+        price = float(price_str)
+        date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         return price, date_str
+
   except Exception:
     pass
 
@@ -31,14 +51,16 @@ def get_wikifolio_ls_price(isin="DE000LS9VFS2"):
 
 # --- Ausführung & UI ---
 isin_code = "DE000LS9VFS2"
-current_price, price_date = get_wikifolio_ls_price(isin_code)
+current_price, price_date = get_ls_wikifolio_price(isin_code)
 
 if current_price is not None:
   price_text = f"{current_price:,.3f} €"
-  date_text = f"Live-Stand vom: {price_date}"
+  date_text = f"Live (L&S) vom: {price_date}"
 else:
-  price_text = "300.338 €"  # Fallback auf deinen letzten bekannten Wert
-  date_text = "Stand (Offline-Modus)"
+  # Fallback auf deinen festen Wert, falls die Abfrage blockiert wird
+  current_price = 300.338
+  price_text = f"{current_price:,.3f} €"
+  date_text = "Stand (Offline-Modus / Zuletzt bekannt)"
 
 st.markdown(
     f"""
