@@ -566,7 +566,7 @@ with tab_forecast:
 
   df_forecast = pd.DataFrame(forecast_data)
 
-  # Plotly Chart
+  # Plotly Chart mit angepasster X-Achsen-Lesbarkeit und Margin
   fig_forecast = go.Figure()
   fig_forecast.add_trace(
       go.Scatter(
@@ -599,21 +599,21 @@ with tab_forecast:
   fig_forecast.update_layout(
       paper_bgcolor="#000000",
       plot_bgcolor="#000000",
-      margin=dict(l=10, r=30, t=80, b=40),
-      height=420,
+      margin=dict(l=10, r=30, t=100, b=60),
+      height=460,
       legend=dict(
           orientation="h",
           yanchor="bottom",
-          y=1.02,
-          xanchor="right",
-          x=1,
+          y=1.12,
+          xanchor="center",
+          x=0.5,
           font=dict(color="#E5E7EB", size=11),
       ),
       xaxis=dict(
           showgrid=True,
           gridcolor="#1A1A1A",
-          tickfont=dict(color="#A1A1AA"),
-          tickangle=0,
+          tickfont=dict(color="#A1A1AA", size=11),
+          tickangle=-25,
       ),
       yaxis=dict(
           showgrid=True,
