@@ -26,10 +26,20 @@ WIKIFOLIO_SLUG = "wfindizglo"
 ISIN = "DE000LS9VFS2"
 WKN = "LS9VFS"
 ANFANGSKURS = 160.68
-STARTKAPITAL = 13000.0  # Angepasst auf 13.000 €
-ENTNAHME_PM = 70.0  # Angepasst auf 70 € pro Monat
+STARTKAPITAL = 13000.0
+ENTNAHME_PM = 70.0
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
+
+
+# Helper für Formatierung mit Punkt als Tausendertrennzeichen
+def fmt(val, dec=0):
+  if dec > 0:
+    s = f"{val:,.{dec}f}"
+  else:
+    s = f"{val:,.0f}"
+  return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 # NATIVES AUTO-REFRESH (ALLE 5 MINUTEN / 300 SEKUNDEN)
 st.markdown(
@@ -159,17 +169,17 @@ st.markdown(
 def get_chart_data(target_kurs):
   start_dt = pd.to_datetime("2025-07-09")
   end_dt = datetime.datetime.now()
-  dates = pd.date_range(start=start_dt, end=end_dt, freq="D")
+  dates = pd.date_range(start=start_dt, end=end_dt, freq="h")  # Stündliche Auflösung
 
   base_trend = np.linspace(ANFANGSKURS, target_kurs, len(dates))
-  noise = np.sin(np.linspace(0, 15, len(dates))) * 1.2
+  noise = np.sin(np.linspace(0, 30, len(dates))) * 0.8
   final_close = base_trend + noise
   final_close[-1] = target_kurs
 
   df = pd.DataFrame({"Close": final_close}, index=dates)
   df["Open"] = df["Close"].shift(1).fillna(ANFANGSKURS)
-  df["High"] = df[["Open", "Close"]].max(axis=1) + 0.4
-  df["Low"] = df[["Open", "Close"]].min(axis=1) - 0.4
+  df["High"] = df[["Open", "Close"]].max(axis=1) + 0.2
+  df["Low"] = df[["Open", "Close"]].min(axis=1) - 0.2
   return df
 
 
@@ -178,16 +188,16 @@ df_chart = get_chart_data(aktueller_kurs_input)
 # --- KENNZAHLEN & DATUMS-ERFASSUNG ---
 aktueller_kurs = float(df_chart["Close"].iloc[-1])
 vortag_kurs = (
-    float(df_chart["Close"].iloc[-2])
-    if len(df_chart) > 1
-    else aktueller_kurs
+    float(df_chart["Close"].iloc[24 * -2])
+    if len(df_chart) > 48
+    else float(df_chart["Close"].iloc[0])
 )
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100
 
 aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
 vortag_datum_str = (
-    df_chart.index[-2].strftime("%d.%m.%Y")
-    if len(df_chart) > 1
+    df_chart.index[-24 * 2].strftime("%d.%m.%Y")
+    if len(df_chart) > 48
     else aktuelles_datum_str
 )
 letztes_update_zeit = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S Uhr")
@@ -196,29 +206,42 @@ letztes_update_zeit = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S Uhr")
 if tages_verenderung_pct <= -1.0:
   send_discord_alert(tages_verenderung_pct, aktueller_kurs)
 
-tage_gehalten = max(1, (datetime.date.today() - KAUFDATUM).days)
-jahre_gehalten = tage_gehalten / 365.25
-monate_aktiv = max(1, int(round(tage_gehalten / 30.4375)))
+# Exakte monatliche Entnahme-Logik (Stufenform)
+start_dt = pd.to_datetime("2025-07-09")
 
-brutto_ist = STUECKZAHL * aktueller_kurs
-gesamt_entnommen = monate_aktiv * ENTNAHME_PM
-netto_ist = brutto_ist - gesamt_entnommen
-gewinn_brutto = brutto_ist - STARTKAPITAL
-rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
-rendite_pa = (
-    ((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1
-) * 100
 
+def berechne_kumulierte_entnahme(dt):
+  # Zählt wie viele volle Monate seit dem Start vergangen sind
+  monate = (dt.year - start_dt.year) * 12 + (dt.month - start_dt.month)
+  if dt.day < start_dt.day:
+    monate -= 1
+  return max(0, monate) * ENTNAHME_PM
+
+
+df_chart["Monate_aktiv"] = [
+    berechne_kumulierte_entnahme(ts) for ts in df_chart.index
+]
+df_chart["Kumulierte_Entnahme"] = (
+    df_chart["Monate_aktiv"] * ENTNAHME_PM
+)  # Bleibt flach bis zum Monatstag, springt dann exakt
 df_chart["Depotwert_Brutto"] = df_chart["Close"] * STUECKZAHL
-df_chart["Tage_seit_Kauf"] = (df_chart.index - pd.to_datetime(KAUFDATUM)).days
-df_chart["Monate_aktiv"] = (
-    df_chart["Tage_seit_Kauf"] / 30.4375
-).apply(lambda x: max(0, int(round(x))))
-df_chart["Kumulierte_Entnahme"] = df_chart["Monate_aktiv"] * ENTNAHME_PM
 df_chart["Depotwert_Netto"] = (
     df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
 )
 df_chart["Startkapital"] = STARTKAPITAL
+
+# Aktuelle Kennzahlen für Widgets berechnen
+heutige_monate = berechne_kumulierte_entnahme(datetime.datetime.now())
+gesamt_entnommen = heutige_monate * ENTNAHME_PM
+brutto_ist = STUECKZAHL * aktueller_kurs
+netto_ist = brutto_ist - gesamt_entnommen
+gewinn_brutto = brutto_ist - STARTKAPITAL
+rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
+tage_gehalten = max(1, (datetime.date.today() - KAUFDATUM).days)
+jahre_gehalten = tage_gehalten / 365.25
+rendite_pa = (
+    ((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1
+) * 100
 
 # HEADER BAR
 st.markdown(
@@ -239,24 +262,24 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (MIT 13.000€ STARTKAPITAL & 70€ ENTHANME)
+# GRID OVERVIEW
 st.markdown(
     f"""
 <div class="grid-container">
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
-        <div class="m-val">{STARTKAPITAL:,.0f} €</div>
+        <div class="m-val">{fmt(STARTKAPITAL)} €</div>
         <div class="m-sub dim">Kauf: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
     </div>
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
-        <div class="m-val pos">{brutto_ist:,.0f} €</div>
-        <div class="m-sub pos">+{gewinn_brutto:,.0f} € Gewinn</div>
+        <div class="m-val pos">{fmt(brutto_ist)} €</div>
+        <div class="m-sub pos">+{fmt(gewinn_brutto)} € Gewinn</div>
     </div>
     <div class="m-card">
         <div class="m-label">Netto (Nach Entnahme)</div>
-        <div class="m-val blue">{netto_ist:,.0f} €</div>
-        <div class="m-sub dim">Entnommen: {gesamt_entnommen:,.0f} € ({ENTNAHME_PM:.0f}€/Mo.)</div>
+        <div class="m-val blue">{fmt(netto_ist)} €</div>
+        <div class="m-sub dim">Entnommen: {fmt(gesamt_entnommen)} € ({fmt(ENTNAHME_PM)}€/Mo.)</div>
     </div>
     <div class="m-card">
         <div class="m-label">Veränderung vs. Vortag</div>
@@ -284,7 +307,7 @@ with tab_wealth:
   st.markdown(
       "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
       " margin-bottom: 8px;'>🏛️ Verlauf Vermögensaufbau &"
-      " Entnahme-Substanz</div>",
+      " Entnahme-Substanz (Granular & Monatsbasis)</div>",
       unsafe_allow_html=True,
   )
   fig_wealth = go.Figure()
@@ -300,8 +323,8 @@ with tab_wealth:
       go.Scatter(
           x=df_chart.index,
           y=df_chart["Kumulierte_Entnahme"],
-          name="Entnommen (Summe)",
-          line=dict(color="#FF3D00", width=1.5),
+          name="Entnommen (Summe, mtl. Stufen)",
+          line=dict(color="#FF3D00", width=1.5, shape="hv"),
           fill="tozeroy",
           fillcolor="rgba(255, 61, 0, 0.08)",
       )
@@ -345,8 +368,9 @@ with tab_wealth:
           showgrid=True,
           gridcolor="#1A1A1A",
           side="right",
-          tickformat=",.0f €",
+          tickformat=",.0f",
           tickfont=dict(color="#A1A1AA"),
+          ticksuffix=" €",
       ),
       hovermode="x unified",
   )
