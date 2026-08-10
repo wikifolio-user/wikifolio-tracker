@@ -274,7 +274,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (Veränderung vs. Vortag und Anfangskapital getauscht)
+# GRID OVERVIEW (Inklusive Anfangskaufkurs bei Anfangskapital)
 st.markdown(
     f"""
 <div class="grid-container">
@@ -301,7 +301,7 @@ st.markdown(
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
         <div class="m-val">{fmt(STARTKAPITAL)} €</div>
-        <div class="m-sub dim">Kauf: {KAUFDATUM.strftime('%d.%m.%Y')}</div>
+        <div class="m-sub dim">Kauf ({KAUFDATUM.strftime('%d.%m.%Y')}): {ANFANGSKURS:.2f} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Registrierte Events</div>
