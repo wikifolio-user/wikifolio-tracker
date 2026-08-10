@@ -516,13 +516,16 @@ with tab_forecast:
       f"Die Prognose projiziert den bisherigen durchschnittlichen"
       f" Bruttogewinn von ca. **+{fmt(mtl_gewinn_avg, 2)} € / Monat** (bzw."
       f" geometrisch **{rendite_mo:+.2f}% mtl.**) über die kommenden 5 Jahre"
-      " fort."
+      " fort. Das Erreichen der **100.000 €** Grenze wird taggenau"
+      " ermittelt."
   )
 
   forecast_data = []
 
   # 1. Startjahr
   forecast_data.append({
+      "Typ": "fix",
+      "SortKey": 0,
       "Jahr": "Start (2025)",
       "Datum": KAUFDATUM.strftime("%d.%m.%Y"),
       "Brutto Depotwert": STARTKAPITAL,
@@ -534,6 +537,8 @@ with tab_forecast:
   # 2. Heute (Jahr 0)
   current_date_val = datetime.date.today()
   forecast_data.append({
+      "Typ": "fix",
+      "SortKey": 1,
       "Jahr": "Heute (Jahr 0)",
       "Datum": current_date_val.strftime("%d.%m.%Y"),
       "Brutto Depotwert": brutto_ist,
@@ -546,24 +551,46 @@ with tab_forecast:
   sim_netto = netto_ist
   sim_entnahme_kumuliert = gesamt_entnommen
 
-  # 3. Projektion Jahr 1 bis 5
-  for y in range(1, 6):
-    for m in range(12):
-      sim_brutto = sim_brutto * (1 + (rendite_mo / 100.0))
-      sim_entnahme_kumuliert += ENTNAHME_PM
+  milestone_target = 100000.0
+  milestone_reached = sim_brutto >= milestone_target
 
+  # 3. Monatliche Simulation für die kommenden 5 Jahre (60 Monate)
+  for m_idx in range(1, 61):
+    sim_brutto = sim_brutto * (1 + (rendite_mo / 100.0))
+    sim_entnahme_kumuliert += ENTNAHME_PM
     sim_netto = sim_brutto - sim_entnahme_kumuliert
-    fut_date = current_date_val + datetime.timedelta(days=y * 365)
+    sim_date = current_date_val + pd.DateOffset(months=m_idx)
 
-    forecast_data.append({
-        "Jahr": f"Jahr +{y}",
-        "Datum": fut_date.strftime("%d.%m.%Y"),
-        "Brutto Depotwert": sim_brutto,
-        "Gesamter Gewinn": sim_brutto - STARTKAPITAL,
-        "Netto Depotwert": sim_netto,
-        "Kumulierte Entnahme": sim_entnahme_kumuliert,
-    })
+    # Exakten 100.000 € Meilenstein abfangen
+    if not milestone_reached and sim_brutto >= milestone_target:
+      milestone_reached = True
+      forecast_data.append({
+          "Typ": "meilenstein",
+          "SortKey": 10 + m_idx,
+          "Jahr": "🎯 100.000 € Meilenstein",
+          "Datum": sim_date.strftime("%d.%m.%Y"),
+          "Brutto Depotwert": sim_brutto,
+          "Gesamter Gewinn": sim_brutto - STARTKAPITAL,
+          "Netto Depotwert": sim_netto,
+          "Kumulierte Entnahme": sim_entnahme_kumuliert,
+      })
 
+    # Jährliche Fixpunkte (alle 12 Monate)
+    if m_idx % 12 == 0:
+      y = m_idx // 12
+      forecast_data.append({
+          "Typ": "fix",
+          "SortKey": 100 + y,
+          "Jahr": f"Jahr +{y}",
+          "Datum": sim_date.strftime("%d.%m.%Y"),
+          "Brutto Depotwert": sim_brutto,
+          "Gesamter Gewinn": sim_brutto - STARTKAPITAL,
+          "Netto Depotwert": sim_netto,
+          "Kumulierte Entnahme": sim_entnahme_kumuliert,
+      })
+
+  # Nach SortKey sortieren, damit der Meilenstein chronologisch an der richtigen Stelle steht
+  forecast_data = sorted(forecast_data, key=lambda x: x["SortKey"])
   df_forecast = pd.DataFrame(forecast_data)
 
   # Plotly Chart mit angepasster X-Achsen-Lesbarkeit und Margin
@@ -627,16 +654,22 @@ with tab_forecast:
   )
   st.plotly_chart(fig_forecast, use_container_width=True)
 
-  st.markdown("### 📊 Tabellarische Übersicht")
+  st.markdown("### 📊 Tabellarische Übersicht (inkl. Meilenstein)")
 
-  # HTML-Tabelle mit erzwungener Zeileneinheit (white-space: nowrap) gegen unschöne Umbrüche
   table_rows = []
   for idx, row in df_forecast.iterrows():
-    bg_style = "background-color: #121216;" if idx == 0 else ""
+    is_milestone = row["Typ"] == "meilenstein"
+    bg_style = (
+        "background-color: #1a2e1a; border-left: 3px solid #00C853;"
+        if is_milestone
+        else ("background-color: #121216;" if idx == 0 else "")
+    )
+    jahr_color = "#00C853" if is_milestone else "#FFFFFF"
+
     table_rows.append(
         f'<tr style="border-bottom: 1px solid #18181B; {bg_style}">'
-        f'<td style="padding: 12px 16px; font-weight: 600; color: #FFFFFF;'
-        f' white-space: nowrap;">{row["Jahr"]}</td>'
+        f'<td style="padding: 12px 16px; font-weight: 600; color:'
+        f' {jahr_color}; white-space: nowrap;">{row["Jahr"]}</td>'
         f'<td style="padding: 12px 16px; color: #CBD5E1; white-space:'
         f' nowrap;">{row["Datum"]}</td>'
         '<td style="padding: 12px 16px; text-align: right; color: #00C853;'
