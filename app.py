@@ -299,7 +299,6 @@ if not milestone_reached:
       ms_date = ms_dt_offset.date()
       meilenstein_datum_str = ms_date.strftime("%m.%Y")
 
-      # Exakte Differenz-Berechnung auf reiner Date-Basis
       delta_tage_total = (ms_date - heute_date).days
       j_exakt = delta_tage_total // 365
       m_exakt = (delta_tage_total % 365) // 30
@@ -382,11 +381,12 @@ st.markdown(
 )
 
 # TABS
-tab_wealth, tab_trades, tab_candle, tab_forecast = st.tabs([
+tab_wealth, tab_trades, tab_candle, tab_forecast, tab_future = st.tabs([
     "📈 VERMÖGENS- & SUBSTANZAUFBAU",
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
     "🕯️ TAGES-CANDLESTICK",
     "🔮 ZUKUNFTS-PROGNOSE (5 JAHRE)",
+    "🔮 ZUKUNFTS-VARIANTEN",
 ])
 
 with tab_wealth:
@@ -560,3 +560,32 @@ with tab_forecast:
 
   df_f = pd.DataFrame(forecast_data)
   st.dataframe(df_f, use_container_width=True, hide_index=True)
+
+with tab_future:
+  st.markdown("### 🔮 Zukunftsvarianten (5 Jahre / 60 Monate)")
+  st.info(
+      f"Berechnung mit dem Anfangskapital von {fmt(STARTKAPITAL, 2)} € und"
+      f" einer monatlichen Entnahme von {fmt(ENTNAHME_PM, 2)} € über 60 Monate"
+      " (5 Jahre)."
+  )
+
+  zinssaetze = [0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05, 0.055, 0.06]
+  ergebnisse = []
+
+  for zins in zinssaetze:
+    kapital = STARTKAPITAL
+    ziel_monat = "Noch nicht erreicht"
+
+    for m in range(1, 61):
+      kapital = kapital * (1 + zins) - ENTNAHME_PM
+      if kapital >= 100000.0 and ziel_monat == "Noch nicht erreicht":
+        ziel_monat = f"Monat {m}"
+
+    ergebnisse.append({
+        "Szenario (Monatszins)": f"{zins*100:.1f}%".replace(".", ","),
+        "Kapital nach 5 Jahren": f"{fmt(kapital, 2)} €",
+        "🎯 100k-Ziel": ziel_monat,
+    })
+
+  df_zukunft = pd.DataFrame(ergebnisse)
+  st.dataframe(df_zukunft, use_container_width=True, hide_index=True)
