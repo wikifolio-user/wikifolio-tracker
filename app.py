@@ -172,13 +172,6 @@ if st.sidebar.button("🔔 Test-Alarm senden"):
   send_discord_alert(-1.50, aktueller_kurs_input)
   st.sidebar.success("Test-Alarm gesendet!")
 
-# NEU: Auswahl für den Zins-Modus in der Ziel-Tabelle
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ⚙️ Einstellungen Tab 5")
-zins_modus = st.sidebar.radio(
-    "Zins-Intervall für Ziel-Tabelle:", ["Monatlich (p.M.)", "Jährlich (p.a.)"]
-)
-
 # --- TERMINAL STYLING ---
 st.markdown(
     """
@@ -574,49 +567,55 @@ with tab_future:
       f"Basis: {fmt(STARTKAPITAL, 2)} € Startkapital | {fmt(ENTNAHME_PM, 2)} € Entnahme/Monat"
   )
 
-  data = []
+  # --- 1. TABELLE: Monatszins (p.M.) ---
+  st.markdown("#### 📌 Variante A: Zins pro Monat (p.M.)")
+  data_mo = []
+  zinssaetze_mo = [0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05, 0.055, 0.06]
+  for zins in zinssaetze_mo:
+    kapital = STARTKAPITAL
+    jahreswerte = {}
+    ziel_monat = "n.e."
 
-  if zins_modus == "Monatlich (p.M.)":
-    zinssaetze = [0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05, 0.055, 0.06]
-    for zins in zinssaetze:
-      kapital = STARTKAPITAL
-      jahreswerte = {}
-      ziel_monat = "n.e."
+    for m in range(1, 61):
+      kapital = kapital * (1 + zins) - ENTNAHME_PM
+      if kapital >= 100000.0 and ziel_monat == "n.e.":
+        ziel_monat = f"Monat {m}"
+      if m % 12 == 0:
+        jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
 
-      for m in range(1, 61):
-        kapital = kapital * (1 + zins) - ENTNAHME_PM
-        if kapital >= 100000.0 and ziel_monat == "n.e.":
-          ziel_monat = f"Monat {m}"
-        if m % 12 == 0:
-          jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
+    row = {
+        "Zins p.M.": f"{zins*100:.1f}%".replace(".", ","),
+        **jahreswerte,
+        "Ziel 100k": ziel_monat,
+    }
+    data_mo.append(row)
 
-      row = {
-          "Zins p.M.": f"{zins*100:.1f}%".replace(".", ","),
-          **jahreswerte,
-          "Ziel 100k": ziel_monat,
-      }
-      data.append(row)
-  else:
-    zinssaetze_pa = [0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.12]
-    for zins_pa in zinssaetze_pa:
-      zins_mo = (1 + zins_pa) ** (1 / 12) - 1
-      kapital = STARTKAPITAL
-      jahreswerte = {}
-      ziel_monat = "n.e."
+  st.dataframe(pd.DataFrame(data_mo), use_container_width=True, hide_index=True)
 
-      for m in range(1, 61):
-        kapital = kapital * (1 + zins_mo) - ENTNAHME_PM
-        if kapital >= 100000.0 and ziel_monat == "n.e.":
-          ziel_monat = f"Monat {m}"
-        if m % 12 == 0:
-          jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
+  st.markdown("---")
 
-      row = {
-          "Zins p.a.": f"{zins_pa*100:.1f}%".replace(".", ","),
-          **jahreswerte,
-          "Ziel 100k": ziel_monat,
-      }
-      data.append(row)
+  # --- 2. TABELLE: Jahreszins (p.a.) ---
+  st.markdown("#### 📌 Variante B: Zins pro Jahr (p.a.)")
+  data_pa = []
+  zinssaetze_pa = [0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.12]
+  for zins_pa in zinssaetze_pa:
+    zins_mo = (1 + zins_pa) ** (1 / 12) - 1
+    kapital = STARTKAPITAL
+    jahreswerte = {}
+    ziel_monat = "n.e."
 
-  df_zukunft = pd.DataFrame(data)
-  st.dataframe(df_zukunft, use_container_width=True, hide_index=True)
+    for m in range(1, 61):
+      kapital = kapital * (1 + zins_mo) - ENTNAHME_PM
+      if kapital >= 100000.0 and ziel_monat == "n.e.":
+        ziel_monat = f"Monat {m}"
+      if m % 12 == 0:
+        jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
+
+    row = {
+        "Zins p.a.": f"{zins_pa*100:.1f}%".replace(".", ","),
+        **jahreswerte,
+        "Ziel 100k": ziel_monat,
+    }
+    data_pa.append(row)
+
+  st.dataframe(pd.DataFrame(data_pa), use_container_width=True, hide_index=True)
