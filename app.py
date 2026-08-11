@@ -4,6 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import pytz
 import requests
 import streamlit as st
 
@@ -30,6 +31,9 @@ STARTKAPITAL = 13000.0
 ENTNAHME_PM = 70.0
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
+
+# Zeitzone für Deutschland definieren
+BERLIN_TZ = pytz.timezone("Europe/Berlin")
 
 
 # Helper für Formatierung mit Punkt als Tausendertrennzeichen
@@ -63,7 +67,7 @@ def send_discord_alert(pct_change, current_price):
     except Exception:
       pass
 
-  now = datetime.datetime.now()
+  now = datetime.datetime.now(BERLIN_TZ)
   if last_alert_time and (now - last_alert_time).total_seconds() < 3600:
     return False
 
@@ -167,7 +171,7 @@ st.markdown(
 @st.cache_data
 def get_chart_data(target_kurs):
   start_dt = pd.to_datetime("2025-07-09")
-  end_dt = datetime.datetime.now()
+  end_dt = datetime.datetime.now(BERLIN_TZ).replace(tzinfo=None)
   dates = pd.date_range(start=start_dt, end=end_dt, freq="h")
 
   np.random.seed(42)
@@ -209,7 +213,11 @@ vortag_datum_str = (
     if len(df_chart) > 48
     else aktuelles_datum_str
 )
-letztes_update_zeit = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S Uhr")
+
+# Lokale Zeit für Berlin abrufen
+letztes_update_zeit = (
+    datetime.datetime.now(BERLIN_TZ).strftime("%d.%m.%Y %H:%M:%S Uhr")
+)
 
 if tages_verenderung_pct <= -1.0:
   send_discord_alert(tages_verenderung_pct, aktueller_kurs)
@@ -233,12 +241,13 @@ df_chart["Depotwert_Netto"] = (
 )
 df_chart["Startkapital"] = STARTKAPITAL
 
+now_berlin = datetime.datetime.now(BERLIN_TZ)
 heutige_monate_anzahl = max(
     0,
-    (datetime.datetime.now().year - start_dt.year) * 12
-    + (datetime.datetime.now().month - start_dt.month),
+    (now_berlin.year - start_dt.year) * 12
+    + (now_berlin.month - start_dt.month),
 )
-if datetime.datetime.now().day < start_dt.day:
+if now_berlin.day < start_dt.day:
   heutige_monate_anzahl -= 1
 gesamt_entnommen = heutige_monate_anzahl * ENTNAHME_PM
 
@@ -246,7 +255,7 @@ brutto_ist = STUECKZAHL * aktueller_kurs
 netto_ist = brutto_ist - gesamt_entnommen
 gewinn_brutto = brutto_ist - STARTKAPITAL
 rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
-tage_gehalten = max(1, (datetime.date.today() - KAUFDATUM).days)
+tage_gehalten = max(1, (now_berlin.date() - KAUFDATUM).days)
 jahre_gehalten = tage_gehalten / 365.25
 rendite_pa = (
     ((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1
@@ -267,7 +276,7 @@ if not milestone_reached:
   for m_i in range(1, 120):
     sim_b = sim_b * (1 + (rendite_mo / 100.0))
     if sim_b >= 100000.0:
-      ms_date = datetime.date.today() + pd.DateOffset(months=m_i)
+      ms_date = now_berlin.date() + pd.DateOffset(months=m_i)
       meilenstein_datum_str = ms_date.strftime("%m.%Y")
       break
   if not milestone_reached and sim_b < 100000.0:
@@ -289,7 +298,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# GRID OVERVIEW (100k-Meilenstein nun direkt ÜBER „Entnommenes Kapital“ positioniert)
+# GRID OVERVIEW
 st.markdown(
     f"""
 <div class="grid-container">
@@ -452,7 +461,7 @@ with tab_trades:
           ["Trade (Kauf/Verkauf)", "Trader-Kommentar", "Wichtiger Hinweis"],
       )
     with col2:
-      event_datum = st.date_input("Datum", datetime.date.today())
+      event_datum = st.date_input("Datum", now_berlin.date())
     with col3:
       event_titel = st.text_input(
           "Titel / Aktie / Kurzbeschreibung",
@@ -550,7 +559,7 @@ with tab_forecast:
   })
 
   # 2. Heute (Jahr 0)
-  current_date_val = datetime.date.today()
+  current_date_val = now_berlin.date()
   forecast_data.append({
       "Typ": "fix",
       "SortKey": 1,
@@ -604,11 +613,9 @@ with tab_forecast:
           "Kumulierte Entnahme": sim_entnahme_kumuliert,
       })
 
-  # Nach SortKey sortieren, damit der Meilenstein chronologisch an der richtigen Stelle steht
   forecast_data = sorted(forecast_data, key=lambda x: x["SortKey"])
   df_forecast = pd.DataFrame(forecast_data)
 
-  # Plotly Chart mit angepasster X-Achsen-Lesbarkeit und Margin
   fig_forecast = go.Figure()
   fig_forecast.add_trace(
       go.Scatter(
