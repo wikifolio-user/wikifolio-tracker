@@ -498,20 +498,22 @@ with tab_forecast:
   )
   forecast_data = []
   forecast_data.append({
+      "Index": 0,
       "Jahr": "Start",
       "Datum": KAUFDATUM.strftime("%d.%m.%Y"),
-      "Brutto Depotwert": STARTKAPITAL,
-      "Gesamter Gewinn": 0.0,
-      "Netto Depotwert": STARTKAPITAL,
-      "Kumulierte Entnahme": 0.0,
+      "Brutto Depotwert": f"{fmt(STARTKAPITAL, 2)} €",
+      "Gesamter Gewinn": f"+0,00 €",
+      "Netto Depotwert": f"{fmt(STARTKAPITAL, 2)} €",
+      "Kumulierte Entnahme": f"0,00 €",
   })
   forecast_data.append({
+      "Index": 1,
       "Jahr": "Heute",
       "Datum": now_berlin.strftime("%d.%m.%Y"),
-      "Brutto Depotwert": brutto_ist,
-      "Gesamter Gewinn": gewinn_brutto,
-      "Netto Depotwert": netto_ist,
-      "Kumulierte Entnahme": gesamt_entnommen,
+      "Brutto Depotwert": f"{fmt(brutto_ist, 2)} €",
+      "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)} €",
+      "Netto Depotwert": f"{fmt(netto_ist, 2)} €",
+      "Kumulierte Entnahme": f"{fmt(gesamt_entnommen, 2)} €",
   })
 
   sim_b, sim_n, sim_e = brutto_ist, netto_ist, gesamt_entnommen
@@ -521,56 +523,16 @@ with tab_forecast:
     sim_n = sim_b - sim_e
     if m_idx % 12 == 0:
       forecast_data.append({
+          "Index": m_idx // 12 + 1,
           "Jahr": f"Jahr +{m_idx // 12}",
           "Datum": (now_berlin.date() + pd.DateOffset(months=m_idx)).strftime(
               "%d.%m.%Y"
           ),
-          "Brutto Depotwert": sim_b,
-          "Gesamter Gewinn": sim_b - STARTKAPITAL,
-          "Netto Depotwert": sim_n,
-          "Kumulierte Entnahme": sim_e,
+          "Brutto Depotwert": f"{fmt(sim_b, 2)} €",
+          "Gesamter Gewinn": f"+{fmt(sim_b - STARTKAPITAL, 2)} €",
+          "Netto Depotwert": f"{fmt(sim_n, 2)} €",
+          "Kumulierte Entnahme": f"{fmt(sim_e, 2)} €",
       })
 
   df_f = pd.DataFrame(forecast_data)
-
-  # --- GEWOHNTE TERMINAL-HTML-TABELLE INTEGRIERT ---
-  html_table = """
-    <style>
-        .terminal-table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 14px; background-color: #09090B; color: #E5E7EB; border: 1px solid #27272A; border-radius: 6px; }
-        .terminal-table th { text-align: left; padding: 10px 12px; border-bottom: 2px solid #3f3f46; color: #A1A1AA; background-color: #18181B; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px; }
-        .terminal-table td { padding: 10px 12px; border-bottom: 1px solid #27272A; white-space: nowrap; }
-        .terminal-table tr:hover { background-color: #121216; }
-        .pos-val { color: #00C853; font-weight: 600; }
-    </style>
-    <table class="terminal-table">
-        <tr>
-            <th></th>
-            <th>Jahr</th>
-            <th>Datum</th>
-            <th>Brutto Depotwert</th>
-            <th>Gesamter Gewinn</th>
-            <th>Netto Depotwert</th>
-            <th>Kumulierte Entnahme</th>
-        </tr>
-    """
-
-  for index, row in df_f.iterrows():
-    b_wert = f"{fmt(row['Brutto Depotwert'], 2)} €"
-    g_wert = f"{fmt(row['Gesamter Gewinn'], 2)} €"
-    n_wert = f"{fmt(row['Netto Depotwert'], 2)} €"
-    k_wert = f"{fmt(row['Kumulierte Entnahme'], 2)} €"
-
-    html_table += f"""
-        <tr>
-            <td style="color: #71717A;">{index}</td>
-            <td><b>{row['Jahr']}</b></td>
-            <td>{row['Datum']}</td>
-            <td class="pos-val">{b_wert}</td>
-            <td class="pos-val">+{g_wert}</td>
-            <td>{n_wert}</td>
-            <td style="color: #FF3D00;">{k_wert}</td>
-        </tr>
-        """
-
-  html_table += "</table>"
-  st.markdown(html_table, unsafe_allow_html=True)
+  st.dataframe(df_f, use_container_width=True, hide_index=True)
