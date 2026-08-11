@@ -567,7 +567,7 @@ with tab_future:
       f"Basis: {fmt(STARTKAPITAL, 2)} € Startkapital | {fmt(ENTNAHME_PM, 2)} € Entnahme/Monat"
   )
 
-  # --- 1. TABELLE: Monatszins (p.M.) ---
+  # --- 1. TABELLE: Monatszins (p.M.) mit hochgerechnetem p.a. ---
   st.markdown("#### 📌 Variante A: Zins pro Monat (p.M.)")
   data_mo = []
   zinssaetze_mo = [0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05, 0.055, 0.06]
@@ -583,8 +583,12 @@ with tab_future:
       if m % 12 == 0:
         jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
 
+    # Korrekt hochgerechneter Jahreszins (Effektivzins p.a. aus Monatszins)
+    zins_pa_effektiv = ((1 + zins) ** 12 - 1) * 100
+
     row = {
         "Zins p.M.": f"{zins*100:.1f}%".replace(".", ","),
+        "Entspricht p.a.": f"{zins_pa_effektiv:.1f}%".replace(".", ","),
         **jahreswerte,
         "Ziel 100k": ziel_monat,
     }
@@ -594,11 +598,14 @@ with tab_future:
 
   st.markdown("---")
 
-  # --- 2. TABELLE: Jahreszins (p.a.) ---
-  st.markdown("#### 📌 Variante B: Zins pro Jahr (p.a.)")
+  # --- 2. TABELLE: Jahreszins (p.a.) mit heruntergerechnetem Monatszins ---
+  st.markdown(
+      "#### 📌 Variante B: Zins pro Jahr (p.a. als Basis, mtl. verzinst)"
+  )
   data_pa = []
   zinssaetze_pa = [0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.12]
   for zins_pa in zinssaetze_pa:
+    # Monatszins exakt aus Jahreszins abgeleitet
     zins_mo = (1 + zins_pa) ** (1 / 12) - 1
     kapital = STARTKAPITAL
     jahreswerte = {}
@@ -613,6 +620,7 @@ with tab_future:
 
     row = {
         "Zins p.a.": f"{zins_pa*100:.1f}%".replace(".", ","),
+        "Entspricht p.M.": f"{zins_mo*100:.2f}%".replace(".", ","),
         **jahreswerte,
         "Ziel 100k": ziel_monat,
     }
