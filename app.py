@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import pytz
 import requests
 import streamlit as st
+import yfinance as yf
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -52,6 +53,25 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+
+# --- API ANBINDUNG MIT AUSFALLSICHERHEIT ---
+def fetch_live_kurs(ticker_symbol):
+  """Holt den aktuellen Kurs über yfinance mit integrierter Ausfallsicherheit."""
+  try:
+    # Yahoo Finance Kürzel für deutsche Börsen (z.B. Stuttgart .SG oder Tradegate .SG / ISIN als Suchparameter)
+    # Wikifolios/Zertifikate nutzen oft das Xetra/Stuttgart Kürzel oder direkt die ISIN mit Suffix
+    tk = yf.Ticker(ticker_symbol)
+    df_hist = tk.history(period="2d", interval="1h")
+
+    if not df_hist.empty and "Close" in df_hist.columns:
+      current_price = float(df_hist["Close"].iloc[-1])
+      return current_price, "API (Live)"
+  except Exception as e:
+    pass
+
+  # Fallback falls API fehlschlägt
+  return None, "Fallback (Manuell/Letzter Wert)"
 
 
 # --- DISCORD ALERT LOGIC ---
@@ -108,15 +128,40 @@ def save_db(data):
 
 db_events = load_db()
 
-# --- SIDEBAR: KURS-STEUERUNG & ALARM-TEST ---
-st.sidebar.markdown("### ⚙️ Kurs & Monitoring")
-st.sidebar.info(
-    "Bezugsquelle: Börse Stuttgart (XSTU)\nAuto-Refresh alle 5 Min. (Browser"
-    " Meta-Refresh)."
+# --- SIDEBAR: KURS-STEUERUNG & API STATUS ---
+st.sidebar.markdown("### ⚙️ Kurs & API-Monitoring")
+
+# Versuch, Kurs via API zu laden (Yahoo Finance Symbol für LS9VFS ansetzen, z.B. DE000LS9VFS2.SG oder Ersatz)
+# Hinweis: Zertifikate nutzen oft das .SG (Stuttgart) Kürzel
+api_symbol = "DE000LS9VFS2.SG"
+api_kurs, api_status = fetch_live_kurs(api_symbol)
+
+# Falls Yahoo Finance für dieses spezifische Zertifikat keinen direkten Tick liefert, Fallback auf Standard-Eingabe
+default_input_kurs = api_kurs if api_kurs else 301.00
+
+kurs_modus = st.sidebar.radio(
+    "Kursquelle", ["Automatisch (API)", "Manuell (Notfall-Override)"]
 )
-aktueller_kurs_input = st.sidebar.number_input(
-    "Aktueller Kurs (€)", value=301.24, step=0.01, format="%.2f"
-)
+
+if kurs_modus == "Automatisch (API)":
+  if api_kurs:
+    aktueller_kurs_input = api_kurs
+    st.sidebar.success(f"🟢 API Verbunden ({api_status})")
+  else:
+    aktueller_kurs_input = st.sidebar.number_input(
+        "Aktueller Kurs (€) [API Offline - Fallback]",
+        value=301.00,
+        step=0.01,
+        format="%.2f",
+    )
+    st.sidebar.warning(
+        "⚠️ API zur Zeit nicht erreichbar. Nutze Fallback-Wert."
+    )
+else:
+  aktueller_kurs_input = st.sidebar.number_input(
+      "Manueller Kurs (€)", value=301.00, step=0.01, format="%.2f"
+  )
+  st.sidebar.info("🔧 Manueller Override aktiv.")
 
 if st.sidebar.button("🔔 Test-Alarm an Discord senden"):
   success = send_discord_alert(-1.50, aktueller_kurs_input)
@@ -168,7 +213,7 @@ st.markdown(
 
 
 # --- CHART- & DATEN GENERIERUNG ---
-@st.cache_data
+@st.cache_data(ttl=300)  # Cache für 5 Minuten, um API-Limits zu schützen
 def get_chart_data(target_kurs):
   start_dt = pd.to_datetime("2025-07-09")
   end_dt = datetime.datetime.now(BERLIN_TZ).replace(tzinfo=None)
@@ -206,7 +251,6 @@ aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
 heute_dt = df_chart.index[-1].date()
 vortag_soll_dt = heute_dt - datetime.timedelta(days=1)
 
-# Finde den Index im DataFrame, der dem Vortag entspricht (oder den letzten Wert des Vortags)
 df_vortag_filtered = df_chart[df_chart.index.date <= vortag_soll_dt]
 if not df_vortag_filtered.empty:
   vortag_kurs = float(df_vortag_filtered["Close"].iloc[-1])
@@ -216,9 +260,6 @@ else:
   vortag_datum_str = aktuelles_datum_str
 
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100
-
-
-# Lokale Zeit für Berlin abrufen
 letztes_update_zeit = (
     datetime.datetime.now(BERLIN_TZ).strftime("%d.%m.%Y %H:%M:%S Uhr")
 )
@@ -295,7 +336,7 @@ st.markdown(
         <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● LIVE (&le; -1% ALARM)</span>
+        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● LIVE API (&le; -1% ALARM)</span>
     </div>
 </div>
 """,
