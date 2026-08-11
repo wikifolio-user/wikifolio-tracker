@@ -52,13 +52,21 @@ st.markdown(
 )
 
 
-# --- ROBUSTE API ABFRAGE ---
+# --- VOLLAUTOMATISCHE API ABFRAGE (STUTTGART / YAHOO) ---
 def fetch_live_kurs(ticker_symbol):
   try:
     tk = yf.Ticker(ticker_symbol)
-    df_hist = tk.history(period="1d", interval="1m")
+    # Versuche den neuesten Intraday-Punkt zu bekommen
+    df_hist = tk.history(period="5d", interval="1m")
     if not df_hist.empty and "Close" in df_hist.columns:
-      return float(df_hist["Close"].iloc[-1]), "Yahoo 1m-Tick"
+      val = float(df_hist["Close"].dropna().iloc[-1])
+      return val, "Yahoo 1m-Tick (Stuttgart)"
+    
+    # Fallback auf tägliche Historie, falls 1m leer ist
+    df_daily = tk.history(period="5d", interval="1d")
+    if not df_daily.empty and "Close" in df_daily.columns:
+      val = float(df_daily["Close"].dropna().iloc[-1])
+      return val, "Yahoo Daily-Close"
   except Exception:
     pass
   return None, "Offline"
@@ -117,42 +125,31 @@ def save_db(data):
 
 db_events = load_db()
 
-# --- SIDEBAR: PRÄZISE KURSSTEUERUNG ---
+# --- SIDEBAR: VOLLAUTOMATISCHER MODUS ---
 st.sidebar.markdown("### ⚡ Kurs- & Live-Sync")
 
 api_symbol = "DE000LS9VFS2.SG"
 api_kurs, api_status = fetch_live_kurs(api_symbol)
 
-default_val = api_kurs if api_kurs else 300.930
+# Falls die API keinen Wert liefert, nehmen wir den letzten bekannten Realtime-Wert als automatischen Fallback
+fallback_val = 302.100 if not api_kurs else api_kurs
 
 kurs_modus = st.sidebar.radio(
-    "Kurs-Modus", ["Auto (API)", "Realtime-Sync (Stock3 / Manuell)"]
+    "Kurs-Modus", ["Vollautomatisch (API)", "Manuell überschreiben"]
 )
 
-if kurs_modus == "Auto (API)":
+if kurs_modus == "Vollautomatisch (API)":
+  aktueller_kurs_input = api_kurs if api_kurs else fallback_val
   if api_kurs:
-    aktueller_kurs_input = api_kurs
-    st.sidebar.success(f"🟢 Verbunden ({api_status})")
+    st.sidebar.success(f"🟢 Vollautomatisch verbunden ({api_status})")
   else:
-    aktueller_kurs_input = st.sidebar.number_input(
-        "Kurs (€) [Fallback aktiv]",
-        value=default_val,
-        step=0.001,
-        format="%.3f",
-    )
-    st.sidebar.warning(
-        "⚠️ Yahoo verzögert. Bitte Realtime-Wert von stock3 eintragen."
-    )
+    st.sidebar.warning("⚠️ Automatischer Abruf im Limit. Nutze Fallback-Wert.")
 else:
   aktueller_kurs_input = st.sidebar.number_input(
-      "Exakter Realtime-Kurs (€) [Stock3 Sync]",
-      value=300.930,
+      "Kurs manuell anpassen (€)",
+      value=fallback_val,
       step=0.001,
       format="%.3f",
-  )
-  st.sidebar.info(
-      "💡 Tipp: Trage hier exakt den Sekunden-Kurs von stock3 ein, damit"
-      " Brutto/Netto perfekt übereinstimmen."
   )
 
 if st.sidebar.button("🔔 Test-Alarm senden"):
@@ -311,7 +308,7 @@ st.markdown(
         <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● REALTIME SYNC (&le; -1% ALARM)</span>
+        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● AUTO-SYNC ACTIVE</span>
     </div>
 </div>
 """,
