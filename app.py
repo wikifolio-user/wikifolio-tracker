@@ -292,7 +292,7 @@ meilenstein_details_str = "Ziel erreicht"
 milestone_reached = sim_b >= 100000.0
 
 if not milestone_reached:
-  for m_i in range(1, 120):
+  for m_i in range(1, 360):
     sim_b = sim_b * (1 + (rendite_mo / 100.0))
     if sim_b >= 100000.0:
       ms_dt_offset = now_berlin + pd.DateOffset(months=m_i)
@@ -318,8 +318,8 @@ if not milestone_reached:
       meilenstein_details_str = f"(~ {', '.join(parts)})"
       break
   if not milestone_reached and sim_b < 100000.0:
-    meilenstein_datum_str = "> 10 Jahre"
-    meilenstein_details_str = "Außerhalb des 10-Jahres-Horizonts"
+    meilenstein_datum_str = "> 30 Jahre"
+    meilenstein_details_str = "Außerhalb des Horizonts"
 
 verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
 kaufdatum_str = KAUFDATUM.strftime("%d.%m.%Y")
@@ -574,16 +574,18 @@ with tab_future:
   for zins in zinssaetze_mo:
     kapital = STARTKAPITAL
     jahreswerte = {}
-    ziel_monat = "n.e."
+    ziel_monat = None
 
-    for m in range(1, 61):
+    for m in range(1, 361):
       kapital = kapital * (1 + zins) - ENTNAHME_PM
-      if kapital >= 100000.0 and ziel_monat == "n.e.":
+      if kapital >= 100000.0 and ziel_monat is None:
         ziel_monat = f"Monat {m}"
       if m % 12 == 0:
         jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
 
-    # Korrekt hochgerechneter Jahreszins (Effektivzins p.a. aus Monatszins)
+    if ziel_monat is None:
+      ziel_monat = "> 360 Monate"
+
     zins_pa_effektiv = ((1 + zins) ** 12 - 1) * 100
 
     row = {
@@ -605,18 +607,20 @@ with tab_future:
   data_pa = []
   zinssaetze_pa = [0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.12]
   for zins_pa in zinssaetze_pa:
-    # Monatszins exakt aus Jahreszins abgeleitet
     zins_mo = (1 + zins_pa) ** (1 / 12) - 1
     kapital = STARTKAPITAL
     jahreswerte = {}
-    ziel_monat = "n.e."
+    ziel_monat = None
 
-    for m in range(1, 61):
+    for m in range(1, 361):
       kapital = kapital * (1 + zins_mo) - ENTNAHME_PM
-      if kapital >= 100000.0 and ziel_monat == "n.e.":
+      if kapital >= 100000.0 and ziel_monat is None:
         ziel_monat = f"Monat {m}"
       if m % 12 == 0:
         jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
+
+    if ziel_monat is None:
+      ziel_monat = "> 360 Monate"
 
     row = {
         "Zins p.a.": f"{zins_pa*100:.1f}%".replace(".", ","),
