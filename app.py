@@ -52,24 +52,44 @@ st.markdown(
 )
 
 
-# --- VOLLAUTOMATISCHE API ABFRAGE (STUTTGART / YAHOO) ---
-def fetch_live_kurs(ticker_symbol):
+# --- VOLLAUTOMATISCHE API ABFRAGE (KURS & VORTAG) ---
+def fetch_market_data(ticker_symbol):
+  live_kurs = None
+  vortag_kurs = None
+  vortag_datum_str = "N/A"
+  status_msg = "Offline"
+
   try:
     tk = yf.Ticker(ticker_symbol)
-    # Versuche den neuesten Intraday-Punkt zu bekommen
-    df_hist = tk.history(period="5d", interval="1m")
+
+    # 1. Live-Kurs über Intraday (1m) oder letzten Tageskurs
+    df_hist = tk.history(period="2d", interval="1m")
     if not df_hist.empty and "Close" in df_hist.columns:
-      val = float(df_hist["Close"].dropna().iloc[-1])
-      return val, "Yahoo 1m-Tick (Stuttgart)"
-    
-    # Fallback auf tägliche Historie, falls 1m leer ist
-    df_daily = tk.history(period="5d", interval="1d")
+      live_kurs = float(df_hist["Close"].dropna().iloc[-1])
+      status_msg = "Yahoo Live (1m)"
+
+    # 2. Tages-Historie für den korrekten Vortag holen
+    df_daily = tk.history(period="10d", interval="1d")
     if not df_daily.empty and "Close" in df_daily.columns:
-      val = float(df_daily["Close"].dropna().iloc[-1])
-      return val, "Yahoo Daily-Close"
+      df_clean = df_daily.dropna(subset=["Close"])
+      heute_date = datetime.datetime.now(BERLIN_TZ).date()
+
+      # Filter: Nur Tage vor heute
+      df_past = df_clean[df_clean.index.date < heute_date]
+
+      if not df_past.empty:
+        vortag_kurs = float(df_past["Close"].iloc[-1])
+        vortag_datum_str = df_past.index[-1].strftime("%d.%m.%Y")
+
+      # Wenn Live-Kurs über 1m fehlte, nimm den letzten Daily Close
+      if not live_kurs and not df_clean.empty:
+        live_kurs = float(df_clean["Close"].iloc[-1])
+        status_msg = "Yahoo Daily Close"
+
   except Exception:
     pass
-  return None, "Offline"
+
+  return live_kurs, vortag_kurs, vortag_datum_str, status_msg
 
 
 # --- DISCORD ALERT ---
@@ -125,32 +145,35 @@ def save_db(data):
 
 db_events = load_db()
 
-# --- SIDEBAR: VOLLAUTOMATISCHER MODUS ---
-st.sidebar.markdown("### ⚡ Kurs- & Live-Sync")
-
+# --- DATEN VOLLAUTOMATISCH LADEN ---
 api_symbol = "DE000LS9VFS2.SG"
-api_kurs, api_status = fetch_live_kurs(api_symbol)
-
-# Falls die API keinen Wert liefert, nehmen wir den letzten bekannten Realtime-Wert als automatischen Fallback
-fallback_val = 302.100 if not api_kurs else api_kurs
-
-kurs_modus = st.sidebar.radio(
-    "Kurs-Modus", ["Vollautomatisch (API)", "Manuell überschreiben"]
+api_kurs, api_vortag, api_vortag_datum, api_status = fetch_market_data(
+    api_symbol
 )
 
-if kurs_modus == "Vollautomatisch (API)":
-  aktueller_kurs_input = api_kurs if api_kurs else fallback_val
-  if api_kurs:
-    st.sidebar.success(f"🟢 Vollautomatisch verbunden ({api_status})")
-  else:
-    st.sidebar.warning("⚠️ Automatischer Abruf im Limit. Nutze Fallback-Wert.")
-else:
-  aktueller_kurs_input = st.sidebar.number_input(
-      "Kurs manuell anpassen (€)",
-      value=fallback_val,
-      step=0.001,
-      format="%.3f",
+# Fallbacks, falls die API im Moment klemmt
+fallback_kurs = 302.100 if not api_kurs else api_kurs
+fallback_vortag = 301.250 if not api_vortag else api_vortag
+
+aktueller_kurs_input = fallback_kurs
+vortag_kurs = fallback_vortag
+vortag_datum_str = (
+    api_vortag_datum
+    if api_vortag_datum != "N/A"
+    else (
+        datetime.datetime.now(BERLIN_TZ) - datetime.timedelta(days=1)
+    ).strftime("%d.%m.%Y")
+)
+
+# --- SIDEBAR STATUS ---
+st.sidebar.markdown("### ⚡ Vollautomatischer Live-Sync")
+if api_kurs and api_vortag:
+  st.sidebar.success(
+      f"🟢 Verbunden ({api_status})\n\nKurs: {api_kurs:.3f} €\nVortag:"
+      f" {api_vortag:.3f} €"
   )
+else:
+  st.sidebar.warning("⚠️ API eingeschränkt. Nutze intelligente Fallbacks.")
 
 if st.sidebar.button("🔔 Test-Alarm senden"):
   send_discord_alert(-1.50, aktueller_kurs_input)
@@ -212,26 +235,9 @@ def get_chart_data(target_kurs):
 
 df_chart = get_chart_data(aktueller_kurs_input)
 
-# --- KENNZAHLEN & AUTOMATISCHE VORTAGS-ERFASSUNG (STUTTGART) ---
+# --- KENNZAHLEN ---
 aktueller_kurs = float(df_chart["Close"].iloc[-1])
 aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
-
-vortag_kurs = aktueller_kurs  # Fallback
-vortag_datum_str = aktuelles_datum_str
-
-try:
-  tk_vortag = yf.Ticker(api_symbol)
-  df_hist_daily = tk_vortag.history(period="10d", interval="1d")
-
-  if not df_hist_daily.empty:
-    heute_date = datetime.datetime.now(BERLIN_TZ).date()
-    df_vergangenheit = df_hist_daily[df_hist_daily.index.date < heute_date]
-
-    if not df_vergangenheit.empty:
-      vortag_kurs = float(df_vergangenheit["Close"].iloc[-1])
-      vortag_datum_str = df_vergangenheit.index[-1].strftime("%d.%m.%Y")
-except Exception:
-  pass
 
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100
 letztes_update_zeit = (
@@ -308,7 +314,7 @@ st.markdown(
         <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● AUTO-SYNC ACTIVE</span>
+        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● FULL AUTO SYNC</span>
     </div>
 </div>
 """,
@@ -366,7 +372,7 @@ st.markdown(
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
     "🕯️ TAGES-CANDLESTICK",
     "🔮 ZUKUNFTS-PROGNOSE (5 JAHRE)",
-])
+)
 
 with tab_wealth:
   fig_wealth = go.Figure()
