@@ -386,7 +386,7 @@ tab_wealth, tab_trades, tab_candle, tab_forecast, tab_future = st.tabs([
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
     "🕯️ TAGES-CANDLESTICK",
     "🔮 ZUKUNFTS-PROGNOSE (5 JAHRE)",
-    "🔮 ZUKUNFTS-VARIANTEN",
+    "💰 Zinseszins, Anfangskapital bis Ziel 100k!",
 ])
 
 with tab_wealth:
@@ -562,30 +562,32 @@ with tab_forecast:
   st.dataframe(df_f, use_container_width=True, hide_index=True)
 
 with tab_future:
-  st.markdown("### 🔮 Zukunftsvarianten (5 Jahre / 60 Monate)")
+  st.markdown("### 💰 Zinseszins, Anfangskapital bis Ziel 100k!")
   st.info(
-      f"Berechnung mit dem Anfangskapital von {fmt(STARTKAPITAL, 2)} € und"
-      f" einer monatlichen Entnahme von {fmt(ENTNAHME_PM, 2)} € über 60 Monate"
-      " (5 Jahre)."
+      f"Basis: {fmt(STARTKAPITAL, 2)} € Startkapital | {fmt(ENTNAHME_PM, 2)} € Entnahme/Monat"
   )
 
   zinssaetze = [0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05, 0.055, 0.06]
-  ergebnisse = []
+  data = []
 
   for zins in zinssaetze:
     kapital = STARTKAPITAL
-    ziel_monat = "Noch nicht erreicht"
-
+    jahreswerte = {}
+    ziel_monat = "n.e."
+    
     for m in range(1, 61):
       kapital = kapital * (1 + zins) - ENTNAHME_PM
-      if kapital >= 100000.0 and ziel_monat == "Noch nicht erreicht":
+      
+      # Ziel-Check
+      if kapital >= 100000.0 and ziel_monat == "n.e.":
         ziel_monat = f"Monat {m}"
+      
+      # Werte nach Jahren speichern
+      if m % 12 == 0:
+        jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
 
-    ergebnisse.append({
-        "Szenario (Monatszins)": f"{zins*100:.1f}%".replace(".", ","),
-        "Kapital nach 5 Jahren": f"{fmt(kapital, 2)} €",
-        "🎯 100k-Ziel": ziel_monat,
-    })
+    row = {"Zins p.M.": f"{zins*100:.1f}%".replace(".", ","), **jahreswerte, "Ziel 100k": ziel_monat}
+    data.append(row)
 
-  df_zukunft = pd.DataFrame(ergebnisse)
+  df_zukunft = pd.DataFrame(data)
   st.dataframe(df_zukunft, use_container_width=True, hide_index=True)
