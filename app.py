@@ -200,19 +200,23 @@ df_chart = get_chart_data(aktueller_kurs_input)
 
 # --- KENNZAHLEN & DATUMS-ERFASSUNG ---
 aktueller_kurs = float(df_chart["Close"].iloc[-1])
-vortag_kurs = (
-    float(df_chart["Close"].iloc[24 * -2])
-    if len(df_chart) > 48
-    else float(df_chart["Close"].iloc[0])
-)
+aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
+
+# Exakten Kalendertag des Vortags im DataFrame suchen
+heute_dt = df_chart.index[-1].date()
+vortag_soll_dt = heute_dt - datetime.timedelta(days=1)
+
+# Finde den Index im DataFrame, der dem Vortag entspricht (oder den letzten Wert des Vortags)
+df_vortag_filtered = df_chart[df_chart.index.date <= vortag_soll_dt]
+if not df_vortag_filtered.empty:
+  vortag_kurs = float(df_vortag_filtered["Close"].iloc[-1])
+  vortag_datum_str = df_vortag_filtered.index[-1].strftime("%d.%m.%Y")
+else:
+  vortag_kurs = float(df_chart["Close"].iloc[0])
+  vortag_datum_str = aktuelles_datum_str
+
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100
 
-aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
-vortag_datum_str = (
-    df_chart.index[-24 * 2].strftime("%d.%m.%Y")
-    if len(df_chart) > 48
-    else aktuelles_datum_str
-)
 
 # Lokale Zeit für Berlin abrufen
 letztes_update_zeit = (
