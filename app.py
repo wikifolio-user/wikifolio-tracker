@@ -224,10 +224,15 @@ vortag_datum_str = aktuelles_datum_str
 
 try:
   tk_vortag = yf.Ticker(api_symbol)
-  df_hist_daily = tk_vortag.history(period="5d", interval="1d")
-  if len(df_hist_daily) >= 2:
-    vortag_kurs = float(df_hist_daily["Close"].iloc[-2])
-    vortag_datum_str = df_hist_daily.index[-2].strftime("%d.%m.%Y")
+  df_hist_daily = tk_vortag.history(period="10d", interval="1d")
+
+  if not df_hist_daily.empty:
+    heute_date = datetime.datetime.now(BERLIN_TZ).date()
+    df_vergangenheit = df_hist_daily[df_hist_daily.index.date < heute_date]
+
+    if not df_vergangenheit.empty:
+      vortag_kurs = float(df_vergangenheit["Close"].iloc[-1])
+      vortag_datum_str = df_vergangenheit.index[-1].strftime("%d.%m.%Y")
 except Exception:
   pass
 
