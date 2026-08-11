@@ -260,6 +260,8 @@ df_chart["Depotwert_Netto"] = (
 df_chart["Startkapital"] = STARTKAPITAL
 
 now_berlin = datetime.datetime.now(BERLIN_TZ)
+heute_date = now_berlin.date()
+
 heutige_monate_anzahl = max(
     0,
     (now_berlin.year - start_dt.year) * 12
@@ -273,7 +275,7 @@ brutto_ist = STUECKZAHL * aktueller_kurs
 netto_ist = brutto_ist - gesamt_entnommen
 gewinn_brutto = brutto_ist - STARTKAPITAL
 rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
-tage_gehalten = max(1, (now_berlin.date() - KAUFDATUM).days)
+tage_gehalten = max(1, (heute_date - KAUFDATUM).days)
 jahre_gehalten = tage_gehalten / 365.25
 rendite_pa = (
     ((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1
@@ -293,11 +295,12 @@ if not milestone_reached:
   for m_i in range(1, 120):
     sim_b = sim_b * (1 + (rendite_mo / 100.0))
     if sim_b >= 100000.0:
-      ms_date = now_berlin.date() + pd.DateOffset(months=m_i)
+      ms_dt_offset = now_berlin + pd.DateOffset(months=m_i)
+      ms_date = ms_dt_offset.date()
       meilenstein_datum_str = ms_date.strftime("%m.%Y")
 
-      # Exakte Differenz-Berechnung für Tage, Wochen, Monate, Jahre
-      delta_tage_total = (ms_date - now_berlin.date()).days
+      # Exakte Differenz-Berechnung auf reiner Date-Basis
+      delta_tage_total = (ms_date - heute_date).days
       j_exakt = delta_tage_total // 365
       m_exakt = (delta_tage_total % 365) // 30
       w_exakt = ((delta_tage_total % 365) % 30) // 7
@@ -459,7 +462,7 @@ with tab_trades:
     with col1:
       et = st.selectbox("Typ", ["Trade", "Kommentar", "Hinweis"])
     with col2:
-      ed = st.date_input("Datum", now_berlin.date())
+      ed = st.date_input("Datum", heute_date)
     with col3:
       eti = st.text_input("Titel")
     ei = st.text_area("Details")
@@ -522,7 +525,7 @@ with tab_forecast:
   forecast_data.append({
       "Index": 1,
       "Jahr": "Heute",
-      "Datum": now_berlin.strftime("%d.%m.%Y"),
+      "Datum": heute_date.strftime("%d.%m.%Y"),
       "Brutto Depotwert": f"{fmt(brutto_ist, 2)} €",
       "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)} €",
       "Netto Depotwert": f"{fmt(netto_ist, 2)} €",
@@ -538,7 +541,7 @@ with tab_forecast:
       forecast_data.append({
           "Index": m_idx // 12 + 1,
           "Jahr": f"Jahr +{m_idx // 12}",
-          "Datum": (now_berlin.date() + pd.DateOffset(months=m_idx)).strftime(
+          "Datum": (now_berlin + pd.DateOffset(months=m_idx)).strftime(
               "%d.%m.%Y"
           ),
           "Brutto Depotwert": f"{fmt(sim_b, 2)} €",
