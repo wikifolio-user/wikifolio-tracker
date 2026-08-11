@@ -286,6 +286,7 @@ mtl_gewinn_avg = gewinn_brutto / max(1, monate_gehalten)
 
 sim_b = brutto_ist
 meilenstein_datum_str = "Bereits erreicht"
+meilenstein_details_str = "Ziel erreicht"
 milestone_reached = sim_b >= 100000.0
 
 if not milestone_reached:
@@ -294,9 +295,21 @@ if not milestone_reached:
     if sim_b >= 100000.0:
       ms_date = now_berlin.date() + pd.DateOffset(months=m_i)
       meilenstein_datum_str = ms_date.strftime("%m.%Y")
+
+      # Exakte Differenz-Berechnung für Tage, Wochen, Monate, Jahre
+      delta_tage_total = (ms_date - now_berlin.date()).days
+      j_exakt = delta_tage_total // 365
+      m_exakt = (delta_tage_total % 365) // 30
+      w_exakt = ((delta_tage_total % 365) % 30) // 7
+      t_exakt = ((delta_tage_total % 365) % 30) % 7
+
+      meilenstein_details_str = (
+          f"(~ {j_exakt} J., {m_exakt} M., {w_exakt} W., {t_exakt} T.)"
+      )
       break
   if not milestone_reached and sim_b < 100000.0:
     meilenstein_datum_str = "> 10 Jahre"
+    meilenstein_details_str = "Ausserhalb des 10-Jahres-Horizonts"
 
 verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
 kaufdatum_str = KAUFDATUM.strftime("%d.%m.%Y")
@@ -340,7 +353,7 @@ st.markdown(
     <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
         <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
         <div class="m-val" style="color: #00C853; font-size: 1.25rem;">{meilenstein_datum_str}</div>
-        <div class="m-sub" style="color: #CBD5E1;">Prognostiziertes Ziel-Datum</div>
+        <div class="m-sub" style="color: #CBD5E1; font-size: 0.75rem;">{meilenstein_details_str}</div>
     </div>
     <div class="m-card">
         <div class="m-label">Entnommenes Kapital</div>
