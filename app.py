@@ -68,13 +68,13 @@ def fetch_market_data(ticker_symbol):
       live_kurs = float(df_hist["Close"].dropna().iloc[-1])
       status_msg = "Yahoo Live (1m)"
 
-    # 2. Tages-Historie für den korrekten Vortag holen
+    # 2. Tages-Historie für den korrekten Vortag holen (Vollautomatisch)
     df_daily = tk.history(period="10d", interval="1d")
     if not df_daily.empty and "Close" in df_daily.columns:
       df_clean = df_daily.dropna(subset=["Close"])
       heute_date = datetime.datetime.now(BERLIN_TZ).date()
 
-      # Filter: Nur Tage vor heute
+      # Filter: Nur Tage vor heute, um den echten Vortag zu greifen
       df_past = df_clean[df_clean.index.date < heute_date]
 
       if not df_past.empty:
