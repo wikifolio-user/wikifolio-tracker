@@ -43,7 +43,7 @@ def fmt(val, dec=0):
   return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-# Auto-Refresh alle 3 Minuten (180 Sekunden) für schnellere Aktualisierung
+# Auto-Refresh alle 3 Minuten (180 Sekunden)
 st.markdown(
     """
     <meta http-equiv="refresh" content="180">
@@ -56,7 +56,6 @@ st.markdown(
 def fetch_live_kurs(ticker_symbol):
   try:
     tk = yf.Ticker(ticker_symbol)
-    # Versuche den allerneuesten intraday-Wert zu bekommen
     df_hist = tk.history(period="1d", interval="1m")
     if not df_hist.empty and "Close" in df_hist.columns:
       return float(df_hist["Close"].iloc[-1]), "Yahoo 1m-Tick"
@@ -124,7 +123,6 @@ st.sidebar.markdown("### ⚡ Kurs- & Live-Sync")
 api_symbol = "DE000LS9VFS2.SG"
 api_kurs, api_status = fetch_live_kurs(api_symbol)
 
-# Fallback-Logik: Wenn API hängt, nimm den letzten bekannten exakten Wert (z.B. aus stock3: 300.930)
 default_val = api_kurs if api_kurs else 300.930
 
 kurs_modus = st.sidebar.radio(
@@ -217,19 +215,21 @@ def get_chart_data(target_kurs):
 
 df_chart = get_chart_data(aktueller_kurs_input)
 
+# --- KENNZAHLEN & AUTOMATISCHE VORTAGS-ERFASSUNG (STUTTGART) ---
 aktueller_kurs = float(df_chart["Close"].iloc[-1])
 aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
 
-heute_dt = df_chart.index[-1].date()
-vortag_soll_dt = heute_dt - datetime.timedelta(days=1)
-df_vortag_filtered = df_chart[df_chart.index.date <= vortag_soll_dt]
+vortag_kurs = aktueller_kurs  # Fallback
+vortag_datum_str = aktuelles_datum_str
 
-if not df_vortag_filtered.empty:
-  vortag_kurs = float(df_vortag_filtered["Close"].iloc[-1])
-  vortag_datum_str = df_vortag_filtered.index[-1].strftime("%d.%m.%Y")
-else:
-  vortag_kurs = float(df_chart["Close"].iloc[0])
-  vortag_datum_str = aktuelles_datum_str
+try:
+  tk_vortag = yf.Ticker(api_symbol)
+  df_hist_daily = tk_vortag.history(period="5d", interval="1d")
+  if len(df_hist_daily) >= 2:
+    vortag_kurs = float(df_hist_daily["Close"].iloc[-2])
+    vortag_datum_str = df_hist_daily.index[-2].strftime("%d.%m.%Y")
+except Exception:
+  pass
 
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100
 letztes_update_zeit = (
