@@ -306,13 +306,21 @@ if not milestone_reached:
       w_exakt = ((delta_tage_total % 365) % 30) // 7
       t_exakt = ((delta_tage_total % 365) % 30) % 7
 
-      meilenstein_details_str = (
-          f"(~ {j_exakt} J., {m_exakt} M., {w_exakt} W., {t_exakt} T.)"
-      )
+      parts = []
+      if j_exakt > 0:
+        parts.append(f"{j_exakt} {'Jahr' if j_exakt == 1 else 'Jahre'}")
+      if m_exakt > 0:
+        parts.append(f"{m_exakt} {'Monat' if m_exakt == 1 else 'Monate'}")
+      if w_exakt > 0:
+        parts.append(f"{w_exakt} {'Woche' if w_exakt == 1 else 'Wochen'}")
+      if t_exakt > 0 or not parts:
+        parts.append(f"{t_exakt} {'Tag' if t_exakt == 1 else 'Tage'}")
+
+      meilenstein_details_str = f"(~ {', '.join(parts)})"
       break
   if not milestone_reached and sim_b < 100000.0:
     meilenstein_datum_str = "> 10 Jahre"
-    meilenstein_details_str = "Ausserhalb des 10-Jahres-Horizonts"
+    meilenstein_details_str = "Außerhalb des 10-Jahres-Horizonts"
 
 verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
 kaufdatum_str = KAUFDATUM.strftime("%d.%m.%Y")
