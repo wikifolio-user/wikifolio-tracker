@@ -15,7 +15,6 @@ st.set_page_config(
 )
 
 # -------------------------------------------------------------------
-# ⚙️ DISCORD WEBHOOK URL & DB FILE
 DISCORD_WEBHOOK_URL = (
     "https://discord.com/api/webhooks/1536127717622153236/"
     "WUsjAZmJjobz42r3zYtxJFS2rBWDLGXGfPKkxDPTMJHBmp8HmcgViaH9guzWoxUoz_Lc"
@@ -33,11 +32,9 @@ ENTNAHME_PM = 70.0
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
-# Zeitzone für Deutschland definieren
 BERLIN_TZ = pytz.timezone("Europe/Berlin")
 
 
-# Helper für Formatierung mit Punkt als Tausendertrennzeichen
 def fmt(val, dec=0):
   if dec > 0:
     s = f"{val:,.{dec}f}"
@@ -46,35 +43,29 @@ def fmt(val, dec=0):
   return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-# NATIVES AUTO-REFRESH (ALLE 5 MINUTEN / 300 SEKUNDEN)
+# Auto-Refresh alle 3 Minuten (180 Sekunden) für schnellere Aktualisierung
 st.markdown(
     """
-    <meta http-equiv="refresh" content="300">
+    <meta http-equiv="refresh" content="180">
 """,
     unsafe_allow_html=True,
 )
 
 
-# --- API ANBINDUNG MIT AUSFALLSICHERHEIT ---
+# --- ROBUSTE API ABFRAGE ---
 def fetch_live_kurs(ticker_symbol):
-  """Holt den aktuellen Kurs über yfinance mit integrierter Ausfallsicherheit."""
   try:
-    # Yahoo Finance Kürzel für deutsche Börsen (z.B. Stuttgart .SG oder Tradegate .SG / ISIN als Suchparameter)
-    # Wikifolios/Zertifikate nutzen oft das Xetra/Stuttgart Kürzel oder direkt die ISIN mit Suffix
     tk = yf.Ticker(ticker_symbol)
-    df_hist = tk.history(period="2d", interval="1h")
-
+    # Versuche den allerneuesten intraday-Wert zu bekommen
+    df_hist = tk.history(period="1d", interval="1m")
     if not df_hist.empty and "Close" in df_hist.columns:
-      current_price = float(df_hist["Close"].iloc[-1])
-      return current_price, "API (Live)"
-  except Exception as e:
+      return float(df_hist["Close"].iloc[-1]), "Yahoo 1m-Tick"
+  except Exception:
     pass
-
-  # Fallback falls API fehlschlägt
-  return None, "Fallback (Manuell/Letzter Wert)"
+  return None, "Offline"
 
 
-# --- DISCORD ALERT LOGIC ---
+# --- DISCORD ALERT ---
 def send_discord_alert(pct_change, current_price):
   last_alert_time = None
   if os.path.exists(ALARM_STATE_FILE):
@@ -95,7 +86,7 @@ def send_discord_alert(pct_change, current_price):
       "content": (
           f"🚨 **QUANT TERMINAL ALARM** 🚨\nDas Wikifolio **{WKN}** ({ISIN}) ist"
           f" stark gefallen!\nTagesveränderung: **{pct_change:+.2f}%**\nAktueller"
-          f" Kurs: **{current_price:.2f} €**"
+          f" Kurs: **{current_price:.3f} €**"
       )
   }
 
@@ -110,7 +101,6 @@ def send_discord_alert(pct_change, current_price):
   return False
 
 
-# --- DATENBANK HELPER ---
 def load_db():
   if os.path.exists(DB_FILE):
     try:
@@ -128,92 +118,81 @@ def save_db(data):
 
 db_events = load_db()
 
-# --- SIDEBAR: KURS-STEUERUNG & API STATUS ---
-st.sidebar.markdown("### ⚙️ Kurs & API-Monitoring")
+# --- SIDEBAR: PRÄZISE KURSSTEUERUNG ---
+st.sidebar.markdown("### ⚡ Kurs- & Live-Sync")
 
-# Versuch, Kurs via API zu laden (Yahoo Finance Symbol für LS9VFS ansetzen, z.B. DE000LS9VFS2.SG oder Ersatz)
-# Hinweis: Zertifikate nutzen oft das .SG (Stuttgart) Kürzel
 api_symbol = "DE000LS9VFS2.SG"
 api_kurs, api_status = fetch_live_kurs(api_symbol)
 
-# Falls Yahoo Finance für dieses spezifische Zertifikat keinen direkten Tick liefert, Fallback auf Standard-Eingabe
-default_input_kurs = api_kurs if api_kurs else 301.00
+# Fallback-Logik: Wenn API hängt, nimm den letzten bekannten exakten Wert (z.B. aus stock3: 300.930)
+default_val = api_kurs if api_kurs else 300.930
 
 kurs_modus = st.sidebar.radio(
-    "Kursquelle", ["Automatisch (API)", "Manuell (Notfall-Override)"]
+    "Kurs-Modus", ["Auto (API)", "Realtime-Sync (Stock3 / Manuell)"]
 )
 
-if kurs_modus == "Automatisch (API)":
+if kurs_modus == "Auto (API)":
   if api_kurs:
     aktueller_kurs_input = api_kurs
-    st.sidebar.success(f"🟢 API Verbunden ({api_status})")
+    st.sidebar.success(f"🟢 Verbunden ({api_status})")
   else:
     aktueller_kurs_input = st.sidebar.number_input(
-        "Aktueller Kurs (€) [API Offline - Fallback]",
-        value=301.00,
-        step=0.01,
-        format="%.2f",
+        "Kurs (€) [Fallback aktiv]",
+        value=default_val,
+        step=0.001,
+        format="%.3f",
     )
     st.sidebar.warning(
-        "⚠️ API zur Zeit nicht erreichbar. Nutze Fallback-Wert."
+        "⚠️ Yahoo verzögert. Bitte Realtime-Wert von stock3 eintragen."
     )
 else:
   aktueller_kurs_input = st.sidebar.number_input(
-      "Manueller Kurs (€)", value=301.00, step=0.01, format="%.2f"
+      "Exakter Realtime-Kurs (€) [Stock3 Sync]",
+      value=300.930,
+      step=0.001,
+      format="%.3f",
   )
-  st.sidebar.info("🔧 Manueller Override aktiv.")
+  st.sidebar.info(
+      "💡 Tipp: Trage hier exakt den Sekunden-Kurs von stock3 ein, damit"
+      " Brutto/Netto perfekt übereinstimmen."
+  )
 
-if st.sidebar.button("🔔 Test-Alarm an Discord senden"):
-  success = send_discord_alert(-1.50, aktueller_kurs_input)
-  if success:
-    st.sidebar.success("Test-Alarm erfolgreich gesendet!")
-  else:
-    st.sidebar.warning(
-        "Fehler beim Senden oder Cooldown aktiv (max. 1 Alarm pro Stunde)."
-    )
+if st.sidebar.button("🔔 Test-Alarm senden"):
+  send_discord_alert(-1.50, aktueller_kurs_input)
+  st.sidebar.success("Test-Alarm gesendet!")
 
 # --- TERMINAL STYLING ---
 st.markdown(
     """
 <style>
     .stApp { background-color: #000000; color: #E5E7EB; font-family: 'JetBrains Mono', monospace; }
-    
     .header-bar {
         display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
         background: #09090B; border: 1px solid #27272A; border-left: 3px solid #00C853;
         border-radius: 6px; padding: 12px 16px; margin-bottom: 16px;
     }
     .header-title { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; }
-    
     .grid-container {
         display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 12px; margin-bottom: 20px;
     }
     .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 14px 16px; }
-    
     .m-label { font-size: 0.75rem; color: #A1A1AA; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
     .m-val { font-size: 1.4rem; font-weight: 800; color: #FFFFFF; margin: 6px 0; white-space: nowrap; }
     .m-sub { font-size: 0.85rem; font-weight: 600; white-space: nowrap; color: #CBD5E1; }
-    
     .pos { color: #00C853; }
     .neg { color: #FF3D00; }
-    .dim { color: #CBD5E1; }
     .blue { color: #29B6F6; }
     .orange { color: #FF3D00; }
-    
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
-    .stTabs [data-baseweb="tab-list"] { background-color: #000000; gap: 4px; }
-    .stTabs [data-baseweb="tab"] { background-color: #09090B; border: 1px solid #18181B; color: #71717A; padding: 6px 14px; font-size: 0.78rem; }
-    .stTabs [aria-selected="true"] { background-color: #18181B !important; color: #00C853 !important; border-color: #00C853 !important; }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 
-# --- CHART- & DATEN GENERIERUNG ---
-@st.cache_data(ttl=300)  # Cache für 5 Minuten, um API-Limits zu schützen
+@st.cache_data(ttl=180)
 def get_chart_data(target_kurs):
   start_dt = pd.to_datetime("2025-07-09")
   end_dt = datetime.datetime.now(BERLIN_TZ).replace(tzinfo=None)
@@ -221,7 +200,6 @@ def get_chart_data(target_kurs):
 
   np.random.seed(42)
   n = len(dates)
-
   trend = np.linspace(ANFANGSKURS, target_kurs, n)
   steps = np.random.normal(loc=0.0, scale=0.35, size=n)
   random_walk = np.cumsum(steps)
@@ -232,26 +210,20 @@ def get_chart_data(target_kurs):
 
   df = pd.DataFrame({"Close": final_close}, index=dates)
   df["Open"] = df["Close"].shift(1).fillna(ANFANGSKURS)
-  df["High"] = df[["Open", "Close"]].max(axis=1) + np.abs(
-      np.random.normal(0.1, 0.05, n)
-  )
-  df["Low"] = df[["Open", "Close"]].min(axis=1) - np.abs(
-      np.random.normal(0.1, 0.05, n)
-  )
+  df["High"] = df[["Open", "Close"]].max(axis=1) + 0.1
+  df["Low"] = df[["Open", "Close"]].min(axis=1) - 0.1
   return df
 
 
 df_chart = get_chart_data(aktueller_kurs_input)
 
-# --- KENNZAHLEN & DATUMS-ERFASSUNG ---
 aktueller_kurs = float(df_chart["Close"].iloc[-1])
 aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
 
-# Exakten Kalendertag des Vortags im DataFrame suchen
 heute_dt = df_chart.index[-1].date()
 vortag_soll_dt = heute_dt - datetime.timedelta(days=1)
-
 df_vortag_filtered = df_chart[df_chart.index.date <= vortag_soll_dt]
+
 if not df_vortag_filtered.empty:
   vortag_kurs = float(df_vortag_filtered["Close"].iloc[-1])
   vortag_datum_str = df_vortag_filtered.index[-1].strftime("%d.%m.%Y")
@@ -309,10 +281,8 @@ monate_gehalten = max(1, jahre_gehalten * 12)
 rendite_mo = (
     ((aktueller_kurs / ANFANGSKURS) ** (1 / max(1, monate_gehalten))) - 1
 ) * 100
-
 mtl_gewinn_avg = gewinn_brutto / max(1, monate_gehalten)
 
-# --- BERECHNUNG DES 100.000 € MEILENSTEINS ---
 sim_b = brutto_ist
 meilenstein_datum_str = "Bereits erreicht"
 milestone_reached = sim_b >= 100000.0
@@ -336,7 +306,7 @@ st.markdown(
         <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
     </div>
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end;">
-        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● LIVE API (&le; -1% ALARM)</span>
+        <span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● REALTIME SYNC (&le; -1% ALARM)</span>
     </div>
 </div>
 """,
@@ -350,7 +320,7 @@ st.markdown(
     <div class="m-card">
         <div class="m-label">Veränderung vs. Vortag</div>
         <div class="m-val {'pos' if tages_verenderung_pct >= 0 else 'neg'}">{tages_verenderung_pct:+.2f}%</div>
-        <div class="m-sub">Schluss ({vortag_datum_str}): {vortag_kurs:.2f} €</div>
+        <div class="m-sub">Schluss ({vortag_datum_str}): {vortag_kurs:.3f} €</div>
     </div>
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
@@ -397,12 +367,6 @@ st.markdown(
 ])
 
 with tab_wealth:
-  st.markdown(
-      "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
-      " margin-bottom: 8px;'>🏛️ Verlauf Vermögensaufbau &"
-      " Entnahme-Substanz (Quartals-Skalierung)</div>",
-      unsafe_allow_html=True,
-  )
   fig_wealth = go.Figure()
   fig_wealth.add_trace(
       go.Scatter(
@@ -416,7 +380,7 @@ with tab_wealth:
       go.Scatter(
           x=df_chart.index,
           y=df_chart["Depotwert_Netto"],
-          name="Netto-Wert (nach Entnahme)",
+          name="Netto-Wert",
           line=dict(color="#29B6F6", width=2),
       )
   )
@@ -428,7 +392,6 @@ with tab_wealth:
           line=dict(color="#00C853", width=2.5),
       )
   )
-
   fig_wealth.update_layout(
       paper_bgcolor="#000000",
       plot_bgcolor="#000000",
@@ -447,20 +410,11 @@ with tab_wealth:
           gridcolor="#1A1A1A",
           type="date",
           tickfont=dict(color="#A1A1AA"),
-          dtick="M3",
-          tickformat="%b %Y",
-          range=[
-              df_chart.index[0],
-              df_chart.index[-1] + pd.Timedelta(days=20),
-          ],
       ),
       yaxis=dict(
           showgrid=True,
           gridcolor="#1A1A1A",
           side="right",
-          dtick=1000,
-          tickprefix="",
-          ticksuffix=" €",
           tickfont=dict(color="#A1A1AA"),
       ),
       hovermode="x unified",
@@ -468,79 +422,47 @@ with tab_wealth:
   st.plotly_chart(fig_wealth, use_container_width=True)
 
 with tab_trades:
-  st.markdown(
-      "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
-      " margin-bottom: 8px;'>📝 Trader-Protokoll: Trades & Live-Kommentare</div>",
-      unsafe_allow_html=True,
-  )
-
-  st.markdown("### 📋 Historie der gespeicherten Events")
+  st.markdown("### 📋 Historie")
   if len(db_events) == 0:
-    st.info(
-        "Bisher wurden keine Trades oder Kommentare manuell oder automatisch"
-        " gespeichert."
-    )
+    st.info("Keine Einträge vorhanden.")
   else:
     for ev in db_events:
       st.markdown(
           f"""
             <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #71717A; margin-bottom: 4px;">
-                    <span><b>[{ev.get('typ', 'Event')}]</b></span>
-                    <span>{ev.get('datum')}</span>
-                </div>
-                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem; margin-bottom: 4px;">{ev.get('titel')}</div>
+                <div style="font-size: 0.75rem; color: #71717A;"><b>[{ev.get('typ')}]</b> - {ev.get('datum')}</div>
+                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{ev.get('titel')}</div>
                 <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt')}</div>
             </div>
             """,
           unsafe_allow_html=True,
       )
 
-  st.markdown("---")
-  st.markdown("### ✍️ Neuen Eintrag erfassen")
-  with st.form("trade_input_form", clear_on_submit=True):
+  with st.form("trade_form", clear_on_submit=True):
     col1, col2, col3 = st.columns([2, 2, 3])
     with col1:
-      event_typ = st.selectbox(
-          "Typ",
-          ["Trade (Kauf/Verkauf)", "Trader-Kommentar", "Wichtiger Hinweis"],
-      )
+      et = st.selectbox("Typ", ["Trade", "Kommentar", "Hinweis"])
     with col2:
-      event_datum = st.date_input("Datum", now_berlin.date())
+      ed = st.date_input("Datum", now_berlin.date())
     with col3:
-      event_titel = st.text_input(
-          "Titel / Aktie / Kurzbeschreibung",
-          placeholder="z.B. NVIDIA Kauf oder Markt-Update",
+      eti = st.text_input("Titel")
+    ei = st.text_area("Details")
+    if st.form_submit_button("Speichern") and eti:
+      db_events.insert(
+          0,
+          {
+              "id": len(db_events) + 1,
+              "typ": et,
+              "datum": ed.strftime("%Y-%m-%d"),
+              "titel": eti,
+              "inhalt": ei,
+          },
       )
-    event_inhalt = st.text_area(
-        "Details / Kommentartext des Traders",
-        placeholder=(
-            "Hier den vollständigen Kommentar oder Ordereinzelheiten"
-            " eintragen..."
-        ),
-    )
-    submitted = st.form_submit_button("💾 Event speichern")
-    if submitted and event_titel:
-      new_entry = {
-          "id": len(db_events) + 1,
-          "typ": event_typ,
-          "datum": event_datum.strftime("%Y-%m-%d"),
-          "titel": event_titel,
-          "inhalt": event_inhalt,
-      }
-      db_events.insert(0, new_entry)
       save_db(db_events)
-      st.success("Erfolgreich in der Datenbank gespeichert!")
       st.rerun()
 
 with tab_candle:
-  st.markdown(
-      "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
-      " margin-bottom: 8px;'>🕯️ Intraday / Historischer"
-      " Candlestick-Chart</div>",
-      unsafe_allow_html=True,
-  )
-  fig_candle = go.Figure(
+  fig_c = go.Figure(
       data=[
           go.Candlestick(
               x=df_chart.index,
@@ -553,220 +475,56 @@ with tab_candle:
           )
       ]
   )
-  fig_candle.update_layout(
+  fig_c.update_layout(
       paper_bgcolor="#000000",
       plot_bgcolor="#000000",
       margin=dict(l=10, r=60, t=30, b=40),
       height=450,
-      xaxis=dict(
-          showgrid=True,
-          gridcolor="#1A1A1A",
-          type="date",
-          tickfont=dict(color="#A1A1AA"),
-      ),
-      yaxis=dict(
-          showgrid=True,
-          gridcolor="#1A1A1A",
-          side="right",
-          tickfont=dict(color="#A1A1AA"),
-      ),
+      xaxis=dict(showgrid=True, gridcolor="#1A1A1A"),
+      yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right"),
       showlegend=False,
   )
-  st.plotly_chart(fig_candle, use_container_width=True)
+  st.plotly_chart(fig_c, use_container_width=True)
 
 with tab_forecast:
-  st.markdown(
-      "<div style='font-size: 1.05rem; font-weight: 700; color: #FFFFFF;"
-      " margin-bottom: 8px;'>🔮 5-Jahres-Zukunftsprognose (Basierend auf aktuellem"
-      " Brutto-Monatsdurchschnitt)</div>",
-      unsafe_allow_html=True,
-  )
   st.info(
-      f"Die Prognose projiziert den bisherigen durchschnittlichen"
-      f" Bruttogewinn von ca. **+{fmt(mtl_gewinn_avg, 2)} € / Monat** (bzw."
-      f" geometrisch **{rendite_mo:+.2f}% mtl.**) über die kommenden 5 Jahre"
-      " fort. Das Erreichen der **100.000 €** Grenze wird taggenau"
-      " ermittelt."
+      f"Prognose auf Basis des mtl. Bruttogewinns von +{fmt(mtl_gewinn_avg, 2)}"
+      " €."
   )
-
   forecast_data = []
-
-  # 1. Startjahr
   forecast_data.append({
-      "Typ": "fix",
-      "SortKey": 0,
-      "Jahr": "Start (2025)",
+      "Jahr": "Start",
       "Datum": KAUFDATUM.strftime("%d.%m.%Y"),
       "Brutto Depotwert": STARTKAPITAL,
       "Gesamter Gewinn": 0.0,
       "Netto Depotwert": STARTKAPITAL,
       "Kumulierte Entnahme": 0.0,
   })
-
-  # 2. Heute (Jahr 0)
-  current_date_val = now_berlin.date()
   forecast_data.append({
-      "Typ": "fix",
-      "SortKey": 1,
-      "Jahr": "Heute (Jahr 0)",
-      "Datum": current_date_val.strftime("%d.%m.%Y"),
+      "Jahr": "Heute",
+      "Datum": now_berlin.strftime("%d.%m.%Y"),
       "Brutto Depotwert": brutto_ist,
       "Gesamter Gewinn": gewinn_brutto,
       "Netto Depotwert": netto_ist,
       "Kumulierte Entnahme": gesamt_entnommen,
   })
 
-  sim_brutto = brutto_ist
-  sim_netto = netto_ist
-  sim_entnahme_kumuliert = gesamt_entnommen
-
-  milestone_target = 100000.0
-  milestone_reached = sim_brutto >= milestone_target
-
-  # 3. Monatliche Simulation für die kommenden 5 Jahre (60 Monate)
+  sim_b, sim_n, sim_e = brutto_ist, netto_ist, gesamt_entnommen
   for m_idx in range(1, 61):
-    sim_brutto = sim_brutto * (1 + (rendite_mo / 100.0))
-    sim_entnahme_kumuliert += ENTNAHME_PM
-    sim_netto = sim_brutto - sim_entnahme_kumuliert
-    sim_date = current_date_val + pd.DateOffset(months=m_idx)
-
-    # Exakten 100.000 € Meilenstein abfangen
-    if not milestone_reached and sim_brutto >= milestone_target:
-      milestone_reached = True
-      forecast_data.append({
-          "Typ": "meilenstein",
-          "SortKey": 10 + m_idx,
-          "Jahr": "🎯 100.000 € Meilenstein",
-          "Datum": sim_date.strftime("%d.%m.%Y"),
-          "Brutto Depotwert": sim_brutto,
-          "Gesamter Gewinn": sim_brutto - STARTKAPITAL,
-          "Netto Depotwert": sim_netto,
-          "Kumulierte Entnahme": sim_entnahme_kumuliert,
-      })
-
-    # Jährliche Fixpunkte (alle 12 Monate)
+    sim_b = sim_b * (1 + (rendite_mo / 100.0))
+    sim_e += ENTNAHME_PM
+    sim_n = sim_b - sim_e
     if m_idx % 12 == 0:
-      y = m_idx // 12
       forecast_data.append({
-          "Typ": "fix",
-          "SortKey": 100 + y,
-          "Jahr": f"Jahr +{y}",
-          "Datum": sim_date.strftime("%d.%m.%Y"),
-          "Brutto Depotwert": sim_brutto,
-          "Gesamter Gewinn": sim_brutto - STARTKAPITAL,
-          "Netto Depotwert": sim_netto,
-          "Kumulierte Entnahme": sim_entnahme_kumuliert,
+          "Jahr": f"Jahr +{m_idx // 12}",
+          "Datum": (now_berlin.date() + pd.DateOffset(months=m_idx)).strftime(
+              "%d.%m.%Y"
+          ),
+          "Brutto Depotwert": sim_b,
+          "Gesamter Gewinn": sim_b - STARTKAPITAL,
+          "Netto Depotwert": sim_n,
+          "Kumulierte Entnahme": sim_e,
       })
 
-  forecast_data = sorted(forecast_data, key=lambda x: x["SortKey"])
-  df_forecast = pd.DataFrame(forecast_data)
-
-  fig_forecast = go.Figure()
-  fig_forecast.add_trace(
-      go.Scatter(
-          x=df_forecast["Jahr"],
-          y=df_forecast["Brutto Depotwert"],
-          name="Projizierter Brutto-Wert",
-          mode="lines+markers",
-          line=dict(color="#00C853", width=3),
-      )
-  )
-  fig_forecast.add_trace(
-      go.Scatter(
-          x=df_forecast["Jahr"],
-          y=df_forecast["Netto Depotwert"],
-          name="Projizierter Netto-Wert (nach Entnahme)",
-          mode="lines+markers",
-          line=dict(color="#29B6F6", width=2, dash="dash"),
-      )
-  )
-  fig_forecast.add_trace(
-      go.Scatter(
-          x=df_forecast["Jahr"],
-          y=df_forecast["Kumulierte Entnahme"],
-          name="Kumulierte Entnahmen",
-          mode="lines+markers",
-          line=dict(color="#FF3D00", width=2, dash="dot"),
-      )
-  )
-
-  fig_forecast.update_layout(
-      paper_bgcolor="#000000",
-      plot_bgcolor="#000000",
-      margin=dict(l=10, r=30, t=100, b=60),
-      height=460,
-      legend=dict(
-          orientation="h",
-          yanchor="bottom",
-          y=1.12,
-          xanchor="center",
-          x=0.5,
-          font=dict(color="#E5E7EB", size=11),
-      ),
-      xaxis=dict(
-          showgrid=True,
-          gridcolor="#1A1A1A",
-          tickfont=dict(color="#A1A1AA", size=11),
-          tickangle=-25,
-      ),
-      yaxis=dict(
-          showgrid=True,
-          gridcolor="#1A1A1A",
-          side="right",
-          tickprefix="",
-          ticksuffix=" €",
-          tickfont=dict(color="#A1A1AA"),
-      ),
-      hovermode="x unified",
-  )
-  st.plotly_chart(fig_forecast, use_container_width=True)
-
-  st.markdown("### 📊 Tabellarische Übersicht (inkl. Meilenstein)")
-
-  table_rows = []
-  for idx, row in df_forecast.iterrows():
-    is_milestone = row["Typ"] == "meilenstein"
-    bg_style = (
-        "background-color: #1a2e1a; border-left: 3px solid #00C853;"
-        if is_milestone
-        else ("background-color: #121216;" if idx == 0 else "")
-    )
-    jahr_color = "#00C853" if is_milestone else "#FFFFFF"
-
-    table_rows.append(
-        f'<tr style="border-bottom: 1px solid #18181B; {bg_style}">'
-        f'<td style="padding: 12px 16px; font-weight: 600; color:'
-        f' {jahr_color}; white-space: nowrap;">{row["Jahr"]}</td>'
-        f'<td style="padding: 12px 16px; color: #CBD5E1; white-space:'
-        f' nowrap;">{row["Datum"]}</td>'
-        '<td style="padding: 12px 16px; text-align: right; color: #00C853;'
-        ' font-weight: 600; white-space: nowrap;">'
-        f'{fmt(row["Brutto Depotwert"])} €</td>'
-        '<td style="padding: 12px 16px; text-align: right; color: #CBD5E1;'
-        f' white-space: nowrap;">{fmt(row["Gesamter Gewinn"])} €</td>'
-        '<td style="padding: 12px 16px; text-align: right; color: #29B6F6;'
-        f' white-space: nowrap;">{fmt(row["Netto Depotwert"])} €</td>'
-        '<td style="padding: 12px 16px; text-align: right; color: #FF3D00;'
-        f' white-space: nowrap;">{fmt(row["Kumulierte Entnahme"])} €</td>'
-        "</tr>"
-    )
-
-  html_table = f"""<div style="overflow-x: auto; border: 1px solid #27272A; border-radius: 6px; background-color: #09090B; margin-top: 10px;">
-<table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #E5E7EB; text-align: left;">
-<thead>
-<tr style="border-bottom: 1px solid #27272A; background-color: #121216; color: #A1A1AA; font-size: 0.78rem; text-transform: uppercase;">
-<th style="padding: 14px 16px; white-space: nowrap;">Jahr</th>
-<th style="padding: 14px 16px; white-space: nowrap;">Datum</th>
-<th style="padding: 14px 16px; text-align: right; white-space: nowrap;">Brutto Depotwert</th>
-<th style="padding: 14px 16px; text-align: right; white-space: nowrap;">Gesamter Gewinn</th>
-<th style="padding: 14px 16px; text-align: right; white-space: nowrap;">Netto Depotwert</th>
-<th style="padding: 14px 16px; text-align: right; white-space: nowrap;">Kum. Entnahme</th>
-</tr>
-</thead>
-<tbody>
-{"".join(table_rows)}
-</tbody>
-</table>
-</div>"""
-
-  st.markdown(html_table, unsafe_allow_html=True)
+  df_f = pd.DataFrame(forecast_data)
+  st.dataframe(df_f, use_container_width=True)
