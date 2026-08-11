@@ -240,8 +240,8 @@ aktueller_kurs = float(df_chart["Close"].iloc[-1])
 aktuelles_datum_str = df_chart.index[-1].strftime("%d.%m.%Y")
 
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100
-letztes_update_zeit = (
-    datetime.datetime.now(BERLIN_TZ).strftime("%d.%m.%Y %H:%M:%S Uhr")
+letztes_update_zeit = datetime.datetime.now(BERLIN_TZ).strftime(
+    "%d.%m.%Y %H:%M:%S Uhr"
 )
 
 if tages_verenderung_pct <= -1.0:
