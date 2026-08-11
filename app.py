@@ -492,10 +492,12 @@ with tab_candle:
   st.plotly_chart(fig_c, use_container_width=True)
 
 with tab_forecast:
+  mtl_prozent_anzeige = rendite_mo
   st.info(
-      f"Prognose auf Basis des mtl. Bruttogewinns von +{fmt(mtl_gewinn_avg, 2)}"
-      " €."
+      f"Prognose auf Basis des mtl. Bruttogewinns von +"
+      f"{fmt(mtl_gewinn_avg, 2)} € (Ø {mtl_prozent_anzeige:+.2f}% pro Monat)."
   )
+
   forecast_data = []
   forecast_data.append({
       "Index": 0,
