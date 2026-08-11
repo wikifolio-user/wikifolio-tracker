@@ -15,10 +15,7 @@ st.set_page_config(
 )
 
 # -------------------------------------------------------------------
-DISCORD_WEBHOOK_URL = (
-    "https://discord.com/api/webhooks/1536127717622153236/"
-    "WUsjAZmJjobz42r3zYtxJFS2rBWDLGXGfPKkxDPTMJHBmp8HmcgViaH9guzWoxUoz_Lc"
-)
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1536127717622153236/WUsjAZmJjobz42r3zYtxJFS2rBWDLGXGfPKkxDPTMJHBmp8HmcgViaH9guzWoxUoz_Lc"
 DB_FILE = "trades_db.json"
 ALARM_STATE_FILE = "alarm_state.json"
 # -------------------------------------------------------------------
@@ -45,10 +42,7 @@ def fmt(val, dec=0):
 
 # Auto-Refresh alle 3 Minuten (180 Sekunden)
 st.markdown(
-    """
-    <meta http-equiv="refresh" content="180">
-""",
-    unsafe_allow_html=True,
+    """<meta http-equiv="refresh" content="180">""", unsafe_allow_html=True
 )
 
 
@@ -109,13 +103,12 @@ def send_discord_alert(pct_change, current_price):
   if last_alert_time and (now - last_alert_time).total_seconds() < 3600:
     return False
 
-  payload = {
-      "content": (
-          f"🚨 **QUANT TERMINAL ALARM** 🚨\nDas Wikifolio **{WKN}** ({ISIN}) ist"
-          f" stark gefallen!\nTagesveränderung: **{pct_change:+.2f}%**\nAktueller"
-          f" Kurs: **{current_price:.3f} €**"
-      )
-  }
+  msg = (
+      f"🚨 **QUANT TERMINAL ALARM** 🚨\nDas Wikifolio **{WKN}** ({ISIN}) ist"
+      f" stark gefallen!\nTagesveränderung: **{pct_change:+.2f}%**\nAktueller"
+      f" Kurs: **{current_price:.3f} €**"
+  )
+  payload = {"content": msg}
 
   try:
     response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
@@ -157,13 +150,13 @@ fallback_vortag = 301.250 if not api_vortag else api_vortag
 
 aktueller_kurs_input = fallback_kurs
 vortag_kurs = fallback_vortag
-vortag_datum_str = (
-    api_vortag_datum
-    if api_vortag_datum != "N/A"
-    else (
-        datetime.datetime.now(BERLIN_TZ) - datetime.timedelta(days=1)
-    ).strftime("%d.%m.%Y")
-)
+
+if api_vortag_datum != "N/A":
+  vortag_datum_str = api_vortag_datum
+else:
+  vortag_datum_str = (
+      datetime.datetime.now(BERLIN_TZ) - datetime.timedelta(days=1)
+  ).strftime("%d.%m.%Y")
 
 # --- SIDEBAR STATUS ---
 st.sidebar.markdown("### ⚡ Vollautomatischer Live-Sync")
@@ -305,6 +298,9 @@ if not milestone_reached:
   if not milestone_reached and sim_b < 100000.0:
     meilenstein_datum_str = "> 10 Jahre"
 
+verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
+kaufdatum_str = KAUFDATUM.strftime("%d.%m.%Y")
+
 # HEADER BAR
 st.markdown(
     f"""
@@ -327,7 +323,7 @@ st.markdown(
 <div class="grid-container">
     <div class="m-card">
         <div class="m-label">Veränderung vs. Vortag</div>
-        <div class="m-val {'pos' if tages_verenderung_pct >= 0 else 'neg'}">{tages_verenderung_pct:+.2f}%</div>
+        <div class="m-val {verenderung_cls}">{tages_verenderung_pct:+.2f}%</div>
         <div class="m-sub">Schluss ({vortag_datum_str}): {vortag_kurs:.3f} €</div>
     </div>
     <div class="m-card">
@@ -354,7 +350,7 @@ st.markdown(
     <div class="m-card">
         <div class="m-label">Anfangskapital</div>
         <div class="m-val">{fmt(STARTKAPITAL)} €</div>
-        <div class="m-sub">Kauf ({KAUFDATUM.strftime('%d.%m.%Y')}): {ANFANGSKURS:.2f} €</div>
+        <div class="m-sub">Kauf ({kaufdatum_str}): {ANFANGSKURS:.2f} €</div>
     </div>
 </div>
 """,
@@ -362,17 +358,12 @@ st.markdown(
 )
 
 # TABS
-(
-    tab_wealth,
-    tab_trades,
-    tab_candle,
-    tab_forecast,
-) = st.tabs([
+tab_wealth, tab_trades, tab_candle, tab_forecast = st.tabs([
     "📈 VERMÖGENS- & SUBSTANZAUFBAU",
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
     "🕯️ TAGES-CANDLESTICK",
     "🔮 ZUKUNFTS-PROGNOSE (5 JAHRE)",
-)
+])
 
 with tab_wealth:
   fig_wealth = go.Figure()
@@ -435,12 +426,16 @@ with tab_trades:
     st.info("Keine Einträge vorhanden.")
   else:
     for ev in db_events:
+      e_typ = ev.get("typ", "")
+      e_datum = ev.get("datum", "")
+      e_titel = ev.get("titel", "")
+      e_inhalt = ev.get("inhalt", "")
       st.markdown(
           f"""
             <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
-                <div style="font-size: 0.75rem; color: #71717A;"><b>[{ev.get('typ')}]</b> - {ev.get('datum')}</div>
-                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{ev.get('titel')}</div>
-                <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt')}</div>
+                <div style="font-size: 0.75rem; color: #71717A;"><b>[{e_typ}]</b> - {e_datum}</div>
+                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{e_titel}</div>
+                <div style="font-size: 0.85rem; color: #D1D5DB;">{e_inhalt}</div>
             </div>
             """,
           unsafe_allow_html=True,
@@ -507,9 +502,9 @@ with tab_forecast:
       "Jahr": "Start",
       "Datum": KAUFDATUM.strftime("%d.%m.%Y"),
       "Brutto Depotwert": f"{fmt(STARTKAPITAL, 2)} €",
-      "Gesamter Gewinn": f"+0,00 €",
+      "Gesamter Gewinn": "+0,00 €",
       "Netto Depotwert": f"{fmt(STARTKAPITAL, 2)} €",
-      "Kumulierte Entnahme": f"0,00 €",
+      "Kumulierte Entnahme": "0,00 €",
   })
   forecast_data.append({
       "Index": 1,
