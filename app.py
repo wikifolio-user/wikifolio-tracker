@@ -292,7 +292,7 @@ meilenstein_details_str = "Ziel erreicht"
 milestone_reached = sim_b >= 100000.0
 
 if not milestone_reached:
-  for m_i in range(1, 360):
+  for m_i in range(1, 120):
     sim_b = sim_b * (1 + (rendite_mo / 100.0))
     if sim_b >= 100000.0:
       ms_dt_offset = now_berlin + pd.DateOffset(months=m_i)
@@ -318,7 +318,7 @@ if not milestone_reached:
       meilenstein_details_str = f"(~ {', '.join(parts)})"
       break
   if not milestone_reached and sim_b < 100000.0:
-    meilenstein_datum_str = "> 30 Jahre"
+    meilenstein_datum_str = "> 10 Jahre"
     meilenstein_details_str = "Außerhalb des Horizonts"
 
 verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
@@ -562,12 +562,12 @@ with tab_forecast:
   st.dataframe(df_f, use_container_width=True, hide_index=True)
 
 with tab_future:
-  st.markdown("### 💰 Zinseszins, Anfangskapital bis Ziel 100k!")
+  st.markdown("### 💰 Zinseszins, Anfangskapital bis Ziel 100k (10 Jahre)!")
   st.info(
       f"Basis: {fmt(STARTKAPITAL, 2)} € Startkapital | {fmt(ENTNAHME_PM, 2)} € Entnahme/Monat"
   )
 
-  # --- 1. TABELLE: Monatszins (p.M.) mit hochgerechnetem p.a. ---
+  # --- 1. TABELLE: Monatszins (p.M.) mit hochgerechnetem p.a. (10 Jahre / 120 Monate) ---
   st.markdown("#### 📌 Variante A: Zins pro Monat (p.M.)")
   data_mo = []
   zinssaetze_mo = [0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05, 0.055, 0.06]
@@ -576,7 +576,7 @@ with tab_future:
     jahreswerte = {}
     ziel_monat = None
 
-    for m in range(1, 361):
+    for m in range(1, 121):
       kapital = kapital * (1 + zins) - ENTNAHME_PM
       if kapital >= 100000.0 and ziel_monat is None:
         ziel_monat = f"Monat {m}"
@@ -584,15 +584,24 @@ with tab_future:
         jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
 
     if ziel_monat is None:
-      ziel_monat = "> 360 Monate"
+      # Weitertraggende Simulation, falls nach 10 Jahren noch nicht erreicht
+      kapital_extra = kapital
+      m_extra = 120
+      while kapital_extra < 100000.0 and m_extra < 360:
+        m_extra += 1
+        kapital_extra = kapital_extra * (1 + zins) - ENTNAHME_PM
+      if kapital_extra >= 100000.0:
+        ziel_monat = f"Monat {m_extra}"
+      else:
+        ziel_monat = "> 360 Monate"
 
     zins_pa_effektiv = ((1 + zins) ** 12 - 1) * 100
 
     row = {
         "Zins p.M.": f"{zins*100:.1f}%".replace(".", ","),
         "Entspricht p.a.": f"{zins_pa_effektiv:.1f}%".replace(".", ","),
-        **jahreswerte,
         "Ziel 100k": ziel_monat,
+        **jahreswerte,
     }
     data_mo.append(row)
 
@@ -600,7 +609,7 @@ with tab_future:
 
   st.markdown("---")
 
-  # --- 2. TABELLE: Jahreszins (p.a.) mit heruntergerechnetem Monatszins ---
+  # --- 2. TABELLE: Jahreszins (p.a.) mit heruntergerechnetem Monatszins (10 Jahre / 120 Monate) ---
   st.markdown(
       "#### 📌 Variante B: Zins pro Jahr (p.a. als Basis, mtl. verzinst)"
   )
@@ -612,7 +621,7 @@ with tab_future:
     jahreswerte = {}
     ziel_monat = None
 
-    for m in range(1, 361):
+    for m in range(1, 121):
       kapital = kapital * (1 + zins_mo) - ENTNAHME_PM
       if kapital >= 100000.0 and ziel_monat is None:
         ziel_monat = f"Monat {m}"
@@ -620,13 +629,21 @@ with tab_future:
         jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
 
     if ziel_monat is None:
-      ziel_monat = "> 360 Monate"
+      kapital_extra = kapital
+      m_extra = 120
+      while kapital_extra < 100000.0 and m_extra < 360:
+        m_extra += 1
+        kapital_extra = kapital_extra * (1 + zins_mo) - ENTNAHME_PM
+      if kapital_extra >= 100000.0:
+        ziel_monat = f"Monat {m_extra}"
+      else:
+        ziel_monat = "> 360 Monate"
 
     row = {
         "Zins p.a.": f"{zins_pa*100:.1f}%".replace(".", ","),
         "Entspricht p.M.": f"{zins_mo*100:.2f}%".replace(".", ","),
-        **jahreswerte,
         "Ziel 100k": ziel_monat,
+        **jahreswerte,
     }
     data_pa.append(row)
 
