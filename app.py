@@ -43,7 +43,7 @@ def fmt(val, dec=2):
 
 st_autorefresh(interval=60000, key="data_refresh")
 
-# --- VOLLAUTOMATISCHER LIVE-KURS & VORTAG ABRUF ---
+# --- VOLLAUTOMATISCHER LIVE-KURS & HISTORIE ---
 @st.cache_data(ttl=60)
 def get_live_market_data():
     tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU"]
@@ -73,6 +73,64 @@ def get_live_market_data():
 
 aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
 
+@st.cache_data(ttl=300)
+def get_historical_market_data(start_date, end_date):
+    tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU"]
+    for ticker_symbol in tickers_to_try:
+        try:
+            t = yf.Ticker(ticker_symbol)
+            df = t.history(start=start_date, end=end_date + datetime.timedelta(days=1))
+            if not df.empty and "Close" in df.columns:
+                if df.index.tz is not None:
+                    df.index = df.index.tz_localize(None)
+                return df[["Open", "High", "Low", "Close"]], f"Yahoo History ({ticker_symbol})"
+        except Exception as e:
+            logging.error(f"Fehler beim Laden der Historie für {ticker_symbol}: {e}")
+            
+    # Fallback wenn Historie fehlschlägt
+    date_range = pd.date_range(start=start_date, end=end_date, freq="B")
+    df = pd.DataFrame(index=date_range)
+    df["Close"] = aktueller_kurs
+    df["Open"] = aktueller_kurs
+    df["High"] = aktueller_kurs
+    df["Low"] = aktueller_kurs
+    return df, "Fallback (Linear/Flat)"
+
+now_berlin = datetime.datetime.now(BERLIN_TZ)
+heute_date = now_berlin.date()
+
+df_chart, hist_source_name = get_historical_market_data(KAUFDATUM, heute_date)
+
+# Sicherstellen, dass der aktuelle Live-Kurs als letzter Punkt vorhanden ist
+if not df_chart.empty:
+    last_idx = df_chart.index[-1].date()
+    if last_idx < heute_date:
+        new_row = pd.DataFrame({
+            "Open": [aktueller_kurs],
+            "High": [aktueller_kurs],
+            "Low": [aktueller_kurs],
+            "Close": [aktueller_kurs]
+        }, index=pd.to_datetime([heute_date]))
+        df_chart = pd.concat([df_chart, new_row])
+    else:
+        # Heutigen Schlusskurs mit Live-Kurs überschreiben falls neuer
+        df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
+        df_chart.iloc[-1, df_chart.columns.get_loc("High")] = max(df_chart.iloc[-1]["High"], aktueller_kurs)
+        df_chart.iloc[-1, df_chart.columns.get_loc("Low")] = min(df_chart.iloc[-1]["Low"], aktueller_kurs)
+
+df_chart["Startkapital"] = STARTKAPITAL
+
+start_dt = pd.to_datetime(KAUFDATUM)
+def get_entnahme_at_date(ts):
+    months = (ts.year - start_dt.year) * 12 + (ts.month - start_dt.month)
+    if ts.day < start_dt.day:
+        months -= 1
+    return max(0, months) * ENTNAHME_PM
+
+df_chart["Kumulierte_Entnahme"] = [get_entnahme_at_date(ts) for ts in df_chart.index]
+df_chart["Depotwert_Brutto"] = df_chart["Close"] * STUECKZAHL
+df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
+
 # --- DISCORD ALERT ---
 def send_discord_alert(pct_change, current_price):
     if not DISCORD_WEBHOOK_URL:
@@ -101,18 +159,13 @@ def send_discord_alert(pct_change, current_price):
     return False
 
 # --- AUTOMATISCHE RENDITE-BERECHNUNG (Vom Startwert bis Jetzt) ---
-now_berlin = datetime.datetime.now(BERLIN_TZ)
-heute_date = now_berlin.date()
-
 tage_gehalten = max(1, (heute_date - KAUFDATUM).days)
-jahre_gehalten = tage_gehalten / 365.25
-# Exakte jährliche Rendite (CAGR) vom Startwert zum aktuellen Live-Kurs
-erwartete_rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.001, jahre_gehalten))) - 1) * 100
+erwartete_rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (365.25 / tage_gehalten)) - 1) * 100
 erwarteter_zins_mo = (1 + (erwartete_rendite_pa / 100.0)) ** (1/12) - 1
 
 # --- SIDEBAR & STEUERUNG ---
 st.sidebar.markdown("### ⚡ System Status")
-st.sidebar.success(f"🟢 Vollautomatisch aktiv\nQuell-Feed: {fetched_source}")
+st.sidebar.success(f"🟢 Vollautomatisch aktiv\nFeed: {fetched_source}\nChart-Feed: {hist_source_name}")
 st.sidebar.write(f"Webhook geladen: {'Ja' if DISCORD_WEBHOOK_URL else 'Nein'}")
 
 st.sidebar.markdown("---")
@@ -149,33 +202,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CHART & VERMÖGENSRECHNUNG AB KAUFDATUM ---
-date_range = pd.date_range(start=KAUFDATUM, end=heute_date, freq="D")
-df_chart = pd.DataFrame(index=date_range)
-
-n_days = len(df_chart)
-if n_days > 1:
-    prices = [ANFANGSKURS + (aktueller_kurs - ANFANGSKURS) * (i / (n_days - 1)) for i in range(n_days)]
-else:
-    prices = [aktueller_kurs]
-
-df_chart["Close"] = prices
-df_chart["Open"] = df_chart["Close"] * 0.998
-df_chart["High"] = df_chart["Close"] * 1.005
-df_chart["Low"] = df_chart["Close"] * 0.992
-df_chart["Startkapital"] = STARTKAPITAL
-
-start_dt = pd.to_datetime(KAUFDATUM)
-def get_entnahme_at_date(ts):
-    months = (ts.year - start_dt.year) * 12 + (ts.month - start_dt.month)
-    if ts.day < start_dt.day:
-        months -= 1
-    return max(0, months) * ENTNAHME_PM
-
-df_chart["Kumulierte_Entnahme"] = [get_entnahme_at_date(ts) for ts in df_chart.index]
-df_chart["Depotwert_Brutto"] = df_chart["Close"] * STUECKZAHL
-df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
-
 # --- KENNZAHLEN ---
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100 if vortag_kurs else 0.0
 letztes_update_zeit = now_berlin.strftime("%d.%m.%Y %H:%M:%S Uhr")
@@ -190,7 +216,7 @@ netto_ist = brutto_ist - gesamt_entnommen
 gewinn_brutto = brutto_ist - STARTKAPITAL
 rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
 
-# 100k Meilenstein Simulation (Jetzt vollautomatisch mit der historischen Performance basierend auf Start- und Ist-Wert)
+# 100k Meilenstein Simulation
 sim_b = brutto_ist
 monate_bis_ziel = 0
 while sim_b < 100000.0 and monate_bis_ziel < 600:
