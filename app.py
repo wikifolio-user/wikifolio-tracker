@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytz
 import requests
+import yfinance as yf
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
@@ -42,6 +43,28 @@ def fmt(val, dec=2):
 
 st_autorefresh(interval=60000, key="data_refresh")
 
+# --- AUTOMATISCHER LIVE-KURS ABRUF (wie stock3) ---
+@st.cache_data(ttl=60)
+def get_live_market_data():
+    tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.DU", "LS9VFS.HM"]
+    for ticker_symbol in tickers_to_try:
+        try:
+            t = yf.Ticker(ticker_symbol)
+            hist = t.history(period="5d")
+            if not hist.empty and len(hist) >= 1:
+                closes = hist["Close"].dropna()
+                if len(closes) >= 1:
+                    akt = float(closes.iloc[-1])
+                    vor = float(closes.iloc[-2]) if len(closes) >= 2 else akt
+                    return akt, vor, f"Yahoo ({ticker_symbol})"
+        except Exception as e:
+            logging.error(f"Fehler bei Ticker {ticker_symbol}: {e}")
+    return None, None, None
+
+live_akt, live_vor, fetched_source = get_live_market_data()
+default_kurs = live_akt if live_akt else 302.980
+default_vortag = live_vor if live_vor else 300.790
+
 # --- DISCORD ALERT ---
 def send_discord_alert(pct_change, current_price):
     if not DISCORD_WEBHOOK_URL:
@@ -69,18 +92,27 @@ def send_discord_alert(pct_change, current_price):
         logging.error(f"Discord Alert Fehler: {e}")
     return False
 
-# --- SIDEBAR & MANUELLER OVERRIDE ---
+# --- SIDEBAR & STEUERUNG ---
 st.sidebar.markdown("### ⚡ System Status")
-st.sidebar.success("🟢 Manuelle Kursführung aktiv")
+if fetched_source:
+    st.sidebar.success(f"🟢 Live-Daten aktiv ({fetched_source})")
+else:
+    st.sidebar.warning("⚠️ Live-Feed offline – Fallback aktiv")
 
-# --- HIER EINFÜGEN ---
 st.sidebar.write(f"Webhook geladen: {'Ja' if DISCORD_WEBHOOK_URL else 'Nein'}")
-# ---------------------
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🛠️ Live-Kurs Steuerung")
-aktueller_kurs = st.sidebar.number_input("Aktueller Kurs (€)", value=302.100, format="%.3f")
-vortag_kurs = st.sidebar.number_input("Vortageskurs (€)", value=300.790, format="%.3f")
+st.sidebar.markdown("### 🛠️ Kurs Einstellungen")
+use_manual = st.sidebar.checkbox("Manuellen Kurs erzwingen", value=False if fetched_source else True)
+
+if use_manual:
+    aktueller_kurs = st.sidebar.number_input("Aktueller Kurs (€)", value=default_kurs, format="%.3f")
+    vortag_kurs = st.sidebar.number_input("Vortageskurs (€)", value=default_vortag, format="%.3f")
+else:
+    aktueller_kurs = default_kurs
+    vortag_kurs = default_vortag
+    st.sidebar.text(f"Kurs: {aktueller_kurs:.3f} €")
+    st.sidebar.text(f"Vortag: {vortag_kurs:.3f} €")
 
 # --- DEBUG CHECK ---
 st.sidebar.markdown("### 🔍 Debug-Info")
@@ -174,11 +206,14 @@ while sim_b < 100000.0 and monate_bis_ziel < 600:
     sim_b = (sim_b * (1 + erwarteter_zins_mo)) - ENTNAHME_PM
     monate_bis_ziel += 1
 
+monate_namen = {1: "Januar", 2: "Februar", 3: "März", 4: "April", 5: "Mai", 6: "Juni", 
+                7: "Juli", 8: "August", 9: "September", 10: "Oktober", 11: "November", 12: "Dezember"}
+
 if brutto_ist >= 100000.0:
     meilenstein_datum_str, meilenstein_details_str = "Bereits erreicht", "Ziel erreicht"
 elif monate_bis_ziel < 600:
     ms_date = (now_berlin + pd.DateOffset(months=monate_bis_ziel)).date()
-    meilenstein_datum_str = ms_date.strftime("%m.%Y")
+    meilenstein_datum_str = f"{monate_namen[ms_date.month]} {ms_date.year}"
     meilenstein_details_str = f"In ca. {monate_bis_ziel // 12} Jahren & {monate_bis_ziel % 12} Monaten"
 else:
     meilenstein_datum_str, meilenstein_details_str = "> 50 Jahre", "Mit Sparrate unrealistisch"
@@ -216,7 +251,7 @@ st.markdown(f"""
     </div>
     <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
         <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
-        <div class="m-val" style="color: #00C853; font-size: 1.25rem;">{meilenstein_datum_str}</div>
+        <div class="m-val" style="color: #00C853; font-size: 1.15rem;">{meilenstein_datum_str}</div>
         <div class="m-sub" style="color: #CBD5E1; font-size: 0.75rem;">{meilenstein_details_str}</div>
     </div>
     <div class="m-card">
