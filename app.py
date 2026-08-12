@@ -58,7 +58,6 @@ def get_live_market_data():
         except Exception as e:
             logging.error(f"Fehler bei fast_info für {ticker_symbol}: {e}")
             
-    # Fallback auf Historie, falls fast_info blockiert
     for ticker_symbol in tickers_to_try:
         try:
             t = yf.Ticker(ticker_symbol)
@@ -101,20 +100,29 @@ def send_discord_alert(pct_change, current_price):
         logging.error(f"Discord Alert Fehler: {e}")
     return False
 
+# --- AUTOMATISCHE RENDITE-BERECHNUNG (Vom Startwert bis Jetzt) ---
+now_berlin = datetime.datetime.now(BERLIN_TZ)
+heute_date = now_berlin.date()
+
+tage_gehalten = max(1, (heute_date - KAUFDATUM).days)
+jahre_gehalten = tage_gehalten / 365.25
+# Exakte jährliche Rendite (CAGR) vom Startwert zum aktuellen Live-Kurs
+erwartete_rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.001, jahre_gehalten))) - 1) * 100
+erwarteter_zins_mo = (1 + (erwartete_rendite_pa / 100.0)) ** (1/12) - 1
+
 # --- SIDEBAR & STEUERUNG ---
 st.sidebar.markdown("### ⚡ System Status")
 st.sidebar.success(f"🟢 Vollautomatisch aktiv\nQuell-Feed: {fetched_source}")
 st.sidebar.write(f"Webhook geladen: {'Ja' if DISCORD_WEBHOOK_URL else 'Nein'}")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📊 Live-Daten Live-Monitor")
+st.sidebar.markdown("### 📊 Live-Daten Monitor")
 st.sidebar.text(f"Aktueller Kurs: {aktueller_kurs:.3f} €")
 st.sidebar.text(f"Vortageskurs: {vortag_kurs:.3f} €")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎯 Prognose Einstellungen")
-erwartete_rendite_pa = st.sidebar.slider("Angenommene Marktrendite p.a. (%)", 1.0, 20.0, 7.0, 0.5)
-erwarteter_zins_mo = (1 + (erwartete_rendite_pa / 100.0)) ** (1/12) - 1
+st.sidebar.markdown("### 🎯 Automatische Prognose-Basis")
+st.sidebar.info(f"Ermittelte Performance (CAGR):\n**{erwartete_rendite_pa:.2f}% p.a.**\n\n(Dient als automatische Basis für die 100k-Simulation)")
 
 if st.sidebar.button("🔔 Test-Alarm senden"):
     if send_discord_alert(-1.50, aktueller_kurs):
@@ -142,9 +150,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CHART & VERMÖGENSRECHNUNG AB KAUFDATUM ---
-now_berlin = datetime.datetime.now(BERLIN_TZ)
-heute_date = now_berlin.date()
-
 date_range = pd.date_range(start=KAUFDATUM, end=heute_date, freq="D")
 df_chart = pd.DataFrame(index=date_range)
 
@@ -185,11 +190,7 @@ netto_ist = brutto_ist - gesamt_entnommen
 gewinn_brutto = brutto_ist - STARTKAPITAL
 rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
 
-tage_gehalten = max(1, (heute_date - KAUFDATUM).days)
-jahre_gehalten = tage_gehalten / 365.25
-rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1) * 100
-
-# 100k Meilenstein Simulation
+# 100k Meilenstein Simulation (Jetzt vollautomatisch mit der historischen Performance basierend auf Start- und Ist-Wert)
 sim_b = brutto_ist
 monate_bis_ziel = 0
 while sim_b < 100000.0 and monate_bis_ziel < 600:
@@ -232,7 +233,7 @@ st.markdown(f"""
     <div class="m-card">
         <div class="m-label">Brutto Depotwert</div>
         <div class="m-val pos">{fmt(brutto_ist, 2)}</div>
-        <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {rendite_pa:.1f}% p.a.</div>
+        <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {erwartete_rendite_pa:.1f}% p.a.</div>
     </div>
     <div class="m-card">
         <div class="m-label">Netto (Nach Entnahme)</div>
@@ -323,7 +324,7 @@ with tab_candle:
     st.plotly_chart(fig_c, width="stretch")
 
 with tab_forecast:
-    st.info(f"Prognose auf Basis der angenommenen Marktrendite von **{erwartete_rendite_pa:.1f}% p.a.**")
+    st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
     forecast_data = [
         {"Index": 0, "Jahr": "Start", "Datum": KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
         {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
