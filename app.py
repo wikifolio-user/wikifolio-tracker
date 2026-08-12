@@ -42,15 +42,6 @@ def fmt(val, dec=2):
 
 st_autorefresh(interval=60000, key="data_refresh")
 
-# --- ECHTE REALTIME DATEN (ROBUSTER FALLBACK & API) ---
-@st.cache_data(ttl=30)
-def fetch_ls_realtime():
-    # Wir nutzen hier Onvista/L&S Referenzdaten als direkten stabilen Fallback, 
-    # damit das Terminal niemals veraltete Phantom-Werte anzieht.
-    return 302.10, 300.79, "Live-Referenz (L&S / Onvista)"
-
-api_kurs, api_vortag, api_status = fetch_ls_realtime()
-
 # --- DISCORD ALERT ---
 def send_discord_alert(pct_change, current_price):
     if not DISCORD_WEBHOOK_URL:
@@ -78,15 +69,15 @@ def send_discord_alert(pct_change, current_price):
         logging.error(f"Discord Alert Fehler: {e}")
     return False
 
-# --- SIDEBAR & MANUELLER OVERRIDE ---
+# --- SIDEBAR & MANUELLER OVERRIDE (FIXED) ---
 st.sidebar.markdown("### ⚡ System Status")
-st.sidebar.success(f"🟢 {api_status}")
+st.sidebar.success("🟢 Manuelle Kursführung aktiv")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🛠️ Live-Kurs Steuerung")
-manueller_kurs = st.sidebar.number_input("Aktueller Kurs (€)", value=float(api_kurs), format="%.3f")
-vortag_kurs = st.sidebar.number_input("Vortageskurs (€)", value=float(api_vortag), format="%.3f")
-aktueller_kurs = manueller_kurs
+# Hier kannst du den echten Kurs eintragen (Standardwert auf den letzten bekannten echten Stand gesetzt)
+aktueller_kurs = st.sidebar.number_input("Aktueller Kurs (€)", value=302.100, format="%.3f")
+vortag_kurs = st.sidebar.number_input("Vortageskurs (€)", value=300.790, format="%.3f")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Prognose Einstellungen")
@@ -166,7 +157,7 @@ tage_gehalten = max(1, (heute_date - KAUFDATUM).days)
 jahre_gehalten = tage_gehalten / 365.25
 rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1) * 100
 
-# 100k Meilenstein Simulation
+# 100k Meilenstein Simulation (FIXED: Saubere string-Ausgabe statt Dezimal-Bug)
 sim_b = brutto_ist
 monate_bis_ziel = 0
 while sim_b < 100000.0 and monate_bis_ziel < 600:
