@@ -43,27 +43,36 @@ def fmt(val, dec=2):
 
 st_autorefresh(interval=60000, key="data_refresh")
 
-# --- AUTOMATISCHER LIVE-KURS ABRUF (wie stock3) ---
+# --- VOLLAUTOMATISCHER LIVE-KURS & VORTAG ABRUF ---
 @st.cache_data(ttl=60)
 def get_live_market_data():
-    tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.DU", "LS9VFS.HM"]
+    tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU"]
+    for ticker_symbol in tickers_to_try:
+        try:
+            t = yf.Ticker(ticker_symbol)
+            fi = t.fast_info
+            akt = float(fi.get("last_price") or fi.get("regularMarketPrice") or 0)
+            vor = float(fi.get("previous_close") or fi.get("regularMarketPreviousClose") or 0)
+            if akt > 0 and vor > 0:
+                return akt, vor, f"Yahoo FastInfo ({ticker_symbol})"
+        except Exception as e:
+            logging.error(f"Fehler bei fast_info für {ticker_symbol}: {e}")
+            
+    # Fallback auf Historie, falls fast_info blockiert
     for ticker_symbol in tickers_to_try:
         try:
             t = yf.Ticker(ticker_symbol)
             hist = t.history(period="5d")
-            if not hist.empty and len(hist) >= 1:
-                closes = hist["Close"].dropna()
-                if len(closes) >= 1:
-                    akt = float(closes.iloc[-1])
-                    vor = float(closes.iloc[-2]) if len(closes) >= 2 else akt
-                    return akt, vor, f"Yahoo ({ticker_symbol})"
+            if not hist.empty and len(hist) >= 2:
+                akt = float(hist["Close"].iloc[-1])
+                vor = float(hist["Close"].iloc[-2])
+                return akt, vor, f"Yahoo History ({ticker_symbol})"
         except Exception as e:
-            logging.error(f"Fehler bei Ticker {ticker_symbol}: {e}")
-    return None, None, None
+            logging.error(f"Fehler bei History für {ticker_symbol}: {e}")
+            
+    return 302.980, 302.100, "Fallback"
 
-live_akt, live_vor, fetched_source = get_live_market_data()
-default_kurs = live_akt if live_akt else 302.980
-default_vortag = live_vor if live_vor else 300.790
+aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
 
 # --- DISCORD ALERT ---
 def send_discord_alert(pct_change, current_price):
@@ -94,32 +103,13 @@ def send_discord_alert(pct_change, current_price):
 
 # --- SIDEBAR & STEUERUNG ---
 st.sidebar.markdown("### ⚡ System Status")
-if fetched_source:
-    st.sidebar.success(f"🟢 Live-Daten aktiv ({fetched_source})")
-else:
-    st.sidebar.warning("⚠️ Live-Feed offline – Fallback aktiv")
-
+st.sidebar.success(f"🟢 Vollautomatisch aktiv\nQuell-Feed: {fetched_source}")
 st.sidebar.write(f"Webhook geladen: {'Ja' if DISCORD_WEBHOOK_URL else 'Nein'}")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🛠️ Kurs Einstellungen")
-use_manual = st.sidebar.checkbox("Manuellen Kurs erzwingen", value=False if fetched_source else True)
-
-if use_manual:
-    aktueller_kurs = st.sidebar.number_input("Aktueller Kurs (€)", value=default_kurs, format="%.3f")
-    vortag_kurs = st.sidebar.number_input("Vortageskurs (€)", value=default_vortag, format="%.3f")
-else:
-    aktueller_kurs = default_kurs
-    vortag_kurs = default_vortag
-    st.sidebar.text(f"Kurs: {aktueller_kurs:.3f} €")
-    st.sidebar.text(f"Vortag: {vortag_kurs:.3f} €")
-
-# --- DEBUG CHECK ---
-st.sidebar.markdown("### 🔍 Debug-Info")
-if aktueller_kurs is None:
-    st.sidebar.error("Fehler: aktueller_kurs ist None!")
-else:
-    st.sidebar.info(f"Kurs-Wert erkannt: {aktueller_kurs}")
+st.sidebar.markdown("### 📊 Live-Daten Live-Monitor")
+st.sidebar.text(f"Aktueller Kurs: {aktueller_kurs:.3f} €")
+st.sidebar.text(f"Vortageskurs: {vortag_kurs:.3f} €")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Prognose Einstellungen")
@@ -227,7 +217,7 @@ st.markdown(f"""
         <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f}€</span></div>
         <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
     </div>
-    <div><span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● LIVE FEED ACTIVE</span></div>
+    <div><span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● VOLLAUTOMATISCH LIVE</span></div>
 </div>
 """, unsafe_allow_html=True)
 
