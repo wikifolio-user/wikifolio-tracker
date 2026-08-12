@@ -290,6 +290,16 @@ with tab_wealth:
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto-Wert", line=dict(color="#29B6F6", width=2)))
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
     
+    # 100k Zielwert-Linie im Chart
+    fig_wealth.add_hline(
+        y=100000, 
+        line_dash="dot", 
+        line_color="#00C853", 
+        annotation_text="🎯 100k Zielwert", 
+        annotation_position="bottom right",
+        annotation_font=dict(color="#00C853", size=11)
+    )
+    
     fig_wealth.update_layout(
         paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=50, b=40), height=420,
         legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
@@ -343,20 +353,38 @@ with tab_candle:
 
 with tab_forecast:
     st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
+    
     forecast_data = [
         {"Index": 0, "Jahr": "Start", "Datum": KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
         {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
     ]
+    
     sim_b_prog, sim_n_prog, sim_e_prog = brutto_ist, netto_ist, gesamt_entnommen
+    milestone_added = brutto_ist >= 100000.0
+
     for m_idx in range(1, 121):
         sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo))
         sim_e_prog += ENTNAHME_PM
         sim_n_prog = sim_b_prog - sim_e_prog
-        if m_idx % 12 == 0:
+        
+        current_date = now_berlin + pd.DateOffset(months=m_idx)
+        
+        # 100k Meilenstein exakt einfügen, sobald er überschritten wird
+        if not milestone_added and sim_b_prog >= 100000.0:
             forecast_data.append({
-                "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
-                "Datum": (now_berlin + pd.DateOffset(months=m_idx)).strftime("%d.%m.%Y"),
+                "Index": "🎯", "Jahr": "100k Meilenstein",
+                "Datum": current_date.strftime("%d.%m.%Y"),
                 "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - STARTKAPITAL, 2)}",
                 "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
             })
+            milestone_added = True
+
+        if m_idx % 12 == 0:
+            forecast_data.append({
+                "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
+                "Datum": current_date.strftime("%d.%m.%Y"),
+                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - STARTKAPITAL, 2)}",
+                "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+            })
+            
     st.dataframe(pd.DataFrame(forecast_data), width="stretch", hide_index=True)
