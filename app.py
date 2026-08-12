@@ -73,6 +73,10 @@ def send_discord_alert(pct_change, current_price):
 st.sidebar.markdown("### ⚡ System Status")
 st.sidebar.success("🟢 Manuelle Kursführung aktiv")
 
+# --- HIER EINFÜGEN ---
+st.sidebar.write(f"Webhook geladen: {'Ja' if DISCORD_WEBHOOK_URL else 'Nein'}")
+# ---------------------
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🛠️ Live-Kurs Steuerung")
 aktueller_kurs = st.sidebar.number_input("Aktueller Kurs (€)", value=302.100, format="%.3f")
