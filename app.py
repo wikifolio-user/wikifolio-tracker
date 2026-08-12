@@ -40,9 +40,9 @@ def fmt(val, dec=0):
   return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-# Auto-Refresh alle 3 Minuten (180 Sekunden)
+# Auto-Refresh alle 1 Minute (60 Sekunden) angepasst
 st.markdown(
-    """<meta http-equiv="refresh" content="180">""", unsafe_allow_html=True
+    """<meta http-equiv="refresh" content="60">""", unsafe_allow_html=True
 )
 
 
@@ -203,7 +203,7 @@ st.markdown(
 )
 
 
-@st.cache_data(ttl=180)
+@st.cache_data(ttl=60)  # Auf 60 Sekunden angepasst
 def get_chart_data(target_kurs):
   start_dt = pd.to_datetime("2025-07-09")
   end_dt = datetime.datetime.now(BERLIN_TZ).replace(tzinfo=None)
@@ -584,7 +584,6 @@ with tab_future:
         jahreswerte[f"Jahr {m//12}"] = f"{fmt(kapital, 2)} €"
 
     if ziel_monat is None:
-      # Weitertraggende Simulation, falls nach 10 Jahren noch nicht erreicht
       kapital_extra = kapital
       m_extra = 120
       while kapital_extra < 100000.0 and m_extra < 360:
