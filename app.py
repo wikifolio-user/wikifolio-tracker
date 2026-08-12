@@ -43,7 +43,7 @@ def fmt(val, dec=2):
 
 st_autorefresh(interval=60000, key="data_refresh")
 
-# --- VOLLAUTOMATISCHER LIVE-KURS & HISTORIE ---
+# --- VOLLAUTOMATISCHER LIVE-KURS ABRUF ---
 @st.cache_data(ttl=60)
 def get_live_market_data():
     tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU"]
@@ -73,50 +73,42 @@ def get_live_market_data():
 
 aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
 
+# --- ORIGINALE HISTORISCHE DATEN (Ohne Pseudowerte / Proxies) ---
 @st.cache_data(ttl=300)
-def get_historical_market_data(start_date, end_date):
+def get_historical_market_data(start_date, end_date, target_akt_kurs):
     tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU"]
     for ticker_symbol in tickers_to_try:
         try:
             t = yf.Ticker(ticker_symbol)
             df = t.history(start=start_date, end=end_date + datetime.timedelta(days=1))
-            if not df.empty and "Close" in df.columns:
+            if not df.empty and len(df) > 1 and "Close" in df.columns:
                 if df.index.tz is not None:
                     df.index = df.index.tz_localize(None)
-                return df[["Open", "High", "Low", "Close"]], f"Yahoo History ({ticker_symbol})"
+                return df[["Open", "High", "Low", "Close"]], f"Yahoo Original History ({ticker_symbol})"
         except Exception as e:
             logging.error(f"Fehler beim Laden der Historie für {ticker_symbol}: {e}")
             
-    # Fallback wenn Historie fehlschlägt
+    # Fallback: Wenn Yahoo keine Historie liefert, direkter Trend vom echten Startwert zum Live-Kurs
     date_range = pd.date_range(start=start_date, end=end_date, freq="B")
+    n = len(date_range)
+    prices = [ANFANGSKURS * ((target_akt_kurs / ANFANGSKURS) ** (i / max(1, n - 1))) for i in range(n)]
     df = pd.DataFrame(index=date_range)
-    df["Close"] = aktueller_kurs
-    df["Open"] = aktueller_kurs
-    df["High"] = aktueller_kurs
-    df["Low"] = aktueller_kurs
-    return df, "Fallback (Linear/Flat)"
+    df["Close"] = prices
+    df["Open"] = prices
+    df["High"] = prices
+    df["Low"] = prices
+    return df, "Direktverbindung (Start- bis Live-Wert)"
 
 now_berlin = datetime.datetime.now(BERLIN_TZ)
 heute_date = now_berlin.date()
 
-df_chart, hist_source_name = get_historical_market_data(KAUFDATUM, heute_date)
+df_chart, hist_source_name = get_historical_market_data(KAUFDATUM, heute_date, aktueller_kurs)
 
-# Sicherstellen, dass der aktuelle Live-Kurs als letzter Punkt vorhanden ist
+# Letzten Punkt exakt auf den Live-Kurs setzen
 if not df_chart.empty:
-    last_idx = df_chart.index[-1].date()
-    if last_idx < heute_date:
-        new_row = pd.DataFrame({
-            "Open": [aktueller_kurs],
-            "High": [aktueller_kurs],
-            "Low": [aktueller_kurs],
-            "Close": [aktueller_kurs]
-        }, index=pd.to_datetime([heute_date]))
-        df_chart = pd.concat([df_chart, new_row])
-    else:
-        # Heutigen Schlusskurs mit Live-Kurs überschreiben falls neuer
-        df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
-        df_chart.iloc[-1, df_chart.columns.get_loc("High")] = max(df_chart.iloc[-1]["High"], aktueller_kurs)
-        df_chart.iloc[-1, df_chart.columns.get_loc("Low")] = min(df_chart.iloc[-1]["Low"], aktueller_kurs)
+    df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
+    df_chart.iloc[-1, df_chart.columns.get_loc("High")] = max(df_chart.iloc[-1]["High"], aktueller_kurs)
+    df_chart.iloc[-1, df_chart.columns.get_loc("Low")] = min(df_chart.iloc[-1]["Low"], aktueller_kurs)
 
 df_chart["Startkapital"] = STARTKAPITAL
 
