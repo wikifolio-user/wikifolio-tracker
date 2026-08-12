@@ -69,13 +69,12 @@ def send_discord_alert(pct_change, current_price):
         logging.error(f"Discord Alert Fehler: {e}")
     return False
 
-# --- SIDEBAR & MANUELLER OVERRIDE (FIXED) ---
+# --- SIDEBAR & MANUELLER OVERRIDE ---
 st.sidebar.markdown("### ⚡ System Status")
 st.sidebar.success("🟢 Manuelle Kursführung aktiv")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🛠️ Live-Kurs Steuerung")
-# Hier kannst du den echten Kurs eintragen (Standardwert auf den letzten bekannten echten Stand gesetzt)
 aktueller_kurs = st.sidebar.number_input("Aktueller Kurs (€)", value=302.100, format="%.3f")
 vortag_kurs = st.sidebar.number_input("Vortageskurs (€)", value=300.790, format="%.3f")
 
@@ -157,7 +156,7 @@ tage_gehalten = max(1, (heute_date - KAUFDATUM).days)
 jahre_gehalten = tage_gehalten / 365.25
 rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (1 / max(0.1, jahre_gehalten))) - 1) * 100
 
-# 100k Meilenstein Simulation (FIXED: Saubere string-Ausgabe statt Dezimal-Bug)
+# 100k Meilenstein Simulation
 sim_b = brutto_ist
 monate_bis_ziel = 0
 while sim_b < 100000.0 and monate_bis_ziel < 600:
@@ -243,7 +242,7 @@ with tab_wealth:
         yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
         hovermode="x unified",
     )
-    st.plotly_chart(fig_wealth, use_container_width=True)
+    st.plotly_chart(fig_wealth, width="stretch")
 
 def load_db():
     if os.path.exists(DB_FILE):
@@ -285,7 +284,7 @@ with tab_trades:
 with tab_candle:
     fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
     fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right"), showlegend=False)
-    st.plotly_chart(fig_c, use_container_width=True)
+    st.plotly_chart(fig_c, width="stretch")
 
 with tab_forecast:
     st.info(f"Prognose auf Basis der angenommenen Marktrendite von **{erwartete_rendite_pa:.1f}% p.a.**")
@@ -305,4 +304,4 @@ with tab_forecast:
                 "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - STARTKAPITAL, 2)}",
                 "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
             })
-    st.dataframe(pd.DataFrame(forecast_data), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(forecast_data), width="stretch", hide_index=True)
