@@ -78,6 +78,13 @@ st.sidebar.markdown("### 🛠️ Live-Kurs Steuerung")
 aktueller_kurs = st.sidebar.number_input("Aktueller Kurs (€)", value=302.100, format="%.3f")
 vortag_kurs = st.sidebar.number_input("Vortageskurs (€)", value=300.790, format="%.3f")
 
+# --- DEBUG CHECK ---
+st.sidebar.markdown("### 🔍 Debug-Info")
+if aktueller_kurs is None:
+    st.sidebar.error("Fehler: aktueller_kurs ist None!")
+else:
+    st.sidebar.info(f"Kurs-Wert erkannt: {aktueller_kurs}")
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Prognose Einstellungen")
 erwartete_rendite_pa = st.sidebar.slider("Angenommene Marktrendite p.a. (%)", 1.0, 20.0, 7.0, 0.5)
