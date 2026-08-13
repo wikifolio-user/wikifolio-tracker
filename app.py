@@ -73,7 +73,7 @@ def get_live_market_data():
 
 aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
 
-# --- ORIGINALE HISTORISCHE DATEN (Ohne Pseudowerte / Proxies) ---
+# --- ORIGINALE HISTORISCHE DATEN ---
 @st.cache_data(ttl=300)
 def get_historical_market_data(start_date, end_date, target_akt_kurs):
     tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU"]
@@ -88,7 +88,6 @@ def get_historical_market_data(start_date, end_date, target_akt_kurs):
         except Exception as e:
             logging.error(f"Fehler beim Laden der Historie für {ticker_symbol}: {e}")
             
-    # Fallback: Wenn Yahoo keine Historie liefert, direkter Trend vom echten Startwert zum Live-Kurs
     date_range = pd.date_range(start=start_date, end=end_date, freq="B")
     n = len(date_range)
     prices = [ANFANGSKURS * ((target_akt_kurs / ANFANGSKURS) ** (i / max(1, n - 1))) for i in range(n)]
@@ -104,7 +103,6 @@ heute_date = now_berlin.date()
 
 df_chart, hist_source_name = get_historical_market_data(KAUFDATUM, heute_date, aktueller_kurs)
 
-# Letzten Punkt exakt auf den Live-Kurs setzen
 if not df_chart.empty:
     df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
     df_chart.iloc[-1, df_chart.columns.get_loc("High")] = max(df_chart.iloc[-1]["High"], aktueller_kurs)
@@ -150,7 +148,7 @@ def send_discord_alert(pct_change, current_price):
         logging.error(f"Discord Alert Fehler: {e}")
     return False
 
-# --- AUTOMATISCHE RENDITE-BERECHNUNG (Vom Startwert bis Jetzt) ---
+# --- AUTOMATISCHE RENDITE-BERECHNUNG ---
 tage_gehalten = max(1, (heute_date - KAUFDATUM).days)
 erwartete_rendite_pa = (((aktueller_kurs / ANFANGSKURS) ** (365.25 / tage_gehalten)) - 1) * 100
 erwarteter_zins_mo = (1 + (erwartete_rendite_pa / 100.0)) ** (1/12) - 1
@@ -208,7 +206,6 @@ netto_ist = brutto_ist - gesamt_entnommen
 gewinn_brutto = brutto_ist - STARTKAPITAL
 rendite_ist_pct = ((aktueller_kurs - ANFANGSKURS) / ANFANGSKURS) * 100
 
-# 100k Meilenstein Simulation
 sim_b = brutto_ist
 monate_bis_ziel = 0
 while sim_b < 100000.0 and monate_bis_ziel < 600:
@@ -225,7 +222,7 @@ elif monate_bis_ziel < 600:
     meilenstein_datum_str = f"{monate_namen[ms_date.month]} {ms_date.year}"
     meilenstein_details_str = f"In ca. {monate_bis_ziel // 12} Jahren & {monate_bis_ziel % 12} Monaten"
 else:
-    meilenstein_datum_str, meilenstein_details_str = "> 50 Jahre", "Mit Sparrate unrealistisch"
+    meilenstein_datum_str, meilenstein_details_str = "> 50 Jahre", "Unrealistisch"
 
 verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
 
@@ -277,11 +274,12 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # TABS
-tab_wealth, tab_trades, tab_candle, tab_forecast = st.tabs([
+tab_wealth, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
     "📈 VERMÖGENS- & SUBSTANZAUFBAU",
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
     "🕯️ TAGES-CANDLESTICK",
     "🔮 ZUKUNFTS-PROGNOSE",
+    "📊 SZENARIO-SIMULATOR (5 JAHRE)",
 ])
 
 with tab_wealth:
@@ -290,7 +288,6 @@ with tab_wealth:
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto-Wert", line=dict(color="#29B6F6", width=2)))
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
     
-    # 100k Zielwert-Linie im Chart
     fig_wealth.add_hline(
         y=100000, 
         line_dash="dot", 
@@ -369,7 +366,6 @@ with tab_forecast:
         
         current_date = now_berlin + pd.DateOffset(months=m_idx)
         
-        # 100k Meilenstein exakt einfügen, sobald er überschritten wird
         if not milestone_added and sim_b_prog >= 100000.0:
             forecast_data.append({
                 "Index": "🎯", "Jahr": "100k Meilenstein",
@@ -388,3 +384,86 @@ with tab_forecast:
             })
             
     st.dataframe(pd.DataFrame(forecast_data), width="stretch", hide_index=True)
+
+with tab_scenarios:
+    st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (2,0% bis 6,0% p.M.)")
+    st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(ENTNAHME_PM, 2)}**.")
+
+    szenario_raten_mo = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
+    
+    summary_list = []
+    scenario_series = {}
+
+    for r_mo_pct in szenario_raten_mo:
+        r_mo = r_mo_pct / 100.0
+        # Effektive Jahresrendite (p.a.)
+        r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
+        
+        # Berechnung der Monate bis 100k
+        cap_sim = STARTKAPITAL
+        m_to_100k = None
+        for m in range(1, 1200): # max 100 Jahre
+            cap_sim = (cap_sim * (1 + r_mo)) - ENTNAHME_PM
+            if cap_sim >= 100000.0:
+                m_to_100k = m
+                break
+
+        # 5-Jahres Monatswert-Verlauf (60 Monate)
+        monthly_vals = [STARTKAPITAL]
+        cap_5y = STARTKAPITAL
+        for m in range(1, 61):
+            cap_5y = (cap_5y * (1 + r_mo)) - ENTNAHME_PM
+            monthly_vals.append(max(0, cap_5y))
+            
+        scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
+        
+        if m_to_100k is not None:
+            years_100k = m_to_100k // 12
+            rem_months = m_to_100k % 12
+            m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
+            target_date = (pd.to_datetime(KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+        else:
+            m_str = "Nicht erreicht (>100J)"
+            target_date = "N/A"
+            
+        summary_list.append({
+            "Ziel 100k (Monate)": m_str,
+            "Monats-Rendite (p.M.)": f"{r_mo_pct:.1f}%",
+            "Jahres-Wert (eff. p.a.)": f"{r_pa_pct:.2f}%",
+            "Ziel-Datum (100k)": target_date,
+            "Wert nach 1 Jahr": fmt(monthly_vals[12], 2),
+            "Wert nach 2 Jahren": fmt(monthly_vals[24], 2),
+            "Wert nach 3 Jahren": fmt(monthly_vals[36], 2),
+            "Wert nach 4 Jahren": fmt(monthly_vals[48], 2),
+            "Wert nach 5 Jahren": fmt(monthly_vals[60], 2),
+        })
+
+    df_summary = pd.DataFrame(summary_list)
+    st.dataframe(df_summary, width="stretch", hide_index=True)
+
+    # Diagramm-Vergleich über 5 Jahre (60 Monate)
+    fig_scen = go.Figure()
+    months_x = list(range(61))
+    
+    for label, vals in scenario_series.items():
+        fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
+
+    fig_scen.add_hline(
+        y=100000, 
+        line_dash="dot", 
+        line_color="#00C853", 
+        annotation_text="🎯 100k Zielwert", 
+        annotation_position="top left",
+        annotation_font=dict(color="#00C853", size=11)
+    )
+
+    fig_scen.update_layout(
+        title="5-Jahres Wertentwicklung bei monatlichen Wachstumsraten",
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        margin=dict(l=10, r=60, t=50, b=40), height=450,
+        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
+        xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
+        yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig_scen, width="stretch")
