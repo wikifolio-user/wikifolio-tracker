@@ -197,10 +197,10 @@ def fetch_wikifolio_public_signature():
                             re.search(r"Letzter Login:\s*([\d.]+)", text)
         last_login = last_login_match.group(1) if last_login_match else "unbekannt"
 
-        # Performance-/Kennzahlen-Prozentwerte als "Fingerabdruck" des Zustands
-        perf_werte = re.findall(r"[+\-]\d+[.,]\d+\s?%", text)
-        signature_raw = last_login + "::" + "|".join(perf_werte[:8])
-        sig_hash = hashlib.sha256(signature_raw.encode("utf-8")).hexdigest()
+        # Fingerabdruck NUR aus dem Login-Datum - Performance-% raus, da die
+        # sich durch reine Kursschwankungen laufend ändern und sonst bei
+        # jedem Check (alle 5 Min.) fälschlich "neue Aktivität" auslösen.
+        sig_hash = hashlib.sha256(last_login.encode("utf-8")).hexdigest()
         return sig_hash, last_login, True
     except Exception as e:
         logging.error(f"Fehler beim Wikifolio-Activity-Check: {e}")
@@ -208,37 +208,51 @@ def fetch_wikifolio_public_signature():
 
 
 def check_and_report_wikifolio_activity(sig_hash, last_login, fetch_ok):
-    """Vergleicht den aktuellen Fingerabdruck mit dem zuletzt gespeicherten.
-    Bei Änderung: Discord-Hinweis (falls konfiguriert) + Flag fürs UI-Banner."""
+    """Vergleicht das Last-Login-Datum mit dem zuletzt gespeicherten.
+    Bei Änderung: Discord-Hinweis (mit Cooldown, falls konfiguriert) +
+    Flag fürs UI-Banner."""
     if not fetch_ok:
         return False, "Prüfung fehlgeschlagen"
 
-    prev_hash = None
+    prev_hash, last_alert_time = None, None
     if os.path.exists(WIKIFOLIO_ACTIVITY_STATE_FILE):
         try:
             with open(WIKIFOLIO_ACTIVITY_STATE_FILE, "r") as f:
-                prev_hash = json.load(f).get("hash")
+                state = json.load(f)
+                prev_hash = state.get("hash")
+                if state.get("last_alert"):
+                    last_alert_time = datetime.datetime.fromisoformat(state["last_alert"])
         except Exception:
             pass
 
     changed = prev_hash is not None and prev_hash != sig_hash
+    now = datetime.datetime.now(BERLIN_TZ)
+
+    # Cooldown: nicht öfter als alle 6 Stunden pingen, selbst wenn sich
+    # das Login-Datum mehrfach hintereinander "ändert" (z.B. Zeitzonen-Kanten)
+    cooldown_ok = (last_alert_time is None) or ((now - last_alert_time).total_seconds() > 6 * 3600)
+
+    new_state = {"hash": sig_hash, "last_login": last_login, "checked_at": now.isoformat()}
+    if last_alert_time:
+        new_state["last_alert"] = last_alert_time.isoformat()
+
+    if changed and DISCORD_WEBHOOK_URL and cooldown_ok:
+        try:
+            msg = (f"🔔 **Trader-Aktivität erkannt!**\n"
+                   f"Beim wikifolio '{WKN}' hat sich der Last-Login des Traders "
+                   f"geändert (jetzt: {last_login}).\n"
+                   f"Schau selbst auf wikifolio.com nach: {WIKIFOLIO_PUBLIC_URL}")
+            resp = requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+            if resp.status_code in (200, 204):
+                new_state["last_alert"] = now.isoformat()
+        except Exception as e:
+            logging.error(f"Discord Activity-Alert Fehler: {e}")
 
     try:
         with open(WIKIFOLIO_ACTIVITY_STATE_FILE, "w") as f:
-            json.dump({"hash": sig_hash, "last_login": last_login,
-                       "checked_at": datetime.datetime.now(BERLIN_TZ).isoformat()}, f)
+            json.dump(new_state, f)
     except Exception as e:
         logging.error(f"Konnte Activity-State nicht speichern: {e}")
-
-    if changed and DISCORD_WEBHOOK_URL:
-        try:
-            msg = (f"🔔 **Trader-Aktivität erkannt!**\n"
-                   f"Beim wikifolio '{WKN}' hat sich etwas verändert "
-                   f"(Last Login: {last_login}).\n"
-                   f"Schau selbst auf wikifolio.com nach: {WIKIFOLIO_PUBLIC_URL}")
-            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-        except Exception as e:
-            logging.error(f"Discord Activity-Alert Fehler: {e}")
 
     return changed, last_login
 
