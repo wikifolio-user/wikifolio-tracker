@@ -6,7 +6,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytz
 import requests
-import yfinance as yf
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
@@ -24,6 +23,7 @@ ALARM_STATE_FILE = "alarm_state.json"
 # --- KONSTANTEN ---
 ISIN = "DE000LS9VFS2"
 WKN = "LS9VFS"
+LS_INSTRUMENT_ID = "3865540"  # ls-tc.de interne ID für LS9VFS / DE000LS9VFS2
 ANFANGSKURS = 160.68
 
 STARTKAPITAL = 13000.0
@@ -33,6 +33,13 @@ STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
 BERLIN_TZ = pytz.timezone("Europe/Berlin")
 
+LS_TC_BASE_URL = "https://www.ls-tc.de/_rpc/json/instrument/chart/dataForInstrument"
+LS_TC_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Referer": f"https://www.ls-tc.de/de/wikifolio/{LS_INSTRUMENT_ID}",
+}
+
 # --- ZAHLENFORMATIERUNG (Punkt = Tausender, Komma = Dezimal) ---
 def fmt(val, dec=2):
     if dec > 0:
@@ -41,78 +48,143 @@ def fmt(val, dec=2):
         s = f"{val:,.0f}"
     return f"{s.replace(',', 'X').replace('.', ',').replace('X', '.')}€"
 
-st_autorefresh(interval=60000, key="data_refresh")
+st_autorefresh(interval=30000, key="data_refresh")
 
-# --- VOLLAUTOMATISCHER LIVE-KURS ABRUF ---
-@st.cache_data(ttl=60)
+# --- VOLLAUTOMATISCHER LIVE-KURS ABRUF (ls-tc.de, direkter Emittent LS9VFS) ---
+@st.cache_data(ttl=30)
 def get_live_market_data():
-    tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU"]
-    for ticker_symbol in tickers_to_try:
-        try:
-            t = yf.Ticker(ticker_symbol)
-            fi = t.fast_info
-            akt = float(fi.get("last_price") or fi.get("regularMarketPrice") or 0)
-            vor = float(fi.get("previous_close") or fi.get("regularMarketPreviousClose") or 0)
+    """
+    Holt den aktuellen Mid-Kurs + Vortageskurs direkt von ls-tc.de (Lang & Schwarz
+    TradeCenter), dem Emittenten des Zertifikats. Kostenlos, kein API-Key nötig.
+    Struktur der undokumentierten JSON-Antwort kann sich ändern - bei Fehlern
+    hier zuerst r.json() ausdrucken und die Pfade unten anpassen.
+    """
+    params = {
+        "container": "chart1",
+        "instrumentId": LS_INSTRUMENT_ID,
+        "marketId": "1",
+        "quotetype": "mid",
+        "series": "intraday,history,flags",
+        "type": "",
+        "localeId": "2",
+    }
+    try:
+        r = requests.get(LS_TC_BASE_URL, params=params, headers=LS_TC_HEADERS, timeout=6)
+        r.raise_for_status()
+        data = r.json()
+
+        # Intraday-Serie auslesen (Liste von [timestamp_ms, kurs])
+        intraday = (
+            data.get("series", {}).get("intraday", {}).get("data")
+            or data.get("intraday", {}).get("data")
+            or []
+        )
+        if intraday:
+            akt = float(intraday[-1][1])
+            # Vortageskurs: erster Wert der History-Serie eines Vortages, sonst
+            # erster Intraday-Wert als Näherung
+            history = (
+                data.get("series", {}).get("history", {}).get("data")
+                or data.get("history", {}).get("data")
+                or []
+            )
+            if len(history) >= 2:
+                vor = float(history[-2][1])
+            else:
+                vor = float(data.get("previousClose", intraday[0][1]))
+
             if akt > 0 and vor > 0:
-                return akt, vor, f"Yahoo FastInfo ({ticker_symbol})"
-        except Exception as e:
-            logging.error(f"Fehler bei fast_info für {ticker_symbol}: {e}")
-            
-    for ticker_symbol in tickers_to_try:
-        try:
-            t = yf.Ticker(ticker_symbol)
-            hist = t.history(period="5d")
-            if not hist.empty and len(hist) >= 2:
-                akt = float(hist["Close"].iloc[-1])
-                vor = float(hist["Close"].iloc[-2])
-                return akt, vor, f"Yahoo History ({ticker_symbol})"
-        except Exception as e:
-            logging.error(f"Fehler bei History für {ticker_symbol}: {e}")
-            
-    return 302.980, 302.100, "Fallback"
+                return akt, vor, "ls-tc.de Live (Emittent)"
 
-aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
+        logging.warning("ls-tc.de: Unerwartete JSON-Struktur, kein Kurs extrahiert.")
+    except Exception as e:
+        logging.error(f"Fehler beim Abruf von ls-tc.de: {e}")
 
-# --- ECHTE HISTORISCHE DATEN LADEN ---
+    return None, None, "Fehler – keine Live-Daten"
+
+
+# --- ECHTE HISTORISCHE DATEN VON ls-tc.de LADEN ---
 @st.cache_data(ttl=300)
-def get_historical_market_data(start_date, end_date):
-    tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU", "LS9VFS"]
-    for ticker_symbol in tickers_to_try:
-        try:
-            t = yf.Ticker(ticker_symbol)
-            df = t.history(start=start_date, end=end_date + datetime.timedelta(days=1))
-            if not df.empty and len(df) > 1 and "Close" in df.columns:
-                if df.index.tz is not None:
-                    df.index = df.index.tz_localize(None)
-                # Ungültige / Null-Werte bereinigen
+def get_historical_market_data(start_date, end_date, live_close_fallback):
+    """
+    Holt die Tages-History direkt von ls-tc.de. Da der Endpunkt primär
+    Schlusskurse liefert, werden Open/High/Low pragmatisch aus dem Close
+    approximiert (kleine Bandbreite), sofern die API keine echten OHLC liefert.
+    """
+    params = {
+        "container": "chart1",
+        "instrumentId": LS_INSTRUMENT_ID,
+        "marketId": "1",
+        "quotetype": "mid",
+        "series": "history",
+        "type": "",
+        "localeId": "2",
+    }
+    try:
+        r = requests.get(LS_TC_BASE_URL, params=params, headers=LS_TC_HEADERS, timeout=8)
+        r.raise_for_status()
+        raw = r.json()
+        history = (
+            raw.get("series", {}).get("history", {}).get("data")
+            or raw.get("history", {}).get("data")
+            or []
+        )
+        if history:
+            rows = []
+            for ts_ms, close in history:
+                ts = pd.to_datetime(ts_ms, unit="ms")
+                if ts.date() < start_date or ts.date() > end_date:
+                    continue
+                rows.append({"Date": ts, "Close": float(close)})
+            if rows:
+                df = pd.DataFrame(rows).set_index("Date").sort_index()
                 df = df[df["Close"] > 0]
                 if not df.empty:
-                    return df[["Open", "High", "Low", "Close"]], f"Yahoo History ({ticker_symbol})"
-        except Exception as e:
-            logging.error(f"Fehler beim Laden der Historie für {ticker_symbol}: {e}")
-            
-    # Falls Yahoo komplett blockiert, erzeugen wir saubere synthetische Schwankungen statt starrer Linie
+                    df["Open"] = df["Close"]
+                    df["High"] = df["Close"] * 1.003
+                    df["Low"] = df["Close"] * 0.997
+                    return df[["Open", "High", "Low", "Close"]], "ls-tc.de Live (Emittent)"
+
+        logging.warning("ls-tc.de: Keine verwertbare History-Struktur gefunden.")
+    except Exception as e:
+        logging.error(f"Fehler beim Laden der Historie von ls-tc.de: {e}")
+
+    # --- FALLBACK: klar gekennzeichnete synthetische Daten, NICHT echt ---
     date_range = pd.date_range(start=start_date, end=end_date, freq="B")
     n = len(date_range)
     import numpy as np
     np.random.seed(42)
-    # Realistischere Kurve mit kleiner täglicher Volatilität
-    base_prices = [ANFANGSKURS * ((aktueller_kurs / ANFANGSKURS) ** (i / max(1, n - 1))) for i in range(n)]
-    noise = np.random.normal(0, aktueller_kurs * 0.003, n)
+    base_prices = [
+        ANFANGSKURS * ((live_close_fallback / ANFANGSKURS) ** (i / max(1, n - 1)))
+        for i in range(n)
+    ]
+    noise = np.random.normal(0, live_close_fallback * 0.003, n)
     prices = [max(10, p + n_val) for p, n_val in zip(base_prices, noise)]
-    prices[-1] = aktueller_kurs # Letzter Wert exakt Live-Kurs
-    
+    prices[-1] = live_close_fallback
+
     df = pd.DataFrame(index=date_range)
     df["Close"] = prices
     df["Open"] = prices
     df["High"] = [p * 1.005 for p in prices]
     df["Low"] = [p * 0.995 for p in prices]
-    return df, "Synthetische Volatilitäts-Historie (Fallback)"
+    return df, "⚠️ SYNTHETISCH (Fallback, KEINE ECHTEN DATEN)"
+
 
 now_berlin = datetime.datetime.now(BERLIN_TZ)
 heute_date = now_berlin.date()
 
-df_chart, hist_source_name = get_historical_market_data(KAUFDATUM, heute_date)
+aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
+
+is_live_data = "Fehler" not in fetched_source
+
+if not is_live_data:
+    # Harter Fallback nur fürs Rendering, damit die App nicht abstürzt -
+    # wird im UI unten klar rot markiert.
+    aktueller_kurs, vortag_kurs = 302.980, 302.100
+    fetched_source = "⚠️ FALLBACK-WERT (KEINE ECHTEN DATEN)"
+
+df_chart, hist_source_name = get_historical_market_data(KAUFDATUM, heute_date, aktueller_kurs)
+is_live_history = "SYNTHETISCH" not in hist_source_name
 
 if not df_chart.empty:
     df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
@@ -166,7 +238,10 @@ erwarteter_zins_mo = (1 + (erwartete_rendite_pa / 100.0)) ** (1/12) - 1
 
 # --- SIDEBAR & STEUERUNG ---
 st.sidebar.markdown("### ⚡ System Status")
-st.sidebar.success(f"🟢 Vollautomatisch aktiv\nFeed: {fetched_source}\nChart-Feed: {hist_source_name}")
+if is_live_data:
+    st.sidebar.success(f"🟢 Live-Daten aktiv\nKurs-Feed: {fetched_source}\nChart-Feed: {hist_source_name}")
+else:
+    st.sidebar.error(f"🔴 KEINE LIVE-DATEN\nKurs-Feed: {fetched_source}\nChart-Feed: {hist_source_name}")
 st.sidebar.write(f"Webhook geladen: {'Ja' if DISCORD_WEBHOOK_URL else 'Nein'}")
 
 st.sidebar.markdown("---")
@@ -203,6 +278,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- WARNBANNER BEI FEHLENDEN LIVE-DATEN ---
+if not is_live_data or not is_live_history:
+    st.error(
+        "⚠️ Achtung: Es werden gerade **keine echten Live-Daten** von ls-tc.de angezeigt "
+        "(Kurs und/oder Chart-Historie sind Fallback-/Synthetikwerte). "
+        "Prüfe die Server-Logs bzw. die JSON-Struktur des ls-tc.de-Endpunkts."
+    )
+
 # --- KENNZAHLEN ---
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100 if vortag_kurs else 0.0
 letztes_update_zeit = now_berlin.strftime("%d.%m.%Y %H:%M:%S Uhr")
@@ -238,13 +321,19 @@ else:
 verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
 
 # HEADER BAR
+live_badge = (
+    '<span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● VOLLAUTOMATISCH LIVE</span>'
+    if is_live_data else
+    '<span style="color:#FF3D00; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● KEINE LIVE-DATEN</span>'
+)
+
 st.markdown(f"""
 <div class="header-bar">
     <div style="flex: 1; min-width: 220px;">
         <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f}€</span></div>
         <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {WKN} • ISIN: {ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
     </div>
-    <div><span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● VOLLAUTOMATISCH LIVE</span></div>
+    <div>{live_badge}</div>
 </div>
 """, unsafe_allow_html=True)
 
