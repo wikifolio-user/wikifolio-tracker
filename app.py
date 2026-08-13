@@ -1,6 +1,8 @@
 import datetime
+import hashlib
 import json
 import os
+import re
 import logging
 import pandas as pd
 import plotly.graph_objects as go
@@ -19,6 +21,7 @@ st.set_page_config(page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layou
 DISCORD_WEBHOOK_URL = st.secrets.get("DISCORD_WEBHOOK_URL", "")
 DB_FILE = "trades_db.json"
 ALARM_STATE_FILE = "alarm_state.json"
+WIKIFOLIO_ACTIVITY_STATE_FILE = "wikifolio_activity_state.json"
 
 # --- KONSTANTEN ---
 ISIN = "DE000LS9VFS2"
@@ -34,6 +37,8 @@ STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 BERLIN_TZ = pytz.timezone("Europe/Berlin")
 
 LS_TC_BASE_URL = "https://www.ls-tc.de/_rpc/json/instrument/chart/dataForInstrument"
+WIKIFOLIO_PUBLIC_URL = "https://www.wikifolio.com/de/de/w/wfindizglo"
+
 LS_TC_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -170,10 +175,83 @@ def get_historical_market_data(start_date, end_date, live_close_fallback):
     return df, "⚠️ SYNTHETISCH (Fallback, KEINE ECHTEN DATEN)"
 
 
+# --- TRADER-AKTIVITÄTS-SIGNAL (nur öffentliche, login-freie Seite) ---
+@st.cache_data(ttl=300)
+def fetch_wikifolio_public_signature():
+    """
+    Liest NUR die öffentlich zugängliche wikifolio.com-Seite (kein Login,
+    keine Trades/Kommentare im Klartext). Extrahiert das 'Last Login'-Datum
+    des Traders sowie die sichtbaren Performance-Kennzahlen und bildet daraus
+    einen Hash. Ändert sich der Hash zwischen zwei Abrufen, deutet das auf
+    einen neuen Trade oder Kommentar hin - Details liest man dann selbst
+    (mit eigenem Login) auf wikifolio.com nach.
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    try:
+        r = requests.get(WIKIFOLIO_PUBLIC_URL, headers=headers, timeout=8)
+        r.raise_for_status()
+        text = re.sub("<[^>]+>", " ", r.text)
+        text = re.sub(r"\s+", " ", text)
+
+        last_login_match = re.search(r"Last Login:\s*([\d/]+)", text) or \
+                            re.search(r"Letzter Login:\s*([\d.]+)", text)
+        last_login = last_login_match.group(1) if last_login_match else "unbekannt"
+
+        # Performance-/Kennzahlen-Prozentwerte als "Fingerabdruck" des Zustands
+        perf_werte = re.findall(r"[+\-]\d+[.,]\d+\s?%", text)
+        signature_raw = last_login + "::" + "|".join(perf_werte[:8])
+        sig_hash = hashlib.sha256(signature_raw.encode("utf-8")).hexdigest()
+        return sig_hash, last_login, True
+    except Exception as e:
+        logging.error(f"Fehler beim Wikifolio-Activity-Check: {e}")
+        return None, None, False
+
+
+def check_and_report_wikifolio_activity(sig_hash, last_login, fetch_ok):
+    """Vergleicht den aktuellen Fingerabdruck mit dem zuletzt gespeicherten.
+    Bei Änderung: Discord-Hinweis (falls konfiguriert) + Flag fürs UI-Banner."""
+    if not fetch_ok:
+        return False, "Prüfung fehlgeschlagen"
+
+    prev_hash = None
+    if os.path.exists(WIKIFOLIO_ACTIVITY_STATE_FILE):
+        try:
+            with open(WIKIFOLIO_ACTIVITY_STATE_FILE, "r") as f:
+                prev_hash = json.load(f).get("hash")
+        except Exception:
+            pass
+
+    changed = prev_hash is not None and prev_hash != sig_hash
+
+    try:
+        with open(WIKIFOLIO_ACTIVITY_STATE_FILE, "w") as f:
+            json.dump({"hash": sig_hash, "last_login": last_login,
+                       "checked_at": datetime.datetime.now(BERLIN_TZ).isoformat()}, f)
+    except Exception as e:
+        logging.error(f"Konnte Activity-State nicht speichern: {e}")
+
+    if changed and DISCORD_WEBHOOK_URL:
+        try:
+            msg = (f"🔔 **Trader-Aktivität erkannt!**\n"
+                   f"Beim wikifolio '{WKN}' hat sich etwas verändert "
+                   f"(Last Login: {last_login}).\n"
+                   f"Schau selbst auf wikifolio.com nach: {WIKIFOLIO_PUBLIC_URL}")
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+        except Exception as e:
+            logging.error(f"Discord Activity-Alert Fehler: {e}")
+
+    return changed, last_login
+
+
 now_berlin = datetime.datetime.now(BERLIN_TZ)
 heute_date = now_berlin.date()
 
 aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
+
+wf_sig_hash, wf_last_login, wf_fetch_ok = fetch_wikifolio_public_signature()
+wf_activity_detected, wf_last_login_display = check_and_report_wikifolio_activity(
+    wf_sig_hash, wf_last_login, wf_fetch_ok
+)
 
 is_live_data = "Fehler" not in fetched_source
 
@@ -257,6 +335,18 @@ if st.sidebar.button("🔔 Test-Alarm senden"):
     if send_discord_alert(-1.50, aktueller_kurs):
         st.sidebar.success("Test-Alarm gesendet!")
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 👤 Trader-Aktivität")
+if not wf_fetch_ok:
+    st.sidebar.warning("Aktivitäts-Check derzeit nicht erreichbar.")
+else:
+    st.sidebar.text(f"Last Login (Trader): {wf_last_login_display}")
+    if wf_activity_detected:
+        st.sidebar.success("🔔 Veränderung erkannt – neuer Trade/Kommentar möglich!")
+    else:
+        st.sidebar.caption("Keine Veränderung seit letztem Check.")
+    st.sidebar.markdown(f"[→ Auf wikifolio.com nachsehen]({WIKIFOLIO_PUBLIC_URL})")
+
 # --- TERMINAL STYLING ---
 st.markdown("""
 <style>
@@ -277,6 +367,14 @@ st.markdown("""
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
 </style>
 """, unsafe_allow_html=True)
+
+# --- BANNER: NEUE TRADER-AKTIVITÄT ---
+if wf_fetch_ok and wf_activity_detected:
+    st.warning(
+        f"🔔 Beim Trader hat sich seit dem letzten Check etwas verändert "
+        f"(Last Login: {wf_last_login_display}). Vermutlich ein neuer Trade "
+        f"oder Kommentar – schau selbst auf [wikifolio.com]({WIKIFOLIO_PUBLIC_URL}) nach."
+    )
 
 # --- WARNBANNER BEI FEHLENDEN LIVE-DATEN ---
 if not is_live_data or not is_live_history:
