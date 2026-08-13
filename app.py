@@ -73,10 +73,10 @@ def get_live_market_data():
 
 aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
 
-# --- ORIGINALE HISTORISCHE DATEN ---
+# --- ECHTE HISTORISCHE DATEN LADEN ---
 @st.cache_data(ttl=300)
-def get_historical_market_data(start_date, end_date, target_akt_kurs):
-    tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU"]
+def get_historical_market_data(start_date, end_date):
+    tickers_to_try = ["LS9VFS.SG", "LS9VFS.F", "LS9VFS.MU", "LS9VFS.DU", "LS9VFS"]
     for ticker_symbol in tickers_to_try:
         try:
             t = yf.Ticker(ticker_symbol)
@@ -84,24 +84,35 @@ def get_historical_market_data(start_date, end_date, target_akt_kurs):
             if not df.empty and len(df) > 1 and "Close" in df.columns:
                 if df.index.tz is not None:
                     df.index = df.index.tz_localize(None)
-                return df[["Open", "High", "Low", "Close"]], f"Yahoo Original History ({ticker_symbol})"
+                # Ungültige / Null-Werte bereinigen
+                df = df[df["Close"] > 0]
+                if not df.empty:
+                    return df[["Open", "High", "Low", "Close"]], f"Yahoo History ({ticker_symbol})"
         except Exception as e:
             logging.error(f"Fehler beim Laden der Historie für {ticker_symbol}: {e}")
             
+    # Falls Yahoo komplett blockiert, erzeugen wir saubere synthetische Schwankungen statt starrer Linie
     date_range = pd.date_range(start=start_date, end=end_date, freq="B")
     n = len(date_range)
-    prices = [ANFANGSKURS * ((target_akt_kurs / ANFANGSKURS) ** (i / max(1, n - 1))) for i in range(n)]
+    import numpy as np
+    np.random.seed(42)
+    # Realistischere Kurve mit kleiner täglicher Volatilität
+    base_prices = [ANFANGSKURS * ((aktueller_kurs / ANFANGSKURS) ** (i / max(1, n - 1))) for i in range(n)]
+    noise = np.random.normal(0, aktueller_kurs * 0.003, n)
+    prices = [max(10, p + n_val) for p, n_val in zip(base_prices, noise)]
+    prices[-1] = aktueller_kurs # Letzter Wert exakt Live-Kurs
+    
     df = pd.DataFrame(index=date_range)
     df["Close"] = prices
     df["Open"] = prices
-    df["High"] = prices
-    df["Low"] = prices
-    return df, "Direktverbindung (Start- bis Live-Wert)"
+    df["High"] = [p * 1.005 for p in prices]
+    df["Low"] = [p * 0.995 for p in prices]
+    return df, "Synthetische Volatilitäts-Historie (Fallback)"
 
 now_berlin = datetime.datetime.now(BERLIN_TZ)
 heute_date = now_berlin.date()
 
-df_chart, hist_source_name = get_historical_market_data(KAUFDATUM, heute_date, aktueller_kurs)
+df_chart, hist_source_name = get_historical_market_data(KAUFDATUM, heute_date)
 
 if not df_chart.empty:
     df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
@@ -288,7 +299,6 @@ with tab_wealth:
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto-Wert", line=dict(color="#29B6F6", width=2)))
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
     
-    # Abstand oben (t=80) vergrößert, damit Plotly-Modusleiste nicht mit der Legende kollidiert
     fig_wealth.update_layout(
         paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
@@ -388,7 +398,6 @@ with tab_scenarios:
 
     for r_mo_pct in szenario_raten_mo:
         r_mo = r_mo_pct / 100.0
-        
         r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
         
         cap_sim = STARTKAPITAL
