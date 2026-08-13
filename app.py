@@ -439,36 +439,36 @@ with tab_scenarios:
     df_summary = pd.DataFrame(summary_list)
     st.dataframe(df_summary, width="stretch", hide_index=True)
 
-    # Diagramm-Vergleich über 5 Jahre (60 Monate) generieren
     fig_scen = go.Figure()
     months_x = list(range(61))
     
     for label, vals in scenario_series.items():
         fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
 
-    # Chart-Layout definieren (100k Linie entfernt, Y-Achse auf max 45k skaliert für perfekte Lesbarkeit)
+    fig_scen.add_hline(
+        y=100000, 
+        line_dash="dot", 
+        line_color="#00C853", 
+        annotation_text="🎯 100k Zielwert", 
+        annotation_position="top left",
+        annotation_font=dict(color="#00C853", size=11)
+    )
+
     fig_scen.update_layout(
-        title="5-Jahres Wertentwicklung bei monatlichen Wachstumsraten",
+        title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
         paper_bgcolor="#000000", plot_bgcolor="#000000",
-        margin=dict(l=10, r=60, t=60, b=140), 
+        margin=dict(l=10, r=60, t=80, b=120), 
         height=580, 
         legend=dict(
             orientation="h", 
             yanchor="top", 
-            y=-0.2,  
+            y=-0.15,  
             xanchor="center", 
             x=0.5, 
             font=dict(color="#E5E7EB", size=11)
         ),
         xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
-        yaxis=dict(
-            title="Depotwert (€)", 
-            showgrid=True, 
-            gridcolor="#1A1A1A", 
-            side="right", 
-            tickfont=dict(color="#A1A1AA"),
-            range=[10000, 45000] # Fokus auf den relevanten Bereich für glasklare Lesbarkeit
-        ),
+        yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
         hovermode="x unified",
     )
     st.plotly_chart(fig_scen, width="stretch")
