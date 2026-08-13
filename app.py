@@ -463,12 +463,14 @@ with tab_scenarios:
         annotation_font=dict(color="#00C853", size=11)
     )
 
-    # Chart-Layout definieren (Korrigiert für überlappende Legende)
+    # Chart-Layout definieren (Korrigiert für überlappende Legende UND Toolbar/Modebar)
     fig_scen.update_layout(
-        title="5-Jahres Wertentwicklung bei monatlichen Wachstumsraten",
+        # Titel in zwei Zeilen umbrechen, damit er schmaler ist und nicht in die Toolbar ragt
+        title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
         paper_bgcolor="#000000", plot_bgcolor="#000000",
-        margin=dict(l=10, r=60, t=40, b=120), 
-        height=550, 
+        # t=80 gibt dem (nun zweizeiligen) Titel und der Plotly-Modebar genug Platz
+        margin=dict(l=10, r=60, t=80, b=120), 
+        height=580, 
         legend=dict(
             orientation="h", 
             yanchor="top", 
