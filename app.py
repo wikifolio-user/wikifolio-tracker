@@ -288,18 +288,10 @@ with tab_wealth:
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto-Wert", line=dict(color="#29B6F6", width=2)))
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
     
-    fig_wealth.add_hline(
-        y=100000, 
-        line_dash="dot", 
-        line_color="#00C853", 
-        annotation_text="🎯 100k Zielwert", 
-        annotation_position="bottom right",
-        annotation_font=dict(color="#00C853", size=11)
-    )
-    
+    # Abstand oben (t=80) vergrößert, damit Plotly-Modusleiste nicht mit der Legende kollidiert
     fig_wealth.update_layout(
-        paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=50, b=40), height=420,
-        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
+        paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
         xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
         yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
         hovermode="x unified",
