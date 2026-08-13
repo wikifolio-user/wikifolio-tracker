@@ -474,7 +474,9 @@ with tab_forecast:
                 "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
             })
             
-    st.dataframe(pd.DataFrame(forecast_data), width="stretch", hide_index=True)
+    df_forecast = pd.DataFrame(forecast_data)
+    df_forecast["Index"] = df_forecast["Index"].astype(str)  # Mix aus int & "🎯" -> Arrow-Fehler sonst
+    st.dataframe(df_forecast, width="stretch", hide_index=True)
 
 with tab_scenarios:
     st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (2,0% bis 6,0% p.M.)")
