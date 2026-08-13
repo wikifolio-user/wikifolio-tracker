@@ -397,29 +397,24 @@ with tab_scenarios:
     for r_mo_pct in szenario_raten_mo:
         r_mo = r_mo_pct / 100.0
         
-        # Effektive Jahresrendite (p.a.) aus der Monatsrendite berechnen
         r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
         
-        # Berechnung der Monate bis zum 100k Ziel
         cap_sim = STARTKAPITAL
         m_to_100k = None
-        for m in range(1, 1200): # Sicherheitshalber max 100 Jahre iterieren
+        for m in range(1, 1200):
             cap_sim = (cap_sim * (1 + r_mo)) - ENTNAHME_PM
             if cap_sim >= 100000.0:
                 m_to_100k = m
                 break
 
-        # 5-Jahres Monatswert-Verlauf (60 Monate) für den Chart und die Tabelle
         monthly_vals = [STARTKAPITAL]
         cap_5y = STARTKAPITAL
         for m in range(1, 61):
             cap_5y = (cap_5y * (1 + r_mo)) - ENTNAHME_PM
             monthly_vals.append(max(0, cap_5y))
             
-        # Daten für das Diagramm speichern
         scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
         
-        # Ziel-Datum formatieren
         if m_to_100k is not None:
             years_100k = m_to_100k // 12
             rem_months = m_to_100k % 12
@@ -429,7 +424,6 @@ with tab_scenarios:
             m_str = "Nicht erreicht (>100J)"
             target_date = "N/A"
             
-        # Zeile für die Übersichtstabelle zusammenbauen
         summary_list.append({
             "Ziel 100k (Monate)": m_str,
             "Monats-Rendite (p.M.)": f"{r_mo_pct:.1f}%",
@@ -442,7 +436,6 @@ with tab_scenarios:
             "Wert nach 5 Jahren": fmt(monthly_vals[60], 2),
         })
 
-    # Tabelle ausgeben
     df_summary = pd.DataFrame(summary_list)
     st.dataframe(df_summary, width="stretch", hide_index=True)
 
@@ -453,34 +446,29 @@ with tab_scenarios:
     for label, vals in scenario_series.items():
         fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
 
-    # 100k Ziel-Linie im Chart einzeichnen
-    fig_scen.add_hline(
-        y=100000, 
-        line_dash="dot", 
-        line_color="#00C853", 
-        annotation_text="🎯 100k Zielwert", 
-        annotation_position="top left",
-        annotation_font=dict(color="#00C853", size=11)
-    )
-
-    # Chart-Layout definieren (Korrigiert für überlappende Legende UND Toolbar/Modebar)
+    # Chart-Layout definieren (100k Linie entfernt, Y-Achse auf max 45k skaliert für perfekte Lesbarkeit)
     fig_scen.update_layout(
-        # Titel in zwei Zeilen umbrechen, damit er schmaler ist und nicht in die Toolbar ragt
-        title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
+        title="5-Jahres Wertentwicklung bei monatlichen Wachstumsraten",
         paper_bgcolor="#000000", plot_bgcolor="#000000",
-        # t=80 gibt dem (nun zweizeiligen) Titel und der Plotly-Modebar genug Platz
-        margin=dict(l=10, r=60, t=80, b=120), 
+        margin=dict(l=10, r=60, t=60, b=140), 
         height=580, 
         legend=dict(
             orientation="h", 
             yanchor="top", 
-            y=-0.15,  
+            y=-0.2,  
             xanchor="center", 
             x=0.5, 
             font=dict(color="#E5E7EB", size=11)
         ),
         xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
-        yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
+        yaxis=dict(
+            title="Depotwert (€)", 
+            showgrid=True, 
+            gridcolor="#1A1A1A", 
+            side="right", 
+            tickfont=dict(color="#A1A1AA"),
+            range=[10000, 45000] # Fokus auf den relevanten Bereich für glasklare Lesbarkeit
+        ),
         hovermode="x unified",
     )
     st.plotly_chart(fig_scen, width="stretch")
