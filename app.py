@@ -1,7 +1,5 @@
 import datetime
 import hashlib
-import json
-import os
 import re
 import logging
 import pandas as pd
@@ -11,43 +9,37 @@ import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
+import config
+import github_store
+
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layout="wide")
 
-# --- SECRETS & FILES ---
+# --- SECRETS ---
 DISCORD_WEBHOOK_URL = st.secrets.get("DISCORD_WEBHOOK_URL", "")
-DB_FILE = "trades_db.json"
-ALARM_STATE_FILE = "alarm_state.json"
-WIKIFOLIO_ACTIVITY_STATE_FILE = "wikifolio_activity_state.json"
-PRICE_ALERT_STATE_FILE = "price_alert_state.json"
-
-# Schwelle für Tagesveränderungs-Warnung (in %, negativ = Verlust)
-TAGESVERLUST_SCHWELLE_PCT = -1.0
-
-# --- KONSTANTEN ---
-ISIN = "DE000LS9VFS2"
-WKN = "LS9VFS"
-LS_INSTRUMENT_ID = "3865540"  # ls-tc.de interne ID für LS9VFS / DE000LS9VFS2
-ANFANGSKURS = 160.68
-
-STARTKAPITAL = 13000.0
-ENTNAHME_PM = 70.0
-KAUFDATUM = datetime.date(2025, 7, 9)
-STUECKZAHL = STARTKAPITAL / ANFANGSKURS
+GITHUB_REPO = st.secrets.get("GITHUB_REPO", "")   # z.B. "dein-user/wikifolio-tracker"
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")  # Personal Access Token, Scope "repo"
+GH_STATE_READY = bool(GITHUB_REPO and GITHUB_TOKEN)
 
 BERLIN_TZ = pytz.timezone("Europe/Berlin")
 
-LS_TC_BASE_URL = "https://www.ls-tc.de/_rpc/json/instrument/chart/dataForInstrument"
-WIKIFOLIO_PUBLIC_URL = "https://www.wikifolio.com/de/de/w/wfindizglo"
 
-LS_TC_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-    "Referer": f"https://www.ls-tc.de/de/wikifolio/{LS_INSTRUMENT_ID}",
-}
+# --- STATE-HELFER (persistent über GitHub statt fluechtiges Streamlit-Dateisystem) ---
+def gh_read(path, default):
+    if not GH_STATE_READY:
+        return default
+    data, _ = github_store.get_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, GITHUB_TOKEN, default=default)
+    return data if data is not None else default
+
+
+def gh_write(path, obj, message="update state [skip ci]"):
+    if not GH_STATE_READY:
+        return False
+    return github_store.put_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, obj, GITHUB_TOKEN, message=message)
+
 
 # --- ZAHLENFORMATIERUNG (Punkt = Tausender, Komma = Dezimal) ---
 def fmt(val, dec=2):
@@ -65,12 +57,10 @@ def get_live_market_data():
     """
     Holt den aktuellen Mid-Kurs + Vortageskurs direkt von ls-tc.de (Lang & Schwarz
     TradeCenter), dem Emittenten des Zertifikats. Kostenlos, kein API-Key nötig.
-    Struktur der undokumentierten JSON-Antwort kann sich ändern - bei Fehlern
-    hier zuerst r.json() ausdrucken und die Pfade unten anpassen.
     """
     params = {
         "container": "chart1",
-        "instrumentId": LS_INSTRUMENT_ID,
+        "instrumentId": config.LS_INSTRUMENT_ID,
         "marketId": "1",
         "quotetype": "mid",
         "series": "intraday,history,flags",
@@ -78,11 +68,10 @@ def get_live_market_data():
         "localeId": "2",
     }
     try:
-        r = requests.get(LS_TC_BASE_URL, params=params, headers=LS_TC_HEADERS, timeout=6)
+        r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=6)
         r.raise_for_status()
         data = r.json()
 
-        # Intraday-Serie auslesen (Liste von [timestamp_ms, kurs])
         intraday = (
             data.get("series", {}).get("intraday", {}).get("data")
             or data.get("intraday", {}).get("data")
@@ -90,8 +79,6 @@ def get_live_market_data():
         )
         if intraday:
             akt = float(intraday[-1][1])
-            # Vortageskurs: erster Wert der History-Serie eines Vortages, sonst
-            # erster Intraday-Wert als Näherung
             history = (
                 data.get("series", {}).get("history", {}).get("data")
                 or data.get("history", {}).get("data")
@@ -118,11 +105,11 @@ def get_historical_market_data(start_date, end_date, live_close_fallback):
     """
     Holt die Tages-History direkt von ls-tc.de. Da der Endpunkt primär
     Schlusskurse liefert, werden Open/High/Low pragmatisch aus dem Close
-    approximiert (kleine Bandbreite), sofern die API keine echten OHLC liefert.
+    approximiert, sofern die API keine echten OHLC liefert.
     """
     params = {
         "container": "chart1",
-        "instrumentId": LS_INSTRUMENT_ID,
+        "instrumentId": config.LS_INSTRUMENT_ID,
         "marketId": "1",
         "quotetype": "mid",
         "series": "history",
@@ -130,7 +117,7 @@ def get_historical_market_data(start_date, end_date, live_close_fallback):
         "localeId": "2",
     }
     try:
-        r = requests.get(LS_TC_BASE_URL, params=params, headers=LS_TC_HEADERS, timeout=8)
+        r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=8)
         r.raise_for_status()
         raw = r.json()
         history = (
@@ -164,7 +151,7 @@ def get_historical_market_data(start_date, end_date, live_close_fallback):
     import numpy as np
     np.random.seed(42)
     base_prices = [
-        ANFANGSKURS * ((live_close_fallback / ANFANGSKURS) ** (i / max(1, n - 1)))
+        config.ANFANGSKURS * ((live_close_fallback / config.ANFANGSKURS) ** (i / max(1, n - 1)))
         for i in range(n)
     ]
     noise = np.random.normal(0, live_close_fallback * 0.003, n)
@@ -179,16 +166,424 @@ def get_historical_market_data(start_date, end_date, live_close_fallback):
     return df, "⚠️ SYNTHETISCH (Fallback, KEINE ECHTEN DATEN)"
 
 
+# --- FETCH-FEHLER-ALARM (Discord, mit Cooldown) ---
+def check_and_alert_fetch_failure(is_live_data, is_live_history):
+    """Meldet per Discord, wenn Live-Kurs und/oder Chart-Historie gerade NICHT
+    echt sind - mit 30-Min-Cooldown, damit nicht jede Sekunde gepingt wird."""
+    if not DISCORD_WEBHOOK_URL:
+        return
+    state = gh_read(config.STATE_PATH_FETCH_FAIL_ALARM, {"last_alert": None, "war_down": False})
+    now = datetime.datetime.now(BERLIN_TZ)
+    is_down = (not is_live_data) or (not is_live_history)
+
+    last_alert = None
+    if state.get("last_alert"):
+        try:
+            last_alert = datetime.datetime.fromisoformat(state["last_alert"])
+        except Exception:
+            pass
+    cooldown_ok = (last_alert is None) or ((now - last_alert).total_seconds() > 30 * 60)
+
+    if is_down and cooldown_ok:
+        msg = (f"⚠️ **Datenquelle down ({config.WKN})**\n"
+               f"ls-tc.de liefert gerade keine echten Live-/Chartdaten mehr. "
+               f"App zeigt Fallback-/Synthetikwerte an.\n"
+               f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}")
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+            state["last_alert"] = now.isoformat()
+        except Exception as e:
+            logging.error(f"Discord Fetch-Fail-Alarm Fehler: {e}")
+    elif not is_down and state.get("war_down"):
+        msg = f"✅ **Datenquelle wieder OK ({config.WKN})** — ls-tc.de liefert wieder Live-Daten."
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+        except Exception as e:
+            logging.error(f"Discord Fetch-Recover Fehler: {e}")
+
+    state["war_down"] = is_down
+    gh_write(config.STATE_PATH_FETCH_FAIL_ALARM, state, message="update fetch fail alarm state [skip ci]")
+
+
 # --- TRADER-AKTIVITÄTS-SIGNAL (nur öffentliche, login-freie Seite) ---
 @st.cache_data(ttl=300)
 def fetch_wikifolio_public_signature():
     """
     Liest NUR die öffentlich zugängliche wikifolio.com-Seite (kein Login,
     keine Trades/Kommentare im Klartext). Extrahiert das 'Last Login'-Datum
-    des Traders sowie die sichtbaren Performance-Kennzahlen und bildet daraus
-    einen Hash. Ändert sich der Hash zwischen zwei Abrufen, deutet das auf
-    einen neuen Trade oder Kommentar hin - Details liest man dann selbst
-< truncated lines 191-550 >
+    des Traders und bildet daraus einen Hash. Ändert sich der Hash, deutet
+    das auf einen neuen Trade oder Kommentar hin - Details liest man dann
+    selbst (mit eigenem Login) auf wikifolio.com nach.
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    try:
+        r = requests.get(config.WIKIFOLIO_PUBLIC_URL, headers=headers, timeout=8)
+        r.raise_for_status()
+        text = re.sub("<[^>]+>", " ", r.text)
+        text = re.sub(r"\s+", " ", text)
+
+        last_login_match = re.search(r"Last Login:\s*([\d/]+)", text) or \
+                            re.search(r"Letzter Login:\s*([\d.]+)", text)
+        last_login = last_login_match.group(1) if last_login_match else "unbekannt"
+
+        sig_hash = hashlib.sha256(last_login.encode("utf-8")).hexdigest()
+        return sig_hash, last_login, True
+    except Exception as e:
+        logging.error(f"Fehler beim Wikifolio-Activity-Check: {e}")
+        return None, None, False
+
+
+def check_and_report_wikifolio_activity(sig_hash, last_login, fetch_ok):
+    """Vergleicht das Last-Login-Datum mit dem zuletzt gespeicherten.
+    Bei Änderung: Discord-Hinweis (mit Cooldown, falls konfiguriert) +
+    Flag fürs UI-Banner."""
+    if not fetch_ok:
+        return False, "Prüfung fehlgeschlagen"
+
+    state = gh_read(config.STATE_PATH_WIKIFOLIO_ACTIVITY, {})
+    prev_hash = state.get("hash")
+    last_alert_time = None
+    if state.get("last_alert"):
+        try:
+            last_alert_time = datetime.datetime.fromisoformat(state["last_alert"])
+        except Exception:
+            pass
+
+    changed = prev_hash is not None and prev_hash != sig_hash
+    now = datetime.datetime.now(BERLIN_TZ)
+    cooldown_ok = (last_alert_time is None) or ((now - last_alert_time).total_seconds() > 6 * 3600)
+
+    new_state = {"hash": sig_hash, "last_login": last_login, "checked_at": now.isoformat()}
+    if last_alert_time:
+        new_state["last_alert"] = last_alert_time.isoformat()
+
+    if changed and DISCORD_WEBHOOK_URL and cooldown_ok:
+        try:
+            msg = (f"🔔 **Trader-Aktivität erkannt!**\n"
+                   f"Beim wikifolio '{config.WKN}' hat sich der Last-Login des Traders "
+                   f"geändert (jetzt: {last_login}).\n"
+                   f"Schau selbst auf wikifolio.com nach: {config.WIKIFOLIO_PUBLIC_URL}")
+            resp = requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+            if resp.status_code in (200, 204):
+                new_state["last_alert"] = now.isoformat()
+        except Exception as e:
+            logging.error(f"Discord Activity-Alert Fehler: {e}")
+
+    gh_write(config.STATE_PATH_WIKIFOLIO_ACTIVITY, new_state, message="update wikifolio activity state [skip ci]")
+    return changed, last_login
+
+
+now_berlin = datetime.datetime.now(BERLIN_TZ)
+heute_date = now_berlin.date()
+
+aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
+
+wf_sig_hash, wf_last_login, wf_fetch_ok = fetch_wikifolio_public_signature()
+wf_activity_detected, wf_last_login_display = check_and_report_wikifolio_activity(
+    wf_sig_hash, wf_last_login, wf_fetch_ok
+)
+
+is_live_data = "Fehler" not in fetched_source
+
+if not is_live_data:
+    aktueller_kurs, vortag_kurs = 302.980, 302.100
+    fetched_source = "⚠️ FALLBACK-WERT (KEINE ECHTEN DATEN)"
+
+df_chart, hist_source_name = get_historical_market_data(config.KAUFDATUM, heute_date, aktueller_kurs)
+is_live_history = "SYNTHETISCH" not in hist_source_name
+
+check_and_alert_fetch_failure(is_live_data, is_live_history)
+
+if not df_chart.empty:
+    df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
+    df_chart.iloc[-1, df_chart.columns.get_loc("High")] = max(df_chart.iloc[-1]["High"], aktueller_kurs)
+    df_chart.iloc[-1, df_chart.columns.get_loc("Low")] = min(df_chart.iloc[-1]["Low"], aktueller_kurs)
+
+df_chart["Startkapital"] = config.STARTKAPITAL
+
+start_dt = pd.to_datetime(config.KAUFDATUM)
+def get_entnahme_at_date(ts):
+    months = (ts.year - start_dt.year) * 12 + (ts.month - start_dt.month)
+    if ts.day < start_dt.day:
+        months -= 1
+    return max(0, months) * config.ENTNAHME_PM
+
+df_chart["Kumulierte_Entnahme"] = [get_entnahme_at_date(ts) for ts in df_chart.index]
+
+# --- SIMULATION (bisheriges Verhalten): Stückzahl bleibt konstant, Entnahme
+# wird nur buchhalterisch vom Bruttowert abgezogen. ---
+df_chart["Depotwert_Brutto"] = df_chart["Close"] * config.STUECKZAHL
+df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
+
+# --- REAL: Entnahme erfolgt tatsächlich durch monatlichen Verkauf von Anteilen
+# zum jeweils gültigen Schlusskurs -> Stückzahl sinkt dauerhaft. ---
+def berechne_reale_stueckzahl(df, start_stueckzahl, entnahme_pm, start_dt):
+    stueckzahl = start_stueckzahl
+    verlauf = []
+    letzter_monat = None
+    for ts, row in df.iterrows():
+        monat_key = (ts.year, ts.month)
+        if letzter_monat is not None and monat_key != letzter_monat:
+            preis = row["Close"]
+            if preis and preis > 0:
+                verkaufte_stueck = entnahme_pm / preis
+                stueckzahl = max(0.0, stueckzahl - verkaufte_stueck)
+        letzter_monat = monat_key
+        verlauf.append(stueckzahl)
+    return verlauf
+
+df_chart["Stueckzahl_Real"] = berechne_reale_stueckzahl(df_chart, config.STUECKZAHL, config.ENTNAHME_PM, start_dt)
+df_chart["Depotwert_Real"] = df_chart["Close"] * df_chart["Stueckzahl_Real"]
+
+# --- DISCORD ALERT (klassischer -1%-Alarm, Legacy-Button in Sidebar) ---
+def send_discord_alert(pct_change, current_price):
+    if not DISCORD_WEBHOOK_URL:
+        return False
+    state = gh_read(config.STATE_PATH_ALARM, {})
+    last_alert_time = None
+    if state.get("last_alert"):
+        try:
+            last_alert_time = datetime.datetime.fromisoformat(state["last_alert"])
+        except Exception:
+            pass
+
+    now = datetime.datetime.now(BERLIN_TZ)
+    if last_alert_time and (now - last_alert_time).total_seconds() < 3600:
+        return False
+
+    msg = f"🚨 **QUANT TERMINAL ALARM** 🚨\nDas Wikifolio **{config.WKN}** ist gefallen!\nTagesveränderung: **{pct_change:+.2f}%**\nAktueller Kurs: **{current_price:.3f}€**"
+    try:
+        response = requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+        if response.status_code in (200, 204):
+            gh_write(config.STATE_PATH_ALARM, {"last_alert": now.isoformat()}, message="update alarm state [skip ci]")
+            return True
+    except Exception as e:
+        logging.error(f"Discord Alert Fehler: {e}")
+    return False
+
+# --- AUTOMATISCHE RENDITE-BERECHNUNG ---
+tage_gehalten = max(1, (heute_date - config.KAUFDATUM).days)
+erwartete_rendite_pa = (((aktueller_kurs / config.ANFANGSKURS) ** (365.25 / tage_gehalten)) - 1) * 100
+erwarteter_zins_mo = (1 + (erwartete_rendite_pa / 100.0)) ** (1/12) - 1
+
+# --- SIDEBAR & STEUERUNG ---
+st.sidebar.markdown("### ⚡ System Status")
+if is_live_data:
+    st.sidebar.success(f"🟢 Live-Daten aktiv\nKurs-Feed: {fetched_source}\nChart-Feed: {hist_source_name}")
+else:
+    st.sidebar.error(f"🔴 KEINE LIVE-DATEN\nKurs-Feed: {fetched_source}\nChart-Feed: {hist_source_name}")
+st.sidebar.write(f"Webhook geladen: {'Ja' if DISCORD_WEBHOOK_URL else 'Nein'}")
+st.sidebar.write(f"Persistenter State (GitHub): {'Ja' if GH_STATE_READY else '⚠️ Nein - GITHUB_REPO/GITHUB_TOKEN fehlen'}")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📊 Live-Daten Monitor")
+st.sidebar.text(f"Aktueller Kurs: {aktueller_kurs:.3f} €")
+st.sidebar.text(f"Vortageskurs: {vortag_kurs:.3f} €")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎯 Automatische Prognose-Basis")
+st.sidebar.info(f"Ermittelte Performance (CAGR):\n**{erwartete_rendite_pa:.2f}% p.a.**\n\n(Dient als automatische Basis für die 100k-Simulation)")
+
+if st.sidebar.button("🔔 Test-Alarm senden"):
+    if send_discord_alert(-1.50, aktueller_kurs):
+        st.sidebar.success("Test-Alarm gesendet!")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 👤 Trader-Aktivität")
+if not wf_fetch_ok:
+    st.sidebar.warning("Aktivitäts-Check derzeit nicht erreichbar.")
+else:
+    st.sidebar.text(f"Last Login (Trader): {wf_last_login_display}")
+    if wf_activity_detected:
+        st.sidebar.success("🔔 Veränderung erkannt – neuer Trade/Kommentar möglich!")
+    else:
+        st.sidebar.caption("Keine Veränderung seit letztem Check.")
+    st.sidebar.markdown(f"[→ Auf wikifolio.com nachsehen]({config.WIKIFOLIO_PUBLIC_URL})")
+
+# --- TERMINAL STYLING ---
+st.markdown("""
+<style>
+    .stApp { background-color: #000000; color: #E5E7EB; font-family: 'JetBrains Mono', monospace; }
+    .header-bar {
+        display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+        background: #09090B; border: 1px solid #27272A; border-left: 3px solid #00C853;
+        border-radius: 6px; padding: 12px 16px; margin-bottom: 16px;
+    }
+    .header-title { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; }
+    .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 14px 16px; }
+    .m-label { font-size: 0.75rem; color: #A1A1AA; text-transform: uppercase; font-weight: 700; }
+    .m-val { font-size: 1.4rem; font-weight: 800; color: #FFFFFF; margin: 6px 0; }
+    .m-sub { font-size: 0.85rem; font-weight: 600; color: #CBD5E1; }
+    .pos { color: #00C853; } .neg { color: #FF3D00; } .blue { color: #29B6F6; } .orange { color: #FF3D00; }
+    #MainMenu, footer, header { visibility: hidden; }
+    .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
+</style>
+""", unsafe_allow_html=True)
+
+# --- WARNBANNER: KEIN PERSISTENTER STATE KONFIGURIERT ---
+if not GH_STATE_READY:
+    st.warning(
+        "⚠️ Kein persistenter State konfiguriert (GITHUB_REPO/GITHUB_TOKEN fehlen in den "
+        "Streamlit-Secrets). Trader-Log, Alarm-Cooldowns etc. gehen bei jedem Neustart der "
+        "App verloren, da Streamlit Cloud kein dauerhaftes Dateisystem hat."
+    )
+
+# --- BANNER: NEUE TRADER-AKTIVITÄT ---
+if wf_fetch_ok and wf_activity_detected:
+    st.warning(
+        f"🔔 Beim Trader hat sich seit dem letzten Check etwas verändert "
+        f"(Last Login: {wf_last_login_display}). Vermutlich ein neuer Trade "
+        f"oder Kommentar – schau selbst auf [wikifolio.com]({config.WIKIFOLIO_PUBLIC_URL}) nach."
+    )
+
+# --- WARNBANNER BEI FEHLENDEN LIVE-DATEN ---
+if not is_live_data or not is_live_history:
+    st.error(
+        "⚠️ Achtung: Es werden gerade **keine echten Live-Daten** von ls-tc.de angezeigt "
+        "(Kurs und/oder Chart-Historie sind Fallback-/Synthetikwerte). "
+        "Prüfe die Server-Logs bzw. die JSON-Struktur des ls-tc.de-Endpunkts."
+    )
+
+# --- KENNZAHLEN ---
+tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100 if vortag_kurs else 0.0
+letztes_update_zeit = now_berlin.strftime("%d.%m.%Y %H:%M:%S Uhr")
+
+
+def check_and_send_price_updates(pct_change, current_price):
+    """
+    Nur noch der Schwellen-Alarm bei Über-/Unterschreiten von
+    config.TAGESVERLUST_SCHWELLE_PCT. Die routinemäßigen 5-Minuten-Updates
+    übernimmt ausschließlich der externe GitHub-Actions-Cronjob.
+    """
+    if not DISCORD_WEBHOOK_URL:
+        return
+
+    state = gh_read(config.STATE_PATH_PRICE_ALERT, {"unter_schwelle": False})
+
+    aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
+    war_unter_schwelle = state.get("unter_schwelle", False)
+
+    if aktuell_unter_schwelle and not war_unter_schwelle:
+        msg = (f"🚨 **SCHWELLE UNTERSCHRITTEN ({config.WKN})** 🚨\n"
+               f"Tagesveränderung: **{pct_change:+.2f}%** "
+               f"(Schwelle: {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%)\n"
+               f"Aktueller Kurs: **{current_price:.3f}€**")
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+        except Exception as e:
+            logging.error(f"Discord Schwellen-Alarm Fehler: {e}")
+        state["unter_schwelle"] = True
+
+    elif not aktuell_unter_schwelle and war_unter_schwelle:
+        msg = (f"✅ **Entwarnung ({config.WKN})**\n"
+               f"Tagesveränderung wieder über {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%: "
+               f"**{pct_change:+.2f}%**\n"
+               f"Aktueller Kurs: **{current_price:.3f}€**")
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+        except Exception as e:
+            logging.error(f"Discord Entwarnung Fehler: {e}")
+        state["unter_schwelle"] = False
+
+    gh_write(config.STATE_PATH_PRICE_ALERT, state, message="update price alert state [skip ci]")
+
+
+check_and_send_price_updates(tages_verenderung_pct, aktueller_kurs)
+
+heutige_monate_anzahl = max(0, (now_berlin.year - start_dt.year) * 12 + (now_berlin.month - start_dt.month))
+if now_berlin.day < start_dt.day:
+    heutige_monate_anzahl -= 1
+
+gesamt_entnommen = heutige_monate_anzahl * config.ENTNAHME_PM
+brutto_ist = config.STUECKZAHL * aktueller_kurs
+netto_ist = brutto_ist - gesamt_entnommen
+gewinn_brutto = brutto_ist - config.STARTKAPITAL
+rendite_ist_pct = ((aktueller_kurs - config.ANFANGSKURS) / config.ANFANGSKURS) * 100
+
+# Reale Variante fuer die aktuellen Kennzahlen (Stückzahl nach echten Verkäufen)
+stueckzahl_real_ist = df_chart["Stueckzahl_Real"].iloc[-1] if not df_chart.empty else config.STUECKZAHL
+depotwert_real_ist = stueckzahl_real_ist * aktueller_kurs
+
+sim_b = brutto_ist
+monate_bis_ziel = 0
+while sim_b < 100000.0 and monate_bis_ziel < 600:
+    sim_b = (sim_b * (1 + erwarteter_zins_mo)) - config.ENTNAHME_PM
+    monate_bis_ziel += 1
+
+monate_namen = {1: "Januar", 2: "Februar", 3: "März", 4: "April", 5: "Mai", 6: "Juni", 
+                7: "Juli", 8: "August", 9: "September", 10: "Oktober", 11: "November", 12: "Dezember"}
+
+if brutto_ist >= 100000.0:
+    meilenstein_datum_str, meilenstein_details_str = "Bereits erreicht", "Ziel erreicht"
+elif monate_bis_ziel < 600:
+    ms_date = (now_berlin + pd.DateOffset(months=monate_bis_ziel)).date()
+    meilenstein_datum_str = f"{monate_namen[ms_date.month]} {ms_date.year}"
+    meilenstein_details_str = f"In ca. {monate_bis_ziel // 12} Jahren & {monate_bis_ziel % 12} Monaten"
+else:
+    meilenstein_datum_str, meilenstein_details_str = "> 50 Jahre", "Unrealistisch"
+
+verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
+
+# HEADER BAR
+live_badge = (
+    '<span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● VOLLAUTOMATISCH LIVE</span>'
+    if is_live_data else
+    '<span style="color:#FF3D00; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● KEINE LIVE-DATEN</span>'
+)
+
+st.markdown(f"""
+<div class="header-bar">
+    <div style="flex: 1; min-width: 220px;">
+        <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f}€</span></div>
+        <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {config.WKN} • ISIN: {config.ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
+    </div>
+    <div>{live_badge}</div>
+</div>
+""", unsafe_allow_html=True)
+
+# GRID OVERVIEW
+st.markdown(f"""
+<div class="grid-container">
+    <div class="m-card">
+        <div class="m-label">Veränderung vs. Vortag</div>
+        <div class="m-val {verenderung_cls}">{tages_verenderung_pct:+.2f}%</div>
+        <div class="m-sub">Vortag: {vortag_kurs:.3f}€</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Brutto Depotwert</div>
+        <div class="m-val pos">{fmt(brutto_ist, 2)}</div>
+        <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {erwartete_rendite_pa:.1f}% p.a.</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Netto (Simulation)</div>
+        <div class="m-val blue">{fmt(netto_ist, 2)}</div>
+        <div class="m-sub">Entnahme nur buchhalterisch abgezogen</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Netto (Real, Anteile verkauft)</div>
+        <div class="m-val" style="color:#FFB300;">{fmt(depotwert_real_ist, 2)}</div>
+        <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme</div>
+    </div>
+    <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
+        <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
+        <div class="m-val" style="color: #00C853; font-size: 1.15rem;">{meilenstein_datum_str}</div>
+        <div class="m-sub" style="color: #CBD5E1; font-size: 0.75rem;">{meilenstein_details_str}</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Entnommenes Kapital</div>
+        <div class="m-val orange">{fmt(gesamt_entnommen, 2)}</div>
+        <div class="m-sub">Monatlich: {fmt(config.ENTNAHME_PM, 2)}</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Anfangskapital</div>
+        <div class="m-val">{fmt(config.STARTKAPITAL, 2)}</div>
+        <div class="m-sub">Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# TABS
 tab_wealth, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
     "📈 VERMÖGENS- & SUBSTANZAUFBAU",
     "📝 TRADER-LOG (TRADES & KOMMENTARE)",
@@ -198,9 +593,15 @@ tab_wealth, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
 ])
 
 with tab_wealth:
+    st.caption(
+        "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
+        "„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Kurs — realistischer, "
+        "falls du die 70€/Monat wirklich entnimmst."
+    )
     fig_wealth = go.Figure()
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto-Wert", line=dict(color="#29B6F6", width=2)))
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto (Simulation)", line=dict(color="#29B6F6", width=2)))
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Real"], name="Netto (Real)", line=dict(color="#FFB300", width=2, dash="dot")))
     fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
     
     fig_wealth.update_layout(
@@ -213,14 +614,10 @@ with tab_wealth:
     st.plotly_chart(fig_wealth, width="stretch")
 
 def load_db():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f: return json.load(f)
-        except Exception: return []
-    return []
+    return gh_read(config.STATE_PATH_TRADES_DB, [])
 
 def save_db(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
+    gh_write(config.STATE_PATH_TRADES_DB, data, message="update trades log [skip ci]")
 
 db_events = load_db()
 
@@ -253,12 +650,18 @@ with tab_candle:
     fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
     fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right"), showlegend=False)
     st.plotly_chart(fig_c, width="stretch")
+    st.caption(
+        "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
+        "Der GitHub-Actions-Cron protokolliert seit Kurzem zusätzlich alle 5 Min den "
+        "echten Kurs in state/price_history/ — daraus lässt sich künftig ein echter "
+        "Intraday-Chart bauen, sobald genug Historie gesammelt ist."
+    )
 
 with tab_forecast:
     st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
     
     forecast_data = [
-        {"Index": 0, "Jahr": "Start", "Datum": KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
+        {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(config.STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(config.STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
         {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
     ]
     
@@ -267,7 +670,7 @@ with tab_forecast:
 
     for m_idx in range(1, 121):
         sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo))
-        sim_e_prog += ENTNAHME_PM
+        sim_e_prog += config.ENTNAHME_PM
         sim_n_prog = sim_b_prog - sim_e_prog
         
         current_date = now_berlin + pd.DateOffset(months=m_idx)
@@ -276,7 +679,7 @@ with tab_forecast:
             forecast_data.append({
                 "Index": "🎯", "Jahr": "100k Meilenstein",
                 "Datum": current_date.strftime("%d.%m.%Y"),
-                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - STARTKAPITAL, 2)}",
+                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
                 "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
             })
             milestone_added = True
@@ -285,17 +688,17 @@ with tab_forecast:
             forecast_data.append({
                 "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
                 "Datum": current_date.strftime("%d.%m.%Y"),
-                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - STARTKAPITAL, 2)}",
+                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
                 "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
             })
             
     df_forecast = pd.DataFrame(forecast_data)
-    df_forecast["Index"] = df_forecast["Index"].astype(str)  # Mix aus int & "🎯" -> Arrow-Fehler sonst
+    df_forecast["Index"] = df_forecast["Index"].astype(str)
     st.dataframe(df_forecast, width="stretch", hide_index=True)
 
 with tab_scenarios:
     st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (2,0% bis 6,0% p.M.)")
-    st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(ENTNAHME_PM, 2)}**.")
+    st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(config.STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(config.ENTNAHME_PM, 2)}**.")
 
     szenario_raten_mo = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
     
@@ -306,18 +709,18 @@ with tab_scenarios:
         r_mo = r_mo_pct / 100.0
         r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
         
-        cap_sim = STARTKAPITAL
+        cap_sim = config.STARTKAPITAL
         m_to_100k = None
         for m in range(1, 1200):
-            cap_sim = (cap_sim * (1 + r_mo)) - ENTNAHME_PM
+            cap_sim = (cap_sim * (1 + r_mo)) - config.ENTNAHME_PM
             if cap_sim >= 100000.0:
                 m_to_100k = m
                 break
 
-        monthly_vals = [STARTKAPITAL]
-        cap_5y = STARTKAPITAL
+        monthly_vals = [config.STARTKAPITAL]
+        cap_5y = config.STARTKAPITAL
         for m in range(1, 61):
-            cap_5y = (cap_5y * (1 + r_mo)) - ENTNAHME_PM
+            cap_5y = (cap_5y * (1 + r_mo)) - config.ENTNAHME_PM
             monthly_vals.append(max(0, cap_5y))
             
         scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
@@ -326,7 +729,7 @@ with tab_scenarios:
             years_100k = m_to_100k // 12
             rem_months = m_to_100k % 12
             m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
-            target_date = (pd.to_datetime(KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+            target_date = (pd.to_datetime(config.KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
         else:
             m_str = "Nicht erreicht (>100J)"
             target_date = "N/A"
