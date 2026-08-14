@@ -43,8 +43,13 @@ jobs:
 
       - name: State zurückschreiben
         run: |
-          if [ -f "price_alert_state.json" ] && [ ! -f "state/price_alert_state.json" ]; then
-            mv price_alert_state.json state/price_alert_state.json
+          mkdir -p state
+          if [ -f "state/price_alert_state.json" ]; then
+            :
+          elif [ -f "price_alert_state.json" ]; then
+            cp price_alert_state.json state/price_alert_state.json
+          else
+            echo '{"unter_schwelle": false}' > state/price_alert_state.json
           fi
           cd state
           git config user.name "price-alert-bot"
@@ -52,4 +57,5 @@ jobs:
           git add price_alert_state.json
           git diff --cached --quiet || git commit -m "update price alert state [skip ci]"
           git push
+
 
