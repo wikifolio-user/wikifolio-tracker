@@ -16,16 +16,8 @@ jobs:
   check-price:
     runs-on: ubuntu-latest
     steps:
-      - name: Repo (Skript) auschecken
+      - name: Repo auschecken
         uses: actions/checkout@v4
-        with:
-          path: repo
-
-      - name: State-Branch auschecken
-        uses: actions/checkout@v4
-        with:
-          ref: bot-state
-          path: state
 
       - name: Python einrichten
         uses: actions/setup-python@v5
@@ -38,24 +30,6 @@ jobs:
       - name: Kurs prüfen und ggf. Discord informieren
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          PRICE_ALERT_STATE_FILE: ${{ github.workspace }}/state/price_alert_state.json
-        run: python repo/discord_price_alert.py
-
-      - name: State zurückschreiben
-        run: |
-          mkdir -p state
-          if [ -f "state/price_alert_state.json" ]; then
-            :
-          elif [ -f "price_alert_state.json" ]; then
-            cp price_alert_state.json state/price_alert_state.json
-          else
-            echo '{"unter_schwelle": false}' > state/price_alert_state.json
-          fi
-          cd state
-          git config user.name "price-alert-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add price_alert_state.json
-          git diff --cached --quiet || git commit -m "update price alert state [skip ci]"
-          git push
-
-
+          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: python discord_price_alert.py
