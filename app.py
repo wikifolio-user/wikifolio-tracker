@@ -416,7 +416,8 @@ st.markdown("""
     .m-val { font-size: 1.4rem; font-weight: 800; color: #FFFFFF; margin: 6px 0; }
     .m-sub { font-size: 0.85rem; font-weight: 600; color: #CBD5E1; }
     .pos { color: #00C853; } .neg { color: #FF3D00; } .blue { color: #29B6F6; } .orange { color: #FF3D00; }
-    #MainMenu, footer, header { visibility: hidden; }
+    #MainMenu, footer { visibility: hidden; }
+    [data-testid="stToolbar"] { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
 </style>
 """, unsafe_allow_html=True)
