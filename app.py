@@ -16,7 +16,7 @@ import github_store
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # --- SECRETS ---
 DISCORD_WEBHOOK_URL = st.secrets.get("DISCORD_WEBHOOK_URL", "")
