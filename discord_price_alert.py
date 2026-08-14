@@ -3,47 +3,39 @@ Standalone-Skript fuer GitHub Actions: prueft den LS9VFS-Kurs unabhaengig
 von der Streamlit-App und meldet sich per Discord. Wird per Cron alle 5 Min
 ausgefuehrt (siehe .github/workflows/price-alert.yml).
 
-State (Cooldown, ob wir gerade unter der Schwelle sind) wird in
-price_alert_state.json auf einem separaten Git-Branch persistiert, damit
-der Job zwischen den Laeufen "weiss", was beim letzten Mal war.
+State liegt jetzt auf dem GitHub-Branch config.GITHUB_STATE_BRANCH und wird
+ueber die Contents API gelesen/geschrieben (github_store.py) - kein
+Branch-Checkout/-Push mehr noetig.
 """
 import datetime
-import json
 import logging
 import os
 import sys
 
 import requests
 
+import config
+import github_store
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# --- KONSTANTEN (synchron zur Haupt-App halten) ---
-WKN = "LS9VFS"
-LS_INSTRUMENT_ID = "3865540"
-TAGESVERLUST_SCHWELLE_PCT = -1.0
-
-LS_TC_BASE_URL = "https://www.ls-tc.de/_rpc/json/instrument/chart/dataForInstrument"
-LS_TC_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-    "Referer": f"https://www.ls-tc.de/de/wikifolio/{LS_INSTRUMENT_ID}",
-}
-
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-STATE_FILE = os.environ.get("PRICE_ALERT_STATE_FILE", "price_alert_state.json")
+HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", "")  # optional, s. Setup-Hinweis
+GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "")  # von Actions automatisch gesetzt
+GITHUB_TOKEN = os.environ.get("GH_STATE_TOKEN", "")  # secrets.GITHUB_TOKEN
 
 
 def get_live_market_data():
     params = {
         "container": "chart1",
-        "instrumentId": LS_INSTRUMENT_ID,
+        "instrumentId": config.LS_INSTRUMENT_ID,
         "marketId": "1",
         "quotetype": "mid",
         "series": "intraday,history,flags",
         "type": "",
         "localeId": "2",
     }
-    r = requests.get(LS_TC_BASE_URL, params=params, headers=LS_TC_HEADERS, timeout=10)
+    r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=10)
     r.raise_for_status()
     data = r.json()
 
@@ -72,21 +64,6 @@ def get_live_market_data():
     return akt, vor
 
 
-def load_state():
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"unter_schwelle": False}
-
-
-def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f)
-
-
 def send_discord(msg):
     if not DISCORD_WEBHOOK_URL:
         logging.warning("Kein DISCORD_WEBHOOK_URL gesetzt, ueberspringe Versand.")
@@ -102,55 +79,96 @@ def send_discord(msg):
         return False
 
 
+def ping_healthcheck():
+    """Dead-Man's-Switch: bestaetigt einem externen Watchdog (z.B.
+    healthchecks.io), dass dieser Lauf erfolgreich durchgelaufen ist. Bleibt
+    dieser Ping laenger als erwartet aus, meldet der Watchdog-Dienst SELBST
+    (unabhaengig von diesem Skript!) einen Ausfall - z.B. per E-Mail."""
+    if not HEALTHCHECK_URL:
+        return
+    try:
+        requests.get(HEALTHCHECK_URL, timeout=10)
+    except Exception as e:
+        logging.error(f"Healthcheck-Ping fehlgeschlagen: {e}")
+
+
+def log_price_history(akt, now):
+    """Haengt jeden abgerufenen Kurs an eine eigene, monatlich rotierende
+    CSV-Datei an - baut so ueber die Zeit eine eigene, von ls-tc.de
+    unabhaengige Preis-Zeitreihe auf (Basis fuer spaeteres eigenes
+    Backtesting / echte Intraday-Charts)."""
+    if not (GITHUB_REPO and GITHUB_TOKEN):
+        return
+    path = config.price_history_csv_path(now.date())
+    line = f"{now.isoformat()},{akt:.4f}"
+    github_store.append_csv_line(
+        GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, line, GITHUB_TOKEN,
+        header="timestamp,price", message="price history append [skip ci]"
+    )
+
+
 def main():
     now = datetime.datetime.now()
+
     try:
         akt, vor = get_live_market_data()
     except Exception as e:
         logging.error(f"Kursabruf fehlgeschlagen: {e}")
-        # Bewusst kein Discord-Spam bei jedem einzelnen Fehler - nur loggen.
+        # Bewusst kein Discord-Spam bei jedem einzelnen Fehler; der
+        # Healthcheck-Ping bleibt in diesem Fall ebenfalls aus, sodass der
+        # Watchdog nach Ausbleiben mehrerer Pings selbst Alarm schlaegt.
         sys.exit(1)
 
     pct_change = ((akt - vor) / vor) * 100
 
-    state = load_state()
+    log_price_history(akt, now)
 
-    # Routine-Update bei jedem Lauf (Cron-Takt bestimmt die Frequenz, z.B. 5 Min)
+    if GITHUB_REPO and GITHUB_TOKEN:
+        state, _ = github_store.get_json(
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_PRICE_ALERT,
+            GITHUB_TOKEN, default={"unter_schwelle": False}
+        )
+    else:
+        state = {"unter_schwelle": False}
+
     routine_msg = (
-        f"📊 **Kurs-Update ({WKN})**\n"
+        f"📊 **Kurs-Update ({config.WKN})**\n"
         f"Aktueller Kurs: **{akt:.3f}€**\n"
         f"Tagesveränderung: **{pct_change:+.2f}%**\n"
         f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
     )
-    routine_ok = send_discord(routine_msg)
-    if not routine_ok:
+    if not send_discord(routine_msg):
         logging.error("Routine-Update konnte NICHT an Discord gesendet werden (siehe Fehler oben).")
 
-    # Schwellen-Alarm nur beim Ueber-/Unterschreiten (nicht bei jedem Lauf)
-    aktuell_unter_schwelle = pct_change <= TAGESVERLUST_SCHWELLE_PCT
+    aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
     war_unter_schwelle = state.get("unter_schwelle", False)
 
     if aktuell_unter_schwelle and not war_unter_schwelle:
         send_discord(
-            f"🚨 **SCHWELLE UNTERSCHRITTEN ({WKN})** 🚨\n"
+            f"🚨 **SCHWELLE UNTERSCHRITTEN ({config.WKN})** 🚨\n"
             f"Tagesveränderung: **{pct_change:+.2f}%** "
-            f"(Schwelle: {TAGESVERLUST_SCHWELLE_PCT:+.1f}%)\n"
+            f"(Schwelle: {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%)\n"
             f"Aktueller Kurs: **{akt:.3f}€**"
         )
         state["unter_schwelle"] = True
     elif not aktuell_unter_schwelle and war_unter_schwelle:
         send_discord(
-            f"✅ **Entwarnung ({WKN})**\n"
-            f"Tagesveränderung wieder über {TAGESVERLUST_SCHWELLE_PCT:+.1f}%: "
+            f"✅ **Entwarnung ({config.WKN})**\n"
+            f"Tagesveränderung wieder über {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%: "
             f"**{pct_change:+.2f}%**\n"
             f"Aktueller Kurs: **{akt:.3f}€**"
         )
         state["unter_schwelle"] = False
 
-    save_state(state)
+    if GITHUB_REPO and GITHUB_TOKEN:
+        github_store.put_json(
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_PRICE_ALERT,
+            state, GITHUB_TOKEN, message="update price alert state [skip ci]"
+        )
+
+    ping_healthcheck()
     logging.info(f"OK: Kurs={akt:.3f} Veraenderung={pct_change:+.2f}% unter_schwelle={state['unter_schwelle']}")
 
 
 if __name__ == "__main__":
     main()
-
