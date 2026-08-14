@@ -565,6 +565,7 @@ st.markdown(f"""
         <div class="m-label">Brutto Depotwert</div>
         <div class="m-val pos">{fmt(brutto_ist, 2)}</div>
         <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {erwartete_rendite_pa:.1f}% p.a.</div>
+        <div class="m-sub">{config.STUECKZAHL:.4f} Anteile (unverändert seit Kauf)</div>
     </div>
     <div class="m-card">
         <div class="m-label">Netto (Simulation)</div>
