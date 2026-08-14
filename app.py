@@ -22,6 +22,10 @@ DISCORD_WEBHOOK_URL = st.secrets.get("DISCORD_WEBHOOK_URL", "")
 DB_FILE = "trades_db.json"
 ALARM_STATE_FILE = "alarm_state.json"
 WIKIFOLIO_ACTIVITY_STATE_FILE = "wikifolio_activity_state.json"
+PRICE_ALERT_STATE_FILE = "price_alert_state.json"
+
+# Schwelle für Tagesveränderungs-Warnung (in %, negativ = Verlust)
+TAGESVERLUST_SCHWELLE_PCT = -1.0
 
 # --- KONSTANTEN ---
 ISIN = "DE000LS9VFS2"
@@ -401,6 +405,64 @@ if not is_live_data or not is_live_history:
 # --- KENNZAHLEN ---
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100 if vortag_kurs else 0.0
 letztes_update_zeit = now_berlin.strftime("%d.%m.%Y %H:%M:%S Uhr")
+
+
+def check_and_send_price_updates(pct_change, current_price):
+    """
+    Nur noch EIN Discord-Signal: der Schwellen-Alarm bei Über-/Unterschreiten
+    von TAGESVERLUST_SCHWELLE_PCT. Erholt sich der Kurs wieder darüber, kommt
+    eine "Entwarnung"-Meldung. Beide Events feuern nur EINMAL beim jeweiligen
+    Übertritt, nicht bei jedem Check.
+    Die routinemäßigen 5-Minuten-Kurs-Updates übernimmt jetzt ausschließlich
+    der externe GitHub-Actions-Cronjob (discord_price_alert.py), damit es
+    keine doppelten Nachrichten mehr gibt, wenn die App zufällig offen ist.
+    """
+    if not DISCORD_WEBHOOK_URL:
+        return
+
+    now = datetime.datetime.now(BERLIN_TZ)
+    state = {"unter_schwelle": False}
+    if os.path.exists(PRICE_ALERT_STATE_FILE):
+        try:
+            with open(PRICE_ALERT_STATE_FILE, "r") as f:
+                state.update(json.load(f))
+        except Exception:
+            pass
+
+    # --- Schwellen-Alarm bei Über-/Unterschreiten der -1%-Grenze ---
+    aktuell_unter_schwelle = pct_change <= TAGESVERLUST_SCHWELLE_PCT
+    war_unter_schwelle = state.get("unter_schwelle", False)
+
+    if aktuell_unter_schwelle and not war_unter_schwelle:
+        msg = (f"🚨 **SCHWELLE UNTERSCHRITTEN ({WKN})** 🚨\n"
+               f"Tagesveränderung: **{pct_change:+.2f}%** "
+               f"(Schwelle: {TAGESVERLUST_SCHWELLE_PCT:+.1f}%)\n"
+               f"Aktueller Kurs: **{current_price:.3f}€**")
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+        except Exception as e:
+            logging.error(f"Discord Schwellen-Alarm Fehler: {e}")
+        state["unter_schwelle"] = True
+
+    elif not aktuell_unter_schwelle and war_unter_schwelle:
+        msg = (f"✅ **Entwarnung ({WKN})**\n"
+               f"Tagesveränderung wieder über {TAGESVERLUST_SCHWELLE_PCT:+.1f}%: "
+               f"**{pct_change:+.2f}%**\n"
+               f"Aktueller Kurs: **{current_price:.3f}€**")
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+        except Exception as e:
+            logging.error(f"Discord Entwarnung Fehler: {e}")
+        state["unter_schwelle"] = False
+
+    try:
+        with open(PRICE_ALERT_STATE_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception as e:
+        logging.error(f"Konnte Price-Alert-State nicht speichern: {e}")
+
+
+check_and_send_price_updates(tages_verenderung_pct, aktueller_kurs)
 
 heutige_monate_anzahl = max(0, (now_berlin.year - start_dt.year) * 12 + (now_berlin.month - start_dt.month))
 if now_berlin.day < start_dt.day:
