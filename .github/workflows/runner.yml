@@ -7,7 +7,7 @@ on:
 
 jobs:
   run-automation:
-    runs-runs-on: ubuntu-latest
+    rruns-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Python einrichten
