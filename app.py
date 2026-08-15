@@ -35,10 +35,55 @@ def gh_read(path, default):
     return data if data is not None else default
 
 
+@st.cache_data(ttl=60)
+def gh_read_cached(path, default):
+    """Wie gh_read, aber 60s gecacht - für Status-/Alarm-Reads, die bei jedem
+    30s-Autorefresh sonst unnötig oft die GitHub-API belasten (Rate-Limit
+    5.000/Std.). NICHT für Daten verwenden, die sofort nach einem Schreiben
+    im selben Nutzer-Flow wieder gelesen werden müssen (z.B. Trader-Log) -
+    dafür bleibt gh_read() ungecacht."""
+    return gh_read(path, default)
+
+
 def gh_write(path, obj, message="update state [skip ci]"):
     if not GH_STATE_READY:
         return False
     return github_store.put_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, obj, GITHUB_TOKEN, message=message)
+
+
+# --- APP-FEHLER AN DISCORD MELDEN (Punkt 10) ---
+def notify_app_error(context, exc):
+    """Meldet einen Fehler INNERHALB der Streamlit-App an Discord (nicht nur
+    in die schwer einsehbaren Cloud-Logs). Cooldown pro 'context' (z.B. Tab-
+    Name), damit ein wiederholt fehlschlagender Bereich nicht bei jedem
+    30s-Autorefresh erneut pingt."""
+    logging.error(f"App-Fehler in '{context}': {exc}")
+    if not DISCORD_WEBHOOK_URL:
+        return
+
+    state = gh_read_cached(config.STATE_PATH_APP_ERROR, {})
+    now = datetime.datetime.now(BERLIN_TZ)
+    last_str = state.get(context)
+    cooldown_ok = True
+    if last_str:
+        try:
+            cooldown_ok = (now - datetime.datetime.fromisoformat(last_str)).total_seconds() > 30 * 60
+        except Exception:
+            pass
+
+    if not cooldown_ok:
+        return
+
+    msg = (f"🐞 **App-Fehler ({config.WKN})**\n"
+           f"Bereich: **{context}**\n"
+           f"Fehler: `{type(exc).__name__}: {str(exc)[:200]}`\n"
+           f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}")
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
+        state[context] = now.isoformat()
+        gh_write(config.STATE_PATH_APP_ERROR, state, message="update app error state [skip ci]")
+    except Exception as e:
+        logging.error(f"Discord App-Error-Alert Fehler: {e}")
 
 
 # --- ZAHLENFORMATIERUNG (Punkt = Tausender, Komma = Dezimal) ---
@@ -166,13 +211,61 @@ def get_historical_market_data(start_date, end_date, live_close_fallback):
     return df, "⚠️ SYNTHETISCH (Fallback, KEINE ECHTEN DATEN)"
 
 
-# --- FETCH-FEHLER-ALARM (Discord, mit Cooldown) ---
+# --- BENCHMARK-VERGLEICHSDATEN (ls-tc.de, gleiche API wie LS9VFS) ---
+@st.cache_data(ttl=3600)
+def get_benchmark_history(instrument_id, start_date, end_date):
+    """Holt Tages-Schlusskurse für einen Vergleichswert (ETF) von ls-tc.de.
+    Gibt eine Series (Index=Datum, Value=Close) zurück, oder None bei Fehler -
+    Vergleichswerte sind "nice to have", kein Grund die App abstürzen zu lassen."""
+    headers = {
+        "User-Agent": config.LS_TC_HEADERS["User-Agent"],
+        "Referer": f"https://www.ls-tc.de/de/etf/{instrument_id}",
+    }
+    params = {
+        "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
+        "quotetype": "mid", "series": "history", "type": "", "localeId": "2",
+    }
+    try:
+        r = requests.get(config.LS_TC_BASE_URL, params=params, headers=headers, timeout=8)
+        r.raise_for_status()
+        raw = r.json()
+        history = (
+            raw.get("series", {}).get("history", {}).get("data")
+            or raw.get("history", {}).get("data") or []
+        )
+        rows = []
+        for ts_ms, close in history:
+            ts = pd.to_datetime(ts_ms, unit="ms")
+            if start_date <= ts.date() <= end_date:
+                rows.append({"Date": ts, "Close": float(close)})
+        if not rows:
+            return None
+        s = pd.DataFrame(rows).set_index("Date").sort_index()["Close"]
+        return s[s > 0]
+    except Exception as e:
+        logging.warning(f"Benchmark {instrument_id} nicht ladbar: {e}")
+        return None
+
+
+def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end_date, startkapital):
+    """Reindext den Benchmark-Kurs auf die Handelstage von df_chart und
+    skaliert ihn so, dass er am ersten gemeinsamen Tag exakt beim
+    Startkapital beginnt - macht die Linien direkt vergleichbar."""
+    s = get_benchmark_history(instrument_id, start_date, end_date)
+    if s is None or s.empty:
+        return None
+    s = s.reindex(df_index, method="ffill").bfill()
+    if s.empty or s.iloc[0] == 0:
+        return None
+    return s / s.iloc[0] * startkapital
+
+
 def check_and_alert_fetch_failure(is_live_data, is_live_history):
     """Meldet per Discord, wenn Live-Kurs und/oder Chart-Historie gerade NICHT
     echt sind - mit 30-Min-Cooldown, damit nicht jede Sekunde gepingt wird."""
     if not DISCORD_WEBHOOK_URL:
         return
-    state = gh_read(config.STATE_PATH_FETCH_FAIL_ALARM, {"last_alert": None, "war_down": False})
+    state = gh_read_cached(config.STATE_PATH_FETCH_FAIL_ALARM, {"last_alert": None, "war_down": False})
     now = datetime.datetime.now(BERLIN_TZ)
     is_down = (not is_live_data) or (not is_live_history)
 
@@ -240,7 +333,7 @@ def check_and_report_wikifolio_activity(sig_hash, last_login, fetch_ok):
     if not fetch_ok:
         return False, "Prüfung fehlgeschlagen"
 
-    state = gh_read(config.STATE_PATH_WIKIFOLIO_ACTIVITY, {})
+    state = gh_read_cached(config.STATE_PATH_WIKIFOLIO_ACTIVITY, {})
     prev_hash = state.get("hash")
     last_alert_time = None
     if state.get("last_alert"):
@@ -310,29 +403,42 @@ def get_entnahme_at_date(ts):
 
 df_chart["Kumulierte_Entnahme"] = [get_entnahme_at_date(ts) for ts in df_chart.index]
 
+# --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
+benchmark_series = {}
+for label, inst_id in config.BENCHMARKS.items():
+    s = benchmark_normiert_auf_startkapital(
+        df_chart.index, inst_id, config.KAUFDATUM, heute_date, config.STARTKAPITAL
+    )
+    if s is not None:
+        benchmark_series[label] = s
+
 # --- SIMULATION (bisheriges Verhalten): Stückzahl bleibt konstant, Entnahme
 # wird nur buchhalterisch vom Bruttowert abgezogen. ---
 df_chart["Depotwert_Brutto"] = df_chart["Close"] * config.STUECKZAHL
 df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
 
 # --- REAL: Entnahme erfolgt tatsächlich durch monatlichen Verkauf von Anteilen
-# zum jeweils gültigen Schlusskurs -> Stückzahl sinkt dauerhaft. ---
-def berechne_reale_stueckzahl(df, start_stueckzahl, entnahme_pm, start_dt):
+# zum jeweils gültigen GELDKURS (Bid, nicht Mid) -> Stückzahl sinkt dauerhaft,
+# und der Spread schmälert die Rendite zusätzlich realistisch. ---
+def berechne_reale_stueckzahl(df, start_stueckzahl, entnahme_pm, start_dt, spread_pct):
     stueckzahl = start_stueckzahl
     verlauf = []
     letzter_monat = None
     for ts, row in df.iterrows():
         monat_key = (ts.year, ts.month)
         if letzter_monat is not None and monat_key != letzter_monat:
-            preis = row["Close"]
-            if preis and preis > 0:
-                verkaufte_stueck = entnahme_pm / preis
+            mid_preis = row["Close"]
+            geld_preis = mid_preis * (1 - spread_pct / 100.0)  # realer Verkaufskurs
+            if geld_preis and geld_preis > 0:
+                verkaufte_stueck = entnahme_pm / geld_preis
                 stueckzahl = max(0.0, stueckzahl - verkaufte_stueck)
         letzter_monat = monat_key
         verlauf.append(stueckzahl)
     return verlauf
 
-df_chart["Stueckzahl_Real"] = berechne_reale_stueckzahl(df_chart, config.STUECKZAHL, config.ENTNAHME_PM, start_dt)
+df_chart["Stueckzahl_Real"] = berechne_reale_stueckzahl(
+    df_chart, config.STUECKZAHL, config.ENTNAHME_PM, start_dt, config.SPREAD_PCT
+)
 df_chart["Depotwert_Real"] = df_chart["Close"] * df_chart["Stueckzahl_Real"]
 
 # --- DISCORD ALERT (klassischer -1%-Alarm, Legacy-Button in Sidebar) ---
@@ -470,7 +576,7 @@ def check_and_send_price_updates(pct_change, current_price):
     if not DISCORD_WEBHOOK_URL:
         return
 
-    state = gh_read(config.STATE_PATH_PRICE_ALERT, {"unter_schwelle": False})
+    state = gh_read_cached(config.STATE_PATH_PRICE_ALERT, {"unter_schwelle": False})
 
     aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
     war_unter_schwelle = state.get("unter_schwelle", False)
@@ -575,7 +681,7 @@ st.markdown(f"""
     <div class="m-card">
         <div class="m-label">Netto (Real, Anteile verkauft)</div>
         <div class="m-val" style="color:#FFB300;">{fmt(depotwert_real_ist, 2)}</div>
-        <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme</div>
+        <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme (inkl. {config.SPREAD_PCT:.2f}% Spread)</div>
     </div>
     <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
         <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
@@ -604,193 +710,207 @@ tab_wealth, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
     "📊 SZENARIO-SIMULATOR (5 JAHRE)",
 ])
 
-with tab_wealth:
-    st.caption(
-        "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
-        "„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Kurs — realistischer, "
-        "falls du die 70€/Monat wirklich entnimmst."
-    )
-    fig_wealth = go.Figure()
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto (Simulation)", line=dict(color="#29B6F6", width=2)))
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Real"], name="Netto (Real)", line=dict(color="#FFB300", width=2, dash="dot")))
-    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
+try:
+    with tab_wealth:
+        st.caption(
+            "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
+            f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
+            f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
+            "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
+            f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
+            "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
+        )
+        fig_wealth = go.Figure()
+        fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
+        fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto (Simulation)", line=dict(color="#29B6F6", width=2)))
+        fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Real"], name="Netto (Real)", line=dict(color="#FFB300", width=2, dash="dot")))
+        fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
+
+        benchmark_colors = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C"]
+        for i, (label, s) in enumerate(benchmark_series.items()):
+            fig_wealth.add_trace(go.Scatter(
+                x=df_chart.index, y=s, name=label,
+                line=dict(color=benchmark_colors[i % len(benchmark_colors)], width=1.5, dash="dashdot"),
+            ))
     
-    fig_wealth.update_layout(
-        paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
-        xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
-        yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
-        hovermode="x unified",
-    )
-    st.plotly_chart(fig_wealth, width="stretch")
+        fig_wealth.update_layout(
+            paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
+            xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
+            yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig_wealth, width="stretch")
 
-def load_db():
-    return gh_read(config.STATE_PATH_TRADES_DB, [])
+    def load_db():
+        return gh_read(config.STATE_PATH_TRADES_DB, [])
 
-def save_db(data):
-    gh_write(config.STATE_PATH_TRADES_DB, data, message="update trades log [skip ci]")
+    def save_db(data):
+        gh_write(config.STATE_PATH_TRADES_DB, data, message="update trades log [skip ci]")
 
-db_events = load_db()
+    db_events = load_db()
 
-with tab_trades:
-    st.markdown("### 📋 Historie")
-    if not db_events:
-        st.info("Keine Einträge vorhanden.")
-    else:
-        for ev in db_events:
-            st.markdown(f"""
-                <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
-                    <div style="font-size: 0.75rem; color: #71717A;"><b>[{ev.get('typ','')}]</b> - {ev.get('datum','')}</div>
-                    <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{ev.get('titel','')}</div>
-                    <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt','')}</div>
-                </div>
-            """, unsafe_allow_html=True)
-
-    with st.form("trade_form", clear_on_submit=True):
-        col1, col2, col3 = st.columns([2, 2, 3])
-        with col1: et = st.selectbox("Typ", ["Trade", "Kommentar", "Hinweis"])
-        with col2: ed = st.date_input("Datum", heute_date)
-        with col3: eti = st.text_input("Titel")
-        ei = st.text_area("Details")
-        if st.form_submit_button("Speichern") and eti:
-            db_events.insert(0, {"id": len(db_events) + 1, "typ": et, "datum": ed.strftime("%Y-%m-%d"), "titel": eti, "inhalt": ei})
-            save_db(db_events)
-            st.rerun()
-
-with tab_candle:
-    fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
-    fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right"), showlegend=False)
-    st.plotly_chart(fig_c, width="stretch")
-    st.caption(
-        "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
-        "Der GitHub-Actions-Cron protokolliert seit Kurzem zusätzlich alle 5 Min den "
-        "echten Kurs in state/price_history/ — daraus lässt sich künftig ein echter "
-        "Intraday-Chart bauen, sobald genug Historie gesammelt ist."
-    )
-
-with tab_forecast:
-    st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
-    
-    forecast_data = [
-        {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(config.STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(config.STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
-        {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
-    ]
-    
-    sim_b_prog, sim_n_prog, sim_e_prog = brutto_ist, netto_ist, gesamt_entnommen
-    milestone_added = brutto_ist >= 100000.0
-
-    for m_idx in range(1, 121):
-        sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo))
-        sim_e_prog += config.ENTNAHME_PM
-        sim_n_prog = sim_b_prog - sim_e_prog
-        
-        current_date = now_berlin + pd.DateOffset(months=m_idx)
-        
-        if not milestone_added and sim_b_prog >= 100000.0:
-            forecast_data.append({
-                "Index": "🎯", "Jahr": "100k Meilenstein",
-                "Datum": current_date.strftime("%d.%m.%Y"),
-                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
-                "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
-            })
-            milestone_added = True
-
-        if m_idx % 12 == 0:
-            forecast_data.append({
-                "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
-                "Datum": current_date.strftime("%d.%m.%Y"),
-                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
-                "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
-            })
-            
-    df_forecast = pd.DataFrame(forecast_data)
-    df_forecast["Index"] = df_forecast["Index"].astype(str)
-    st.dataframe(df_forecast, width="stretch", hide_index=True)
-
-with tab_scenarios:
-    st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (2,0% bis 6,0% p.M.)")
-    st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(config.STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(config.ENTNAHME_PM, 2)}**.")
-
-    szenario_raten_mo = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
-    
-    summary_list = []
-    scenario_series = {}
-
-    for r_mo_pct in szenario_raten_mo:
-        r_mo = r_mo_pct / 100.0
-        r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
-        
-        cap_sim = config.STARTKAPITAL
-        m_to_100k = None
-        for m in range(1, 1200):
-            cap_sim = (cap_sim * (1 + r_mo)) - config.ENTNAHME_PM
-            if cap_sim >= 100000.0:
-                m_to_100k = m
-                break
-
-        monthly_vals = [config.STARTKAPITAL]
-        cap_5y = config.STARTKAPITAL
-        for m in range(1, 61):
-            cap_5y = (cap_5y * (1 + r_mo)) - config.ENTNAHME_PM
-            monthly_vals.append(max(0, cap_5y))
-            
-        scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
-        
-        if m_to_100k is not None:
-            years_100k = m_to_100k // 12
-            rem_months = m_to_100k % 12
-            m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
-            target_date = (pd.to_datetime(config.KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+    with tab_trades:
+        st.markdown("### 📋 Historie")
+        if not db_events:
+            st.info("Keine Einträge vorhanden.")
         else:
-            m_str = "Nicht erreicht (>100J)"
-            target_date = "N/A"
-            
-        summary_list.append({
-            "Ziel 100k (Monate)": m_str,
-            "Monats-Rendite (p.M.)": f"{r_mo_pct:.1f}%",
-            "Jahres-Wert (eff. p.a.)": f"{r_pa_pct:.2f}%",
-            "Ziel-Datum (100k)": target_date,
-            "Wert nach 1 Jahr": fmt(monthly_vals[12], 2),
-            "Wert nach 2 Jahren": fmt(monthly_vals[24], 2),
-            "Wert nach 3 Jahren": fmt(monthly_vals[36], 2),
-            "Wert nach 4 Jahren": fmt(monthly_vals[48], 2),
-            "Wert nach 5 Jahren": fmt(monthly_vals[60], 2),
-        })
+            for ev in db_events:
+                st.markdown(f"""
+                    <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
+                        <div style="font-size: 0.75rem; color: #71717A;"><b>[{ev.get('typ','')}]</b> - {ev.get('datum','')}</div>
+                        <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{ev.get('titel','')}</div>
+                        <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt','')}</div>
+                    </div>
+                """, unsafe_allow_html=True)
 
-    df_summary = pd.DataFrame(summary_list)
-    st.dataframe(df_summary, width="stretch", hide_index=True)
+        with st.form("trade_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns([2, 2, 3])
+            with col1: et = st.selectbox("Typ", ["Trade", "Kommentar", "Hinweis"])
+            with col2: ed = st.date_input("Datum", heute_date)
+            with col3: eti = st.text_input("Titel")
+            ei = st.text_area("Details")
+            if st.form_submit_button("Speichern") and eti:
+                db_events.insert(0, {"id": len(db_events) + 1, "typ": et, "datum": ed.strftime("%Y-%m-%d"), "titel": eti, "inhalt": ei})
+                save_db(db_events)
+                st.rerun()
 
-    fig_scen = go.Figure()
-    months_x = list(range(61))
+    with tab_candle:
+        fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
+        fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right"), showlegend=False)
+        st.plotly_chart(fig_c, width="stretch")
+        st.caption(
+            "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
+            "Der GitHub-Actions-Cron protokolliert seit Kurzem zusätzlich alle 5 Min den "
+            "echten Kurs in state/price_history/ — daraus lässt sich künftig ein echter "
+            "Intraday-Chart bauen, sobald genug Historie gesammelt ist."
+        )
+
+    with tab_forecast:
+        st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
     
-    for label, vals in scenario_series.items():
-        fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
+        forecast_data = [
+            {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(config.STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(config.STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
+            {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
+        ]
+    
+        sim_b_prog, sim_n_prog, sim_e_prog = brutto_ist, netto_ist, gesamt_entnommen
+        milestone_added = brutto_ist >= 100000.0
 
-    fig_scen.add_hline(
-        y=100000, 
-        line_dash="dot", 
-        line_color="#00C853", 
-        annotation_text="🎯 100k Zielwert", 
-        annotation_position="top left",
-        annotation_font=dict(color="#00C853", size=11)
-    )
+        for m_idx in range(1, 121):
+            sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo))
+            sim_e_prog += config.ENTNAHME_PM
+            sim_n_prog = sim_b_prog - sim_e_prog
+        
+            current_date = now_berlin + pd.DateOffset(months=m_idx)
+        
+            if not milestone_added and sim_b_prog >= 100000.0:
+                forecast_data.append({
+                    "Index": "🎯", "Jahr": "100k Meilenstein",
+                    "Datum": current_date.strftime("%d.%m.%Y"),
+                    "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
+                    "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+                })
+                milestone_added = True
 
-    fig_scen.update_layout(
-        title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
-        paper_bgcolor="#000000", plot_bgcolor="#000000",
-        margin=dict(l=10, r=60, t=80, b=120), 
-        height=580, 
-        legend=dict(
-            orientation="h", 
-            yanchor="top", 
-            y=-0.15,  
-            xanchor="center", 
-            x=0.5, 
-            font=dict(color="#E5E7EB", size=11)
-        ),
-        xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
-        yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
-        hovermode="x unified",
-    )
-    st.plotly_chart(fig_scen, width="stretch")
+            if m_idx % 12 == 0:
+                forecast_data.append({
+                    "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
+                    "Datum": current_date.strftime("%d.%m.%Y"),
+                    "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
+                    "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+                })
+            
+        df_forecast = pd.DataFrame(forecast_data)
+        df_forecast["Index"] = df_forecast["Index"].astype(str)
+        st.dataframe(df_forecast, width="stretch", hide_index=True)
+
+    with tab_scenarios:
+        st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (2,0% bis 6,0% p.M.)")
+        st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(config.STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(config.ENTNAHME_PM, 2)}**.")
+
+        szenario_raten_mo = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
+    
+        summary_list = []
+        scenario_series = {}
+
+        for r_mo_pct in szenario_raten_mo:
+            r_mo = r_mo_pct / 100.0
+            r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
+        
+            cap_sim = config.STARTKAPITAL
+            m_to_100k = None
+            for m in range(1, 1200):
+                cap_sim = (cap_sim * (1 + r_mo)) - config.ENTNAHME_PM
+                if cap_sim >= 100000.0:
+                    m_to_100k = m
+                    break
+
+            monthly_vals = [config.STARTKAPITAL]
+            cap_5y = config.STARTKAPITAL
+            for m in range(1, 61):
+                cap_5y = (cap_5y * (1 + r_mo)) - config.ENTNAHME_PM
+                monthly_vals.append(max(0, cap_5y))
+            
+            scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
+        
+            if m_to_100k is not None:
+                years_100k = m_to_100k // 12
+                rem_months = m_to_100k % 12
+                m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
+                target_date = (pd.to_datetime(config.KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+            else:
+                m_str = "Nicht erreicht (>100J)"
+                target_date = "N/A"
+            
+            summary_list.append({
+                "Ziel 100k (Monate)": m_str,
+                "Monats-Rendite (p.M.)": f"{r_mo_pct:.1f}%",
+                "Jahres-Wert (eff. p.a.)": f"{r_pa_pct:.2f}%",
+                "Ziel-Datum (100k)": target_date,
+                "Wert nach 1 Jahr": fmt(monthly_vals[12], 2),
+                "Wert nach 2 Jahren": fmt(monthly_vals[24], 2),
+                "Wert nach 3 Jahren": fmt(monthly_vals[36], 2),
+                "Wert nach 4 Jahren": fmt(monthly_vals[48], 2),
+                "Wert nach 5 Jahren": fmt(monthly_vals[60], 2),
+            })
+
+        df_summary = pd.DataFrame(summary_list)
+        st.dataframe(df_summary, width="stretch", hide_index=True)
+
+        fig_scen = go.Figure()
+        months_x = list(range(61))
+    
+        for label, vals in scenario_series.items():
+            fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
+
+        fig_scen.add_hline(
+            y=100000, 
+            line_dash="dot", 
+            line_color="#00C853", 
+            annotation_text="🎯 100k Zielwert", 
+            annotation_position="top left",
+            annotation_font=dict(color="#00C853", size=11)
+        )
+
+        fig_scen.update_layout(
+            title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
+            paper_bgcolor="#000000", plot_bgcolor="#000000",
+            margin=dict(l=10, r=60, t=80, b=120), 
+            height=580, 
+            legend=dict(
+                orientation="h", 
+                yanchor="top", 
+                y=-0.15,  
+                xanchor="center", 
+                x=0.5, 
+                font=dict(color="#E5E7EB", size=11)
+            ),
+            xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
+            yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig_scen, width="stretch")
+except Exception as e:
+    st.error(f"⚠️ Fehler beim Rendern der Tabs: {e}")
+    notify_app_error("Tab-Rendering", e)
