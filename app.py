@@ -768,6 +768,7 @@ try:
             xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
             yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000, tickformat=",.0f"),
             hovermode="x unified",
+            separators=",.",
         )
         st.plotly_chart(fig_wealth, width="stretch")
 
