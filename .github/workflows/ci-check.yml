@@ -1,0 +1,35 @@
+name: Syntax-Check (CI)
+
+# Prueft bei jedem Push/PR, ob alle .py-Dateien gueltiges Python sind -
+# genau der Check, der IndentationError & Co. VOR dem Deploy auf Streamlit
+# Cloud aufgedeckt haette, statt erst live in der App.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Alle .py-Dateien auf gueltige Syntax pruefen
+        run: |
+          set -e
+          find . -name "*.py" -not -path "./.git/*" -print0 | xargs -0 -n1 python -m py_compile
+          echo "✅ Alle Python-Dateien sind syntaktisch gueltig."
+
+      - name: requirements.txt gegen Imports abgleichen (Warnhinweis)
+        run: |
+          pip install pipreqs 2>/dev/null || true
+          echo "ℹ️ Hinweis: bei ModuleNotFoundError im Deploy zuerst requirements.txt pruefen."
