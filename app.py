@@ -309,6 +309,8 @@ def fetch_wikifolio_public_signature():
     selbst (mit eigenem Login) auf wikifolio.com nach.
     Probiert bei Bedarf mehrere URL-Varianten (DE/EN), falls eine Version
     aus irgendeinem Grund (Bot-Erkennung, Cookie-Hinweis) nichts liefert.
+    Simuliert vorher einen Startseitenbesuch (Cookies "einsammeln"), falls
+    die Seite isolierte Einzel-Requests ohne Vorgeschichte blockt.
     Gibt als 4. Wert den letzten Fehlertext zurück (fürs Diagnose-Panel).
     """
     headers = {
@@ -325,10 +327,19 @@ def fetch_wikifolio_public_signature():
         "https://www.wikifolio.com/en/int/w/wfindizglo",
     ]
 
+    session = requests.Session()
+    session.headers.update(headers)
+    try:
+        # Startseite zuerst besuchen, damit Cookies gesetzt werden und der
+        # Folge-Request nicht wie ein isolierter Bot-Zugriff aussieht.
+        session.get("https://www.wikifolio.com/de/de", timeout=8)
+    except Exception as e:
+        logging.warning(f"Wikifolio-Startseiten-Vorbesuch fehlgeschlagen (nicht kritisch): {e}")
+
     last_error = "unbekannter Fehler"
     for url in urls_to_try:
         try:
-            r = requests.get(url, headers=headers, timeout=8)
+            r = session.get(url, timeout=8)
             if r.status_code != 200:
                 last_error = f"HTTP {r.status_code} bei {url}"
                 logging.warning(f"Wikifolio-Activity-Check: {last_error}")
@@ -766,9 +777,8 @@ try:
             paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
             xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
-            yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000, tickformat=",.0f"),
+            yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
             hovermode="x unified",
-            separators=",.",
         )
         st.plotly_chart(fig_wealth, width="stretch")
 
@@ -807,7 +817,7 @@ try:
 
     with tab_candle:
         fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
-        fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False, separators=",.")
+        fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right"), showlegend=False)
         st.plotly_chart(fig_c, width="stretch")
         st.caption(
             "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
