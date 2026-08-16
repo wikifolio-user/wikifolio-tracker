@@ -309,22 +309,30 @@ def fetch_wikifolio_public_signature():
     selbst (mit eigenem Login) auf wikifolio.com nach.
     Probiert bei Bedarf mehrere URL-Varianten (DE/EN), falls eine Version
     aus irgendeinem Grund (Bot-Erkennung, Cookie-Hinweis) nichts liefert.
+    Gibt als 4. Wert den letzten Fehlertext zurück (fürs Diagnose-Panel).
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+        "Upgrade-Insecure-Requests": "1",
     }
     urls_to_try = [
         config.WIKIFOLIO_PUBLIC_URL,
         "https://www.wikifolio.com/en/int/w/wfindizglo",
     ]
 
+    last_error = "unbekannter Fehler"
     for url in urls_to_try:
         try:
             r = requests.get(url, headers=headers, timeout=8)
-            r.raise_for_status()
+            if r.status_code != 200:
+                last_error = f"HTTP {r.status_code} bei {url}"
+                logging.warning(f"Wikifolio-Activity-Check: {last_error}")
+                continue
             text = re.sub("<[^>]+>", " ", r.text)
             text = re.sub(r"\s+", " ", text)
 
@@ -335,12 +343,14 @@ def fetch_wikifolio_public_signature():
             if last_login_match:
                 last_login = last_login_match.group(1)
                 sig_hash = hashlib.sha256(last_login.encode("utf-8")).hexdigest()
-                return sig_hash, last_login, True
+                return sig_hash, last_login, True, None
+            last_error = f"Kein 'Last Login'-Text im HTML von {url} gefunden (Status 200)"
         except Exception as e:
-            logging.warning(f"Wikifolio-Activity-Check ({url}) fehlgeschlagen: {e}")
+            last_error = f"{type(e).__name__}: {e} ({url})"
+            logging.warning(f"Wikifolio-Activity-Check fehlgeschlagen: {last_error}")
 
-    logging.error("Wikifolio-Activity-Check: kein Last-Login auf keiner URL-Variante gefunden.")
-    return None, None, False
+    logging.error(f"Wikifolio-Activity-Check endgültig fehlgeschlagen: {last_error}")
+    return None, None, False, last_error
 
 
 def check_and_report_wikifolio_activity(sig_hash, last_login, fetch_ok):
@@ -388,7 +398,7 @@ heute_date = now_berlin.date()
 
 aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
 
-wf_sig_hash, wf_last_login, wf_fetch_ok = fetch_wikifolio_public_signature()
+wf_sig_hash, wf_last_login, wf_fetch_ok, wf_last_error = fetch_wikifolio_public_signature()
 wf_activity_detected, wf_last_login_display = check_and_report_wikifolio_activity(
     wf_sig_hash, wf_last_login, wf_fetch_ok
 )
@@ -578,6 +588,8 @@ with st.expander("🔧 System-Status / Diagnose", expanded=not GH_STATE_READY):
     if GH_STATE_READY:
         st.caption(f"Repo: {GITHUB_REPO} • Branch: {config.GITHUB_STATE_BRANCH}")
     st.write(f"**Trader Last Login:** {wf_last_login_display if wf_fetch_ok else 'Prüfung fehlgeschlagen'}")
+    if not wf_fetch_ok and wf_last_error:
+        st.caption(f"Letzter Fehler: {wf_last_error}")
 
 # --- KENNZAHLEN ---
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100 if vortag_kurs else 0.0
