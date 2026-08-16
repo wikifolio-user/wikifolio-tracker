@@ -432,6 +432,25 @@ if not df_chart.empty:
 
 df_chart["Startkapital"] = config.STARTKAPITAL
 
+# --- HIGH WATERMARK: mit echter Historie initialisieren/korrigieren ---
+# Der Cron kennt beim allerersten Lauf nur den aktuellen Kurs als "Hoch" -
+# hier wird das (still, ohne Alarm) auf den tatsächlichen historischen
+# Höchststand korrigiert, falls der genauer/höher ist.
+if not df_chart.empty:
+    historischer_hoechststand = float(df_chart["Close"].max())
+    hw_state = gh_read_cached(config.STATE_PATH_HIGH_WATERMARK, None)
+    aktuelles_hoch = float(hw_state["high_watermark"]) if hw_state and "high_watermark" in hw_state else 0.0
+    korrigiertes_hoch = max(historischer_hoechststand, aktuelles_hoch)
+    if not hw_state or korrigiertes_hoch > aktuelles_hoch:
+        gh_write(
+            config.STATE_PATH_HIGH_WATERMARK,
+            {"high_watermark": korrigiertes_hoch, "erreicht_am": datetime.datetime.now(BERLIN_TZ).isoformat()},
+            message="app: korrigiere/initialisiere high watermark [skip ci]",
+        )
+    high_watermark_anzeige = korrigiertes_hoch
+else:
+    high_watermark_anzeige = aktueller_kurs
+
 start_dt = pd.to_datetime(config.KAUFDATUM)
 def get_entnahme_at_date(ts):
     months = (ts.year - start_dt.year) * 12 + (ts.month - start_dt.month)
@@ -598,9 +617,14 @@ with st.expander("🔧 System-Status / Diagnose", expanded=not GH_STATE_READY):
     st.write(f"**Persistenter State (GitHub):** {'✅ Ja' if GH_STATE_READY else '❌ Nein - GITHUB_REPO/GITHUB_TOKEN fehlen'}")
     if GH_STATE_READY:
         st.caption(f"Repo: {GITHUB_REPO} • Branch: {config.GITHUB_STATE_BRANCH}")
-    st.write(f"**Trader Last Login:** {wf_last_login_display if wf_fetch_ok else 'Prüfung fehlgeschlagen'}")
-    if not wf_fetch_ok and wf_last_error:
-        st.caption(f"Letzter Fehler: {wf_last_error}")
+    st.write(f"**Trader Last Login:** {wf_last_login_display if wf_fetch_ok else '⚠️ technisch nicht auslesbar'}")
+    if not wf_fetch_ok:
+        st.caption(
+            "wikifolio.com lädt diesen Wert per JavaScript nach - mit einfachen "
+            "Server-Requests grundsätzlich nicht abrufbar (kein Bug, bekannte Grenze). "
+            "Ersetzt durch den zuverlässigeren High-Watermark-Alarm oben in den Kennzahlen."
+        )
+    st.write(f"**High Watermark:** {high_watermark_anzeige:.3f}€")
 
 # --- KENNZAHLEN ---
 tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100 if vortag_kurs else 0.0
@@ -737,6 +761,16 @@ st.markdown(f"""
         <div class="m-label">Anfangskapital</div>
         <div class="m-val">{fmt(config.STARTKAPITAL, 2)}</div>
         <div class="m-sub">Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€</div>
+    </div>
+    <div class="m-card" style="border-left: 3px solid #FFB300;">
+        <div class="m-label" style="color: #FFB300;">🏆 High Watermark</div>
+        <div class="m-val" style="color: #FFB300;">{high_watermark_anzeige:.3f}€</div>
+        <div class="m-sub">Ab hier: {config.PERFORMANCE_FEE_PCT:.1f}% Performance Fee auf neue Gewinne</div>
+    </div>
+    <div class="m-card">
+        <div class="m-label">Laufende Kosten (im Kurs enthalten)</div>
+        <div class="m-val" style="font-size: 1.1rem;">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f}% p.a.</div>
+        <div class="m-sub">Zertifikatsgebühr, bereits im ls-tc.de-Kurs eingepreist</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
