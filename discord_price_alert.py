@@ -107,6 +107,45 @@ def log_price_history(akt, now):
     )
 
 
+def check_high_watermark(akt, now):
+    """Ersetzt das nicht funktionierende 'Last Login'-Signal: eigene,
+    zuverlaessige Berechnung des Allzeithochs aus den selbst gesammelten
+    Kursdaten. Neues Hoch = finanziell relevanter als ein Login-Zeitstempel,
+    da ab hier bei weiteren Gewinnen Performance Fee (config.PERFORMANCE_FEE_PCT)
+    faellig wird."""
+    if not (GITHUB_REPO and GITHUB_TOKEN):
+        return
+    state, _ = github_store.get_json(
+        GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_HIGH_WATERMARK,
+        GITHUB_TOKEN, default=None
+    )
+    if state is None or "high_watermark" not in state:
+        # Erste Initialisierung: nur speichern, kein Alarm (kein echter
+        # Vergleichswert vorhanden - App korrigiert das ggf. noch auf den
+        # echten historischen Höchststand, siehe app.py).
+        github_store.put_json(
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_HIGH_WATERMARK,
+            {"high_watermark": akt, "erreicht_am": now.isoformat()}, GITHUB_TOKEN,
+            message="init high watermark [skip ci]"
+        )
+        return
+
+    bisheriges_hoch = float(state.get("high_watermark", 0))
+    if akt > bisheriges_hoch:
+        send_discord(
+            f"🏆 **Neues Allzeithoch ({config.WKN})** 🏆\n"
+            f"Aktueller Kurs: **{akt:.3f}€** (bisher: {bisheriges_hoch:.3f}€)\n"
+            f"Hinweis: Ab neuen Höchstständen wird bei weiteren Gewinnen "
+            f"i.d.R. Performance Fee ({config.PERFORMANCE_FEE_PCT:.1f}%) fällig.\n"
+            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
+        )
+        github_store.put_json(
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_HIGH_WATERMARK,
+            {"high_watermark": akt, "erreicht_am": now.isoformat()}, GITHUB_TOKEN,
+            message="update high watermark [skip ci]"
+        )
+
+
 def main():
     now = datetime.datetime.now()
 
@@ -122,6 +161,7 @@ def main():
     pct_change = ((akt - vor) / vor) * 100
 
     log_price_history(akt, now)
+    check_high_watermark(akt, now)
 
     if GITHUB_REPO and GITHUB_TOKEN:
         state, _ = github_store.get_json(
