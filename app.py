@@ -307,23 +307,40 @@ def fetch_wikifolio_public_signature():
     des Traders und bildet daraus einen Hash. Ändert sich der Hash, deutet
     das auf einen neuen Trade oder Kommentar hin - Details liest man dann
     selbst (mit eigenem Login) auf wikifolio.com nach.
+    Probiert bei Bedarf mehrere URL-Varianten (DE/EN), falls eine Version
+    aus irgendeinem Grund (Bot-Erkennung, Cookie-Hinweis) nichts liefert.
     """
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    try:
-        r = requests.get(config.WIKIFOLIO_PUBLIC_URL, headers=headers, timeout=8)
-        r.raise_for_status()
-        text = re.sub("<[^>]+>", " ", r.text)
-        text = re.sub(r"\s+", " ", text)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+    }
+    urls_to_try = [
+        config.WIKIFOLIO_PUBLIC_URL,
+        "https://www.wikifolio.com/en/int/w/wfindizglo",
+    ]
 
-        last_login_match = re.search(r"Last Login:\s*([\d/]+)", text) or \
-                            re.search(r"Letzter Login:\s*([\d.]+)", text)
-        last_login = last_login_match.group(1) if last_login_match else "unbekannt"
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, headers=headers, timeout=8)
+            r.raise_for_status()
+            text = re.sub("<[^>]+>", " ", r.text)
+            text = re.sub(r"\s+", " ", text)
 
-        sig_hash = hashlib.sha256(last_login.encode("utf-8")).hexdigest()
-        return sig_hash, last_login, True
-    except Exception as e:
-        logging.error(f"Fehler beim Wikifolio-Activity-Check: {e}")
-        return None, None, False
+            last_login_match = (
+                re.search(r"Letzter Login:\s*([\d.]+)", text)
+                or re.search(r"Last Login:\s*([\d/]+)", text)
+            )
+            if last_login_match:
+                last_login = last_login_match.group(1)
+                sig_hash = hashlib.sha256(last_login.encode("utf-8")).hexdigest()
+                return sig_hash, last_login, True
+        except Exception as e:
+            logging.warning(f"Wikifolio-Activity-Check ({url}) fehlgeschlagen: {e}")
+
+    logging.error("Wikifolio-Activity-Check: kein Last-Login auf keiner URL-Variante gefunden.")
+    return None, None, False
 
 
 def check_and_report_wikifolio_activity(sig_hash, last_login, fetch_ok):
