@@ -32,6 +32,20 @@ TAGESVERLUST_SCHWELLE_PCT = -1.0
 # Renditeschmälerung durch den Spread realistischer abzubilden.
 SPREAD_PCT = 0.15
 
+# --- ECHTE KOSTENKENNZAHLEN (von wikifolio.com, Stand siehe Quelle) ---
+# Diese Werte sind bereits im ls-tc.de-Kurs eingepreist (nicht zusätzlich
+# von der App abgezogen!) - dienen hier nur der transparenten Anzeige.
+ZERTIFIKAT_GEBUEHR_PA_PCT = 0.95   # "Certificate fee per year"
+PERFORMANCE_FEE_PCT = 10.0        # "Performance fee" auf neue Höchststände
+
+# --- HIGH-WATERMARK-ALARM ---
+# Ersetzt das nicht zuverlässig auslesbare "Last Login"-Signal (wikifolio.com
+# laedt das per JavaScript nach, mit einfachen HTTP-Requests nicht abrufbar).
+# Stattdessen: eigene, garantiert verlässliche Berechnung aus den selbst
+# gesammelten Kursdaten. Ein neues Allzeithoch ist zudem finanziell die
+# relevantere Info - ab hier wird bei weiteren Gewinnen Performance Fee faellig.
+STATE_PATH_HIGH_WATERMARK = "state/high_watermark_state.json"
+
 # --- VERGLEICHSWERTE (Benchmarks), alle über ls-tc.de, gleiche API wie LS9VFS ---
 BENCHMARKS = {
     "MSCI World (A0RPWH)": "44039",
