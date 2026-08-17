@@ -1,5 +1,4 @@
 import datetime
-import hashlib
 import re
 import logging
 import pandas as pd
@@ -298,121 +297,10 @@ def check_and_alert_fetch_failure(is_live_data, is_live_history):
     gh_write(config.STATE_PATH_FETCH_FAIL_ALARM, state, message="update fetch fail alarm state [skip ci]")
 
 
-# --- TRADER-AKTIVITÄTS-SIGNAL (nur öffentliche, login-freie Seite) ---
-@st.cache_data(ttl=300)
-def fetch_wikifolio_public_signature():
-    """
-    Liest NUR die öffentlich zugängliche wikifolio.com-Seite (kein Login,
-    keine Trades/Kommentare im Klartext). Extrahiert das 'Last Login'-Datum
-    des Traders und bildet daraus einen Hash. Ändert sich der Hash, deutet
-    das auf einen neuen Trade oder Kommentar hin - Details liest man dann
-    selbst (mit eigenem Login) auf wikifolio.com nach.
-    Probiert bei Bedarf mehrere URL-Varianten (DE/EN), falls eine Version
-    aus irgendeinem Grund (Bot-Erkennung, Cookie-Hinweis) nichts liefert.
-    Simuliert vorher einen Startseitenbesuch (Cookies "einsammeln"), falls
-    die Seite isolierte Einzel-Requests ohne Vorgeschichte blockt.
-    Gibt als 4. Wert den letzten Fehlertext zurück (fürs Diagnose-Panel).
-    """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Dest": "document",
-        "Upgrade-Insecure-Requests": "1",
-    }
-    urls_to_try = [
-        config.WIKIFOLIO_PUBLIC_URL,
-        "https://www.wikifolio.com/en/int/w/wfindizglo",
-    ]
-
-    session = requests.Session()
-    session.headers.update(headers)
-    try:
-        # Startseite zuerst besuchen, damit Cookies gesetzt werden und der
-        # Folge-Request nicht wie ein isolierter Bot-Zugriff aussieht.
-        session.get("https://www.wikifolio.com/de/de", timeout=8)
-    except Exception as e:
-        logging.warning(f"Wikifolio-Startseiten-Vorbesuch fehlgeschlagen (nicht kritisch): {e}")
-
-    last_error = "unbekannter Fehler"
-    for url in urls_to_try:
-        try:
-            r = session.get(url, timeout=8)
-            if r.status_code != 200:
-                last_error = f"HTTP {r.status_code} bei {url}"
-                logging.warning(f"Wikifolio-Activity-Check: {last_error}")
-                continue
-            text = re.sub("<[^>]+>", " ", r.text)
-            text = re.sub(r"\s+", " ", text)
-
-            last_login_match = (
-                re.search(r"Letzter Login:\s*([\d.]+)", text)
-                or re.search(r"Last Login:\s*([\d/]+)", text)
-            )
-            if last_login_match:
-                last_login = last_login_match.group(1)
-                sig_hash = hashlib.sha256(last_login.encode("utf-8")).hexdigest()
-                return sig_hash, last_login, True, None
-            last_error = f"Kein 'Last Login'-Text im HTML von {url} gefunden (Status 200)"
-        except Exception as e:
-            last_error = f"{type(e).__name__}: {e} ({url})"
-            logging.warning(f"Wikifolio-Activity-Check fehlgeschlagen: {last_error}")
-
-    logging.error(f"Wikifolio-Activity-Check endgültig fehlgeschlagen: {last_error}")
-    return None, None, False, last_error
-
-
-def check_and_report_wikifolio_activity(sig_hash, last_login, fetch_ok):
-    """Vergleicht das Last-Login-Datum mit dem zuletzt gespeicherten.
-    Bei Änderung: Discord-Hinweis (mit Cooldown, falls konfiguriert) +
-    Flag fürs UI-Banner."""
-    if not fetch_ok:
-        return False, "Prüfung fehlgeschlagen"
-
-    state = gh_read_cached(config.STATE_PATH_WIKIFOLIO_ACTIVITY, {})
-    prev_hash = state.get("hash")
-    last_alert_time = None
-    if state.get("last_alert"):
-        try:
-            last_alert_time = datetime.datetime.fromisoformat(state["last_alert"])
-        except Exception:
-            pass
-
-    changed = prev_hash is not None and prev_hash != sig_hash
-    now = datetime.datetime.now(BERLIN_TZ)
-    cooldown_ok = (last_alert_time is None) or ((now - last_alert_time).total_seconds() > 6 * 3600)
-
-    new_state = {"hash": sig_hash, "last_login": last_login, "checked_at": now.isoformat()}
-    if last_alert_time:
-        new_state["last_alert"] = last_alert_time.isoformat()
-
-    if changed and DISCORD_WEBHOOK_URL and cooldown_ok:
-        try:
-            msg = (f"🔔 **Trader-Aktivität erkannt!**\n"
-                   f"Beim wikifolio '{config.WKN}' hat sich der Last-Login des Traders "
-                   f"geändert (jetzt: {last_login}).\n"
-                   f"Schau selbst auf wikifolio.com nach: {config.WIKIFOLIO_PUBLIC_URL}")
-            resp = requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-            if resp.status_code in (200, 204):
-                new_state["last_alert"] = now.isoformat()
-        except Exception as e:
-            logging.error(f"Discord Activity-Alert Fehler: {e}")
-
-    gh_write(config.STATE_PATH_WIKIFOLIO_ACTIVITY, new_state, message="update wikifolio activity state [skip ci]")
-    return changed, last_login
-
-
 now_berlin = datetime.datetime.now(BERLIN_TZ)
 heute_date = now_berlin.date()
 
 aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
-
-wf_sig_hash, wf_last_login, wf_fetch_ok, wf_last_error = fetch_wikifolio_public_signature()
-wf_activity_detected, wf_last_login_display = check_and_report_wikifolio_activity(
-    wf_sig_hash, wf_last_login, wf_fetch_ok
-)
 
 is_live_data = "Fehler" not in fetched_source
 
@@ -551,18 +439,6 @@ if st.sidebar.button("🔔 Test-Alarm senden"):
     if send_discord_alert(-1.50, aktueller_kurs):
         st.sidebar.success("Test-Alarm gesendet!")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 👤 Trader-Aktivität")
-if not wf_fetch_ok:
-    st.sidebar.warning("Aktivitäts-Check derzeit nicht erreichbar.")
-else:
-    st.sidebar.text(f"Last Login (Trader): {wf_last_login_display}")
-    if wf_activity_detected:
-        st.sidebar.success("🔔 Veränderung erkannt – neuer Trade/Kommentar möglich!")
-    else:
-        st.sidebar.caption("Keine Veränderung seit letztem Check.")
-    st.sidebar.markdown(f"[→ Auf wikifolio.com nachsehen]({config.WIKIFOLIO_PUBLIC_URL})")
-
 # --- TERMINAL STYLING ---
 st.markdown("""
 <style>
@@ -593,14 +469,6 @@ if not GH_STATE_READY:
         "App verloren, da Streamlit Cloud kein dauerhaftes Dateisystem hat."
     )
 
-# --- BANNER: NEUE TRADER-AKTIVITÄT ---
-if wf_fetch_ok and wf_activity_detected:
-    st.warning(
-        f"🔔 Beim Trader hat sich seit dem letzten Check etwas verändert "
-        f"(Last Login: {wf_last_login_display}). Vermutlich ein neuer Trade "
-        f"oder Kommentar – schau selbst auf [wikifolio.com]({config.WIKIFOLIO_PUBLIC_URL}) nach."
-    )
-
 # --- WARNBANNER BEI FEHLENDEN LIVE-DATEN ---
 if not is_live_data or not is_live_history:
     st.error(
@@ -617,13 +485,6 @@ with st.expander("🔧 System-Status / Diagnose", expanded=not GH_STATE_READY):
     st.write(f"**Persistenter State (GitHub):** {'✅ Ja' if GH_STATE_READY else '❌ Nein - GITHUB_REPO/GITHUB_TOKEN fehlen'}")
     if GH_STATE_READY:
         st.caption(f"Repo: {GITHUB_REPO} • Branch: {config.GITHUB_STATE_BRANCH}")
-    st.write(f"**Trader Last Login:** {wf_last_login_display if wf_fetch_ok else '⚠️ technisch nicht auslesbar'}")
-    if not wf_fetch_ok:
-        st.caption(
-            "wikifolio.com lädt diesen Wert per JavaScript nach - mit einfachen "
-            "Server-Requests grundsätzlich nicht abrufbar (kein Bug, bekannte Grenze). "
-            "Ersetzt durch den zuverlässigeren High-Watermark-Alarm oben in den Kennzahlen."
-        )
     st.write(f"**High Watermark:** {high_watermark_anzeige:.3f}€")
 
 # --- KENNZAHLEN ---
