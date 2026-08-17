@@ -55,7 +55,6 @@ BENCHMARKS = {
 }
 
 # --- QUELLEN ---
-WIKIFOLIO_PUBLIC_URL = "https://www.wikifolio.com/de/de/w/wfindizglo"
 LS_TC_BASE_URL = "https://www.ls-tc.de/_rpc/json/instrument/chart/dataForInstrument"
 LS_TC_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -68,7 +67,6 @@ GITHUB_STATE_BRANCH = "app-state"
 STATE_PATH_TRADES_DB = "state/trades_db.json"
 STATE_PATH_ALARM = "state/alarm_state.json"
 STATE_PATH_PRICE_ALERT = "state/price_alert_state.json"
-STATE_PATH_WIKIFOLIO_ACTIVITY = "state/wikifolio_activity_state.json"
 STATE_PATH_FETCH_FAIL_ALARM = "state/fetch_fail_alarm_state.json"
 STATE_PATH_APP_ERROR = "state/app_error_state.json"
 
