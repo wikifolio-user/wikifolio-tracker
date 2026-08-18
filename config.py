@@ -4,6 +4,7 @@ als auch vom GitHub-Actions-Cron (discord_price_alert.py) importiert, damit
 Werte wie die Schwelle oder die Instrument-ID nur an EINER Stelle stehen.
 """
 import datetime
+from zoneinfo import ZoneInfo
 
 # --- INSTRUMENT ---
 ISIN = "DE000LS9VFS2"
@@ -101,3 +102,32 @@ def price_history_csv_path(for_date=None):
     Squash-Routine fuer die Commit-Historie (nicht fuer die Dateien selbst!)."""
     d = for_date or datetime.date.today()
     return f"state/price_history/{d.strftime('%Y-%m')}.csv"
+
+
+def pick_previous_close_from_history(history):
+    """
+    Robuste Vortageskurs-Ermittlung aus der ls-tc.de history-Serie
+    ([timestamp_ms, close], chronologisch aufsteigend).
+
+    Bug, den das hier behebt: kurz nach Handelsbeginn hat 'heute' oft noch
+    KEINEN eigenen Eintrag in der history-Serie (der wird erst im Laufe des
+    Tages nachgetragen). Ein simples "vorletztes Element" wuerde dann faelsch-
+    licherweise VORGESTERN statt GESTERN liefern. Stattdessen: von hinten den
+    ersten Eintrag suchen, dessen Datum wirklich vor heute liegt.
+
+    Gibt None zurueck, falls kein passender Eintrag gefunden wird (Aufrufer
+    sollte dann auf 'previousClose' aus der API-Antwort zurueckfallen).
+    """
+    if not history:
+        return None
+    heute = datetime.datetime.now(ZoneInfo("Europe/Berlin")).date()
+    for ts_ms, close in reversed(history):
+        try:
+            eintrag_datum = datetime.datetime.fromtimestamp(
+                ts_ms / 1000, tz=ZoneInfo("Europe/Berlin")
+            ).date()
+        except Exception:
+            continue
+        if eintrag_datum < heute:
+            return float(close)
+    return None
