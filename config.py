@@ -26,6 +26,29 @@ ENTNAHME_MODUS_VERGLEICH = True  # zeigt beide Varianten parallel im Chart an
 # --- ALARME ---
 TAGESVERLUST_SCHWELLE_PCT = -1.0
 
+# --- HANDELSZEITEN (Lang & Schwarz Exchange, Quelle: wikifolio.com/Partner-Seite) ---
+# Mo-Fr 7:30-23:00, Sa 10:00-13:00, So 17:00-19:00 (jeweils Europe/Berlin,
+# DST wird automatisch korrekt beruecksichtigt, da mit tz-aware datetime
+# verglichen wird - siehe ist_handelszeit()).
+TRADING_HOURS = {
+    0: (datetime.time(7, 30), datetime.time(23, 0)),   # Montag
+    1: (datetime.time(7, 30), datetime.time(23, 0)),   # Dienstag
+    2: (datetime.time(7, 30), datetime.time(23, 0)),   # Mittwoch
+    3: (datetime.time(7, 30), datetime.time(23, 0)),   # Donnerstag
+    4: (datetime.time(7, 30), datetime.time(23, 0)),   # Freitag
+    5: (datetime.time(10, 0), datetime.time(13, 0)),   # Samstag
+    6: (datetime.time(17, 0), datetime.time(19, 0)),   # Sonntag
+}
+
+
+def ist_handelszeit(now_berlin):
+    """now_berlin muss ein zeitzonen-bewusstes datetime in Europe/Berlin sein
+    (pytz oder zoneinfo, egal - Hauptsache tz-aware)."""
+    start, end = TRADING_HOURS.get(now_berlin.weekday(), (None, None))
+    if start is None:
+        return False
+    return start <= now_berlin.time() <= end
+
 # --- HANDELSKOSTEN-ANNAHME (für "Netto Real") ---
 # Ein realer Verkauf läuft zum Geld-(Bid-)Kurs, nicht zum Mid-Kurs. Diese
 # Annahme (in %) wird bei der realen Entnahme vom Kurs abgezogen, um die
