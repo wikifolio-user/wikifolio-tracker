@@ -99,20 +99,26 @@ st_autorefresh(interval=30000, key="data_refresh")
 @st.cache_data(ttl=30)
 def get_live_market_data():
     """
-    Holt den aktuellen Mid-Kurs + Vortageskurs direkt von ls-tc.de (Lang & Schwarz
+    Holt den aktuellen Mid-Kurs direkt von ls-tc.de (Lang & Schwarz
     TradeCenter), dem Emittenten des Zertifikats. Kostenlos, kein API-Key nötig.
+    Der Vortageskurs wird bewusst über einen SEPARATEN History-Request geholt
+    (series="history" alleine) - der gebündelte "intraday,history,flags"-Call
+    liefert eine spärlichere/ältere History-Reihe und führte zu falschen
+    Vortageswerten (mehrere Tage zu alt statt echtem Vortag).
     """
-    params = {
+    intraday_params = {
         "container": "chart1",
         "instrumentId": config.LS_INSTRUMENT_ID,
         "marketId": "1",
         "quotetype": "mid",
-        "series": "intraday,history,flags",
+        "series": "intraday,flags",
         "type": "",
         "localeId": "2",
     }
+    history_params = dict(intraday_params, series="history")
+
     try:
-        r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=6)
+        r = requests.get(config.LS_TC_BASE_URL, params=intraday_params, headers=config.LS_TC_HEADERS, timeout=6)
         r.raise_for_status()
         data = r.json()
 
@@ -123,12 +129,21 @@ def get_live_market_data():
         )
         if intraday:
             akt = float(intraday[-1][1])
-            history = (
-                data.get("series", {}).get("history", {}).get("data")
-                or data.get("history", {}).get("data")
-                or []
-            )
-            vor = config.pick_previous_close_from_history(history)
+
+            vor = None
+            try:
+                rh = requests.get(config.LS_TC_BASE_URL, params=history_params, headers=config.LS_TC_HEADERS, timeout=6)
+                rh.raise_for_status()
+                hist_data = rh.json()
+                history = (
+                    hist_data.get("series", {}).get("history", {}).get("data")
+                    or hist_data.get("history", {}).get("data")
+                    or []
+                )
+                vor = config.pick_previous_close_from_history(history)
+            except Exception as e:
+                logging.warning(f"Separater History-Request fehlgeschlagen: {e}")
+
             if vor is None:
                 vor = float(data.get("previousClose", intraday[0][1]))
 
