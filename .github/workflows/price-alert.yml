@@ -25,11 +25,9 @@ jobs:
           python-version: "3.12"
 
       - name: Abhängigkeiten installieren
-        run: pip install requests
+        run: pip install requests tzdata
 
       - name: Kurs prüfen und ggf. Discord informieren
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
-        run: python discord_price_alert.py
+          GH_STATE
