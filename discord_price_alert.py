@@ -11,6 +11,7 @@ import datetime
 import logging
 import os
 import sys
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -147,7 +148,15 @@ def check_high_watermark(akt, now):
 
 
 def main():
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
+
+    if not config.ist_handelszeit(now):
+        logging.info(
+            f"Außerhalb der Handelszeiten ({now.strftime('%a %d.%m.%Y %H:%M')} Europe/Berlin) "
+            f"- überspringe Kursabruf und Discord-Nachrichten. Nur Healthcheck-Ping."
+        )
+        ping_healthcheck()  # Dead-Man's-Switch bleibt auch außerhalb der Handelszeiten "gruen"
+        return
 
     try:
         akt, vor = get_live_market_data()
