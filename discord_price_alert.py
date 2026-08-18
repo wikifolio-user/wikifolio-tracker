@@ -55,9 +55,8 @@ def get_live_market_data():
         or data.get("history", {}).get("data")
         or []
     )
-    if len(history) >= 2:
-        vor = float(history[-2][1])
-    else:
+    vor = config.pick_previous_close_from_history(history)
+    if vor is None:
         vor = float(data.get("previousClose", intraday[0][1]))
 
     if akt <= 0 or vor <= 0:
