@@ -500,6 +500,8 @@ def check_and_send_price_updates(pct_change, current_price):
     """
     if not DISCORD_WEBHOOK_URL:
         return
+    if not config.ist_handelszeit(datetime.datetime.now(BERLIN_TZ)):
+        return  # außerhalb der Handelszeiten keine (Fehl-)Alarme auf eingefrorene Kurse
 
     state = gh_read_cached(config.STATE_PATH_PRICE_ALERT, {"unter_schwelle": False})
 
