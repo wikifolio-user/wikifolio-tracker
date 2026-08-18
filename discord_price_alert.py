@@ -27,16 +27,25 @@ GITHUB_TOKEN = os.environ.get("GH_STATE_TOKEN", "")  # secrets.GITHUB_TOKEN
 
 
 def get_live_market_data():
-    params = {
+    """
+    Holt den aktuellen Mid-Kurs von ls-tc.de. Der Vortageskurs wird bewusst
+    ueber einen SEPARATEN History-Request geholt (series="history" alleine) -
+    der gebuendelte "intraday,history,flags"-Call liefert eine spaerlichere/
+    aeltere History-Reihe und fuehrte zu falschen (mehrere Tage alten)
+    Vortageswerten.
+    """
+    intraday_params = {
         "container": "chart1",
         "instrumentId": config.LS_INSTRUMENT_ID,
         "marketId": "1",
         "quotetype": "mid",
-        "series": "intraday,history,flags",
+        "series": "intraday,flags",
         "type": "",
         "localeId": "2",
     }
-    r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=10)
+    history_params = dict(intraday_params, series="history")
+
+    r = requests.get(config.LS_TC_BASE_URL, params=intraday_params, headers=config.LS_TC_HEADERS, timeout=10)
     r.raise_for_status()
     data = r.json()
 
@@ -50,12 +59,20 @@ def get_live_market_data():
 
     akt = float(intraday[-1][1])
 
-    history = (
-        data.get("series", {}).get("history", {}).get("data")
-        or data.get("history", {}).get("data")
-        or []
-    )
-    vor = config.pick_previous_close_from_history(history)
+    vor = None
+    try:
+        rh = requests.get(config.LS_TC_BASE_URL, params=history_params, headers=config.LS_TC_HEADERS, timeout=10)
+        rh.raise_for_status()
+        hist_data = rh.json()
+        history = (
+            hist_data.get("series", {}).get("history", {}).get("data")
+            or hist_data.get("history", {}).get("data")
+            or []
+        )
+        vor = config.pick_previous_close_from_history(history)
+    except Exception as e:
+        logging.warning(f"Separater History-Request fehlgeschlagen: {e}")
+
     if vor is None:
         vor = float(data.get("previousClose", intraday[0][1]))
 
