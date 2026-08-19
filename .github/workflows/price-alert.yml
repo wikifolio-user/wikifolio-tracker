@@ -30,4 +30,6 @@ jobs:
       - name: Kurs prüfen und ggf. Discord informieren
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          GH_STATE
+          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: python discord_price_alert.py
