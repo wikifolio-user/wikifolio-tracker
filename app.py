@@ -589,7 +589,7 @@ st.markdown(f"""
 <div class="header-bar">
     <div style="flex: 1; min-width: 220px;">
         <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f}€</span></div>
-        <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {config.WKN} • ISIN: {config.ISIN} • Börse Stuttgart • Stand: {letztes_update_zeit}</div>
+        <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {config.WKN} • ISIN: {config.ISIN} • Lang & Schwarz Exchange • Stand: {letztes_update_zeit}</div>
     </div>
     <div>{live_badge}</div>
 </div>
