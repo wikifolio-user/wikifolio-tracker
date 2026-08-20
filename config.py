@@ -104,6 +104,30 @@ def price_history_csv_path(for_date=None):
     return f"state/price_history/{d.strftime('%Y-%m')}.csv"
 
 
+def extract_previous_close(data):
+    """
+    DER korrekte Weg, den Vortageskurs aus einer ls-tc.de dataForInstrument-
+    Antwort zu holen. Es gibt KEIN top-level 'previousClose'-Feld (das haben
+    wir faelschlich angenommen) - der echte Wert steckt in
+    info.plotlines[], als Eintrag mit id == "previousDay":
+
+        "info": {"plotlines": [{"id": "previousDay", "value": 1.975, ...}]}
+
+    Gibt None zurueck, falls nicht auffindbar (Aufrufer soll dann auf die
+    (unzuverlaessigere) History-Suche zurueckfallen).
+    """
+    try:
+        plotlines = data.get("info", {}).get("plotlines", [])
+        for entry in plotlines:
+            if entry.get("id") == "previousDay":
+                val = float(entry.get("value"))
+                if val > 0:
+                    return val
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return None
+
+
 def pick_previous_close_from_history(history):
     """
     Robuste Vortageskurs-Ermittlung aus der ls-tc.de history-Serie
