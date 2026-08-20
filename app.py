@@ -101,24 +101,23 @@ def get_live_market_data():
     """
     Holt den aktuellen Mid-Kurs direkt von ls-tc.de (Lang & Schwarz
     TradeCenter), dem Emittenten des Zertifikats. Kostenlos, kein API-Key nötig.
-    Der Vortageskurs wird bewusst über einen SEPARATEN History-Request geholt
-    (series="history" alleine) - der gebündelte "intraday,history,flags"-Call
-    liefert eine spärlichere/ältere History-Reihe und führte zu falschen
-    Vortageswerten (mehrere Tage zu alt statt echtem Vortag).
+    Vortageskurs: aus info.plotlines[id="previousDay"].value (siehe
+    config.extract_previous_close - DAS ist der Ort, wo ls-tc.de den echten
+    Vortageswert mitliefert, kein top-level 'previousClose'-Feld). Die
+    History-Suche dient nur noch als Rückfalloption.
     """
-    intraday_params = {
+    params = {
         "container": "chart1",
         "instrumentId": config.LS_INSTRUMENT_ID,
         "marketId": "1",
         "quotetype": "mid",
-        "series": "intraday,flags",
+        "series": "intraday,history,flags",
         "type": "",
         "localeId": "2",
     }
-    history_params = dict(intraday_params, series="history")
 
     try:
-        r = requests.get(config.LS_TC_BASE_URL, params=intraday_params, headers=config.LS_TC_HEADERS, timeout=6)
+        r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=6)
         r.raise_for_status()
         data = r.json()
 
@@ -130,22 +129,18 @@ def get_live_market_data():
         if intraday:
             akt = float(intraday[-1][1])
 
-            vor = None
-            try:
-                rh = requests.get(config.LS_TC_BASE_URL, params=history_params, headers=config.LS_TC_HEADERS, timeout=6)
-                rh.raise_for_status()
-                hist_data = rh.json()
+            vor = config.extract_previous_close(data)
+
+            if vor is None:
                 history = (
-                    hist_data.get("series", {}).get("history", {}).get("data")
-                    or hist_data.get("history", {}).get("data")
+                    data.get("series", {}).get("history", {}).get("data")
+                    or data.get("history", {}).get("data")
                     or []
                 )
                 vor = config.pick_previous_close_from_history(history)
-            except Exception as e:
-                logging.warning(f"Separater History-Request fehlgeschlagen: {e}")
 
             if vor is None:
-                vor = float(data.get("previousClose", intraday[0][1]))
+                vor = float(intraday[0][1])
 
             if akt > 0 and vor > 0:
                 return akt, vor, "ls-tc.de Live (Emittent)"
