@@ -698,7 +698,7 @@ def render_dashboard():
                 yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000),
                 hovermode="x unified",
             )
-            st.plotly_chart(fig_wealth, width="stretch")
+            st.plotly_chart(fig_wealth, width="stretch", key="chart_wealth")
 
         def load_db():
             return gh_read(config.STATE_PATH_TRADES_DB, [])
@@ -736,7 +736,7 @@ def render_dashboard():
         with tab_candle:
             fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
             fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False)
-            st.plotly_chart(fig_c, width="stretch")
+            st.plotly_chart(fig_c, width="stretch", key="chart_candlestick")
             st.caption(
                 "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
                 "Der GitHub-Actions-Cron protokolliert seit Kurzem zusätzlich alle 5 Min den "
@@ -781,7 +781,7 @@ def render_dashboard():
             
             df_forecast = pd.DataFrame(forecast_data)
             df_forecast["Index"] = df_forecast["Index"].astype(str)
-            st.dataframe(df_forecast, width="stretch", hide_index=True)
+            st.dataframe(df_forecast, width="stretch", hide_index=True, key="df_forecast")
 
         with tab_scenarios:
             st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (2,0% bis 6,0% p.M.)")
@@ -834,7 +834,7 @@ def render_dashboard():
                 })
 
             df_summary = pd.DataFrame(summary_list)
-            st.dataframe(df_summary, width="stretch", hide_index=True)
+            st.dataframe(df_summary, width="stretch", hide_index=True, key="df_summary")
 
             fig_scen = go.Figure()
             months_x = list(range(61))
@@ -868,7 +868,7 @@ def render_dashboard():
                 yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
                 hovermode="x unified",
             )
-            st.plotly_chart(fig_scen, width="stretch")
+            st.plotly_chart(fig_scen, width="stretch", key="chart_scenarios")
     except Exception as e:
         st.error(f"⚠️ Fehler beim Rendern der Tabs: {e}")
         notify_app_error("Tab-Rendering", e)
