@@ -668,11 +668,9 @@ try:
         )
         fig_wealth = go.Figure()
         fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
-        fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto (Simulation)", line=dict(color="#29B6F6", width=2)))
-        fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Real"], name="Netto (Real)", line=dict(color="#FFB300", width=2, dash="dot")))
         fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
 
-        benchmark_colors = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C"]
+        benchmark_colors = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65"]
         for i, (label, s) in enumerate(benchmark_series.items()):
             fig_wealth.add_trace(go.Scatter(
                 x=df_chart.index, y=s, name=label,
