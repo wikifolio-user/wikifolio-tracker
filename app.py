@@ -679,6 +679,39 @@ def render_dashboard():
                     if ist_an:
                         ausgewaehlte_benchmarks.append(label)
 
+            performance_liste_haupt = []
+            brutto_reihe = df_chart["Depotwert_Brutto"]
+            if not brutto_reihe.empty and brutto_reihe.iloc[0] > 0:
+                perf = (brutto_reihe.iloc[-1] / brutto_reihe.iloc[0] - 1) * 100
+                performance_liste_haupt.append({"Wert": f"Hauptindizes Global ({config.WKN})", "_perf": perf})
+            for label, s in benchmark_series.items():
+                if label in ausgewaehlte_benchmarks and not s.empty and s.iloc[0] > 0:
+                    perf = (s.iloc[-1] / s.iloc[0] - 1) * 100
+                    performance_liste_haupt.append({"Wert": label, "_perf": perf})
+
+            if performance_liste_haupt:
+                performance_liste_haupt.sort(key=lambda x: x["_perf"], reverse=True)
+                zeilen_html_haupt = ""
+                for eintrag in performance_liste_haupt:
+                    farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
+                    zeilen_html_haupt += f"""
+                    <tr style="border-bottom: 1px solid #1A1A1A;">
+                        <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
+                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
+                    </tr>"""
+                st.markdown(f"""
+                <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden; margin-bottom: 12px;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid #27272A;">
+                            <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Performance seit Kauf</th>
+                        </tr>
+                    </thead>
+                    <tbody>{zeilen_html_haupt}
+                    </tbody>
+                </table>
+                """, unsafe_allow_html=True)
+
             fig_wealth = go.Figure()
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
