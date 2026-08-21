@@ -666,12 +666,22 @@ try:
             f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
             "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
         )
+
+        ausgewaehlte_benchmarks = st.multiselect(
+            "Vergleichswerte im Chart anzeigen",
+            options=list(benchmark_series.keys()),
+            default=list(benchmark_series.keys()),
+            key="benchmark_auswahl",
+        )
+
         fig_wealth = go.Figure()
         fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
         fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
 
         benchmark_colors = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65"]
         for i, (label, s) in enumerate(benchmark_series.items()):
+            if label not in ausgewaehlte_benchmarks:
+                continue
             fig_wealth.add_trace(go.Scatter(
                 x=df_chart.index, y=s, name=label,
                 line=dict(color=benchmark_colors[i % len(benchmark_colors)], width=1.5, dash="dashdot"),
