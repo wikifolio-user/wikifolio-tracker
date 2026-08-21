@@ -76,6 +76,9 @@ BENCHMARKS = {
     "Nasdaq-100 (A0F5UF)": "42380",
     "MSCI Semiconductors (LYX018)": "810652",
     "MSCI World IT Sector (A2PHCC)": "983893",
+    "FF Inlinetrading (LS9VSU)": "4361124",
+    "Global Wealth Concentrated (LS9UTF)": "3127384",
+    "Interesting_Leverage (LS9VVK)": "4478851",
 }
 
 # --- QUELLEN ---
