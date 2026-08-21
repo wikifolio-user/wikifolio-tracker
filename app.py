@@ -470,6 +470,13 @@ def render_dashboard():
         #MainMenu, footer { visibility: hidden; }
         [data-testid="stToolbar"] { visibility: hidden; }
         .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
+        /* Multiselect-Chips (Vergleichswerte-Auswahl) nicht intern scrollen
+           lassen, sondern komplett anzeigen - wächst nach unten statt zu scrollen */
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+            max-height: none !important;
+            overflow-y: visible !important;
+            flex-wrap: wrap !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
