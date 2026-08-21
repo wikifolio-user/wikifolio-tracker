@@ -661,22 +661,20 @@ def render_dashboard():
 
     try:
         with tab_wealth:
-            st.caption(
-                "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
-                f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
-                f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
-                "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
-                f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
-                "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
-            )
-
-            with st.expander("🔧 Vergleichswerte auswählen", expanded=False):
+            with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
+                st.caption(
+                    "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
+                    f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
+                    f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
+                    "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
+                    f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
+                    "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
+                )
                 ausgewaehlte_benchmarks = st.multiselect(
                     "Vergleichswerte im Chart anzeigen",
                     options=list(benchmark_series.keys()),
                     default=list(benchmark_series.keys()),
                     key="benchmark_auswahl",
-                    label_visibility="collapsed",
                 )
 
             fig_wealth = go.Figure()
