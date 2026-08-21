@@ -667,12 +667,14 @@ try:
             "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
         )
 
-        ausgewaehlte_benchmarks = st.multiselect(
-            "Vergleichswerte im Chart anzeigen",
-            options=list(benchmark_series.keys()),
-            default=list(benchmark_series.keys()),
-            key="benchmark_auswahl",
-        )
+        with st.expander("🔧 Vergleichswerte auswählen", expanded=False):
+            ausgewaehlte_benchmarks = st.multiselect(
+                "Vergleichswerte im Chart anzeigen",
+                options=list(benchmark_series.keys()),
+                default=list(benchmark_series.keys()),
+                key="benchmark_auswahl",
+                label_visibility="collapsed",
+            )
 
         fig_wealth = go.Figure()
         fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
