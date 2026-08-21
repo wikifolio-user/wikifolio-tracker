@@ -741,7 +741,7 @@ def render_dashboard():
                 name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
             ))
             fig_v2.add_trace(go.Scatter(
-                x=eigene_reihe_v2.index, y=eigene_reihe_v2, name="Hauptindizes Global",
+                x=eigene_reihe_v2.index, y=eigene_reihe_v2, name=f"Hauptindizes Global ({config.WKN})",
                 line=dict(color="#00C853", width=2.5),
             ))
             benchmark_colors_v2 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65"]
@@ -763,7 +763,7 @@ def render_dashboard():
             performance_liste_v2 = []
             if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
                 perf = (eigene_reihe_v2.iloc[-1] / eigene_reihe_v2.iloc[0] - 1) * 100
-                performance_liste_v2.append({"Wert": "Hauptindizes Global (eigen)", "_perf": perf})
+                performance_liste_v2.append({"Wert": f"Hauptindizes Global ({config.WKN})", "_perf": perf})
             for label, s in benchmark_series_v2.items():
                 if label in ausgewaehlte_v2 and not s.empty and s.iloc[0] > 0:
                     perf = (s.iloc[-1] / s.iloc[0] - 1) * 100
