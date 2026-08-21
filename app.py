@@ -763,19 +763,34 @@ def render_dashboard():
             performance_liste_v2 = []
             if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
                 perf = (eigene_reihe_v2.iloc[-1] / eigene_reihe_v2.iloc[0] - 1) * 100
-                performance_liste_v2.append({"Wert": "Hauptindizes Global (eigenes Zertifikat)", "_perf": perf})
+                performance_liste_v2.append({"Wert": "Hauptindizes Global (eigen)", "_perf": perf})
             for label, s in benchmark_series_v2.items():
                 if label in ausgewaehlte_v2 and not s.empty and s.iloc[0] > 0:
                     perf = (s.iloc[-1] / s.iloc[0] - 1) * 100
                     performance_liste_v2.append({"Wert": label, "_perf": perf})
 
             if performance_liste_v2:
-                df_perf_v2 = pd.DataFrame(performance_liste_v2).sort_values("_perf", ascending=False)
-                df_perf_v2["Performance"] = df_perf_v2["_perf"].apply(lambda x: f"{x:+.2f}%")
-                st.dataframe(
-                    df_perf_v2[["Wert", "Performance"]],
-                    width="stretch", hide_index=True, key="df_perf_ytd",
-                )
+                performance_liste_v2.sort(key=lambda x: x["_perf"], reverse=True)
+                zeilen_html = ""
+                for eintrag in performance_liste_v2:
+                    farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
+                    zeilen_html += f"""
+                    <tr style="border-bottom: 1px solid #1A1A1A;">
+                        <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
+                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
+                    </tr>"""
+                st.markdown(f"""
+                <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid #27272A;">
+                            <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Performance</th>
+                        </tr>
+                    </thead>
+                    <tbody>{zeilen_html}
+                    </tbody>
+                </table>
+                """, unsafe_allow_html=True)
 
             st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
 
