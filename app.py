@@ -762,6 +762,23 @@ def render_dashboard():
             )
             st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
 
+            performance_liste_v2 = []
+            if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
+                perf = (eigene_reihe_v2.iloc[-1] / eigene_reihe_v2.iloc[0] - 1) * 100
+                performance_liste_v2.append({"Wert": "Hauptindizes Global (eigenes Zertifikat)", "_perf": perf})
+            for label, s in benchmark_series_v2.items():
+                if label in ausgewaehlte_v2 and not s.empty and s.iloc[0] > 0:
+                    perf = (s.iloc[-1] / s.iloc[0] - 1) * 100
+                    performance_liste_v2.append({"Wert": label, "_perf": perf})
+
+            if performance_liste_v2:
+                df_perf_v2 = pd.DataFrame(performance_liste_v2).sort_values("_perf", ascending=False)
+                df_perf_v2["Performance seit 01.01.2026"] = df_perf_v2["_perf"].apply(lambda x: f"{x:+.2f}%")
+                st.dataframe(
+                    df_perf_v2[["Wert", "Performance seit 01.01.2026"]],
+                    width="stretch", hide_index=True, key="df_perf_ytd",
+                )
+
         def load_db():
             return gh_read(config.STATE_PATH_TRADES_DB, [])
 
