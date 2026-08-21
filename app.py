@@ -651,8 +651,9 @@ def render_dashboard():
     """, unsafe_allow_html=True)
 
     # TABS
-    tab_wealth, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
+    tab_wealth, tab_ytd, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
         "📈 VERMÖGENS- & SUBSTANZAUFBAU",
+        "🔍 SEIT 01.01.2026",
         "📝 TRADER-LOG (TRADES & KOMMENTARE)",
         "🕯️ TAGES-CANDLESTICK",
         "🔮 ZUKUNFTS-PROGNOSE",
@@ -699,6 +700,67 @@ def render_dashboard():
                 hovermode="x unified",
             )
             st.plotly_chart(fig_wealth, width="stretch", key="chart_wealth")
+
+        with tab_ytd:
+            v2_start = pd.Timestamp(config.VERGLEICH2_START_DATUM)
+            v2_kapital = config.VERGLEICH2_STARTKAPITAL
+
+            st.caption(
+                f"Alle Werte neu skaliert: {fmt(v2_kapital, 0)} investiert am "
+                f"{config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
+                "eigentlichen Kaufdatum deines Zertifikats - zeigt die reine "
+                "Performance seit Jahresanfang im direkten Vergleich."
+            )
+
+            # Eigenes Zertifikat: aus bereits geladenem df_chart ab v2_start neu skalieren
+            eigene_reihe_v2 = df_chart["Close"][df_chart.index >= v2_start]
+            if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
+                eigene_reihe_v2 = eigene_reihe_v2 / eigene_reihe_v2.iloc[0] * v2_kapital
+
+            # Benchmarks: eigener, frischer Abruf ab v2_start (eigene Cache-Zeile,
+            # da anderer Startzeitpunkt als der Hauptvergleich oben)
+            benchmark_series_v2 = {}
+            for label, inst_id in config.BENCHMARKS.items():
+                s_v2 = benchmark_normiert_auf_startkapital(
+                    eigene_reihe_v2.index, inst_id, config.VERGLEICH2_START_DATUM, heute_date, v2_kapital
+                )
+                if s_v2 is not None:
+                    benchmark_series_v2[label] = s_v2
+
+            with st.expander("🔧 Vergleichswerte auswählen", expanded=False):
+                st.write("Vergleichswerte im Chart anzeigen:")
+                ausgewaehlte_v2 = []
+                for label in benchmark_series_v2.keys():
+                    ist_an = st.checkbox(label, value=True, key=f"benchmark_v2_cb_{label}")
+                    if ist_an:
+                        ausgewaehlte_v2.append(label)
+
+            fig_v2 = go.Figure()
+            fig_v2.add_trace(go.Scatter(
+                x=eigene_reihe_v2.index, y=[v2_kapital] * len(eigene_reihe_v2),
+                name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
+            ))
+            fig_v2.add_trace(go.Scatter(
+                x=eigene_reihe_v2.index, y=eigene_reihe_v2, name="Hauptindizes Global",
+                line=dict(color="#00C853", width=2.5),
+            ))
+            benchmark_colors_v2 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65"]
+            for i, (label, s) in enumerate(benchmark_series_v2.items()):
+                if label not in ausgewaehlte_v2:
+                    continue
+                fig_v2.add_trace(go.Scatter(
+                    x=eigene_reihe_v2.index, y=s, name=label,
+                    line=dict(color=benchmark_colors_v2[i % len(benchmark_colors_v2)], width=1.5, dash="dashdot"),
+                ))
+
+            fig_v2.update_layout(
+                paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=40, b=40), height=450,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
+                xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
+                yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=1000),
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
 
         def load_db():
             return gh_read(config.STATE_PATH_TRADES_DB, [])
