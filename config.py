@@ -18,6 +18,10 @@ ENTNAHME_PM = 70.0
 KAUFDATUM = datetime.date(2025, 7, 9)
 STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 
+# --- ZWEITER VERGLEICH: seit Jahresanfang, eigene Startsumme ---
+VERGLEICH2_START_DATUM = datetime.date(2026, 1, 1)
+VERGLEICH2_STARTKAPITAL = 10000.0
+
 # "simulation": Entnahme wird nur buchhalterisch vom Depotwert abgezogen,
 #               die gehaltene Stueckzahl bleibt unveraendert (bisheriges Verhalten)
 # "real":       Entnahme erfolgt tatsaechlich durch monatlichen Verkauf von
