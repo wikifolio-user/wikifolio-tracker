@@ -760,8 +760,6 @@ def render_dashboard():
                 yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=1000),
                 hovermode="x unified",
             )
-            st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
-
             performance_liste_v2 = []
             if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
                 perf = (eigene_reihe_v2.iloc[-1] / eigene_reihe_v2.iloc[0] - 1) * 100
@@ -773,11 +771,13 @@ def render_dashboard():
 
             if performance_liste_v2:
                 df_perf_v2 = pd.DataFrame(performance_liste_v2).sort_values("_perf", ascending=False)
-                df_perf_v2["Performance seit 01.01.2026"] = df_perf_v2["_perf"].apply(lambda x: f"{x:+.2f}%")
+                df_perf_v2["Performance"] = df_perf_v2["_perf"].apply(lambda x: f"{x:+.2f}%")
                 st.dataframe(
-                    df_perf_v2[["Wert", "Performance seit 01.01.2026"]],
+                    df_perf_v2[["Wert", "Performance"]],
                     width="stretch", hide_index=True, key="df_perf_ytd",
                 )
+
+            st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
 
         def load_db():
             return gh_read(config.STATE_PATH_TRADES_DB, [])
