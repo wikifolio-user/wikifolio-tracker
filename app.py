@@ -374,6 +374,16 @@ def render_dashboard():
     df_chart["Depotwert_Brutto"] = df_chart["Close"] * config.STUECKZAHL
     df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
 
+    def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_datum):
+        """Gesamt-%, Ø-monatliche % (CAGR-Stil) und Gewinn/Verlust in € für
+        eine normierte Wertreihe (erster Wert = eingesetztes Kapital)."""
+        gesamt_pct = (letzter_wert / erste_werte - 1) * 100
+        tage = max(1, (end_datum - start_datum).days)
+        monate = tage / 30.44
+        monatliche_pct = (((letzter_wert / erste_werte) ** (1 / monate)) - 1) * 100 if monate > 0 else 0.0
+        gewinn_verlust_euro = letzter_wert - erste_werte
+        return gesamt_pct, monatliche_pct, gewinn_verlust_euro
+
     # --- REAL: Entnahme erfolgt tatsächlich durch monatlichen Verkauf von Anteilen
     # zum jeweils gültigen GELDKURS (Bid, nicht Mid) -> Stückzahl sinkt dauerhaft,
     # und der Spread schmälert die Rendite zusätzlich realistisch. ---
@@ -682,12 +692,21 @@ def render_dashboard():
             performance_liste_haupt = []
             brutto_reihe = df_chart["Depotwert_Brutto"]
             if not brutto_reihe.empty and brutto_reihe.iloc[0] > 0:
-                perf = (brutto_reihe.iloc[-1] / brutto_reihe.iloc[0] - 1) * 100
-                performance_liste_haupt.append({"Wert": f"Hauptindizes Global ({config.WKN})", "_perf": perf})
+                gesamt, monatlich, diff_euro = berechne_performance_kennzahlen(
+                    brutto_reihe.iloc[0], brutto_reihe.iloc[-1], config.KAUFDATUM, heute_date
+                )
+                performance_liste_haupt.append({
+                    "Wert": f"Hauptindizes Global ({config.WKN})",
+                    "_perf": gesamt, "_monatlich": monatlich, "_euro": diff_euro,
+                })
             for label, s in benchmark_series.items():
                 if label in ausgewaehlte_benchmarks and not s.empty and s.iloc[0] > 0:
-                    perf = (s.iloc[-1] / s.iloc[0] - 1) * 100
-                    performance_liste_haupt.append({"Wert": label, "_perf": perf})
+                    gesamt, monatlich, diff_euro = berechne_performance_kennzahlen(
+                        s.iloc[0], s.iloc[-1], config.KAUFDATUM, heute_date
+                    )
+                    performance_liste_haupt.append({
+                        "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_euro": diff_euro,
+                    })
 
             if performance_liste_haupt:
                 st.caption(f"📅 Berechnet seit {config.KAUFDATUM.strftime('%d.%m.%Y')} (Kaufdatum)")
@@ -699,13 +718,17 @@ def render_dashboard():
                     <tr style="border-bottom: 1px solid #1A1A1A;">
                         <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
                         <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
+                        <td style="padding: 8px 6px; color: #CBD5E1; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
+                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
                     </tr>"""
                 st.markdown(f"""
                 <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden; margin-bottom: 12px;">
                     <thead>
                         <tr style="border-bottom: 1px solid #27272A;">
                             <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Performance seit Kauf</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
                         </tr>
                     </thead>
                     <tbody>{zeilen_html_haupt}
@@ -796,12 +819,21 @@ def render_dashboard():
             )
             performance_liste_v2 = []
             if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
-                perf = (eigene_reihe_v2.iloc[-1] / eigene_reihe_v2.iloc[0] - 1) * 100
-                performance_liste_v2.append({"Wert": f"Hauptindizes Global ({config.WKN})", "_perf": perf})
+                gesamt, monatlich, diff_euro = berechne_performance_kennzahlen(
+                    eigene_reihe_v2.iloc[0], eigene_reihe_v2.iloc[-1], config.VERGLEICH2_START_DATUM, heute_date
+                )
+                performance_liste_v2.append({
+                    "Wert": f"Hauptindizes Global ({config.WKN})",
+                    "_perf": gesamt, "_monatlich": monatlich, "_euro": diff_euro,
+                })
             for label, s in benchmark_series_v2.items():
                 if label in ausgewaehlte_v2 and not s.empty and s.iloc[0] > 0:
-                    perf = (s.iloc[-1] / s.iloc[0] - 1) * 100
-                    performance_liste_v2.append({"Wert": label, "_perf": perf})
+                    gesamt, monatlich, diff_euro = berechne_performance_kennzahlen(
+                        s.iloc[0], s.iloc[-1], config.VERGLEICH2_START_DATUM, heute_date
+                    )
+                    performance_liste_v2.append({
+                        "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_euro": diff_euro,
+                    })
 
             if performance_liste_v2:
                 st.caption(f"📅 Berechnet seit {config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}")
@@ -813,13 +845,17 @@ def render_dashboard():
                     <tr style="border-bottom: 1px solid #1A1A1A;">
                         <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
                         <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
+                        <td style="padding: 8px 6px; color: #CBD5E1; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
+                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
                     </tr>"""
                 st.markdown(f"""
                 <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
                     <thead>
                         <tr style="border-bottom: 1px solid #27272A;">
                             <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Performance</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
                         </tr>
                     </thead>
                     <tbody>{zeilen_html}
