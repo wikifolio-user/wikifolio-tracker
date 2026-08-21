@@ -307,7 +307,7 @@ def check_and_alert_fetch_failure(is_live_data, is_live_history):
 # Vermeidet den harten Full-Page-Rerun von st_autorefresh (sichtbares
 # Aufhellen/Neuzeichnen alle 30s). Ein Fragment aktualisiert sich selbst
 # periodisch, ohne die komplette Seite neu zu bauen/zu scrollen.
-@st.fragment(run_every="30s")
+@st.fragment(run_every="5m")
 def render_dashboard():
     now_berlin = datetime.datetime.now(BERLIN_TZ)
     heute_date = now_berlin.date()
