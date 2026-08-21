@@ -470,13 +470,6 @@ def render_dashboard():
         #MainMenu, footer { visibility: hidden; }
         [data-testid="stToolbar"] { visibility: hidden; }
         .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
-        /* Multiselect-Chips (Vergleichswerte-Auswahl) nicht intern scrollen
-           lassen, sondern komplett anzeigen - wächst nach unten statt zu scrollen */
-        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
-            max-height: none !important;
-            overflow-y: visible !important;
-            flex-wrap: wrap !important;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -677,12 +670,13 @@ def render_dashboard():
                     f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
                     "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
                 )
-                ausgewaehlte_benchmarks = st.multiselect(
-                    "Vergleichswerte im Chart anzeigen",
-                    options=list(benchmark_series.keys()),
-                    default=list(benchmark_series.keys()),
-                    key="benchmark_auswahl",
-                )
+                st.write("Vergleichswerte im Chart anzeigen:")
+                ausgewaehlte_benchmarks = []
+                for label in benchmark_series.keys():
+                    checkbox_key = f"benchmark_cb_{label}"
+                    ist_an = st.checkbox(label, value=True, key=checkbox_key)
+                    if ist_an:
+                        ausgewaehlte_benchmarks.append(label)
 
             fig_wealth = go.Figure()
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
