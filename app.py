@@ -690,6 +690,7 @@ def render_dashboard():
                     performance_liste_haupt.append({"Wert": label, "_perf": perf})
 
             if performance_liste_haupt:
+                st.caption(f"📅 Berechnet seit {config.KAUFDATUM.strftime('%d.%m.%Y')} (Kaufdatum)")
                 performance_liste_haupt.sort(key=lambda x: x["_perf"], reverse=True)
                 zeilen_html_haupt = ""
                 for eintrag in performance_liste_haupt:
@@ -803,6 +804,7 @@ def render_dashboard():
                     performance_liste_v2.append({"Wert": label, "_perf": perf})
 
             if performance_liste_v2:
+                st.caption(f"📅 Berechnet seit {config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}")
                 performance_liste_v2.sort(key=lambda x: x["_perf"], reverse=True)
                 zeilen_html = ""
                 for eintrag in performance_liste_v2:
