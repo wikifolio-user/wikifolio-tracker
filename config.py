@@ -22,6 +22,13 @@ STUECKZAHL = STARTKAPITAL / ANFANGSKURS
 VERGLEICH2_START_DATUM = datetime.date(2026, 1, 1)
 VERGLEICH2_STARTKAPITAL = 10000.0
 
+# --- DRITTER VERGLEICH: seit 01.01.2021, eigene Startsumme ---
+# Hinweis: Falls LS9VFS erst spaeter aufgelegt wurde, beginnt die Linie
+# automatisch erst mit dem tatsaechlich ersten verfuegbaren Kurs (keine
+# erfundenen Daten) - wird im UI transparent als Hinweis angezeigt.
+VERGLEICH3_START_DATUM = datetime.date(2021, 1, 1)
+VERGLEICH3_STARTKAPITAL = 10000.0
+
 # "simulation": Entnahme wird nur buchhalterisch vom Depotwert abgezogen,
 #               die gehaltene Stueckzahl bleibt unveraendert (bisheriges Verhalten)
 # "real":       Entnahme erfolgt tatsaechlich durch monatlichen Verkauf von
