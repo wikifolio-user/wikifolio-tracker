@@ -83,6 +83,10 @@ BENCHMARKS = {
     "FF Inlinetrading (LS9VSU)": "4361124",
     "Global Wealth Concentrated (LS9UTF)": "3127384",
     "Interesting_Leverage (LS9VVK)": "4478851",
+    "DAX (593393)": "42446",
+    "Gold - Xetra-Gold (A0S9GB)": "43298",
+    "Bitcoin - 21Shares ETP (A2T64E)": "982480",
+    "S&P 500 (A0YEDG)": "42965",
 }
 
 # --- QUELLEN ---
