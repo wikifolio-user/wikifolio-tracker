@@ -869,14 +869,18 @@ def render_dashboard():
         with tab_2021:
             v3_start = pd.Timestamp(config.VERGLEICH3_START_DATUM)
             v3_kapital = config.VERGLEICH3_STARTKAPITAL
+            master_index_v3 = pd.bdate_range(start=v3_start, end=pd.Timestamp(heute_date))
 
             # Eigenes Zertifikat: EIGENER, frischer Abruf ab 2021 (df_chart
             # reicht nur bis zum echten Kaufdatum zurueck, hier brauchen wir
-            # ggf. deutlich mehr Historie).
+            # ggf. deutlich mehr Historie). Wichtig: die Benchmarks werden
+            # NICHT auf den (ggf. kuerzeren) Zeitraum des Zertifikats
+            # zugeschnitten - sie laufen ueber den vollen 2021-Zeitraum,
+            # nur die Zertifikat-Linie beginnt ggf. spaeter (echte Luecke).
             df_chart_v3, _ = get_historical_market_data(config.VERGLEICH3_START_DATUM, heute_date, aktueller_kurs)
-            eigene_reihe_v3 = df_chart_v3["Close"] if not df_chart_v3.empty else pd.Series(dtype=float)
+            roh_eigen_v3 = df_chart_v3["Close"] if not df_chart_v3.empty else pd.Series(dtype=float)
 
-            tatsaechlicher_start_v3 = eigene_reihe_v3.index.min() if not eigene_reihe_v3.empty else None
+            tatsaechlicher_start_v3 = roh_eigen_v3.index.min() if not roh_eigen_v3.empty else None
             st.caption(
                 f"Alle Werte neu skaliert: {fmt(v3_kapital, 0)} investiert am "
                 f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
@@ -886,16 +890,23 @@ def render_dashboard():
                 st.info(
                     f"ℹ️ Für {config.WKN} liegen erst ab {tatsaechlicher_start_v3.strftime('%d.%m.%Y')} "
                     "Kursdaten vor (vermutlich Auflegungsdatum des Zertifikats) - die Linie beginnt "
-                    "entsprechend später als die Vergleichswerte, keine erfundenen Daten."
+                    "entsprechend später als die Vergleichswerte, keine erfundenen Daten. Die "
+                    "Vergleichswerte selbst laufen trotzdem über den vollen Zeitraum seit "
+                    f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}."
                 )
 
-            if not eigene_reihe_v3.empty and eigene_reihe_v3.iloc[0] > 0:
-                eigene_reihe_v3 = eigene_reihe_v3 / eigene_reihe_v3.iloc[0] * v3_kapital
+            if not roh_eigen_v3.empty and roh_eigen_v3.iloc[0] > 0:
+                skaliert_eigen_v3 = roh_eigen_v3 / roh_eigen_v3.iloc[0] * v3_kapital
+                # Auf vollen Zeitindex bringen, aber NUR nach vorne auffuellen -
+                # vor dem echten Start bleibt es NaN (keine erfundene Rueckrechnung)
+                eigene_reihe_v3 = skaliert_eigen_v3.reindex(master_index_v3).ffill()
+            else:
+                eigene_reihe_v3 = pd.Series(index=master_index_v3, dtype=float)
 
             benchmark_series_v3 = {}
             for label, inst_id in config.BENCHMARKS.items():
                 s_v3 = benchmark_normiert_auf_startkapital(
-                    eigene_reihe_v3.index, inst_id, config.VERGLEICH3_START_DATUM, heute_date, v3_kapital
+                    master_index_v3, inst_id, config.VERGLEICH3_START_DATUM, heute_date, v3_kapital
                 )
                 if s_v3 is not None:
                     benchmark_series_v3[label] = s_v3
@@ -910,7 +921,7 @@ def render_dashboard():
 
             fig_v3 = go.Figure()
             fig_v3.add_trace(go.Scatter(
-                x=eigene_reihe_v3.index, y=[v3_kapital] * len(eigene_reihe_v3),
+                x=master_index_v3, y=[v3_kapital] * len(master_index_v3),
                 name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
             ))
             fig_v3.add_trace(go.Scatter(
@@ -922,7 +933,7 @@ def render_dashboard():
                 if label not in ausgewaehlte_v3:
                     continue
                 fig_v3.add_trace(go.Scatter(
-                    x=eigene_reihe_v3.index, y=s, name=label,
+                    x=master_index_v3, y=s, name=label,
                     line=dict(color=benchmark_colors_v3[i % len(benchmark_colors_v3)], width=1.5, dash="dashdot"),
                 ))
 
@@ -934,10 +945,10 @@ def render_dashboard():
                 hovermode="x unified",
             )
             performance_liste_v3 = []
-            if not eigene_reihe_v3.empty and eigene_reihe_v3.iloc[0] > 0:
+            if not roh_eigen_v3.empty and roh_eigen_v3.iloc[0] > 0:
                 start_datum_eigen_v3 = tatsaechlicher_start_v3.date() if tatsaechlicher_start_v3 is not None else config.VERGLEICH3_START_DATUM
                 gesamt, monatlich, diff_euro = berechne_performance_kennzahlen(
-                    eigene_reihe_v3.iloc[0], eigene_reihe_v3.iloc[-1], start_datum_eigen_v3, heute_date
+                    roh_eigen_v3.iloc[0], roh_eigen_v3.iloc[-1], start_datum_eigen_v3, heute_date
                 )
                 performance_liste_v3.append({
                     "Wert": f"Hauptindizes Global ({config.WKN})",
