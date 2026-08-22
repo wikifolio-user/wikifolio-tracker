@@ -661,9 +661,10 @@ def render_dashboard():
     """, unsafe_allow_html=True)
 
     # TABS
-    tab_wealth, tab_ytd, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
+    tab_wealth, tab_ytd, tab_2021, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
         "📈 VERMÖGENS- & SUBSTANZAUFBAU",
         "🔍 SEIT 01.01.2026",
+        "🔎 SEIT 01.01.2021",
         "📝 TRADER-LOG (TRADES & KOMMENTARE)",
         "🕯️ TAGES-CANDLESTICK",
         "🔮 ZUKUNFTS-PROGNOSE",
@@ -864,6 +865,122 @@ def render_dashboard():
                 """, unsafe_allow_html=True)
 
             st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
+
+        with tab_2021:
+            v3_start = pd.Timestamp(config.VERGLEICH3_START_DATUM)
+            v3_kapital = config.VERGLEICH3_STARTKAPITAL
+
+            # Eigenes Zertifikat: EIGENER, frischer Abruf ab 2021 (df_chart
+            # reicht nur bis zum echten Kaufdatum zurueck, hier brauchen wir
+            # ggf. deutlich mehr Historie).
+            df_chart_v3, _ = get_historical_market_data(config.VERGLEICH3_START_DATUM, heute_date, aktueller_kurs)
+            eigene_reihe_v3 = df_chart_v3["Close"] if not df_chart_v3.empty else pd.Series(dtype=float)
+
+            tatsaechlicher_start_v3 = eigene_reihe_v3.index.min() if not eigene_reihe_v3.empty else None
+            st.caption(
+                f"Alle Werte neu skaliert: {fmt(v3_kapital, 0)} investiert am "
+                f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
+                "eigentlichen Kaufdatum deines Zertifikats."
+            )
+            if tatsaechlicher_start_v3 is not None and tatsaechlicher_start_v3 > v3_start:
+                st.info(
+                    f"ℹ️ Für {config.WKN} liegen erst ab {tatsaechlicher_start_v3.strftime('%d.%m.%Y')} "
+                    "Kursdaten vor (vermutlich Auflegungsdatum des Zertifikats) - die Linie beginnt "
+                    "entsprechend später als die Vergleichswerte, keine erfundenen Daten."
+                )
+
+            if not eigene_reihe_v3.empty and eigene_reihe_v3.iloc[0] > 0:
+                eigene_reihe_v3 = eigene_reihe_v3 / eigene_reihe_v3.iloc[0] * v3_kapital
+
+            benchmark_series_v3 = {}
+            for label, inst_id in config.BENCHMARKS.items():
+                s_v3 = benchmark_normiert_auf_startkapital(
+                    eigene_reihe_v3.index, inst_id, config.VERGLEICH3_START_DATUM, heute_date, v3_kapital
+                )
+                if s_v3 is not None:
+                    benchmark_series_v3[label] = s_v3
+
+            with st.expander("🔧 Vergleichswerte auswählen", expanded=False):
+                st.write("Vergleichswerte im Chart anzeigen:")
+                ausgewaehlte_v3 = []
+                for label in benchmark_series_v3.keys():
+                    ist_an = st.checkbox(label, value=True, key=f"benchmark_v3_cb_{label}")
+                    if ist_an:
+                        ausgewaehlte_v3.append(label)
+
+            fig_v3 = go.Figure()
+            fig_v3.add_trace(go.Scatter(
+                x=eigene_reihe_v3.index, y=[v3_kapital] * len(eigene_reihe_v3),
+                name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
+            ))
+            fig_v3.add_trace(go.Scatter(
+                x=eigene_reihe_v3.index, y=eigene_reihe_v3, name=f"Hauptindizes Global ({config.WKN})",
+                line=dict(color="#00C853", width=2.5),
+            ))
+            benchmark_colors_v3 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
+            for i, (label, s) in enumerate(benchmark_series_v3.items()):
+                if label not in ausgewaehlte_v3:
+                    continue
+                fig_v3.add_trace(go.Scatter(
+                    x=eigene_reihe_v3.index, y=s, name=label,
+                    line=dict(color=benchmark_colors_v3[i % len(benchmark_colors_v3)], width=1.5, dash="dashdot"),
+                ))
+
+            fig_v3.update_layout(
+                paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=40, b=40), height=450,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
+                xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
+                yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000),
+                hovermode="x unified",
+            )
+            performance_liste_v3 = []
+            if not eigene_reihe_v3.empty and eigene_reihe_v3.iloc[0] > 0:
+                start_datum_eigen_v3 = tatsaechlicher_start_v3.date() if tatsaechlicher_start_v3 is not None else config.VERGLEICH3_START_DATUM
+                gesamt, monatlich, diff_euro = berechne_performance_kennzahlen(
+                    eigene_reihe_v3.iloc[0], eigene_reihe_v3.iloc[-1], start_datum_eigen_v3, heute_date
+                )
+                performance_liste_v3.append({
+                    "Wert": f"Hauptindizes Global ({config.WKN})",
+                    "_perf": gesamt, "_monatlich": monatlich, "_euro": diff_euro,
+                })
+            for label, s in benchmark_series_v3.items():
+                if label in ausgewaehlte_v3 and not s.empty and s.iloc[0] > 0:
+                    gesamt, monatlich, diff_euro = berechne_performance_kennzahlen(
+                        s.iloc[0], s.iloc[-1], config.VERGLEICH3_START_DATUM, heute_date
+                    )
+                    performance_liste_v3.append({
+                        "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_euro": diff_euro,
+                    })
+
+            if performance_liste_v3:
+                st.caption(f"📅 Berechnet seit {config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')} (bzw. erstem verfügbaren Kurs)")
+                performance_liste_v3.sort(key=lambda x: x["_perf"], reverse=True)
+                zeilen_html_v3 = ""
+                for eintrag in performance_liste_v3:
+                    farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
+                    zeilen_html_v3 += f"""
+                    <tr style="border-bottom: 1px solid #1A1A1A;">
+                        <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
+                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
+                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
+                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
+                    </tr>"""
+                st.markdown(f"""
+                <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid #27272A;">
+                            <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
+                        </tr>
+                    </thead>
+                    <tbody>{zeilen_html_v3}
+                    </tbody>
+                </table>
+                """, unsafe_allow_html=True)
+
+            st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
 
         def load_db():
             return gh_read(config.STATE_PATH_TRADES_DB, [])
