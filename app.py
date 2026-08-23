@@ -410,14 +410,14 @@ def render_dashboard():
     df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
 
     def zeige_chart_legende_liste(eintraege):
-        """eintraege: Liste von (label, farbe) Tupeln. Zeigt eine kompakte,
-        gut lesbare Textliste mit Farbpunkt unter dem Chart an - zusaetzlich
-        zur (auf Mobile oft winzigen) Plotly-Legende."""
-        html = '<div style="display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; margin-bottom: 12px;">'
+        """eintraege: Liste von (label, farbe) Tupeln. Zeigt jeden Eintrag in
+        einer eigenen Zeile untereinander an - zusaetzlich zur (auf Mobile
+        oft winzigen) Plotly-Legende."""
+        html = '<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; margin-bottom: 12px;">'
         for label, farbe in eintraege:
             html += (
-                f'<div style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #E5E7EB;">'
-                f'<span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: {farbe};"></span>'
+                f'<div style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: #E5E7EB;">'
+                f'<span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: {farbe}; flex-shrink: 0;"></span>'
                 f'{label}</div>'
             )
         html += "</div>"
