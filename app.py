@@ -254,15 +254,21 @@ def get_benchmark_history(instrument_id, start_date, end_date):
 
 def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end_date, startkapital):
     """Reindext den Benchmark-Kurs auf die Handelstage von df_chart und
-    skaliert ihn so, dass er am ersten gemeinsamen Tag exakt beim
-    Startkapital beginnt - macht die Linien direkt vergleichbar."""
+    skaliert ihn so, dass er am ersten ECHTEN Handelstag beim Startkapital
+    beginnt. Kein Backfill mehr: existiert der Wert zu Beginn des Zeitraums
+    noch nicht (z.B. spaeter aufgelegtes Produkt), bleibt die Linie davor
+    leer statt rueckwirkend erfunden zu werden. Gibt (Series, erstes_echtes_Datum)
+    zurueck."""
     s = get_benchmark_history(instrument_id, start_date, end_date)
     if s is None or s.empty:
-        return None
-    s = s.reindex(df_index, method="ffill").bfill()
-    if s.empty or s.iloc[0] == 0:
-        return None
-    return s / s.iloc[0] * startkapital
+        return None, None
+    erstes_echtes_datum = s.index.min()
+    s_reindexed = s.reindex(df_index).ffill()
+    gueltige = s_reindexed.dropna()
+    if gueltige.empty or gueltige.iloc[0] == 0:
+        return None, None
+    normiert = s_reindexed / gueltige.iloc[0] * startkapital
+    return normiert, erstes_echtes_datum
 
 
 def check_and_alert_fetch_failure(is_live_data, is_live_history):
@@ -362,12 +368,14 @@ def render_dashboard():
 
     # --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
     benchmark_series = {}
+    benchmark_start_daten = {}
     for label, inst_id in config.BENCHMARKS.items():
-        s = benchmark_normiert_auf_startkapital(
+        s, erstes_datum = benchmark_normiert_auf_startkapital(
             df_chart.index, inst_id, config.KAUFDATUM, heute_date, config.STARTKAPITAL
         )
         if s is not None:
             benchmark_series[label] = s
+            benchmark_start_daten[label] = erstes_datum
 
     # --- SIMULATION (bisheriges Verhalten): Stückzahl bleibt konstant, Entnahme
     # wird nur buchhalterisch vom Bruttowert abgezogen. ---
@@ -702,14 +710,19 @@ def render_dashboard():
                 performance_liste_haupt.append({
                     "Wert": f"Hauptindizes Global ({config.WKN})",
                     "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                    "_gelistet_seit": config.KAUFDATUM,
                 })
             for label, s in benchmark_series.items():
-                if label in ausgewaehlte_benchmarks and not s.empty and s.iloc[0] > 0:
+                s_gueltig = s.dropna()
+                if label in ausgewaehlte_benchmarks and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
+                    start_dieser_wert = benchmark_start_daten.get(label)
+                    start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.KAUFDATUM
                     gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        s.iloc[0], s.iloc[-1], config.KAUFDATUM, heute_date
+                        s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
                     )
                     performance_liste_haupt.append({
                         "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                        "_gelistet_seit": start_dieser_wert,
                     })
 
             if performance_liste_haupt:
@@ -725,6 +738,7 @@ def render_dashboard():
                         <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
                         <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
                         <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
+                        <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
                     </tr>"""
                 st.markdown(f"""
                 <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden; margin-bottom: 12px;">
@@ -735,6 +749,7 @@ def render_dashboard():
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
                         </tr>
                     </thead>
                     <tbody>{zeilen_html_haupt}
@@ -783,12 +798,14 @@ def render_dashboard():
             # Benchmarks: eigener, frischer Abruf ab v2_start (eigene Cache-Zeile,
             # da anderer Startzeitpunkt als der Hauptvergleich oben)
             benchmark_series_v2 = {}
+            benchmark_start_daten_v2 = {}
             for label, inst_id in config.BENCHMARKS.items():
-                s_v2 = benchmark_normiert_auf_startkapital(
+                s_v2, erstes_datum_v2 = benchmark_normiert_auf_startkapital(
                     eigene_reihe_v2.index, inst_id, config.VERGLEICH2_START_DATUM, heute_date, v2_kapital
                 )
                 if s_v2 is not None:
                     benchmark_series_v2[label] = s_v2
+                    benchmark_start_daten_v2[label] = erstes_datum_v2
 
             with st.expander("🔧 Vergleichswerte auswählen", expanded=False):
                 st.write("Vergleichswerte im Chart anzeigen:")
@@ -831,14 +848,19 @@ def render_dashboard():
                 performance_liste_v2.append({
                     "Wert": f"Hauptindizes Global ({config.WKN})",
                     "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                    "_gelistet_seit": config.VERGLEICH2_START_DATUM,
                 })
             for label, s in benchmark_series_v2.items():
-                if label in ausgewaehlte_v2 and not s.empty and s.iloc[0] > 0:
+                s_gueltig = s.dropna()
+                if label in ausgewaehlte_v2 and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
+                    start_dieser_wert = benchmark_start_daten_v2.get(label)
+                    start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.VERGLEICH2_START_DATUM
                     gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        s.iloc[0], s.iloc[-1], config.VERGLEICH2_START_DATUM, heute_date
+                        s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
                     )
                     performance_liste_v2.append({
                         "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                        "_gelistet_seit": start_dieser_wert,
                     })
 
             if performance_liste_v2:
@@ -854,6 +876,7 @@ def render_dashboard():
                         <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
                         <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
                         <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
+                        <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
                     </tr>"""
                 st.markdown(f"""
                 <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
@@ -864,6 +887,7 @@ def render_dashboard():
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
                         </tr>
                     </thead>
                     <tbody>{zeilen_html}
@@ -911,12 +935,14 @@ def render_dashboard():
                 eigene_reihe_v3 = pd.Series(index=master_index_v3, dtype=float)
 
             benchmark_series_v3 = {}
+            benchmark_start_daten_v3 = {}
             for label, inst_id in config.BENCHMARKS.items():
-                s_v3 = benchmark_normiert_auf_startkapital(
+                s_v3, erstes_datum_v3 = benchmark_normiert_auf_startkapital(
                     master_index_v3, inst_id, config.VERGLEICH3_START_DATUM, heute_date, v3_kapital
                 )
                 if s_v3 is not None:
                     benchmark_series_v3[label] = s_v3
+                    benchmark_start_daten_v3[label] = erstes_datum_v3
 
             with st.expander("🔧 Vergleichswerte auswählen", expanded=False):
                 st.write("Vergleichswerte im Chart anzeigen:")
@@ -960,14 +986,19 @@ def render_dashboard():
                 performance_liste_v3.append({
                     "Wert": f"Hauptindizes Global ({config.WKN})",
                     "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                    "_gelistet_seit": start_datum_eigen_v3,
                 })
             for label, s in benchmark_series_v3.items():
-                if label in ausgewaehlte_v3 and not s.empty and s.iloc[0] > 0:
+                s_gueltig = s.dropna()
+                if label in ausgewaehlte_v3 and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
+                    start_dieser_wert = benchmark_start_daten_v3.get(label)
+                    start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.VERGLEICH3_START_DATUM
                     gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        s.iloc[0], s.iloc[-1], config.VERGLEICH3_START_DATUM, heute_date
+                        s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
                     )
                     performance_liste_v3.append({
                         "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                        "_gelistet_seit": start_dieser_wert,
                     })
 
             if performance_liste_v3:
@@ -983,6 +1014,7 @@ def render_dashboard():
                         <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
                         <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
                         <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
+                        <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
                     </tr>"""
                 st.markdown(f"""
                 <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
@@ -993,6 +1025,7 @@ def render_dashboard():
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
                             <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
+                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
                         </tr>
                     </thead>
                     <tbody>{zeilen_html_v3}
