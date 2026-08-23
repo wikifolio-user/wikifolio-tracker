@@ -112,7 +112,7 @@ BENCHMARK_COLORS = {
     "DAX (593393)": "#F44336",                     # Rot
     "Gold - Xetra-Gold (A0S9GB)": "#3F51B5",       # Indigo
     "Bitcoin - 21Shares ETP (A2T64E)": "#FF5722",  # Kräftiges Orange-Rot
-    "S&P 500 (A0YEDG)": "#607D8B",                 # Blaugrau
+    "S&P 500 (A0YEDG)": "#D4E157",                 # Helles Limette-Gelbgrün, statt dunklem Blaugrau (wirkte auf Schwarz fast schwarz)
 }
 
 # Farbige Emoji-Symbole als Praefix fuer Checkbox-Labels (statt HTML-Farbfeld
@@ -130,7 +130,7 @@ BENCHMARK_EMOJI = {
     "DAX (593393)": "🟥",
     "Gold - Xetra-Gold (A0S9GB)": "🟨",
     "Bitcoin - 21Shares ETP (A2T64E)": "🟧",
-    "S&P 500 (A0YEDG)": "⚫",
+    "S&P 500 (A0YEDG)": "🟩",
 }
 
 # --- QUELLEN ---
