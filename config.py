@@ -48,8 +48,8 @@ TRADING_HOURS = {
     2: (datetime.time(7, 30), datetime.time(23, 0)),   # Mittwoch
     3: (datetime.time(7, 30), datetime.time(23, 0)),   # Donnerstag
     4: (datetime.time(7, 30), datetime.time(23, 0)),   # Freitag
-    5: (datetime.time(10, 0), datetime.time(13, 0)),   # Samstag
-    6: (datetime.time(17, 0), datetime.time(19, 0)),   # Sonntag
+    # Samstag/Sonntag bewusst nicht enthalten - ist_handelszeit() gibt fuer
+    # Wochentage ohne Eintrag automatisch False zurueck (siehe Funktion unten).
 }
 
 
