@@ -24,6 +24,33 @@ GH_STATE_READY = bool(GITHUB_REPO and GITHUB_TOKEN)
 
 BERLIN_TZ = pytz.timezone("Europe/Berlin")
 
+# --- TERMINAL STYLING ---
+# Bewusst AUSSERHALB des periodisch aktualisierenden Fragments (siehe unten) -
+# wird dadurch nur EINMAL pro echtem Seitenaufbau injiziert, nicht alle 5 Min.
+# War die Hauptursache fuer das sichtbare Aufhellen/Verdunkeln bei jedem
+# Fragment-Rerun (kompletter CSS-Neuaufbau zwingt den Browser zum Neu-Rendern
+# der gesamten Seite).
+st.markdown("""
+<style>
+    .stApp { background-color: #000000; color: #E5E7EB; font-family: 'JetBrains Mono', monospace; }
+    .header-bar {
+        display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+        background: #09090B; border: 1px solid #27272A; border-left: 3px solid #00C853;
+        border-radius: 6px; padding: 12px 16px; margin-bottom: 16px;
+    }
+    .header-title { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; }
+    .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 14px 16px; }
+    .m-label { font-size: 0.75rem; color: #A1A1AA; text-transform: uppercase; font-weight: 700; }
+    .m-val { font-size: 1.4rem; font-weight: 800; color: #FFFFFF; margin: 6px 0; }
+    .m-sub { font-size: 0.85rem; font-weight: 600; color: #CBD5E1; }
+    .pos { color: #00C853; } .neg { color: #FF3D00; } .blue { color: #29B6F6; } .orange { color: #FF3D00; }
+    #MainMenu, footer { visibility: hidden; }
+    [data-testid="stToolbar"] { visibility: hidden; }
+    .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
+</style>
+""", unsafe_allow_html=True)
+
 
 # --- STATE-HELFER (persistent über GitHub statt fluechtiges Streamlit-Dateisystem) ---
 def gh_read(path, default):
@@ -471,28 +498,6 @@ def render_dashboard():
     if st.sidebar.button("🔔 Test-Alarm senden"):
         if send_discord_alert(-1.50, aktueller_kurs):
             st.sidebar.success("Test-Alarm gesendet!")
-
-    # --- TERMINAL STYLING ---
-    st.markdown("""
-    <style>
-        .stApp { background-color: #000000; color: #E5E7EB; font-family: 'JetBrains Mono', monospace; }
-        .header-bar {
-            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
-            background: #09090B; border: 1px solid #27272A; border-left: 3px solid #00C853;
-            border-radius: 6px; padding: 12px 16px; margin-bottom: 16px;
-        }
-        .header-title { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; }
-        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
-        .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 14px 16px; }
-        .m-label { font-size: 0.75rem; color: #A1A1AA; text-transform: uppercase; font-weight: 700; }
-        .m-val { font-size: 1.4rem; font-weight: 800; color: #FFFFFF; margin: 6px 0; }
-        .m-sub { font-size: 0.85rem; font-weight: 600; color: #CBD5E1; }
-        .pos { color: #00C853; } .neg { color: #FF3D00; } .blue { color: #29B6F6; } .orange { color: #FF3D00; }
-        #MainMenu, footer { visibility: hidden; }
-        [data-testid="stToolbar"] { visibility: hidden; }
-        .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
-    </style>
-    """, unsafe_allow_html=True)
 
     # --- WARNBANNER: KEIN PERSISTENTER STATE KONFIGURIERT ---
     if not GH_STATE_READY:
