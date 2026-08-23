@@ -48,14 +48,34 @@ st.markdown("""
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
-    /* Checkbox: weiß statt gruen (Theme-Primaerfarbe), schwarzer statt
-       weisser Haken - undokumentierte Streamlit-Bauteile, best effort */
-    [data-testid="stCheckbox"] label div[data-baseweb="checkbox"] div[aria-checked="true"] {
+    /* Checkbox komplett selbst gezeichnet (appearance: none) statt auf
+       Streamlits interne Bauteile zu zielen - die "data-baseweb"-Klassen
+       von vorher gibt's in aktuellen Streamlit-Versionen nicht mehr
+       (BaseWeb wurde intern entfernt). Das hier greift direkt am nativen
+       <input type="checkbox"> an, unabhaengig davon, wie Streamlit drumherum
+       baut - robuster gegen kuenftige interne Aenderungen. */
+    input[type="checkbox"] {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        min-width: 18px;
+        border: 2px solid #FFFFFF !important;
+        border-radius: 4px;
         background-color: #FFFFFF !important;
-        border-color: #FFFFFF !important;
+        position: relative;
+        cursor: pointer;
+        vertical-align: middle;
     }
-    [data-testid="stCheckbox"] label div[data-baseweb="checkbox"] svg {
-        fill: #000000 !important;
+    input[type="checkbox"]:checked::after {
+        content: "✓";
+        position: absolute;
+        top: -4px;
+        left: 2px;
+        color: #000000;
+        font-size: 15px;
+        font-weight: 900;
+        line-height: 1;
     }
 </style>
 """, unsafe_allow_html=True)
