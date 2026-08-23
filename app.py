@@ -48,6 +48,15 @@ st.markdown("""
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
+    /* Checkbox: weiß statt gruen (Theme-Primaerfarbe), schwarzer statt
+       weisser Haken - undokumentierte Streamlit-Bauteile, best effort */
+    [data-testid="stCheckbox"] label div[data-baseweb="checkbox"] div[aria-checked="true"] {
+        background-color: #FFFFFF !important;
+        border-color: #FFFFFF !important;
+    }
+    [data-testid="stCheckbox"] label div[data-baseweb="checkbox"] svg {
+        fill: #000000 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
