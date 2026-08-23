@@ -703,22 +703,12 @@ def render_dashboard():
 
     try:
         with tab_wealth:
-            with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
-                st.caption(
-                    "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
-                    f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
-                    f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
-                    "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
-                    f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
-                    "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
-                )
-                st.write("Vergleichswerte im Chart anzeigen:")
-                ausgewaehlte_benchmarks = []
-                for label in benchmark_series.keys():
-                    checkbox_key = f"benchmark_cb_{label}"
-                    ist_an = st.checkbox(label, value=True, key=checkbox_key)
-                    if ist_an:
-                        ausgewaehlte_benchmarks.append(label)
+            # Auswahl still aus dem gespeicherten Zustand lesen (Standard: alle an) -
+            # der sichtbare Auswahl-Bereich selbst steht weiter unten, direkt vor dem Chart.
+            ausgewaehlte_benchmarks = [
+                label for label in benchmark_series.keys()
+                if st.session_state.get(f"benchmark_cb_{label}", True)
+            ]
 
             performance_liste_haupt = []
             brutto_reihe = df_chart["Depotwert_Brutto"]
@@ -776,6 +766,19 @@ def render_dashboard():
                 </table>
                 """, unsafe_allow_html=True)
 
+            with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
+                st.caption(
+                    "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
+                    f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
+                    f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
+                    "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
+                    f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
+                    "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
+                )
+                st.write("Vergleichswerte im Chart anzeigen:")
+                for label in benchmark_series.keys():
+                    st.checkbox(label, value=True, key=f"benchmark_cb_{label}")
+
             fig_wealth = go.Figure()
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
@@ -805,13 +808,6 @@ def render_dashboard():
             v2_start = pd.Timestamp(config.VERGLEICH2_START_DATUM)
             v2_kapital = config.VERGLEICH2_STARTKAPITAL
 
-            st.caption(
-                f"Alle Werte neu skaliert: {fmt(v2_kapital, 0)} investiert am "
-                f"{config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
-                "eigentlichen Kaufdatum deines Zertifikats - zeigt die reine "
-                "Performance seit Jahresanfang im direkten Vergleich."
-            )
-
             # Eigenes Zertifikat: aus bereits geladenem df_chart ab v2_start neu skalieren
             eigene_reihe_v2 = df_chart["Close"][df_chart.index >= v2_start]
             if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
@@ -829,13 +825,12 @@ def render_dashboard():
                     benchmark_series_v2[label] = s_v2
                     benchmark_start_daten_v2[label] = erstes_datum_v2
 
-            with st.expander("🔧 Vergleichswerte auswählen", expanded=False):
-                st.write("Vergleichswerte im Chart anzeigen:")
-                ausgewaehlte_v2 = []
-                for label in benchmark_series_v2.keys():
-                    ist_an = st.checkbox(label, value=True, key=f"benchmark_v2_cb_{label}")
-                    if ist_an:
-                        ausgewaehlte_v2.append(label)
+            # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
+            # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
+            ausgewaehlte_v2 = [
+                label for label in benchmark_series_v2.keys()
+                if st.session_state.get(f"benchmark_v2_cb_{label}", True)
+            ]
 
             fig_v2 = go.Figure()
             fig_v2.add_trace(go.Scatter(
@@ -920,6 +915,17 @@ def render_dashboard():
                 </table>
                 """, unsafe_allow_html=True)
 
+            with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
+                st.caption(
+                    f"Alle Werte neu skaliert: {fmt(v2_kapital, 0)} investiert am "
+                    f"{config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
+                    "eigentlichen Kaufdatum deines Zertifikats - zeigt die reine "
+                    "Performance seit Jahresanfang im direkten Vergleich."
+                )
+                st.write("Vergleichswerte im Chart anzeigen:")
+                for label in benchmark_series_v2.keys():
+                    st.checkbox(label, value=True, key=f"benchmark_v2_cb_{label}")
+
             st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
             zeige_chart_legende_liste(legende_eintraege_v2)
 
@@ -938,19 +944,6 @@ def render_dashboard():
             roh_eigen_v3 = df_chart_v3["Close"] if not df_chart_v3.empty else pd.Series(dtype=float)
 
             tatsaechlicher_start_v3 = roh_eigen_v3.index.min() if not roh_eigen_v3.empty else None
-            st.caption(
-                f"Alle Werte neu skaliert: {fmt(v3_kapital, 0)} investiert am "
-                f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
-                "eigentlichen Kaufdatum deines Zertifikats."
-            )
-            if tatsaechlicher_start_v3 is not None and tatsaechlicher_start_v3 > v3_start:
-                st.info(
-                    f"ℹ️ Für {config.WKN} liegen erst ab {tatsaechlicher_start_v3.strftime('%d.%m.%Y')} "
-                    "Kursdaten vor (vermutlich Auflegungsdatum des Zertifikats) - die Linie beginnt "
-                    "entsprechend später als die Vergleichswerte, keine erfundenen Daten. Die "
-                    "Vergleichswerte selbst laufen trotzdem über den vollen Zeitraum seit "
-                    f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}."
-                )
 
             if not roh_eigen_v3.empty and roh_eigen_v3.iloc[0] > 0:
                 skaliert_eigen_v3 = roh_eigen_v3 / roh_eigen_v3.iloc[0] * v3_kapital
@@ -970,13 +963,12 @@ def render_dashboard():
                     benchmark_series_v3[label] = s_v3
                     benchmark_start_daten_v3[label] = erstes_datum_v3
 
-            with st.expander("🔧 Vergleichswerte auswählen", expanded=False):
-                st.write("Vergleichswerte im Chart anzeigen:")
-                ausgewaehlte_v3 = []
-                for label in benchmark_series_v3.keys():
-                    ist_an = st.checkbox(label, value=True, key=f"benchmark_v3_cb_{label}")
-                    if ist_an:
-                        ausgewaehlte_v3.append(label)
+            # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
+            # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
+            ausgewaehlte_v3 = [
+                label for label in benchmark_series_v3.keys()
+                if st.session_state.get(f"benchmark_v3_cb_{label}", True)
+            ]
 
             fig_v3 = go.Figure()
             fig_v3.add_trace(go.Scatter(
@@ -1061,6 +1053,24 @@ def render_dashboard():
                     </tbody>
                 </table>
                 """, unsafe_allow_html=True)
+
+            with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
+                st.caption(
+                    f"Alle Werte neu skaliert: {fmt(v3_kapital, 0)} investiert am "
+                    f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
+                    "eigentlichen Kaufdatum deines Zertifikats."
+                )
+                if tatsaechlicher_start_v3 is not None and tatsaechlicher_start_v3 > v3_start:
+                    st.info(
+                        f"ℹ️ Für {config.WKN} liegen erst ab {tatsaechlicher_start_v3.strftime('%d.%m.%Y')} "
+                        "Kursdaten vor (vermutlich Auflegungsdatum des Zertifikats) - die Linie beginnt "
+                        "entsprechend später als die Vergleichswerte, keine erfundenen Daten. Die "
+                        "Vergleichswerte selbst laufen trotzdem über den vollen Zeitraum seit "
+                        f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}."
+                    )
+                st.write("Vergleichswerte im Chart anzeigen:")
+                for label in benchmark_series_v3.keys():
+                    st.checkbox(label, value=True, key=f"benchmark_v3_cb_{label}")
 
             st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
             zeige_chart_legende_liste(legende_eintraege_v3)
