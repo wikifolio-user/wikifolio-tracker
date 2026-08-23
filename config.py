@@ -115,6 +115,24 @@ BENCHMARK_COLORS = {
     "S&P 500 (A0YEDG)": "#607D8B",                 # Blaugrau
 }
 
+# Farbige Emoji-Symbole als Praefix fuer Checkbox-Labels (statt HTML-Farbfeld
+# per st.columns - das stapelt sich auf schmalen Mobile-Screens unbrauchbar
+# untereinander statt nebeneinander). Emoji sind einfacher Text, bleiben
+# garantiert in derselben Zeile wie das Label.
+BENCHMARK_EMOJI = {
+    "MSCI World (A0RPWH)": "🔵",
+    "Nasdaq-100 (A0F5UF)": "🔴",
+    "MSCI Semiconductors (LYX018)": "🟠",
+    "MSCI World IT Sector (A2PHCC)": "🟣",
+    "FF Inlinetrading (LS9VSU)": "🟦",
+    "Global Wealth Concentrated (LS9UTF)": "🟡",
+    "Interesting_Leverage (LS9VVK)": "🟤",
+    "DAX (593393)": "🟥",
+    "Gold - Xetra-Gold (A0S9GB)": "🟨",
+    "Bitcoin - 21Shares ETP (A2T64E)": "🟧",
+    "S&P 500 (A0YEDG)": "⚫",
+}
+
 # --- QUELLEN ---
 LS_TC_BASE_URL = "https://www.ls-tc.de/_rpc/json/instrument/chart/dataForInstrument"
 LS_TC_HEADERS = {
