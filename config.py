@@ -96,6 +96,25 @@ BENCHMARKS = {
     "S&P 500 (A0YEDG)": "42965",
 }
 
+# Feste, bewusst maximal unterschiedliche Farben pro Vergleichswert - gleiche
+# Zuordnung in allen drei Vergleichs-Tabs, damit z.B. "DAX" immer dieselbe
+# Farbe hat und nichts verwechselt wird. "Startkapital" (grau, gestrichelt)
+# und "Brutto-Depotwert"/eigenes Zertifikat (kraeftiges Gruen) bleiben davon
+# bewusst ausgenommen, damit sie nicht mit einem Vergleichswert kollidieren.
+BENCHMARK_COLORS = {
+    "MSCI World (A0RPWH)": "#2196F3",              # Blau
+    "Nasdaq-100 (A0F5UF)": "#E91E63",              # Pink/Magenta
+    "MSCI Semiconductors (LYX018)": "#FF9800",     # Orange
+    "MSCI World IT Sector (A2PHCC)": "#9C27B0",    # Violett
+    "FF Inlinetrading (LS9VSU)": "#00BCD4",        # Cyan
+    "Global Wealth Concentrated (LS9UTF)": "#FFEB3B",  # Gelb
+    "Interesting_Leverage (LS9VVK)": "#795548",    # Braun
+    "DAX (593393)": "#F44336",                     # Rot
+    "Gold - Xetra-Gold (A0S9GB)": "#3F51B5",       # Indigo
+    "Bitcoin - 21Shares ETP (A2T64E)": "#FF5722",  # Kräftiges Orange-Rot
+    "S&P 500 (A0YEDG)": "#607D8B",                 # Blaugrau
+}
+
 # --- QUELLEN ---
 LS_TC_BASE_URL = "https://www.ls-tc.de/_rpc/json/instrument/chart/dataForInstrument"
 LS_TC_HEADERS = {
