@@ -410,32 +410,18 @@ def render_dashboard():
     df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
 
     def zeige_chart_legende_liste(eintraege):
-        """eintraege: Liste von (label, farbe) Tupeln. Zeigt jeden Eintrag in
-        einer eigenen Zeile untereinander an - fuer NICHT abwaehlbare Linien
-        (Startkapital, eigenes Zertifikat)."""
-        html = '<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px; margin-bottom: 8px;">'
-        for label, farbe in eintraege:
-            html += (
-                f'<div style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: #E5E7EB;">'
-                f'<span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: {farbe}; flex-shrink: 0;"></span>'
-                f'{label}</div>'
-            )
-        html += "</div>"
-        st.markdown(html, unsafe_allow_html=True)
+        """eintraege: Liste von (label, emoji) Tupeln. Fuer NICHT abwaehlbare
+        Linien (Startkapital, eigenes Zertifikat) - einfacher Text mit
+        Emoji-Symbol, garantiert einzeilig auf jeder Bildschirmbreite."""
+        for label, emoji in eintraege:
+            st.write(f"{emoji} {label}")
 
-    def checkbox_mit_farbe(label, farbe, key):
-        """Checkbox + Farbpunkt in einer Zeile - vereint Auswahl und
-        Farbzuordnung, damit man nicht zusaetzlich eine separate Legende
-        braucht. st.checkbox selbst kann kein HTML im Label anzeigen,
-        daher der Spalten-Trick: kleines Farbfeld links, Checkbox rechts."""
-        col_farbe, col_box = st.columns([1, 14])
-        with col_farbe:
-            st.markdown(
-                f'<div style="width: 14px; height: 14px; border-radius: 3px; background: {farbe}; margin-top: 10px;"></div>',
-                unsafe_allow_html=True,
-            )
-        with col_box:
-            return st.checkbox(label, value=True, key=key)
+    def checkbox_mit_farbe(label, emoji, key):
+        """Checkbox mit farbigem Emoji-Symbol im Label - vereint Auswahl und
+        Farbzuordnung in einer garantiert einzeiligen Zeile (kein
+        st.columns-Trick mehr, der auf schmalen Mobile-Screens die Elemente
+        untereinander statt nebeneinander stapelt)."""
+        return st.checkbox(f"{emoji} {label}", value=True, key=key)
 
     def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_datum):
         """Gesamt-%, Ø-monatliche % und Ø-jährliche % (beide CAGR-Stil,
@@ -789,10 +775,10 @@ def render_dashboard():
                     f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
                     "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
                 )
-                zeige_chart_legende_liste([("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")])
+                zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
                 st.write("Vergleichswerte im Chart anzeigen:")
                 for label in benchmark_series.keys():
-                    checkbox_mit_farbe(label, config.BENCHMARK_COLORS.get(label, "#9E9E9E"), key=f"benchmark_cb_{label}")
+                    checkbox_mit_farbe(label, config.BENCHMARK_EMOJI.get(label, "⚪"), key=f"benchmark_cb_{label}")
 
             fig_wealth = go.Figure()
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
@@ -936,10 +922,10 @@ def render_dashboard():
                     "eigentlichen Kaufdatum deines Zertifikats - zeigt die reine "
                     "Performance seit Jahresanfang im direkten Vergleich."
                 )
-                zeige_chart_legende_liste([("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")])
+                zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
                 st.write("Vergleichswerte im Chart anzeigen:")
                 for label in benchmark_series_v2.keys():
-                    checkbox_mit_farbe(label, config.BENCHMARK_COLORS.get(label, "#9E9E9E"), key=f"benchmark_v2_cb_{label}")
+                    checkbox_mit_farbe(label, config.BENCHMARK_EMOJI.get(label, "⚪"), key=f"benchmark_v2_cb_{label}")
 
             st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
 
@@ -1083,9 +1069,9 @@ def render_dashboard():
                         f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}."
                     )
                 st.write("Vergleichswerte im Chart anzeigen:")
-                zeige_chart_legende_liste([("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")])
+                zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
                 for label in benchmark_series_v3.keys():
-                    checkbox_mit_farbe(label, config.BENCHMARK_COLORS.get(label, "#9E9E9E"), key=f"benchmark_v3_cb_{label}")
+                    checkbox_mit_farbe(label, config.BENCHMARK_EMOJI.get(label, "⚪"), key=f"benchmark_v3_cb_{label}")
 
             st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
 
