@@ -409,6 +409,20 @@ def render_dashboard():
     df_chart["Depotwert_Brutto"] = df_chart["Close"] * config.STUECKZAHL
     df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
 
+    def zeige_chart_legende_liste(eintraege):
+        """eintraege: Liste von (label, farbe) Tupeln. Zeigt eine kompakte,
+        gut lesbare Textliste mit Farbpunkt unter dem Chart an - zusaetzlich
+        zur (auf Mobile oft winzigen) Plotly-Legende."""
+        html = '<div style="display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; margin-bottom: 12px;">'
+        for label, farbe in eintraege:
+            html += (
+                f'<div style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #E5E7EB;">'
+                f'<span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: {farbe};"></span>'
+                f'{label}</div>'
+            )
+        html += "</div>"
+        st.markdown(html, unsafe_allow_html=True)
+
     def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_datum):
         """Gesamt-%, Ø-monatliche % und Ø-jährliche % (beide CAGR-Stil,
         laufzeitbereinigt - fair vergleichbar auch bei unterschiedlich langen
@@ -766,14 +780,16 @@ def render_dashboard():
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
 
-            benchmark_colors = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
-            for i, (label, s) in enumerate(benchmark_series.items()):
+            legende_eintraege = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
+            for label, s in benchmark_series.items():
                 if label not in ausgewaehlte_benchmarks:
                     continue
+                farbe = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
                 fig_wealth.add_trace(go.Scatter(
                     x=df_chart.index, y=s, name=label,
-                    line=dict(color=benchmark_colors[i % len(benchmark_colors)], width=1.5, dash="dashdot"),
+                    line=dict(color=farbe, width=1.5, dash="dashdot"),
                 ))
+                legende_eintraege.append((label, farbe))
     
             fig_wealth.update_layout(
                 paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
@@ -783,6 +799,7 @@ def render_dashboard():
                 hovermode="x unified",
             )
             st.plotly_chart(fig_wealth, width="stretch", key="chart_wealth")
+            zeige_chart_legende_liste(legende_eintraege)
 
         with tab_ytd:
             v2_start = pd.Timestamp(config.VERGLEICH2_START_DATUM)
@@ -830,13 +847,16 @@ def render_dashboard():
                 line=dict(color="#00C853", width=2.5),
             ))
             benchmark_colors_v2 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
+            legende_eintraege_v2 = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
             for i, (label, s) in enumerate(benchmark_series_v2.items()):
                 if label not in ausgewaehlte_v2:
                     continue
+                farbe_v2 = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
                 fig_v2.add_trace(go.Scatter(
                     x=eigene_reihe_v2.index, y=s, name=label,
-                    line=dict(color=benchmark_colors_v2[i % len(benchmark_colors_v2)], width=1.5, dash="dashdot"),
+                    line=dict(color=farbe_v2, width=1.5, dash="dashdot"),
                 ))
+                legende_eintraege_v2.append((label, farbe_v2))
 
             fig_v2.update_layout(
                 paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=40, b=40), height=450,
@@ -901,6 +921,7 @@ def render_dashboard():
                 """, unsafe_allow_html=True)
 
             st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
+            zeige_chart_legende_liste(legende_eintraege_v2)
 
         with tab_2021:
             v3_start = pd.Timestamp(config.VERGLEICH3_START_DATUM)
@@ -967,13 +988,16 @@ def render_dashboard():
                 line=dict(color="#00C853", width=2.5),
             ))
             benchmark_colors_v3 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
+            legende_eintraege_v3 = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
             for i, (label, s) in enumerate(benchmark_series_v3.items()):
                 if label not in ausgewaehlte_v3:
                     continue
+                farbe_v3 = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
                 fig_v3.add_trace(go.Scatter(
                     x=master_index_v3, y=s, name=label,
-                    line=dict(color=benchmark_colors_v3[i % len(benchmark_colors_v3)], width=1.5, dash="dashdot"),
+                    line=dict(color=farbe_v3, width=1.5, dash="dashdot"),
                 ))
+                legende_eintraege_v3.append((label, farbe_v3))
 
             fig_v3.update_layout(
                 paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=40, b=40), height=450,
@@ -1039,6 +1063,7 @@ def render_dashboard():
                 """, unsafe_allow_html=True)
 
             st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
+            zeige_chart_legende_liste(legende_eintraege_v3)
 
         def load_db():
             return gh_read(config.STATE_PATH_TRADES_DB, [])
