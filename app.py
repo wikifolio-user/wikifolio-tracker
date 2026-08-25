@@ -722,11 +722,13 @@ def render_dashboard():
     """, unsafe_allow_html=True)
 
     # GRID OVERVIEW - Teil 1: Veränderung vs. Vortag
+    differenz_zum_vortag = aktueller_kurs - vortag_kurs
     st.markdown(f"""
     <div class="grid-container">
         <div class="m-card">
             <div class="m-label">Veränderung vs. Vortag</div>
             <div class="m-val {verenderung_cls}">{tages_verenderung_pct:+.2f}%</div>
+            <div class="m-sub {verenderung_cls}">{differenz_zum_vortag:+.3f}€</div>
             <div class="m-sub">Vortag: {vortag_kurs:.3f}€</div>
         </div>
     </div>
