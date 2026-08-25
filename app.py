@@ -1319,7 +1319,7 @@ def render_dashboard():
             with tab_scenarios:
                 st.markdown(
                     '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
-                    '📊 Szenario-Analyse (1,0% – 6,0% p.M.)</div>',
+                    '📊 Szenario-Analyse (1,0% – 10,0% p.M.)</div>',
                     unsafe_allow_html=True,
                 )
                 st.caption("✏️ Beide Werte unten frei anpassbar, um eigene Annahmen durchzurechnen:")
@@ -1345,7 +1345,7 @@ def render_dashboard():
                 entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
                 netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
 
-                szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
+                szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
     
                 summary_list = []
                 scenario_series = {}
