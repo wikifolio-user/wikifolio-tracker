@@ -423,6 +423,39 @@ def render_dashboard():
     entnommen_aktiv = st.session_state.get("haupt_entnommen_input", float(get_entnahme_at_date(now_berlin)))
     sparrate_aktiv = st.session_state.get("haupt_sparrate_input", 0.0)
 
+    # --- SPARPLAN: Startdatum persistent verfolgen (GitHub-State), damit die
+    # Berechnung nach einem Neustart nicht auf 0 zurueckfaellt. Wird beim
+    # ersten Aktivieren (>0€) auf heute gesetzt, bei 0€ wieder geloescht -
+    # reaktivieren startet die Zaehlung dann wieder neu ab dem Tag.
+    #
+    # Fachlich korrekt: eine Einzahlung kauft zusaetzliche ANTEILE zum
+    # jeweiligen Monats-Kurs (nicht einfach ein fixer, nicht mitwachsender
+    # Betrag) - diese Anteile schwanken danach mit dem Kurs mit, genau wie
+    # die urspruenglichen. Deshalb fliesst das direkt in die Stueckzahl und
+    # damit in den BRUTTO-Wert ein, nicht nur additiv in Netto. ---
+    sparplan_state = gh_read_cached(config.STATE_PATH_SPARPLAN, {})
+    zusaetzliche_stueckzahl_sparplan = 0.0
+    if sparrate_aktiv > 0:
+        if not sparplan_state.get("start_datum"):
+            sparplan_state = {"start_datum": heute_date.isoformat()}
+            gh_write(config.STATE_PATH_SPARPLAN, sparplan_state, message="sparplan gestartet [skip ci]")
+        sparplan_start = datetime.date.fromisoformat(sparplan_state["start_datum"])
+        monate_sparplan = max(0, (heute_date.year - sparplan_start.year) * 12 + (heute_date.month - sparplan_start.month))
+        if heute_date.day < sparplan_start.day:
+            monate_sparplan -= 1
+        monate_sparplan = max(0, monate_sparplan)
+
+        if monate_sparplan > 0 and not df_chart.empty:
+            for k in range(1, monate_sparplan + 1):
+                ziel_datum = pd.Timestamp(sparplan_start) + pd.DateOffset(months=k)
+                passende_tage = df_chart.index[df_chart.index <= ziel_datum]
+                preis_am_einzahlungstag = float(df_chart.loc[passende_tage[-1], "Close"]) if len(passende_tage) else aktueller_kurs
+                if preis_am_einzahlungstag > 0:
+                    zusaetzliche_stueckzahl_sparplan += sparrate_aktiv / preis_am_einzahlungstag
+    else:
+        if sparplan_state.get("start_datum"):
+            gh_write(config.STATE_PATH_SPARPLAN, {}, message="sparplan gestoppt [skip ci]")
+
     # --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
     benchmark_series = {}
     benchmark_start_daten = {}
@@ -640,14 +673,16 @@ def render_dashboard():
         heutige_monate_anzahl -= 1
 
     gesamt_entnommen = entnommen_aktiv
-    brutto_ist = stueckzahl_aktiv * aktueller_kurs
+    brutto_ist = (stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan) * aktueller_kurs
     netto_ist = brutto_ist - gesamt_entnommen
     gewinn_brutto = brutto_ist - startkapital_aktiv
     rendite_ist_pct = ((aktueller_kurs - config.ANFANGSKURS) / config.ANFANGSKURS) * 100
 
     # Reale Variante fuer die aktuellen Kennzahlen (Stückzahl nach echten Verkäufen)
     stueckzahl_real_ist = df_chart["Stueckzahl_Real"].iloc[-1] if not df_chart.empty else stueckzahl_aktiv
-    depotwert_real_ist = stueckzahl_real_ist * aktueller_kurs
+    depotwert_real_ist = (stueckzahl_real_ist + zusaetzliche_stueckzahl_sparplan) * aktueller_kurs
+
+    kumulierte_sparrate_marktwert = zusaetzliche_stueckzahl_sparplan * aktueller_kurs
 
     sim_b = brutto_ist
     monate_bis_ziel = 0
@@ -721,8 +756,9 @@ def render_dashboard():
 
     sparrate_kwargs = dict(
         min_value=0.0, step=10.0, key="haupt_sparrate_input",
-        help="Zusätzliche monatliche Einzahlung (Sparplan) - fließt in die Zukunfts-Hochrechnungen "
-             "(100k-Meilenstein, Zukunfts-Prognose-Tab) ein. Betrifft nicht die bisherige Historie.",
+        help="Zusätzliche monatliche Einzahlung (Sparplan) - fließt in die Netto-Werte (ab heute "
+             "kumuliert) sowie in die Zukunfts-Hochrechnungen (100k-Meilenstein, Prognose-Tab) ein. "
+             "Betrifft nicht die bisherige Chart-Historie.",
     )
     if "haupt_sparrate_input" not in st.session_state:
         sparrate_kwargs["value"] = 0.0
@@ -740,7 +776,7 @@ def render_dashboard():
             <div class="m-label">Brutto Depotwert</div>
             <div class="m-val pos">{fmt(brutto_ist, 2)}</div>
             <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {erwartete_rendite_pa:.1f}% p.a.</div>
-            <div class="m-sub">{stueckzahl_aktiv:.4f} Anteile</div>
+            <div class="m-sub">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{' (davon ' + f'{zusaetzliche_stueckzahl_sparplan:.4f}' + ' aus Sparplan)' if zusaetzliche_stueckzahl_sparplan > 0 else ''}</div>
         </div>
         <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
             <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
@@ -751,18 +787,22 @@ def render_dashboard():
     """, unsafe_allow_html=True)
 
     # --- NETTO-WERTE (Simulation/Real) + Kosten-Hinweis: nur bei Bedarf einblenden ---
+    sparrate_sub_hinweis = (
+        f" | +{zusaetzliche_stueckzahl_sparplan:.4f} Anteile aus Sparplan "
+        f"(aktueller Marktwert: {fmt(kumulierte_sparrate_marktwert, 2)}) seit {sparplan_state.get('start_datum', '')}"
+    ) if zusaetzliche_stueckzahl_sparplan > 0 else ""
     with st.expander("💰 Netto-Werte & laufende Kosten anzeigen", expanded=False):
         st.markdown(f"""
         <div class="grid-container">
             <div class="m-card">
                 <div class="m-label">Netto (Simulation)</div>
                 <div class="m-val blue">{fmt(netto_ist, 2)}</div>
-                <div class="m-sub">Entnahme nur buchhalterisch abgezogen</div>
+                <div class="m-sub">Entnahme nur buchhalterisch abgezogen{sparrate_sub_hinweis}</div>
             </div>
             <div class="m-card">
                 <div class="m-label">Netto (Real, Anteile verkauft)</div>
                 <div class="m-val" style="color:#FFB300;">{fmt(depotwert_real_ist, 2)}</div>
-                <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme (inkl. {config.SPREAD_PCT:.2f}% Spread)</div>
+                <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme (inkl. {config.SPREAD_PCT:.2f}% Spread){sparrate_sub_hinweis}</div>
             </div>
             <div class="m-card">
                 <div class="m-label">Laufende Kosten (im Kurs enthalten)</div>
