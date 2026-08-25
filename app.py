@@ -48,35 +48,6 @@ st.markdown("""
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
-    /* Checkbox komplett selbst gezeichnet (appearance: none) statt auf
-       Streamlits interne Bauteile zu zielen - die "data-baseweb"-Klassen
-       von vorher gibt's in aktuellen Streamlit-Versionen nicht mehr
-       (BaseWeb wurde intern entfernt). Das hier greift direkt am nativen
-       <input type="checkbox"> an, unabhaengig davon, wie Streamlit drumherum
-       baut - robuster gegen kuenftige interne Aenderungen. */
-    input[type="checkbox"] {
-        appearance: none;
-        -webkit-appearance: none;
-        width: 18px;
-        height: 18px;
-        min-width: 18px;
-        border: 2px solid #FFFFFF !important;
-        border-radius: 4px;
-        background-color: #FFFFFF !important;
-        position: relative;
-        cursor: pointer;
-        vertical-align: middle;
-    }
-    input[type="checkbox"]:checked::after {
-        content: "✓";
-        position: absolute;
-        top: -4px;
-        left: 2px;
-        color: #000000;
-        font-size: 15px;
-        font-weight: 900;
-        line-height: 1;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -445,12 +416,30 @@ def render_dashboard():
         for label, emoji in eintraege:
             st.write(f"{emoji} {label}")
 
-    def checkbox_mit_farbe(label, emoji, key):
-        """Checkbox mit farbigem Emoji-Symbol im Label - vereint Auswahl und
-        Farbzuordnung in einer garantiert einzeiligen Zeile (kein
-        st.columns-Trick mehr, der auf schmalen Mobile-Screens die Elemente
-        untereinander statt nebeneinander stapelt)."""
-        return st.checkbox(f"{emoji} {label}", value=True, key=key)
+    def lese_pills_auswahl_still(labels, key):
+        """Wie pills_auswahl(), aber OHNE das Widget zu rendern - liest nur
+        den zuletzt gespeicherten Auswahlzustand (Standard: alle an). Fuer
+        die Performance-Tabelle, die VOR dem sichtbaren Auswahl-Bereich
+        steht, aber trotzdem die aktuelle Auswahl beruecksichtigen soll."""
+        optionen = [f"{config.BENCHMARK_EMOJI.get(label, '⚪')} {label}" for label in labels]
+        gespeichert = st.session_state.get(key, optionen)
+        praefix_map = {opt: label for opt, label in zip(optionen, labels)}
+        return [praefix_map[opt] for opt in gespeichert if opt in praefix_map]
+
+    def pills_auswahl(labels, key):
+        """Mehrfachauswahl per st.pills (anklickbare 'Pillen'-Buttons) statt
+        Checkboxen - komplett anderes Widget ohne Checkbox-Innenleben, das
+        sich per CSS nicht anpassen liess (moegliches Shadow-DOM). Emoji
+        stecken direkt im Options-Text, keine separate Farbzuordnung noetig.
+        Gibt die Liste der aktuell ausgewaehlten (reinen) Labels zurueck."""
+        optionen = [f"{config.BENCHMARK_EMOJI.get(label, '⚪')} {label}" for label in labels]
+        ausgewaehlt = st.pills(
+            "Vergleichswerte im Chart anzeigen",
+            optionen, selection_mode="multi", default=optionen, key=key,
+        )
+        ausgewaehlt = ausgewaehlt or []
+        praefix_map = {opt: label for opt, label in zip(optionen, labels)}
+        return [praefix_map[opt] for opt in ausgewaehlt]
 
     def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_datum):
         """Gesamt-%, Ø-monatliche % und Ø-jährliche % (beide CAGR-Stil,
@@ -734,10 +723,7 @@ def render_dashboard():
         with tab_wealth:
             # Auswahl still aus dem gespeicherten Zustand lesen (Standard: alle an) -
             # der sichtbare Auswahl-Bereich selbst steht weiter unten, direkt vor dem Chart.
-            ausgewaehlte_benchmarks = [
-                label for label in benchmark_series.keys()
-                if st.session_state.get(f"benchmark_cb_{label}", True)
-            ]
+            ausgewaehlte_benchmarks = lese_pills_auswahl_still(benchmark_series.keys(), key="benchmark_pills")
 
             performance_liste_haupt = []
             brutto_reihe = df_chart["Depotwert_Brutto"]
@@ -805,9 +791,7 @@ def render_dashboard():
                     "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
                 )
                 zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
-                st.write("Vergleichswerte im Chart anzeigen:")
-                for label in benchmark_series.keys():
-                    checkbox_mit_farbe(label, config.BENCHMARK_EMOJI.get(label, "⚪"), key=f"benchmark_cb_{label}")
+                pills_auswahl(benchmark_series.keys(), key="benchmark_pills")
 
             fig_wealth = go.Figure()
             fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
@@ -856,10 +840,7 @@ def render_dashboard():
 
             # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
             # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
-            ausgewaehlte_v2 = [
-                label for label in benchmark_series_v2.keys()
-                if st.session_state.get(f"benchmark_v2_cb_{label}", True)
-            ]
+            ausgewaehlte_v2 = lese_pills_auswahl_still(benchmark_series_v2.keys(), key="benchmark_v2_pills")
 
             fig_v2 = go.Figure()
             fig_v2.add_trace(go.Scatter(
@@ -952,9 +933,7 @@ def render_dashboard():
                     "Performance seit Jahresanfang im direkten Vergleich."
                 )
                 zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
-                st.write("Vergleichswerte im Chart anzeigen:")
-                for label in benchmark_series_v2.keys():
-                    checkbox_mit_farbe(label, config.BENCHMARK_EMOJI.get(label, "⚪"), key=f"benchmark_v2_cb_{label}")
+                pills_auswahl(benchmark_series_v2.keys(), key="benchmark_v2_pills")
 
             st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
 
@@ -994,10 +973,7 @@ def render_dashboard():
 
             # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
             # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
-            ausgewaehlte_v3 = [
-                label for label in benchmark_series_v3.keys()
-                if st.session_state.get(f"benchmark_v3_cb_{label}", True)
-            ]
+            ausgewaehlte_v3 = lese_pills_auswahl_still(benchmark_series_v3.keys(), key="benchmark_v3_pills")
 
             fig_v3 = go.Figure()
             fig_v3.add_trace(go.Scatter(
@@ -1097,10 +1073,8 @@ def render_dashboard():
                         "Vergleichswerte selbst laufen trotzdem über den vollen Zeitraum seit "
                         f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}."
                     )
-                st.write("Vergleichswerte im Chart anzeigen:")
                 zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
-                for label in benchmark_series_v3.keys():
-                    checkbox_mit_farbe(label, config.BENCHMARK_EMOJI.get(label, "⚪"), key=f"benchmark_v3_cb_{label}")
+                pills_auswahl(benchmark_series_v3.keys(), key="benchmark_v3_pills")
 
             st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
 
