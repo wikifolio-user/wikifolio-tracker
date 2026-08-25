@@ -1,6 +1,7 @@
 import datetime
 import re
 import logging
+import traceback
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
@@ -82,7 +83,7 @@ def notify_app_error(context, exc):
     in die schwer einsehbaren Cloud-Logs). Cooldown pro 'context' (z.B. Tab-
     Name), damit ein wiederholt fehlschlagender Bereich nicht bei jedem
     30s-Autorefresh erneut pingt."""
-    logging.error(f"App-Fehler in '{context}': {exc}")
+    logging.error(f"App-Fehler in '{context}': {exc}", exc_info=True)  # voller Traceback jetzt in den Logs
     if not DISCORD_WEBHOOK_URL:
         return
 
@@ -102,6 +103,7 @@ def notify_app_error(context, exc):
     msg = (f"🐞 **App-Fehler ({config.WKN})**\n"
            f"Bereich: **{context}**\n"
            f"Fehler: `{type(exc).__name__}: {str(exc)[:200]}`\n"
+           f"```\n{traceback.format_exc()[-1200:]}\n```\n"
            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}")
     try:
         requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
