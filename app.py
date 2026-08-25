@@ -721,567 +721,619 @@ def render_dashboard():
         "📊 SZENARIO-SIMULATOR (5 JAHRE)",
     ])
 
-    try:
-        with tab_wealth:
-            # Auswahl still aus dem gespeicherten Zustand lesen (Standard: alle an) -
-            # der sichtbare Auswahl-Bereich selbst steht weiter unten, direkt vor dem Chart.
-            ausgewaehlte_benchmarks = lese_pills_auswahl_still(benchmark_series.keys(), key="benchmark_pills")
+    @st.fragment
+    def _render_wealth():
+        try:
+            with tab_wealth:
+                # Auswahl still aus dem gespeicherten Zustand lesen (Standard: alle an) -
+                # der sichtbare Auswahl-Bereich selbst steht weiter unten, direkt vor dem Chart.
+                ausgewaehlte_benchmarks = lese_pills_auswahl_still(benchmark_series.keys(), key="benchmark_pills")
 
-            performance_liste_haupt = []
-            brutto_reihe = df_chart["Depotwert_Brutto"]
-            if not brutto_reihe.empty and brutto_reihe.iloc[0] > 0:
-                gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                    brutto_reihe.iloc[0], brutto_reihe.iloc[-1], config.KAUFDATUM, heute_date
-                )
-                performance_liste_haupt.append({
-                    "Wert": f"Hauptindizes Global ({config.WKN})",
-                    "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
-                    "_gelistet_seit": config.KAUFDATUM,
-                })
-            for label, s in benchmark_series.items():
-                s_gueltig = s.dropna()
-                if label in ausgewaehlte_benchmarks and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
-                    start_dieser_wert = benchmark_start_daten.get(label)
-                    start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.KAUFDATUM
+                performance_liste_haupt = []
+                brutto_reihe = df_chart["Depotwert_Brutto"]
+                if not brutto_reihe.empty and brutto_reihe.iloc[0] > 0:
                     gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
+                        brutto_reihe.iloc[0], brutto_reihe.iloc[-1], config.KAUFDATUM, heute_date
                     )
                     performance_liste_haupt.append({
-                        "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
-                        "_gelistet_seit": start_dieser_wert,
+                        "Wert": f"Hauptindizes Global ({config.WKN})",
+                        "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                        "_gelistet_seit": config.KAUFDATUM,
                     })
+                for label, s in benchmark_series.items():
+                    s_gueltig = s.dropna()
+                    if label in ausgewaehlte_benchmarks and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
+                        start_dieser_wert = benchmark_start_daten.get(label)
+                        start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.KAUFDATUM
+                        gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
+                            s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
+                        )
+                        performance_liste_haupt.append({
+                            "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                            "_gelistet_seit": start_dieser_wert,
+                        })
 
-            if performance_liste_haupt:
-                st.caption(f"📅 Berechnet seit {config.KAUFDATUM.strftime('%d.%m.%Y')} (Kaufdatum)")
-                performance_liste_haupt.sort(key=lambda x: x["_jaehrlich"], reverse=True)
-                zeilen_html_haupt = ""
-                for eintrag in performance_liste_haupt:
-                    farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
-                    zeilen_html_haupt += f"""
-                    <tr style="border-bottom: 1px solid #1A1A1A;">
-                        <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
-                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
-                        <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
-                    </tr>"""
-                st.markdown(f"""
-                <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden; margin-bottom: 12px;">
-                    <thead>
-                        <tr style="border-bottom: 1px solid #27272A;">
-                            <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
-                        </tr>
-                    </thead>
-                    <tbody>{zeilen_html_haupt}
-                    </tbody>
-                </table>
-                """, unsafe_allow_html=True)
-
-            with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
-                st.caption(
-                    "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
-                    f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
-                    f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
-                    "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
-                    f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
-                    "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
-                )
-                zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
-                pills_auswahl(benchmark_series.keys(), key="benchmark_pills")
-
-            fig_wealth = go.Figure()
-            fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
-            fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
-
-            legende_eintraege = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
-            for label, s in benchmark_series.items():
-                if label not in ausgewaehlte_benchmarks:
-                    continue
-                farbe = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
-                fig_wealth.add_trace(go.Scatter(
-                    x=df_chart.index, y=s, name=label,
-                    line=dict(color=farbe, width=1.5, dash="dashdot"),
-                ))
-                legende_eintraege.append((label, farbe))
-    
-            fig_wealth.update_layout(
-                paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
-                showlegend=False,
-                xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
-                yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000),
-                hovermode="x unified",
-            )
-            st.plotly_chart(fig_wealth, width="stretch", key="chart_wealth")
-
-        with tab_ytd:
-            v2_start = pd.Timestamp(config.VERGLEICH2_START_DATUM)
-            v2_kapital = config.VERGLEICH2_STARTKAPITAL
-
-            # Eigenes Zertifikat: aus bereits geladenem df_chart ab v2_start neu skalieren
-            eigene_reihe_v2 = df_chart["Close"][df_chart.index >= v2_start]
-            if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
-                eigene_reihe_v2 = eigene_reihe_v2 / eigene_reihe_v2.iloc[0] * v2_kapital
-
-            # Benchmarks: eigener, frischer Abruf ab v2_start (eigene Cache-Zeile,
-            # da anderer Startzeitpunkt als der Hauptvergleich oben)
-            benchmark_series_v2 = {}
-            benchmark_start_daten_v2 = {}
-            for label, inst_id in config.BENCHMARKS.items():
-                s_v2, erstes_datum_v2 = benchmark_normiert_auf_startkapital(
-                    eigene_reihe_v2.index, inst_id, config.VERGLEICH2_START_DATUM, heute_date, v2_kapital
-                )
-                if s_v2 is not None:
-                    benchmark_series_v2[label] = s_v2
-                    benchmark_start_daten_v2[label] = erstes_datum_v2
-
-            # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
-            # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
-            ausgewaehlte_v2 = lese_pills_auswahl_still(benchmark_series_v2.keys(), key="benchmark_v2_pills")
-
-            fig_v2 = go.Figure()
-            fig_v2.add_trace(go.Scatter(
-                x=eigene_reihe_v2.index, y=[v2_kapital] * len(eigene_reihe_v2),
-                name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
-            ))
-            fig_v2.add_trace(go.Scatter(
-                x=eigene_reihe_v2.index, y=eigene_reihe_v2, name=f"Hauptindizes Global ({config.WKN})",
-                line=dict(color="#00C853", width=2.5),
-            ))
-            benchmark_colors_v2 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
-            legende_eintraege_v2 = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
-            for i, (label, s) in enumerate(benchmark_series_v2.items()):
-                if label not in ausgewaehlte_v2:
-                    continue
-                farbe_v2 = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
-                fig_v2.add_trace(go.Scatter(
-                    x=eigene_reihe_v2.index, y=s, name=label,
-                    line=dict(color=farbe_v2, width=1.5, dash="dashdot"),
-                ))
-                legende_eintraege_v2.append((label, farbe_v2))
-
-            fig_v2.update_layout(
-                paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=40, b=40), height=450,
-                showlegend=False,
-                xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
-                yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=1000),
-                hovermode="x unified",
-            )
-            performance_liste_v2 = []
-            if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
-                gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                    eigene_reihe_v2.iloc[0], eigene_reihe_v2.iloc[-1], config.VERGLEICH2_START_DATUM, heute_date
-                )
-                performance_liste_v2.append({
-                    "Wert": f"Hauptindizes Global ({config.WKN})",
-                    "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
-                    "_gelistet_seit": config.VERGLEICH2_START_DATUM,
-                })
-            for label, s in benchmark_series_v2.items():
-                s_gueltig = s.dropna()
-                if label in ausgewaehlte_v2 and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
-                    start_dieser_wert = benchmark_start_daten_v2.get(label)
-                    start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.VERGLEICH2_START_DATUM
-                    gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
-                    )
-                    performance_liste_v2.append({
-                        "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
-                        "_gelistet_seit": start_dieser_wert,
-                    })
-
-            if performance_liste_v2:
-                st.caption(f"📅 Berechnet seit {config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}")
-                performance_liste_v2.sort(key=lambda x: x["_jaehrlich"], reverse=True)
-                zeilen_html = ""
-                for eintrag in performance_liste_v2:
-                    farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
-                    zeilen_html += f"""
-                    <tr style="border-bottom: 1px solid #1A1A1A;">
-                        <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
-                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
-                        <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
-                    </tr>"""
-                st.markdown(f"""
-                <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
-                    <thead>
-                        <tr style="border-bottom: 1px solid #27272A;">
-                            <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
-                        </tr>
-                    </thead>
-                    <tbody>{zeilen_html}
-                    </tbody>
-                </table>
-                """, unsafe_allow_html=True)
-
-            with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
-                st.caption(
-                    f"Alle Werte neu skaliert: {fmt(v2_kapital, 0)} investiert am "
-                    f"{config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
-                    "eigentlichen Kaufdatum deines Zertifikats - zeigt die reine "
-                    "Performance seit Jahresanfang im direkten Vergleich."
-                )
-                zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
-                pills_auswahl(benchmark_series_v2.keys(), key="benchmark_v2_pills")
-
-            st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
-
-        with tab_2021:
-            v3_start = pd.Timestamp(config.VERGLEICH3_START_DATUM)
-            v3_kapital = config.VERGLEICH3_STARTKAPITAL
-            master_index_v3 = pd.bdate_range(start=v3_start, end=pd.Timestamp(heute_date))
-
-            # Eigenes Zertifikat: EIGENER, frischer Abruf ab 2021 (df_chart
-            # reicht nur bis zum echten Kaufdatum zurueck, hier brauchen wir
-            # ggf. deutlich mehr Historie). Wichtig: die Benchmarks werden
-            # NICHT auf den (ggf. kuerzeren) Zeitraum des Zertifikats
-            # zugeschnitten - sie laufen ueber den vollen 2021-Zeitraum,
-            # nur die Zertifikat-Linie beginnt ggf. spaeter (echte Luecke).
-            df_chart_v3, _ = get_historical_market_data(config.VERGLEICH3_START_DATUM, heute_date, aktueller_kurs)
-            roh_eigen_v3 = df_chart_v3["Close"] if not df_chart_v3.empty else pd.Series(dtype=float)
-
-            tatsaechlicher_start_v3 = roh_eigen_v3.index.min() if not roh_eigen_v3.empty else None
-
-            if not roh_eigen_v3.empty and roh_eigen_v3.iloc[0] > 0:
-                skaliert_eigen_v3 = roh_eigen_v3 / roh_eigen_v3.iloc[0] * v3_kapital
-                # Auf vollen Zeitindex bringen, aber NUR nach vorne auffuellen -
-                # vor dem echten Start bleibt es NaN (keine erfundene Rueckrechnung)
-                eigene_reihe_v3 = skaliert_eigen_v3.reindex(master_index_v3).ffill()
-            else:
-                eigene_reihe_v3 = pd.Series(index=master_index_v3, dtype=float)
-
-            benchmark_series_v3 = {}
-            benchmark_start_daten_v3 = {}
-            for label, inst_id in config.BENCHMARKS.items():
-                s_v3, erstes_datum_v3 = benchmark_normiert_auf_startkapital(
-                    master_index_v3, inst_id, config.VERGLEICH3_START_DATUM, heute_date, v3_kapital
-                )
-                if s_v3 is not None:
-                    benchmark_series_v3[label] = s_v3
-                    benchmark_start_daten_v3[label] = erstes_datum_v3
-
-            # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
-            # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
-            ausgewaehlte_v3 = lese_pills_auswahl_still(benchmark_series_v3.keys(), key="benchmark_v3_pills")
-
-            fig_v3 = go.Figure()
-            fig_v3.add_trace(go.Scatter(
-                x=master_index_v3, y=[v3_kapital] * len(master_index_v3),
-                name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
-            ))
-            fig_v3.add_trace(go.Scatter(
-                x=eigene_reihe_v3.index, y=eigene_reihe_v3, name=f"Hauptindizes Global ({config.WKN})",
-                line=dict(color="#00C853", width=2.5),
-            ))
-            benchmark_colors_v3 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
-            legende_eintraege_v3 = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
-            for i, (label, s) in enumerate(benchmark_series_v3.items()):
-                if label not in ausgewaehlte_v3:
-                    continue
-                farbe_v3 = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
-                fig_v3.add_trace(go.Scatter(
-                    x=master_index_v3, y=s, name=label,
-                    line=dict(color=farbe_v3, width=1.5, dash="dashdot"),
-                ))
-                legende_eintraege_v3.append((label, farbe_v3))
-
-            fig_v3.update_layout(
-                paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=40, b=40), height=450,
-                showlegend=False,
-                xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
-                yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000),
-                hovermode="x unified",
-            )
-            performance_liste_v3 = []
-            if not roh_eigen_v3.empty and roh_eigen_v3.iloc[0] > 0:
-                start_datum_eigen_v3 = tatsaechlicher_start_v3.date() if tatsaechlicher_start_v3 is not None else config.VERGLEICH3_START_DATUM
-                gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                    roh_eigen_v3.iloc[0], roh_eigen_v3.iloc[-1], start_datum_eigen_v3, heute_date
-                )
-                performance_liste_v3.append({
-                    "Wert": f"Hauptindizes Global ({config.WKN})",
-                    "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
-                    "_gelistet_seit": start_datum_eigen_v3,
-                })
-            for label, s in benchmark_series_v3.items():
-                s_gueltig = s.dropna()
-                if label in ausgewaehlte_v3 and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
-                    start_dieser_wert = benchmark_start_daten_v3.get(label)
-                    start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.VERGLEICH3_START_DATUM
-                    gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
-                    )
-                    performance_liste_v3.append({
-                        "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
-                        "_gelistet_seit": start_dieser_wert,
-                    })
-
-            if performance_liste_v3:
-                st.caption(f"📅 Berechnet seit {config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')} (bzw. erstem verfügbaren Kurs)")
-                performance_liste_v3.sort(key=lambda x: x["_jaehrlich"], reverse=True)
-                zeilen_html_v3 = ""
-                for eintrag in performance_liste_v3:
-                    farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
-                    zeilen_html_v3 += f"""
-                    <tr style="border-bottom: 1px solid #1A1A1A;">
-                        <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
-                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
-                        <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
-                        <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
-                    </tr>"""
-                st.markdown(f"""
-                <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
-                    <thead>
-                        <tr style="border-bottom: 1px solid #27272A;">
-                            <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
-                            <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
-                        </tr>
-                    </thead>
-                    <tbody>{zeilen_html_v3}
-                    </tbody>
-                </table>
-                """, unsafe_allow_html=True)
-
-            with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
-                st.caption(
-                    f"Alle Werte neu skaliert: {fmt(v3_kapital, 0)} investiert am "
-                    f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
-                    "eigentlichen Kaufdatum deines Zertifikats."
-                )
-                if tatsaechlicher_start_v3 is not None and tatsaechlicher_start_v3 > v3_start:
-                    st.info(
-                        f"ℹ️ Für {config.WKN} liegen erst ab {tatsaechlicher_start_v3.strftime('%d.%m.%Y')} "
-                        "Kursdaten vor (vermutlich Auflegungsdatum des Zertifikats) - die Linie beginnt "
-                        "entsprechend später als die Vergleichswerte, keine erfundenen Daten. Die "
-                        "Vergleichswerte selbst laufen trotzdem über den vollen Zeitraum seit "
-                        f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}."
-                    )
-                zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
-                pills_auswahl(benchmark_series_v3.keys(), key="benchmark_v3_pills")
-
-            st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
-
-        def load_db():
-            return gh_read(config.STATE_PATH_TRADES_DB, [])
-
-        def save_db(data):
-            gh_write(config.STATE_PATH_TRADES_DB, data, message="update trades log [skip ci]")
-
-        db_events = load_db()
-
-        with tab_trades:
-            st.markdown("### 📋 Historie")
-            if not db_events:
-                st.info("Keine Einträge vorhanden.")
-            else:
-                for ev in db_events:
+                if performance_liste_haupt:
+                    st.caption(f"📅 Berechnet seit {config.KAUFDATUM.strftime('%d.%m.%Y')} (Kaufdatum)")
+                    performance_liste_haupt.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    zeilen_html_haupt = ""
+                    for eintrag in performance_liste_haupt:
+                        farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
+                        zeilen_html_haupt += f"""
+                        <tr style="border-bottom: 1px solid #1A1A1A;">
+                            <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
+                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
+                            <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
+                        </tr>"""
                     st.markdown(f"""
-                        <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
-                            <div style="font-size: 0.75rem; color: #71717A;"><b>[{ev.get('typ','')}]</b> - {ev.get('datum','')}</div>
-                            <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{ev.get('titel','')}</div>
-                            <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt','')}</div>
-                        </div>
+                    <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden; margin-bottom: 12px;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid #27272A;">
+                                <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
+                            </tr>
+                        </thead>
+                        <tbody>{zeilen_html_haupt}
+                        </tbody>
+                    </table>
                     """, unsafe_allow_html=True)
 
-            with st.form("trade_form", clear_on_submit=True):
-                col1, col2, col3 = st.columns([2, 2, 3])
-                with col1: et = st.selectbox("Typ", ["Trade", "Kommentar", "Hinweis"])
-                with col2: ed = st.date_input("Datum", heute_date)
-                with col3: eti = st.text_input("Titel")
-                ei = st.text_area("Details")
-                if st.form_submit_button("Speichern") and eti:
-                    db_events.insert(0, {"id": len(db_events) + 1, "typ": et, "datum": ed.strftime("%Y-%m-%d"), "titel": eti, "inhalt": ei})
-                    save_db(db_events)
-                    st.rerun()
+                with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
+                    st.caption(
+                        "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
+                        f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
+                        f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
+                        "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
+                        f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
+                        "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
+                    )
+                    zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
+                    pills_auswahl(benchmark_series.keys(), key="benchmark_pills")
 
-        with tab_candle:
-            fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
-            fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False)
-            st.plotly_chart(fig_c, width="stretch", key="chart_candlestick")
-            st.caption(
-                "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
-                "Der GitHub-Actions-Cron protokolliert seit Kurzem zusätzlich alle 5 Min den "
-                "echten Kurs in state/price_history/ — daraus lässt sich künftig ein echter "
-                "Intraday-Chart bauen, sobald genug Historie gesammelt ist."
-            )
+                fig_wealth = go.Figure()
+                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
+                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
 
-        with tab_forecast:
-            st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
+                legende_eintraege = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
+                for label, s in benchmark_series.items():
+                    if label not in ausgewaehlte_benchmarks:
+                        continue
+                    farbe = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
+                    fig_wealth.add_trace(go.Scatter(
+                        x=df_chart.index, y=s, name=label,
+                        line=dict(color=farbe, width=1.5, dash="dashdot"),
+                    ))
+                    legende_eintraege.append((label, farbe))
     
-            forecast_data = [
-                {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(config.STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(config.STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
-                {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
-            ]
-    
-            sim_b_prog, sim_n_prog, sim_e_prog = brutto_ist, netto_ist, gesamt_entnommen
-            milestone_added = brutto_ist >= 100000.0
-
-            for m_idx in range(1, 121):
-                sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo))
-                sim_e_prog += config.ENTNAHME_PM
-                sim_n_prog = sim_b_prog - sim_e_prog
-        
-                current_date = now_berlin.replace(tzinfo=None) + pd.DateOffset(months=m_idx)
-        
-                if not milestone_added and sim_b_prog >= 100000.0:
-                    forecast_data.append({
-                        "Index": "🎯", "Jahr": "100k Meilenstein",
-                        "Datum": current_date.strftime("%d.%m.%Y"),
-                        "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
-                        "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
-                    })
-                    milestone_added = True
-
-                if m_idx % 12 == 0:
-                    forecast_data.append({
-                        "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
-                        "Datum": current_date.strftime("%d.%m.%Y"),
-                        "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
-                        "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
-                    })
-            
-            df_forecast = pd.DataFrame(forecast_data)
-            df_forecast["Index"] = df_forecast["Index"].astype(str)
-            st.dataframe(df_forecast, width="stretch", hide_index=True, key="df_forecast")
-
-        with tab_scenarios:
-            st.markdown(
-                '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
-                '📊 Szenario-Analyse (1,0% – 6,0% p.M.)</div>',
-                unsafe_allow_html=True,
-            )
-            st.caption("✏️ Beide Werte unten frei anpassbar, um eigene Annahmen durchzurechnen:")
-
-            col_sk, col_en = st.columns(2)
-            with col_sk:
-                startkapital_szenario = st.number_input(
-                    "✏️ Startkapital (€)", min_value=0.0, value=float(config.STARTKAPITAL),
-                    step=100.0, key="szenario_startkapital",
+                fig_wealth.update_layout(
+                    paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
+                    showlegend=False,
+                    xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
+                    yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000),
+                    hovermode="x unified",
                 )
-            with col_en:
-                entnahme_eingabe = st.number_input(
-                    "✏️ Monatliche Entnahme (€)", min_value=0.0, value=float(config.ENTNAHME_PM),
-                    step=10.0, key="szenario_entnahme",
+                st.plotly_chart(fig_wealth, width="stretch", key="chart_wealth")
+
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Vermoegensaufbau", e)
+    _render_wealth()
+
+    @st.fragment
+    def _render_ytd():
+        try:
+            with tab_ytd:
+                v2_start = pd.Timestamp(config.VERGLEICH2_START_DATUM)
+                v2_kapital = config.VERGLEICH2_STARTKAPITAL
+
+                # Eigenes Zertifikat: aus bereits geladenem df_chart ab v2_start neu skalieren
+                eigene_reihe_v2 = df_chart["Close"][df_chart.index >= v2_start]
+                if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
+                    eigene_reihe_v2 = eigene_reihe_v2 / eigene_reihe_v2.iloc[0] * v2_kapital
+
+                # Benchmarks: eigener, frischer Abruf ab v2_start (eigene Cache-Zeile,
+                # da anderer Startzeitpunkt als der Hauptvergleich oben)
+                benchmark_series_v2 = {}
+                benchmark_start_daten_v2 = {}
+                for label, inst_id in config.BENCHMARKS.items():
+                    s_v2, erstes_datum_v2 = benchmark_normiert_auf_startkapital(
+                        eigene_reihe_v2.index, inst_id, config.VERGLEICH2_START_DATUM, heute_date, v2_kapital
+                    )
+                    if s_v2 is not None:
+                        benchmark_series_v2[label] = s_v2
+                        benchmark_start_daten_v2[label] = erstes_datum_v2
+
+                # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
+                # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
+                ausgewaehlte_v2 = lese_pills_auswahl_still(benchmark_series_v2.keys(), key="benchmark_v2_pills")
+
+                fig_v2 = go.Figure()
+                fig_v2.add_trace(go.Scatter(
+                    x=eigene_reihe_v2.index, y=[v2_kapital] * len(eigene_reihe_v2),
+                    name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
+                ))
+                fig_v2.add_trace(go.Scatter(
+                    x=eigene_reihe_v2.index, y=eigene_reihe_v2, name=f"Hauptindizes Global ({config.WKN})",
+                    line=dict(color="#00C853", width=2.5),
+                ))
+                benchmark_colors_v2 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
+                legende_eintraege_v2 = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
+                for i, (label, s) in enumerate(benchmark_series_v2.items()):
+                    if label not in ausgewaehlte_v2:
+                        continue
+                    farbe_v2 = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
+                    fig_v2.add_trace(go.Scatter(
+                        x=eigene_reihe_v2.index, y=s, name=label,
+                        line=dict(color=farbe_v2, width=1.5, dash="dashdot"),
+                    ))
+                    legende_eintraege_v2.append((label, farbe_v2))
+
+                fig_v2.update_layout(
+                    paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=40, b=40), height=450,
+                    showlegend=False,
+                    xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
+                    yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=1000),
+                    hovermode="x unified",
                 )
+                performance_liste_v2 = []
+                if not eigene_reihe_v2.empty and eigene_reihe_v2.iloc[0] > 0:
+                    gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
+                        eigene_reihe_v2.iloc[0], eigene_reihe_v2.iloc[-1], config.VERGLEICH2_START_DATUM, heute_date
+                    )
+                    performance_liste_v2.append({
+                        "Wert": f"Hauptindizes Global ({config.WKN})",
+                        "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                        "_gelistet_seit": config.VERGLEICH2_START_DATUM,
+                    })
+                for label, s in benchmark_series_v2.items():
+                    s_gueltig = s.dropna()
+                    if label in ausgewaehlte_v2 and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
+                        start_dieser_wert = benchmark_start_daten_v2.get(label)
+                        start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.VERGLEICH2_START_DATUM
+                        gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
+                            s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
+                        )
+                        performance_liste_v2.append({
+                            "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                            "_gelistet_seit": start_dieser_wert,
+                        })
 
-            ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
-            entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
+                if performance_liste_v2:
+                    st.caption(f"📅 Berechnet seit {config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}")
+                    performance_liste_v2.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    zeilen_html = ""
+                    for eintrag in performance_liste_v2:
+                        farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
+                        zeilen_html += f"""
+                        <tr style="border-bottom: 1px solid #1A1A1A;">
+                            <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
+                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
+                            <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
+                        </tr>"""
+                    st.markdown(f"""
+                    <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid #27272A;">
+                                <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
+                            </tr>
+                        </thead>
+                        <tbody>{zeilen_html}
+                        </tbody>
+                    </table>
+                    """, unsafe_allow_html=True)
 
-            szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
-    
-            summary_list = []
-            scenario_series = {}
+                with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
+                    st.caption(
+                        f"Alle Werte neu skaliert: {fmt(v2_kapital, 0)} investiert am "
+                        f"{config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
+                        "eigentlichen Kaufdatum deines Zertifikats - zeigt die reine "
+                        "Performance seit Jahresanfang im direkten Vergleich."
+                    )
+                    zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
+                    pills_auswahl(benchmark_series_v2.keys(), key="benchmark_v2_pills")
 
-            for r_mo_pct in szenario_raten_mo:
-                r_mo = r_mo_pct / 100.0
-                r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
-        
-                cap_sim = startkapital_szenario
-                m_to_100k = None
-                for m in range(1, 1200):
-                    cap_sim = (cap_sim * (1 + r_mo)) - entnahme_fuer_szenario
-                    if cap_sim >= 100000.0:
-                        m_to_100k = m
-                        break
+                st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
 
-                monthly_vals = [startkapital_szenario]
-                cap_5y = startkapital_szenario
-                for m in range(1, 61):
-                    cap_5y = (cap_5y * (1 + r_mo)) - entnahme_fuer_szenario
-                    monthly_vals.append(max(0, cap_5y))
-            
-                scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
-        
-                if m_to_100k is not None:
-                    years_100k = m_to_100k // 12
-                    rem_months = m_to_100k % 12
-                    m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
-                    target_date = (pd.to_datetime(config.KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Seit-2026", e)
+    _render_ytd()
+
+    @st.fragment
+    def _render_2021():
+        try:
+            with tab_2021:
+                v3_start = pd.Timestamp(config.VERGLEICH3_START_DATUM)
+                v3_kapital = config.VERGLEICH3_STARTKAPITAL
+                master_index_v3 = pd.bdate_range(start=v3_start, end=pd.Timestamp(heute_date))
+
+                # Eigenes Zertifikat: EIGENER, frischer Abruf ab 2021 (df_chart
+                # reicht nur bis zum echten Kaufdatum zurueck, hier brauchen wir
+                # ggf. deutlich mehr Historie). Wichtig: die Benchmarks werden
+                # NICHT auf den (ggf. kuerzeren) Zeitraum des Zertifikats
+                # zugeschnitten - sie laufen ueber den vollen 2021-Zeitraum,
+                # nur die Zertifikat-Linie beginnt ggf. spaeter (echte Luecke).
+                df_chart_v3, _ = get_historical_market_data(config.VERGLEICH3_START_DATUM, heute_date, aktueller_kurs)
+                roh_eigen_v3 = df_chart_v3["Close"] if not df_chart_v3.empty else pd.Series(dtype=float)
+
+                tatsaechlicher_start_v3 = roh_eigen_v3.index.min() if not roh_eigen_v3.empty else None
+
+                if not roh_eigen_v3.empty and roh_eigen_v3.iloc[0] > 0:
+                    skaliert_eigen_v3 = roh_eigen_v3 / roh_eigen_v3.iloc[0] * v3_kapital
+                    # Auf vollen Zeitindex bringen, aber NUR nach vorne auffuellen -
+                    # vor dem echten Start bleibt es NaN (keine erfundene Rueckrechnung)
+                    eigene_reihe_v3 = skaliert_eigen_v3.reindex(master_index_v3).ffill()
                 else:
-                    m_str = "Nicht erreicht (>100J)"
-                    target_date = "N/A"
-            
-                summary_list.append({
-                    "rate": r_mo_pct, "rate_pa": r_pa_pct, "ziel_100k": m_str, "ziel_datum": target_date,
-                    "j1": monthly_vals[12], "j2": monthly_vals[24], "j3": monthly_vals[36],
-                    "j4": monthly_vals[48], "j5": monthly_vals[60],
-                })
+                    eigene_reihe_v3 = pd.Series(index=master_index_v3, dtype=float)
 
-            karten_html = '<div style="display: flex; flex-direction: column; gap: 10px;">'
-            for e in summary_list:
-                karten_html += f"""
-                <div style="background: #09090B; border: 1px solid #27272A; border-radius: 6px; padding: 12px 14px;">
-                    <div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">
-                        {e['rate']:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e['rate_pa']:.2f}% p.a.)</span>
-                    </div>
-                    <div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e['ziel_100k']}</div>
-                    <div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e['ziel_datum']}</div>
-                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; border-top: 1px solid #1A1A1A; padding-top: 8px;">
-                        <div><div style="font-size: 0.65rem; color: #71717A;">1J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j1'], 0)}</div></div>
-                        <div><div style="font-size: 0.65rem; color: #71717A;">2J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j2'], 0)}</div></div>
-                        <div><div style="font-size: 0.65rem; color: #71717A;">3J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j3'], 0)}</div></div>
-                        <div><div style="font-size: 0.65rem; color: #71717A;">4J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j4'], 0)}</div></div>
-                        <div><div style="font-size: 0.65rem; color: #71717A;">5J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j5'], 0)}</div></div>
-                    </div>
-                </div>"""
-            karten_html += "</div>"
-            st.markdown(karten_html, unsafe_allow_html=True)
+                benchmark_series_v3 = {}
+                benchmark_start_daten_v3 = {}
+                for label, inst_id in config.BENCHMARKS.items():
+                    s_v3, erstes_datum_v3 = benchmark_normiert_auf_startkapital(
+                        master_index_v3, inst_id, config.VERGLEICH3_START_DATUM, heute_date, v3_kapital
+                    )
+                    if s_v3 is not None:
+                        benchmark_series_v3[label] = s_v3
+                        benchmark_start_daten_v3[label] = erstes_datum_v3
 
-            fig_scen = go.Figure()
-            months_x = list(range(61))
+                # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
+                # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
+                ausgewaehlte_v3 = lese_pills_auswahl_still(benchmark_series_v3.keys(), key="benchmark_v3_pills")
+
+                fig_v3 = go.Figure()
+                fig_v3.add_trace(go.Scatter(
+                    x=master_index_v3, y=[v3_kapital] * len(master_index_v3),
+                    name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
+                ))
+                fig_v3.add_trace(go.Scatter(
+                    x=eigene_reihe_v3.index, y=eigene_reihe_v3, name=f"Hauptindizes Global ({config.WKN})",
+                    line=dict(color="#00C853", width=2.5),
+                ))
+                benchmark_colors_v3 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
+                legende_eintraege_v3 = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
+                for i, (label, s) in enumerate(benchmark_series_v3.items()):
+                    if label not in ausgewaehlte_v3:
+                        continue
+                    farbe_v3 = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
+                    fig_v3.add_trace(go.Scatter(
+                        x=master_index_v3, y=s, name=label,
+                        line=dict(color=farbe_v3, width=1.5, dash="dashdot"),
+                    ))
+                    legende_eintraege_v3.append((label, farbe_v3))
+
+                fig_v3.update_layout(
+                    paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=40, b=40), height=450,
+                    showlegend=False,
+                    xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
+                    yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000),
+                    hovermode="x unified",
+                )
+                performance_liste_v3 = []
+                if not roh_eigen_v3.empty and roh_eigen_v3.iloc[0] > 0:
+                    start_datum_eigen_v3 = tatsaechlicher_start_v3.date() if tatsaechlicher_start_v3 is not None else config.VERGLEICH3_START_DATUM
+                    gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
+                        roh_eigen_v3.iloc[0], roh_eigen_v3.iloc[-1], start_datum_eigen_v3, heute_date
+                    )
+                    performance_liste_v3.append({
+                        "Wert": f"Hauptindizes Global ({config.WKN})",
+                        "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                        "_gelistet_seit": start_datum_eigen_v3,
+                    })
+                for label, s in benchmark_series_v3.items():
+                    s_gueltig = s.dropna()
+                    if label in ausgewaehlte_v3 and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
+                        start_dieser_wert = benchmark_start_daten_v3.get(label)
+                        start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.VERGLEICH3_START_DATUM
+                        gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
+                            s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
+                        )
+                        performance_liste_v3.append({
+                            "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
+                            "_gelistet_seit": start_dieser_wert,
+                        })
+
+                if performance_liste_v3:
+                    st.caption(f"📅 Berechnet seit {config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')} (bzw. erstem verfügbaren Kurs)")
+                    performance_liste_v3.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    zeilen_html_v3 = ""
+                    for eintrag in performance_liste_v3:
+                        farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
+                        zeilen_html_v3 += f"""
+                        <tr style="border-bottom: 1px solid #1A1A1A;">
+                            <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
+                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
+                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
+                            <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
+                        </tr>"""
+                    st.markdown(f"""
+                    <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid #27272A;">
+                                <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
+                            </tr>
+                        </thead>
+                        <tbody>{zeilen_html_v3}
+                        </tbody>
+                    </table>
+                    """, unsafe_allow_html=True)
+
+                with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
+                    st.caption(
+                        f"Alle Werte neu skaliert: {fmt(v3_kapital, 0)} investiert am "
+                        f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}, unabhängig vom "
+                        "eigentlichen Kaufdatum deines Zertifikats."
+                    )
+                    if tatsaechlicher_start_v3 is not None and tatsaechlicher_start_v3 > v3_start:
+                        st.info(
+                            f"ℹ️ Für {config.WKN} liegen erst ab {tatsaechlicher_start_v3.strftime('%d.%m.%Y')} "
+                            "Kursdaten vor (vermutlich Auflegungsdatum des Zertifikats) - die Linie beginnt "
+                            "entsprechend später als die Vergleichswerte, keine erfundenen Daten. Die "
+                            "Vergleichswerte selbst laufen trotzdem über den vollen Zeitraum seit "
+                            f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}."
+                        )
+                    zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
+                    pills_auswahl(benchmark_series_v3.keys(), key="benchmark_v3_pills")
+
+                st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
+
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Seit-2021", e)
+    _render_2021()
+
+    @st.fragment
+    def _render_trades():
+        try:
+            def load_db():
+                return gh_read(config.STATE_PATH_TRADES_DB, [])
+
+            def save_db(data):
+                gh_write(config.STATE_PATH_TRADES_DB, data, message="update trades log [skip ci]")
+
+            db_events = load_db()
+
+            with tab_trades:
+                st.markdown("### 📋 Historie")
+                if not db_events:
+                    st.info("Keine Einträge vorhanden.")
+                else:
+                    for ev in db_events:
+                        st.markdown(f"""
+                            <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
+                                <div style="font-size: 0.75rem; color: #71717A;"><b>[{ev.get('typ','')}]</b> - {ev.get('datum','')}</div>
+                                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{ev.get('titel','')}</div>
+                                <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt','')}</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+
+                with st.form("trade_form", clear_on_submit=True):
+                    col1, col2, col3 = st.columns([2, 2, 3])
+                    with col1: et = st.selectbox("Typ", ["Trade", "Kommentar", "Hinweis"])
+                    with col2: ed = st.date_input("Datum", heute_date)
+                    with col3: eti = st.text_input("Titel")
+                    ei = st.text_area("Details")
+                    if st.form_submit_button("Speichern") and eti:
+                        db_events.insert(0, {"id": len(db_events) + 1, "typ": et, "datum": ed.strftime("%Y-%m-%d"), "titel": eti, "inhalt": ei})
+                        save_db(db_events)
+                        st.rerun(scope="fragment")
+
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Trader-Log", e)
+    _render_trades()
+
+    @st.fragment
+    def _render_candle():
+        try:
+            with tab_candle:
+                fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
+                fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False)
+                st.plotly_chart(fig_c, width="stretch", key="chart_candlestick")
+                st.caption(
+                    "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
+                    "Der GitHub-Actions-Cron protokolliert seit Kurzem zusätzlich alle 5 Min den "
+                    "echten Kurs in state/price_history/ — daraus lässt sich künftig ein echter "
+                    "Intraday-Chart bauen, sobald genug Historie gesammelt ist."
+                )
+
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Candlestick", e)
+    _render_candle()
+
+    @st.fragment
+    def _render_forecast():
+        try:
+            with tab_forecast:
+                st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
     
-            for label, vals in scenario_series.items():
-                fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
+                forecast_data = [
+                    {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(config.STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(config.STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
+                    {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
+                ]
+    
+                sim_b_prog, sim_n_prog, sim_e_prog = brutto_ist, netto_ist, gesamt_entnommen
+                milestone_added = brutto_ist >= 100000.0
 
-            fig_scen.add_hline(
-                y=100000, 
-                line_dash="dot", 
-                line_color="#00C853", 
-                annotation_text="🎯 100k Zielwert", 
-                annotation_position="top left",
-                annotation_font=dict(color="#00C853", size=11)
-            )
+                for m_idx in range(1, 121):
+                    sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo))
+                    sim_e_prog += config.ENTNAHME_PM
+                    sim_n_prog = sim_b_prog - sim_e_prog
+        
+                    current_date = now_berlin.replace(tzinfo=None) + pd.DateOffset(months=m_idx)
+        
+                    if not milestone_added and sim_b_prog >= 100000.0:
+                        forecast_data.append({
+                            "Index": "🎯", "Jahr": "100k Meilenstein",
+                            "Datum": current_date.strftime("%d.%m.%Y"),
+                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
+                            "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+                        })
+                        milestone_added = True
 
-            fig_scen.update_layout(
-                title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
-                paper_bgcolor="#000000", plot_bgcolor="#000000",
-                margin=dict(l=10, r=60, t=80, b=120), 
-                height=580, 
-                legend=dict(
-                    orientation="h", 
-                    yanchor="top", 
-                    y=-0.15,  
-                    xanchor="center", 
-                    x=0.5, 
-                    font=dict(color="#E5E7EB", size=11)
-                ),
-                xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
-                yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
-                hovermode="x unified",
-            )
-            st.plotly_chart(fig_scen, width="stretch", key="chart_scenarios")
-    except Exception as e:
-        st.error(f"⚠️ Fehler beim Rendern der Tabs: {e}")
-        notify_app_error("Tab-Rendering", e)
+                    if m_idx % 12 == 0:
+                        forecast_data.append({
+                            "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
+                            "Datum": current_date.strftime("%d.%m.%Y"),
+                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
+                            "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+                        })
+            
+                df_forecast = pd.DataFrame(forecast_data)
+                df_forecast["Index"] = df_forecast["Index"].astype(str)
+                st.dataframe(df_forecast, width="stretch", hide_index=True, key="df_forecast")
+
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Prognose", e)
+    _render_forecast()
+
+    @st.fragment
+    def _render_scenarios():
+        try:
+            with tab_scenarios:
+                st.markdown(
+                    '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
+                    '📊 Szenario-Analyse (1,0% – 6,0% p.M.)</div>',
+                    unsafe_allow_html=True,
+                )
+                st.caption("✏️ Beide Werte unten frei anpassbar, um eigene Annahmen durchzurechnen:")
+
+                col_sk, col_en = st.columns(2)
+                with col_sk:
+                    startkapital_szenario = st.number_input(
+                        "✏️ Startkapital (€)", min_value=0.0, value=float(config.STARTKAPITAL),
+                        step=100.0, key="szenario_startkapital",
+                    )
+                with col_en:
+                    entnahme_eingabe = st.number_input(
+                        "✏️ Monatliche Entnahme (€)", min_value=0.0, value=float(config.ENTNAHME_PM),
+                        step=10.0, key="szenario_entnahme",
+                    )
+
+                ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
+                entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
+
+                szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
+    
+                summary_list = []
+                scenario_series = {}
+
+                for r_mo_pct in szenario_raten_mo:
+                    r_mo = r_mo_pct / 100.0
+                    r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
+        
+                    cap_sim = startkapital_szenario
+                    m_to_100k = None
+                    for m in range(1, 1200):
+                        cap_sim = (cap_sim * (1 + r_mo)) - entnahme_fuer_szenario
+                        if cap_sim >= 100000.0:
+                            m_to_100k = m
+                            break
+
+                    monthly_vals = [startkapital_szenario]
+                    cap_5y = startkapital_szenario
+                    for m in range(1, 61):
+                        cap_5y = (cap_5y * (1 + r_mo)) - entnahme_fuer_szenario
+                        monthly_vals.append(max(0, cap_5y))
+            
+                    scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
+        
+                    if m_to_100k is not None:
+                        years_100k = m_to_100k // 12
+                        rem_months = m_to_100k % 12
+                        m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
+                        target_date = (pd.to_datetime(config.KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+                    else:
+                        m_str = "Nicht erreicht (>100J)"
+                        target_date = "N/A"
+            
+                    summary_list.append({
+                        "rate": r_mo_pct, "rate_pa": r_pa_pct, "ziel_100k": m_str, "ziel_datum": target_date,
+                        "j1": monthly_vals[12], "j2": monthly_vals[24], "j3": monthly_vals[36],
+                        "j4": monthly_vals[48], "j5": monthly_vals[60],
+                    })
+
+                karten_html = '<div style="display: flex; flex-direction: column; gap: 10px;">'
+                for e in summary_list:
+                    karten_html += f"""
+                    <div style="background: #09090B; border: 1px solid #27272A; border-radius: 6px; padding: 12px 14px;">
+                        <div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">
+                            {e['rate']:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e['rate_pa']:.2f}% p.a.)</span>
+                        </div>
+                        <div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e['ziel_100k']}</div>
+                        <div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e['ziel_datum']}</div>
+                        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; border-top: 1px solid #1A1A1A; padding-top: 8px;">
+                            <div><div style="font-size: 0.65rem; color: #71717A;">1J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j1'], 0)}</div></div>
+                            <div><div style="font-size: 0.65rem; color: #71717A;">2J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j2'], 0)}</div></div>
+                            <div><div style="font-size: 0.65rem; color: #71717A;">3J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j3'], 0)}</div></div>
+                            <div><div style="font-size: 0.65rem; color: #71717A;">4J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j4'], 0)}</div></div>
+                            <div><div style="font-size: 0.65rem; color: #71717A;">5J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j5'], 0)}</div></div>
+                        </div>
+                    </div>"""
+                karten_html += "</div>"
+                st.markdown(karten_html, unsafe_allow_html=True)
+
+                fig_scen = go.Figure()
+                months_x = list(range(61))
+    
+                for label, vals in scenario_series.items():
+                    fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
+
+                fig_scen.add_hline(
+                    y=100000, 
+                    line_dash="dot", 
+                    line_color="#00C853", 
+                    annotation_text="🎯 100k Zielwert", 
+                    annotation_position="top left",
+                    annotation_font=dict(color="#00C853", size=11)
+                )
+
+                fig_scen.update_layout(
+                    title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
+                    paper_bgcolor="#000000", plot_bgcolor="#000000",
+                    margin=dict(l=10, r=60, t=80, b=120), 
+                    height=580, 
+                    legend=dict(
+                        orientation="h", 
+                        yanchor="top", 
+                        y=-0.15,  
+                        xanchor="center", 
+                        x=0.5, 
+                        font=dict(color="#E5E7EB", size=11)
+                    ),
+                    xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
+                    yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
+                    hovermode="x unified",
+                )
+                st.plotly_chart(fig_scen, width="stretch", key="chart_scenarios")
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Szenarien", e)
+    _render_scenarios()
+
 
 
 render_dashboard()
