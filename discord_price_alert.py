@@ -10,6 +10,7 @@ Branch-Checkout/-Push mehr noetig.
 import datetime
 import logging
 import os
+import re
 import sys
 from zoneinfo import ZoneInfo
 
@@ -74,6 +75,29 @@ def get_live_market_data():
     if akt <= 0 or vor <= 0:
         raise ValueError("Ungueltige Kurswerte von ls-tc.de erhalten.")
     return akt, vor
+
+
+def hole_onvista_kontrollkurs():
+    """Best-effort Kontrollkurs von onvista.de - unabhaengige Zweitquelle
+    (Lang & Schwarz Notierung, gleicher Handelsplatz wie ls-tc.de), fuer den
+    Plausibilitaets-Check bei verdaechtigen Kurssprüngen. Der Preis steht im
+    normal ausgelieferten Seiteninhalt (kein Login, kein JS noetig).
+    Gibt None zurueck, wenn's nicht klappt - dann greift nur die feste
+    Prozent-Schwelle allein, kein Absturz."""
+    try:
+        r = requests.get(
+            "https://www.onvista.de/derivate/Index-Zertifikate/302671598-LS9VFS-DE000LS9VFS2",
+            headers={"User-Agent": config.LS_TC_HEADERS["User-Agent"]},
+            timeout=8,
+        )
+        r.raise_for_status()
+        match = re.search(r"Lang\s*&amp;\s*Schwarz.{0,400}?(\d{1,4},\d{2,3})\s*EUR", r.text, re.DOTALL)
+        if not match:
+            return None
+        return float(match.group(1).replace(",", "."))
+    except Exception as e:
+        logging.warning(f"onvista-Kontrollkurs nicht abrufbar (kein Problem, nur Zweitquelle): {e}")
+        return None
 
 
 def send_discord(msg):
@@ -179,6 +203,36 @@ def main():
         sys.exit(1)
 
     pct_change = ((akt - vor) / vor) * 100
+
+    # --- PLAUSIBILITAETS-CHECK: unrealistische Kurssprünge verwerfen ---
+    # Ein Zertifikat wie dieses bewegt sich realistisch nie um mehrere Dutzend
+    # Prozent innerhalb von 5 Minuten. Werte jenseits dieser Schwelle sind mit
+    # sehr hoher Wahrscheinlichkeit ein Uebertragungsfehler von ls-tc.de (z.B.
+    # ein versehentlich halbierter Wert), keine echte Marktbewegung - dann
+    # lieber den Lauf ueberspringen als einen Fehlalarm mit einem falschen
+    # Kurs zu verschicken.
+    if abs(pct_change) > config.PLAUSIBILITAETS_SCHWELLE_PCT:
+        kontrollkurs = hole_onvista_kontrollkurs()
+        onvista_bestaetigt = (
+            kontrollkurs is not None and akt > 0
+            and abs(kontrollkurs - akt) / akt * 100 <= 5.0
+        )
+        if onvista_bestaetigt:
+            logging.info(
+                f"ls-tc.de-Sprung wirkte unplausibel ({pct_change:+.2f}%), aber onvista.de "
+                f"bestätigt einen ähnlichen Kurs ({kontrollkurs:.3f}€ vs. {akt:.3f}€) - "
+                f"scheint doch echt zu sein, Alarm wird normal weiterverarbeitet."
+            )
+        else:
+            logging.error(
+                f"Unplausibler Kurssprung verworfen: {vor:.3f}€ -> {akt:.3f}€ "
+                f"({pct_change:+.2f}%, Schwelle: ±{config.PLAUSIBILITAETS_SCHWELLE_PCT:.0f}%). "
+                f"onvista-Kontrollkurs: {kontrollkurs if kontrollkurs else 'nicht abrufbar'} - "
+                f"kein Beleg für einen echten Kurssprung, vermutlich Datenfehler von ls-tc.de. "
+                f"Überspringe diesen Lauf ohne Discord-Nachricht."
+            )
+            ping_healthcheck()  # Lauf war technisch erfolgreich (kein Crash), nur der Kurswert unplausibel
+            return
 
     log_price_history(akt, now)
     check_high_watermark(akt, now)
