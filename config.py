@@ -38,6 +38,13 @@ ENTNAHME_MODUS_VERGLEICH = True  # zeigt beide Varianten parallel im Chart an
 # --- ALARME ---
 TAGESVERLUST_SCHWELLE_PCT = -1.0
 
+# Kurssprünge jenseits dieser Schwelle (Betrag, in %) gelten als unplausibel/
+# Datenfehler und werden verworfen statt einen (Fehl-)Alarm auszuloesen.
+# 30% ist bewusst grosszuegig gewaehlt, um selbst sehr volatile echte Tage
+# nicht faelschlich zu verwerfen, faengt aber Faelle wie eine versehentliche
+# Kurshalbierung (~50%) zuverlaessig ab.
+PLAUSIBILITAETS_SCHWELLE_PCT = 30.0
+
 # --- HANDELSZEITEN (Lang & Schwarz Exchange, Quelle: wikifolio.com/Partner-Seite) ---
 # Mo-Fr 7:30-23:00, Sa 10:00-13:00, So 17:00-19:00 (jeweils Europe/Berlin,
 # DST wird automatisch korrekt beruecksichtigt, da mit tz-aware datetime
@@ -148,6 +155,7 @@ STATE_PATH_ALARM = "state/alarm_state.json"
 STATE_PATH_PRICE_ALERT = "state/price_alert_state.json"
 STATE_PATH_FETCH_FAIL_ALARM = "state/fetch_fail_alarm_state.json"
 STATE_PATH_APP_ERROR = "state/app_error_state.json"
+STATE_PATH_SPARPLAN = "state/sparplan_state.json"
 
 
 def price_history_csv_path(for_date=None):
