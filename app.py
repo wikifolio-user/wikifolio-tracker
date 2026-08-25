@@ -1164,27 +1164,27 @@ def render_dashboard():
             st.dataframe(df_forecast, width="stretch", hide_index=True, key="df_forecast")
 
         with tab_scenarios:
-            st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (1,0% bis 6,0% p.M.)")
+            st.markdown(
+                '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
+                '📊 Szenario-Analyse (1,0% – 6,0% p.M.)</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("✏️ Beide Werte unten frei anpassbar, um eigene Annahmen durchzurechnen:")
 
             col_sk, col_en = st.columns(2)
             with col_sk:
                 startkapital_szenario = st.number_input(
-                    "Startkapital (€)", min_value=0.0, value=float(config.STARTKAPITAL),
+                    "✏️ Startkapital (€)", min_value=0.0, value=float(config.STARTKAPITAL),
                     step=100.0, key="szenario_startkapital",
                 )
             with col_en:
                 entnahme_eingabe = st.number_input(
-                    "Monatliche Entnahme (€)", min_value=0.0, value=float(config.ENTNAHME_PM),
+                    "✏️ Monatliche Entnahme (€)", min_value=0.0, value=float(config.ENTNAHME_PM),
                     step=10.0, key="szenario_entnahme",
                 )
 
             ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
             entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
-
-            if ohne_entnahme:
-                st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(startkapital_szenario, 2)}**, **ohne** monatliche Entnahme (reines Wachstumsszenario).")
-            else:
-                st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(startkapital_szenario, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(entnahme_eingabe, 2)}**.")
 
             szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
     
