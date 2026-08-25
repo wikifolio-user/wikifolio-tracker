@@ -1327,17 +1327,23 @@ def render_dashboard():
                 col_sk, col_en = st.columns(2)
                 with col_sk:
                     startkapital_szenario = st.number_input(
-                        "✏️ Startkapital (€)", min_value=0.0, value=float(startkapital_aktiv),
+                        "✏️ Startkapital (€)", min_value=0.0, value=0.0,
                         step=100.0, key="szenario_startkapital",
                     )
                 with col_en:
                     entnahme_eingabe = st.number_input(
-                        "✏️ Monatliche Entnahme (€)", min_value=0.0, value=float(config.ENTNAHME_PM),
+                        "✏️ Monatliche Entnahme (€)", min_value=0.0, value=0.0,
                         step=10.0, key="szenario_entnahme",
                     )
+                sparrate_szenario = st.number_input(
+                    "✏️ Monatliche Sparrate (€)", min_value=0.0, value=0.0,
+                    step=10.0, key="szenario_sparrate",
+                    help="Zusätzliche monatliche Einzahlung - erhöht das Kapital jeden Monat, statt es zu verringern.",
+                )
 
                 ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
                 entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
+                netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
 
                 szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
     
@@ -1351,7 +1357,7 @@ def render_dashboard():
                     cap_sim = startkapital_szenario
                     m_to_100k = None
                     for m in range(1, 1200):
-                        cap_sim = (cap_sim * (1 + r_mo)) - entnahme_fuer_szenario
+                        cap_sim = (cap_sim * (1 + r_mo)) + netto_cashflow_szenario
                         if cap_sim >= 100000.0:
                             m_to_100k = m
                             break
@@ -1359,7 +1365,7 @@ def render_dashboard():
                     monthly_vals = [startkapital_szenario]
                     cap_5y = startkapital_szenario
                     for m in range(1, 61):
-                        cap_5y = (cap_5y * (1 + r_mo)) - entnahme_fuer_szenario
+                        cap_5y = (cap_5y * (1 + r_mo)) + netto_cashflow_szenario
                         monthly_vals.append(max(0, cap_5y))
             
                     scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
