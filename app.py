@@ -1327,7 +1327,7 @@ def render_dashboard():
                 col_sk, col_en = st.columns(2)
                 with col_sk:
                     startkapital_szenario = st.number_input(
-                        "✏️ Startkapital (€)", min_value=0.0, value=0.0,
+                        "✏️ Startkapital (€)", min_value=0.0, value=10000.0,
                         step=100.0, key="szenario_startkapital",
                     )
                 with col_en:
