@@ -421,6 +421,7 @@ def render_dashboard():
     df_chart["Kumulierte_Entnahme"] = [get_entnahme_at_date(ts) for ts in df_chart.index]
 
     entnommen_aktiv = st.session_state.get("haupt_entnommen_input", float(get_entnahme_at_date(now_berlin)))
+    sparrate_aktiv = st.session_state.get("haupt_sparrate_input", 0.0)
 
     # --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
     benchmark_series = {}
@@ -726,7 +727,6 @@ def render_dashboard():
     if "haupt_sparrate_input" not in st.session_state:
         sparrate_kwargs["value"] = 0.0
     st.number_input("✏️ Monatliche Sparrate (€)", **sparrate_kwargs)
-    sparrate_aktiv = st.session_state.get("haupt_sparrate_input", 0.0)
 
     # GRID OVERVIEW - Teil 2: High Watermark + restliche Kacheln
     st.markdown(f"""
