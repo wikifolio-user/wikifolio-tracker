@@ -813,14 +813,14 @@ def render_dashboard():
         """, unsafe_allow_html=True)
 
     # TABS
-    tab_wealth, tab_ytd, tab_2021, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
+    tab_wealth, tab_ytd, tab_2021, tab_candle, tab_forecast, tab_scenarios, tab_trades = st.tabs([
         "📈 VERMÖGENS- & SUBSTANZAUFBAU",
         "🔍 SEIT 01.01.2026",
         "🔎 SEIT 01.01.2021",
-        "📝 TRADER-LOG (TRADES & KOMMENTARE)",
         "🕯️ TAGES-CANDLESTICK",
         "🔮 ZUKUNFTS-PROGNOSE",
         "📊 SZENARIO-SIMULATOR (5 JAHRE)",
+        "📝 TRADER-LOG (TRADES & KOMMENTARE)",
     ])
 
     @st.fragment
