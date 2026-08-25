@@ -651,7 +651,7 @@ def render_dashboard():
     sim_b = brutto_ist
     monate_bis_ziel = 0
     while sim_b < 100000.0 and monate_bis_ziel < 600:
-        sim_b = (sim_b * (1 + erwarteter_zins_mo)) - config.ENTNAHME_PM
+        sim_b = (sim_b * (1 + erwarteter_zins_mo)) - config.ENTNAHME_PM + sparrate_aktiv
         monate_bis_ziel += 1
 
     monate_namen = {1: "Januar", 2: "Februar", 3: "März", 4: "April", 5: "Mai", 6: "Juni", 
@@ -717,6 +717,16 @@ def render_dashboard():
         if "haupt_entnommen_input" not in st.session_state:
             ek_kwargs["value"] = entnommen_aktiv
         st.number_input("✏️ Entnommenes Kapital (€)", **ek_kwargs)
+
+    sparrate_kwargs = dict(
+        min_value=0.0, step=10.0, key="haupt_sparrate_input",
+        help="Zusätzliche monatliche Einzahlung (Sparplan) - fließt in die Zukunfts-Hochrechnungen "
+             "(100k-Meilenstein, Zukunfts-Prognose-Tab) ein. Betrifft nicht die bisherige Historie.",
+    )
+    if "haupt_sparrate_input" not in st.session_state:
+        sparrate_kwargs["value"] = 0.0
+    st.number_input("✏️ Monatliche Sparrate (€)", **sparrate_kwargs)
+    sparrate_aktiv = st.session_state.get("haupt_sparrate_input", 0.0)
 
     # GRID OVERVIEW - Teil 2: High Watermark + restliche Kacheln
     st.markdown(f"""
@@ -1219,7 +1229,8 @@ def render_dashboard():
     def _render_forecast():
         try:
             with tab_forecast:
-                st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
+                sparrate_hinweis = f" Zusätzlich wird eine monatliche Sparrate von **{fmt(sparrate_aktiv, 2)}** eingerechnet." if sparrate_aktiv > 0 else ""
+                st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.{sparrate_hinweis}")
     
                 forecast_data = [
                     {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(startkapital_aktiv, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(startkapital_aktiv, 2), "Kumulierte Entnahme": "0,00€"},
@@ -1230,7 +1241,7 @@ def render_dashboard():
                 milestone_added = brutto_ist >= 100000.0
 
                 for m_idx in range(1, 121):
-                    sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo))
+                    sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo)) + sparrate_aktiv
                     sim_e_prog += config.ENTNAHME_PM
                     sim_n_prog = sim_b_prog - sim_e_prog
         
