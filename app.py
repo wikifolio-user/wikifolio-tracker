@@ -420,7 +420,7 @@ def render_dashboard():
 
     df_chart["Kumulierte_Entnahme"] = [get_entnahme_at_date(ts) for ts in df_chart.index]
 
-    entnommen_aktiv = st.session_state.get("haupt_entnommen_input", float(get_entnahme_at_date(now_berlin)))
+    entnommen_aktiv = st.session_state.get("haupt_entnommen_input", 0.0)
     sparrate_aktiv = st.session_state.get("haupt_sparrate_input", 0.0)
 
     # --- SPARPLAN: Startdatum persistent verfolgen (GitHub-State), damit die
@@ -748,7 +748,7 @@ def render_dashboard():
     with col_ek:
         ek_kwargs = dict(
             min_value=0.0, step=10.0, key="haupt_entnommen_input",
-            help="Standard: automatisch aus 70€/Monat seit Kaufdatum berechnet - hier überschreibbar.",
+            help="Standard: 0€ - hier frei einstellbar, ganz wie du es tatsächlich entnommen hast.",
         )
         if "haupt_entnommen_input" not in st.session_state:
             ek_kwargs["value"] = entnommen_aktiv
