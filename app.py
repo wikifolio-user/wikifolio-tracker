@@ -445,8 +445,8 @@ def render_dashboard():
             monate_sparplan -= 1
         monate_sparplan = max(0, monate_sparplan)
 
-        if monate_sparplan > 0 and not df_chart.empty:
-            for k in range(1, monate_sparplan + 1):
+        if not df_chart.empty:
+            for k in range(0, monate_sparplan + 1):
                 ziel_datum = pd.Timestamp(sparplan_start) + pd.DateOffset(months=k)
                 passende_tage = df_chart.index[df_chart.index <= ziel_datum]
                 preis_am_einzahlungstag = float(df_chart.loc[passende_tage[-1], "Close"]) if len(passende_tage) else aktueller_kurs
