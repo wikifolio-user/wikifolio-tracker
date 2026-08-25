@@ -1166,13 +1166,25 @@ def render_dashboard():
         with tab_scenarios:
             st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (1,0% bis 6,0% p.M.)")
 
+            col_sk, col_en = st.columns(2)
+            with col_sk:
+                startkapital_szenario = st.number_input(
+                    "Startkapital (€)", min_value=0.0, value=float(config.STARTKAPITAL),
+                    step=100.0, key="szenario_startkapital",
+                )
+            with col_en:
+                entnahme_eingabe = st.number_input(
+                    "Monatliche Entnahme (€)", min_value=0.0, value=float(config.ENTNAHME_PM),
+                    step=10.0, key="szenario_entnahme",
+                )
+
             ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
-            entnahme_fuer_szenario = 0.0 if ohne_entnahme else config.ENTNAHME_PM
+            entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
 
             if ohne_entnahme:
-                st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(config.STARTKAPITAL, 2)}**, **ohne** monatliche Entnahme (reines Wachstumsszenario).")
+                st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(startkapital_szenario, 2)}**, **ohne** monatliche Entnahme (reines Wachstumsszenario).")
             else:
-                st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(config.STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(config.ENTNAHME_PM, 2)}**.")
+                st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(startkapital_szenario, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(entnahme_eingabe, 2)}**.")
 
             szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
     
@@ -1183,7 +1195,7 @@ def render_dashboard():
                 r_mo = r_mo_pct / 100.0
                 r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
         
-                cap_sim = config.STARTKAPITAL
+                cap_sim = startkapital_szenario
                 m_to_100k = None
                 for m in range(1, 1200):
                     cap_sim = (cap_sim * (1 + r_mo)) - entnahme_fuer_szenario
@@ -1191,8 +1203,8 @@ def render_dashboard():
                         m_to_100k = m
                         break
 
-                monthly_vals = [config.STARTKAPITAL]
-                cap_5y = config.STARTKAPITAL
+                monthly_vals = [startkapital_szenario]
+                cap_5y = startkapital_szenario
                 for m in range(1, 61):
                     cap_5y = (cap_5y * (1 + r_mo)) - entnahme_fuer_szenario
                     monthly_vals.append(max(0, cap_5y))
@@ -1209,19 +1221,30 @@ def render_dashboard():
                     target_date = "N/A"
             
                 summary_list.append({
-                    "Ziel 100k (Monate)": m_str,
-                    "Monats-Rendite (p.M.)": f"{r_mo_pct:.1f}%",
-                    "Jahres-Wert (eff. p.a.)": f"{r_pa_pct:.2f}%",
-                    "Ziel-Datum (100k)": target_date,
-                    "Wert nach 1 Jahr": fmt(monthly_vals[12], 2),
-                    "Wert nach 2 Jahren": fmt(monthly_vals[24], 2),
-                    "Wert nach 3 Jahren": fmt(monthly_vals[36], 2),
-                    "Wert nach 4 Jahren": fmt(monthly_vals[48], 2),
-                    "Wert nach 5 Jahren": fmt(monthly_vals[60], 2),
+                    "rate": r_mo_pct, "rate_pa": r_pa_pct, "ziel_100k": m_str, "ziel_datum": target_date,
+                    "j1": monthly_vals[12], "j2": monthly_vals[24], "j3": monthly_vals[36],
+                    "j4": monthly_vals[48], "j5": monthly_vals[60],
                 })
 
-            df_summary = pd.DataFrame(summary_list)
-            st.dataframe(df_summary, width="stretch", hide_index=True, key="df_summary")
+            karten_html = '<div style="display: flex; flex-direction: column; gap: 10px;">'
+            for e in summary_list:
+                karten_html += f"""
+                <div style="background: #09090B; border: 1px solid #27272A; border-radius: 6px; padding: 12px 14px;">
+                    <div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">
+                        {e['rate']:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e['rate_pa']:.2f}% p.a.)</span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e['ziel_100k']}</div>
+                    <div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e['ziel_datum']}</div>
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; border-top: 1px solid #1A1A1A; padding-top: 8px;">
+                        <div><div style="font-size: 0.65rem; color: #71717A;">1J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j1'], 0)}</div></div>
+                        <div><div style="font-size: 0.65rem; color: #71717A;">2J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j2'], 0)}</div></div>
+                        <div><div style="font-size: 0.65rem; color: #71717A;">3J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j3'], 0)}</div></div>
+                        <div><div style="font-size: 0.65rem; color: #71717A;">4J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j4'], 0)}</div></div>
+                        <div><div style="font-size: 0.65rem; color: #71717A;">5J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j5'], 0)}</div></div>
+                    </div>
+                </div>"""
+            karten_html += "</div>"
+            st.markdown(karten_html, unsafe_allow_html=True)
 
             fig_scen = go.Figure()
             months_x = list(range(61))
