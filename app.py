@@ -365,7 +365,15 @@ def render_dashboard():
         df_chart.iloc[-1, df_chart.columns.get_loc("High")] = max(df_chart.iloc[-1]["High"], aktueller_kurs)
         df_chart.iloc[-1, df_chart.columns.get_loc("Low")] = min(df_chart.iloc[-1]["Low"], aktueller_kurs)
 
-    df_chart["Startkapital"] = config.STARTKAPITAL
+    # --- ANFANGSKAPITAL & ENTNOMMENES KAPITAL: manuell anpassbar ---
+    # Still aus dem gespeicherten Zustand lesen (Standard: config-Werte) - die
+    # sichtbaren Eingabefelder selbst stehen weiter unten, direkt unter der
+    # "Veränderung vs. Vortag"-Kachel. Aendert der Nutzer das Anfangskapital,
+    # wird die Stueckzahl konsistent neu berechnet (Anfangskapital / Kaufkurs).
+    startkapital_aktiv = st.session_state.get("haupt_startkapital_input", float(config.STARTKAPITAL))
+    stueckzahl_aktiv = startkapital_aktiv / config.ANFANGSKURS
+
+    df_chart["Startkapital"] = startkapital_aktiv
 
     # --- HIGH WATERMARK: mit echter Historie initialisieren/korrigieren ---
     # Der Cron kennt beim allerersten Lauf nur den aktuellen Kurs als "Hoch" -
@@ -395,12 +403,14 @@ def render_dashboard():
 
     df_chart["Kumulierte_Entnahme"] = [get_entnahme_at_date(ts) for ts in df_chart.index]
 
+    entnommen_aktiv = st.session_state.get("haupt_entnommen_input", float(get_entnahme_at_date(now_berlin)))
+
     # --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
     benchmark_series = {}
     benchmark_start_daten = {}
     for label, inst_id in config.BENCHMARKS.items():
         s, erstes_datum = benchmark_normiert_auf_startkapital(
-            df_chart.index, inst_id, config.KAUFDATUM, heute_date, config.STARTKAPITAL
+            df_chart.index, inst_id, config.KAUFDATUM, heute_date, startkapital_aktiv
         )
         if s is not None:
             benchmark_series[label] = s
@@ -408,7 +418,7 @@ def render_dashboard():
 
     # --- SIMULATION (bisheriges Verhalten): Stückzahl bleibt konstant, Entnahme
     # wird nur buchhalterisch vom Bruttowert abgezogen. ---
-    df_chart["Depotwert_Brutto"] = df_chart["Close"] * config.STUECKZAHL
+    df_chart["Depotwert_Brutto"] = df_chart["Close"] * stueckzahl_aktiv
     df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
 
     def zeige_chart_legende_liste(eintraege):
@@ -476,7 +486,7 @@ def render_dashboard():
         return verlauf
 
     df_chart["Stueckzahl_Real"] = berechne_reale_stueckzahl(
-        df_chart, config.STUECKZAHL, config.ENTNAHME_PM, start_dt, config.SPREAD_PCT
+        df_chart, stueckzahl_aktiv, config.ENTNAHME_PM, start_dt, config.SPREAD_PCT
     )
     df_chart["Depotwert_Real"] = df_chart["Close"] * df_chart["Stueckzahl_Real"]
 
@@ -611,14 +621,14 @@ def render_dashboard():
     if now_berlin.day < start_dt.day:
         heutige_monate_anzahl -= 1
 
-    gesamt_entnommen = heutige_monate_anzahl * config.ENTNAHME_PM
-    brutto_ist = config.STUECKZAHL * aktueller_kurs
+    gesamt_entnommen = entnommen_aktiv
+    brutto_ist = stueckzahl_aktiv * aktueller_kurs
     netto_ist = brutto_ist - gesamt_entnommen
-    gewinn_brutto = brutto_ist - config.STARTKAPITAL
+    gewinn_brutto = brutto_ist - startkapital_aktiv
     rendite_ist_pct = ((aktueller_kurs - config.ANFANGSKURS) / config.ANFANGSKURS) * 100
 
     # Reale Variante fuer die aktuellen Kennzahlen (Stückzahl nach echten Verkäufen)
-    stueckzahl_real_ist = df_chart["Stueckzahl_Real"].iloc[-1] if not df_chart.empty else config.STUECKZAHL
+    stueckzahl_real_ist = df_chart["Stueckzahl_Real"].iloc[-1] if not df_chart.empty else stueckzahl_aktiv
     depotwert_real_ist = stueckzahl_real_ist * aktueller_kurs
 
     sim_b = brutto_ist
@@ -658,7 +668,7 @@ def render_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
-    # GRID OVERVIEW
+    # GRID OVERVIEW - Teil 1: Veränderung vs. Vortag
     st.markdown(f"""
     <div class="grid-container">
         <div class="m-card">
@@ -666,49 +676,67 @@ def render_dashboard():
             <div class="m-val {verenderung_cls}">{tages_verenderung_pct:+.2f}%</div>
             <div class="m-sub">Vortag: {vortag_kurs:.3f}€</div>
         </div>
-        <div class="m-card">
-            <div class="m-label">Brutto Depotwert</div>
-            <div class="m-val pos">{fmt(brutto_ist, 2)}</div>
-            <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {erwartete_rendite_pa:.1f}% p.a.</div>
-            <div class="m-sub">{config.STUECKZAHL:.4f} Anteile (unverändert seit Kauf)</div>
-        </div>
-        <div class="m-card">
-            <div class="m-label">Netto (Simulation)</div>
-            <div class="m-val blue">{fmt(netto_ist, 2)}</div>
-            <div class="m-sub">Entnahme nur buchhalterisch abgezogen</div>
-        </div>
-        <div class="m-card">
-            <div class="m-label">Netto (Real, Anteile verkauft)</div>
-            <div class="m-val" style="color:#FFB300;">{fmt(depotwert_real_ist, 2)}</div>
-            <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme (inkl. {config.SPREAD_PCT:.2f}% Spread)</div>
-        </div>
-        <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
-            <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
-            <div class="m-val" style="color: #00C853; font-size: 1.15rem;">{meilenstein_datum_str}</div>
-            <div class="m-sub" style="color: #CBD5E1; font-size: 0.75rem;">{meilenstein_details_str}</div>
-        </div>
-        <div class="m-card">
-            <div class="m-label">Entnommenes Kapital</div>
-            <div class="m-val orange">{fmt(gesamt_entnommen, 2)}</div>
-            <div class="m-sub">Monatlich: {fmt(config.ENTNAHME_PM, 2)}</div>
-        </div>
-        <div class="m-card">
-            <div class="m-label">Anfangskapital</div>
-            <div class="m-val">{fmt(config.STARTKAPITAL, 2)}</div>
-            <div class="m-sub">Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€</div>
-        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- ANFANGSKAPITAL & ENTNOMMENES KAPITAL: editierbar, direkt unter der Vortag-Kachel ---
+    col_ak, col_ek = st.columns(2)
+    with col_ak:
+        st.number_input(
+            "✏️ Anfangskapital (€)", min_value=0.0, value=startkapital_aktiv,
+            step=100.0, key="haupt_startkapital_input",
+            help=f"Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€ - Stückzahl wird automatisch neu berechnet.",
+        )
+    with col_ek:
+        st.number_input(
+            "✏️ Entnommenes Kapital (€)", min_value=0.0, value=entnommen_aktiv,
+            step=10.0, key="haupt_entnommen_input",
+            help="Standard: automatisch aus 70€/Monat seit Kaufdatum berechnet - hier überschreibbar.",
+        )
+
+    # GRID OVERVIEW - Teil 2: High Watermark + restliche Kacheln
+    st.markdown(f"""
+    <div class="grid-container">
         <div class="m-card" style="border-left: 3px solid #FFB300;">
             <div class="m-label" style="color: #FFB300;">🏆 High Watermark</div>
             <div class="m-val" style="color: #FFB300;">{high_watermark_anzeige:.3f}€</div>
             <div class="m-sub">Ab hier: {config.PERFORMANCE_FEE_PCT:.1f}% Performance Fee auf neue Gewinne</div>
         </div>
         <div class="m-card">
-            <div class="m-label">Laufende Kosten (im Kurs enthalten)</div>
-            <div class="m-val" style="font-size: 1.1rem;">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f}% p.a.</div>
-            <div class="m-sub">Zertifikatsgebühr, bereits im ls-tc.de-Kurs eingepreist</div>
+            <div class="m-label">Brutto Depotwert</div>
+            <div class="m-val pos">{fmt(brutto_ist, 2)}</div>
+            <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {erwartete_rendite_pa:.1f}% p.a.</div>
+            <div class="m-sub">{stueckzahl_aktiv:.4f} Anteile</div>
+        </div>
+        <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
+            <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
+            <div class="m-val" style="color: #00C853; font-size: 1.15rem;">{meilenstein_datum_str}</div>
+            <div class="m-sub" style="color: #CBD5E1; font-size: 0.75rem;">{meilenstein_details_str}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # --- NETTO-WERTE (Simulation/Real) + Kosten-Hinweis: nur bei Bedarf einblenden ---
+    with st.expander("💰 Netto-Werte & laufende Kosten anzeigen", expanded=False):
+        st.markdown(f"""
+        <div class="grid-container">
+            <div class="m-card">
+                <div class="m-label">Netto (Simulation)</div>
+                <div class="m-val blue">{fmt(netto_ist, 2)}</div>
+                <div class="m-sub">Entnahme nur buchhalterisch abgezogen</div>
+            </div>
+            <div class="m-card">
+                <div class="m-label">Netto (Real, Anteile verkauft)</div>
+                <div class="m-val" style="color:#FFB300;">{fmt(depotwert_real_ist, 2)}</div>
+                <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme (inkl. {config.SPREAD_PCT:.2f}% Spread)</div>
+            </div>
+            <div class="m-card">
+                <div class="m-label">Laufende Kosten (im Kurs enthalten)</div>
+                <div class="m-val" style="font-size: 1.1rem;">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f}% p.a.</div>
+                <div class="m-sub">Zertifikatsgebühr, bereits im ls-tc.de-Kurs eingepreist</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # TABS
     tab_wealth, tab_ytd, tab_2021, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
@@ -791,7 +819,7 @@ def render_dashboard():
                         f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
                         f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
                         "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
-                        f"{fmt(config.STARTKAPITAL, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
+                        f"{fmt(startkapital_aktiv, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
                         "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
                     )
                     zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
@@ -1170,7 +1198,7 @@ def render_dashboard():
                 st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
     
                 forecast_data = [
-                    {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(config.STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(config.STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
+                    {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(startkapital_aktiv, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(startkapital_aktiv, 2), "Kumulierte Entnahme": "0,00€"},
                     {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
                 ]
     
@@ -1188,7 +1216,7 @@ def render_dashboard():
                         forecast_data.append({
                             "Index": "🎯", "Jahr": "100k Meilenstein",
                             "Datum": current_date.strftime("%d.%m.%Y"),
-                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
+                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - startkapital_aktiv, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                         })
                         milestone_added = True
@@ -1197,7 +1225,7 @@ def render_dashboard():
                         forecast_data.append({
                             "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
                             "Datum": current_date.strftime("%d.%m.%Y"),
-                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - config.STARTKAPITAL, 2)}",
+                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - startkapital_aktiv, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                         })
             
@@ -1224,7 +1252,7 @@ def render_dashboard():
                 col_sk, col_en = st.columns(2)
                 with col_sk:
                     startkapital_szenario = st.number_input(
-                        "✏️ Startkapital (€)", min_value=0.0, value=float(config.STARTKAPITAL),
+                        "✏️ Startkapital (€)", min_value=0.0, value=float(startkapital_aktiv),
                         step=100.0, key="szenario_startkapital",
                     )
                 with col_en:
