@@ -1164,10 +1164,17 @@ def render_dashboard():
             st.dataframe(df_forecast, width="stretch", hide_index=True, key="df_forecast")
 
         with tab_scenarios:
-            st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (2,0% bis 6,0% p.M.)")
-            st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(config.STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(config.ENTNAHME_PM, 2)}**.")
+            st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (1,0% bis 6,0% p.M.)")
 
-            szenario_raten_mo = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
+            ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
+            entnahme_fuer_szenario = 0.0 if ohne_entnahme else config.ENTNAHME_PM
+
+            if ohne_entnahme:
+                st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(config.STARTKAPITAL, 2)}**, **ohne** monatliche Entnahme (reines Wachstumsszenario).")
+            else:
+                st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(config.STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(config.ENTNAHME_PM, 2)}**.")
+
+            szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
     
             summary_list = []
             scenario_series = {}
@@ -1179,7 +1186,7 @@ def render_dashboard():
                 cap_sim = config.STARTKAPITAL
                 m_to_100k = None
                 for m in range(1, 1200):
-                    cap_sim = (cap_sim * (1 + r_mo)) - config.ENTNAHME_PM
+                    cap_sim = (cap_sim * (1 + r_mo)) - entnahme_fuer_szenario
                     if cap_sim >= 100000.0:
                         m_to_100k = m
                         break
@@ -1187,7 +1194,7 @@ def render_dashboard():
                 monthly_vals = [config.STARTKAPITAL]
                 cap_5y = config.STARTKAPITAL
                 for m in range(1, 61):
-                    cap_5y = (cap_5y * (1 + r_mo)) - config.ENTNAHME_PM
+                    cap_5y = (cap_5y * (1 + r_mo)) - entnahme_fuer_szenario
                     monthly_vals.append(max(0, cap_5y))
             
                 scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
