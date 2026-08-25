@@ -49,6 +49,13 @@ st.markdown("""
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
+    /* Zahlen-Eingabefelder (Anfangskapital, Entnommenes Kapital, Szenario-
+       Werte) - Text deutlich groesser, war im Verhaeltnis zur Feldgroesse
+       zu klein und kaum lesbar. */
+    [data-testid="stNumberInput"] input {
+        font-size: 1.3rem !important;
+        font-weight: 700 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -680,19 +687,26 @@ def render_dashboard():
     """, unsafe_allow_html=True)
 
     # --- ANFANGSKAPITAL & ENTNOMMENES KAPITAL: editierbar, direkt unter der Vortag-Kachel ---
+    # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
+    # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein: value + key
+    # gleichzeitig auf jedem Rerun kann zu unnoetigen Extra-Reruns fuehren).
     col_ak, col_ek = st.columns(2)
     with col_ak:
-        st.number_input(
-            "✏️ Anfangskapital (€)", min_value=0.0, value=startkapital_aktiv,
-            step=100.0, key="haupt_startkapital_input",
+        ak_kwargs = dict(
+            min_value=0.0, step=100.0, key="haupt_startkapital_input",
             help=f"Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€ - Stückzahl wird automatisch neu berechnet.",
         )
+        if "haupt_startkapital_input" not in st.session_state:
+            ak_kwargs["value"] = startkapital_aktiv
+        st.number_input("✏️ Anfangskapital (€)", **ak_kwargs)
     with col_ek:
-        st.number_input(
-            "✏️ Entnommenes Kapital (€)", min_value=0.0, value=entnommen_aktiv,
-            step=10.0, key="haupt_entnommen_input",
+        ek_kwargs = dict(
+            min_value=0.0, step=10.0, key="haupt_entnommen_input",
             help="Standard: automatisch aus 70€/Monat seit Kaufdatum berechnet - hier überschreibbar.",
         )
+        if "haupt_entnommen_input" not in st.session_state:
+            ek_kwargs["value"] = entnommen_aktiv
+        st.number_input("✏️ Entnommenes Kapital (€)", **ek_kwargs)
 
     # GRID OVERVIEW - Teil 2: High Watermark + restliche Kacheln
     st.markdown(f"""
