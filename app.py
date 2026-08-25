@@ -752,7 +752,7 @@ def render_dashboard():
         )
         if "haupt_entnommen_input" not in st.session_state:
             ek_kwargs["value"] = entnommen_aktiv
-        st.number_input("✏️ Entnommenes Kapital (€)", **ek_kwargs)
+        st.number_input("✏️ Monatliches Entnommenes Kapital (€)", **ek_kwargs)
 
     sparrate_kwargs = dict(
         min_value=0.0, step=10.0, key="haupt_sparrate_input",
