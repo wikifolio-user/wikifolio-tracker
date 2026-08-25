@@ -56,6 +56,16 @@ st.markdown("""
         font-size: 1.3rem !important;
         font-weight: 700 !important;
     }
+    /* +/- Stepper-Buttons der Zahlen-Eingabefelder vergroessern */
+    [data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"] {
+        width: 42px !important;
+        height: 42px !important;
+        min-width: 42px !important;
+    }
+    [data-testid="stNumberInputStepUp"] svg, [data-testid="stNumberInputStepDown"] svg {
+        width: 22px !important;
+        height: 22px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
