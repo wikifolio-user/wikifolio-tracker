@@ -633,7 +633,7 @@ def render_dashboard():
     if brutto_ist >= 100000.0:
         meilenstein_datum_str, meilenstein_details_str = "Bereits erreicht", "Ziel erreicht"
     elif monate_bis_ziel < 600:
-        ms_date = (now_berlin + pd.DateOffset(months=monate_bis_ziel)).date()
+        ms_date = (now_berlin.replace(tzinfo=None) + pd.DateOffset(months=monate_bis_ziel)).date()
         meilenstein_datum_str = f"{monate_namen[ms_date.month]} {ms_date.year}"
         meilenstein_details_str = f"In ca. {monate_bis_ziel // 12} Jahren & {monate_bis_ziel % 12} Monaten"
     else:
@@ -1140,7 +1140,7 @@ def render_dashboard():
                 sim_e_prog += config.ENTNAHME_PM
                 sim_n_prog = sim_b_prog - sim_e_prog
         
-                current_date = now_berlin + pd.DateOffset(months=m_idx)
+                current_date = now_berlin.replace(tzinfo=None) + pd.DateOffset(months=m_idx)
         
                 if not milestone_added and sim_b_prog >= 100000.0:
                     forecast_data.append({
