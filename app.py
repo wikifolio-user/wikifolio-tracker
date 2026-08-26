@@ -74,7 +74,22 @@ st.markdown("""
     }
 
     .stApp { background-color: var(--ink); color: var(--text); }
-    .stApp, .stApp * { font-family: 'Space Grotesk', -apple-system, sans-serif; }
+
+    /* Basistypo fuer Text - Icon-Elemente (z.B. Expander-Pfeile,
+       Number-Input-Steppers) werden HIER BEWUSST AUSGENOMMEN, da diese
+       eine eigene Icon-Font (Material Symbols) benoetigen. Wurde diese
+       durch Space Grotesk ueberschrieben, zeigte Streamlit statt des
+       Pfeil-Glyphs den rohen Icon-Namen als Text an (z.B. "_arrow_right"). */
+    .stApp,
+    .stApp *:not([data-testid="stIconMaterial"]):not(.material-icons):not(.material-symbols-rounded):not(.material-symbols-outlined) {
+        font-family: 'Space Grotesk', -apple-system, sans-serif;
+    }
+
+    /* Streamlit-eigene Icons (Expander-Chevron, Stepper-Pfeile etc.)
+       explizit auf ihrer Icon-Font belassen. */
+    [data-testid="stIconMaterial"] {
+        font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
+    }
 
     /* Zahlen bekommen konsequent die Datenschrift mit Tabellenziffern */
     .num, .q-price, .q-delta, .row-val, .hero-val, .hero-sub {
