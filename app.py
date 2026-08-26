@@ -109,12 +109,12 @@ st.markdown("""
         letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 10px;
     }
     .q-price {
-        font-size: 1.9rem; font-weight: 700; color: var(--text);
+        font-size: 1.8rem; font-weight: 700; color: var(--text);
         line-height: 1; letter-spacing: -0.5px;
     }
     .q-delta { font-size: 1.1rem; font-weight: 600; margin-top: 12px; }
     .q-meta {
-        font-size: 0.92rem; color: var(--muted); margin-top: 14px;
+        font-size: 0.92rem; color: var(--label); font-weight: 500; margin-top: 14px;
         display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
     .up { color: var(--up); } .down { color: var(--down); }
@@ -145,8 +145,8 @@ st.markdown("""
         font-size: 0.78rem; font-weight: 700; color: var(--text);
         letter-spacing: 1.1px; text-transform: uppercase;
     }
-    .hero-val { font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.3px; }
-    .hero-sub { font-size: 0.92rem; color: var(--muted); }
+    .hero-val { font-size: 1.8rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.3px; }
+    .hero-sub { font-size: 0.92rem; color: var(--label); font-weight: 500; }
 
     /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
        Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
