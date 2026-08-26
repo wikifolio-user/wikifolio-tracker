@@ -105,23 +105,27 @@ st.markdown("""
         margin-bottom: 22px;
     }
     .q-name {
-        font-size: 0.78rem; font-weight: 600; color: var(--muted);
+        font-size: 0.82rem; font-weight: 600; color: var(--muted);
         letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 10px;
     }
     .q-price {
-        font-size: 3.1rem; font-weight: 600; color: var(--text);
-        line-height: 1; letter-spacing: -2px;
+        font-size: 2.3rem; font-weight: 700; color: var(--text);
+        line-height: 1; letter-spacing: -1px;
     }
-    .q-delta { font-size: 1.05rem; font-weight: 600; margin-top: 10px; }
+    .q-delta { font-size: 1.05rem; font-weight: 600; margin-top: 12px; }
     .q-meta {
-        font-size: 0.72rem; color: var(--muted); margin-top: 14px;
+        font-size: 0.85rem; color: var(--muted); margin-top: 14px;
         display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
     .up { color: var(--up); } .down { color: var(--down); }
 
+    .live-tag {
+        display: inline-flex; align-items: center; gap: 6px;
+    }
     .live-dot {
-        display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+        display: inline-block; width: 8px; height: 8px; border-radius: 50%;
         background: var(--up); animation: pulse 2.4s ease-in-out infinite;
+        flex-shrink: 0;
     }
     .live-dot.offline { background: var(--down); animation: none; }
     @keyframes pulse {
@@ -141,8 +145,8 @@ st.markdown("""
         font-size: 0.7rem; font-weight: 600; color: var(--muted);
         letter-spacing: 1.2px; text-transform: uppercase;
     }
-    .hero-val { font-size: 2.1rem; font-weight: 600; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -1px; }
-    .hero-sub { font-size: 0.82rem; color: var(--muted); }
+    .hero-val { font-size: 1.9rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.5px; }
+    .hero-sub { font-size: 0.85rem; color: var(--muted); }
 
     /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
        Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
@@ -832,9 +836,9 @@ def render_dashboard():
 
     # ---------- KURS-KOPF: der Kurs ist die eine Zahl, die zaehlt ----------
     live_markup = (
-        '<span class="live-dot"></span>Live'
+        '<span class="live-tag"><span class="live-dot"></span>Live</span>'
         if is_live_data else
-        '<span class="live-dot offline"></span>Keine Live-Daten'
+        '<span class="live-tag"><span class="live-dot offline"></span>Keine Live-Daten</span>'
     )
 
     def de_zahl(wert, nachkomma=3):
