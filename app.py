@@ -105,16 +105,16 @@ st.markdown("""
         margin-bottom: 22px;
     }
     .q-name {
-        font-size: 0.82rem; font-weight: 600; color: var(--muted);
-        letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 10px;
+        font-size: 0.88rem; font-weight: 600; color: var(--muted);
+        letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 10px;
     }
     .q-price {
-        font-size: 2.3rem; font-weight: 700; color: var(--text);
-        line-height: 1; letter-spacing: -1px;
+        font-size: 1.9rem; font-weight: 700; color: var(--text);
+        line-height: 1; letter-spacing: -0.5px;
     }
-    .q-delta { font-size: 1.05rem; font-weight: 600; margin-top: 12px; }
+    .q-delta { font-size: 1.1rem; font-weight: 600; margin-top: 12px; }
     .q-meta {
-        font-size: 0.85rem; color: var(--muted); margin-top: 14px;
+        font-size: 0.92rem; color: var(--muted); margin-top: 14px;
         display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
     .up { color: var(--up); } .down { color: var(--down); }
@@ -142,25 +142,35 @@ st.markdown("""
         border-radius: 12px; padding: 20px 22px; margin-bottom: 8px;
     }
     .hero-label {
-        font-size: 0.7rem; font-weight: 600; color: var(--muted);
-        letter-spacing: 1.2px; text-transform: uppercase;
+        font-size: 0.78rem; font-weight: 600; color: var(--muted);
+        letter-spacing: 1.1px; text-transform: uppercase;
     }
-    .hero-val { font-size: 1.9rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.5px; }
-    .hero-sub { font-size: 0.85rem; color: var(--muted); }
+    .hero-val { font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.3px; }
+    .hero-sub { font-size: 0.92rem; color: var(--muted); }
 
     /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
        Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
        und deutlich schneller zu scannen als 8 gleich grosse Boxen. */
     .rows { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 22px; }
     .row {
-        display: flex; justify-content: space-between; align-items: baseline;
-        gap: 16px; padding: 13px 18px; background: var(--surface);
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: 14px; padding: 14px 18px; background: var(--surface);
         border-bottom: 1px solid var(--line);
     }
     .row:last-child { border-bottom: none; }
-    .row-label { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
-    .row-val { font-size: 0.95rem; color: var(--text); font-weight: 500; text-align: right; white-space: nowrap; }
-    .row-note { display: block; font-size: 0.7rem; color: var(--muted); font-weight: 400; margin-top: 3px; }
+    .row-label {
+        font-size: 0.85rem; color: var(--muted); font-weight: 500;
+        line-height: 1.35; flex: 1 1 42%; min-width: 0;
+    }
+    .row-val {
+        font-size: 0.95rem; color: var(--text); font-weight: 600;
+        text-align: right; line-height: 1.35; flex: 1 1 58%; min-width: 0;
+        overflow-wrap: break-word;
+    }
+    .row-note {
+        display: block; font-size: 0.78rem; color: var(--muted);
+        font-weight: 400; margin-top: 4px; white-space: normal;
+    }
 
     /* ---------- Streamlit-Eigenheiten ---------- */
     #MainMenu, footer { visibility: hidden; }
