@@ -17,6 +17,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
+# --- PWA / "App-Icon"-Unterstuetzung ---
+# Ermoeglicht, die Seite ueber "Zum Home-Bildschirm hinzufuegen" wie eine
+# eigene App aussehen zu lassen: eigenes Icon, kein Safari-Rahmen/Adresszeile
+# beim Start vom Homescreen, passende Statusleisten-/Titelleisten-Farbe.
+# Icons werden von GitHub (raw-content) geladen, da Streamlit selbst keine
+# eigenen statischen Zusatzdateien unter frei waehlbaren Pfaden ausliefert.
+_GH_RAW_BASE = "https://raw.githubusercontent.com/wikifolio-user/wikifolio-tracker/main"
+st.markdown(f"""
+<link rel="manifest" href="{_GH_RAW_BASE}/manifest.json">
+<link rel="apple-touch-icon" href="{_GH_RAW_BASE}/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LS9VFS">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+""", unsafe_allow_html=True)
+
 # --- SECRETS ---
 DISCORD_WEBHOOK_URL = st.secrets.get("DISCORD_WEBHOOK_URL", "")
 GITHUB_REPO = st.secrets.get("GITHUB_REPO", "")   # z.B. "dein-user/wikifolio-tracker"
@@ -32,20 +49,75 @@ BERLIN_TZ = pytz.timezone("Europe/Berlin")
 # Fragment-Rerun (kompletter CSS-Neuaufbau zwingt den Browser zum Neu-Rendern
 # der gesamten Seite).
 st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
-    .stApp { background-color: #000000; color: #E5E7EB; font-family: 'JetBrains Mono', monospace; }
+    /* (1) Echte Terminal-Schrift - war vorher nur im CSS referenziert, aber nie
+       geladen, daher lief alles auf der System-Standardschrift. */
+    .stApp, .stApp * {
+        font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace !important;
+    }
+    .stApp { background-color: #000000; color: #E5E7EB; }
+
+    /* (7) Kopfzeile: dezenter Verlauf + weicher gruener Schimmer */
     .header-bar {
         display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
-        background: #09090B; border: 1px solid #27272A; border-left: 3px solid #00C853;
-        border-radius: 6px; padding: 12px 16px; margin-bottom: 16px;
+        background: linear-gradient(135deg, #0d0d10 0%, #09090B 100%);
+        border: 1px solid #27272A; border-left: 3px solid #00C853;
+        border-radius: 10px; padding: 14px 18px; margin-bottom: 18px;
+        box-shadow: 0 4px 20px rgba(0, 200, 83, 0.07);
     }
-    .header-title { font-size: 1.1rem; font-weight: 800; color: #FFFFFF; }
-    .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
-    .m-card { background: #09090B; border: 1px solid #18181B; border-radius: 6px; padding: 14px 16px; }
-    .m-label { font-size: 0.75rem; color: #A1A1AA; text-transform: uppercase; font-weight: 700; }
-    .m-val { font-size: 1.4rem; font-weight: 800; color: #FFFFFF; margin: 6px 0; }
-    .m-sub { font-size: 0.85rem; font-weight: 600; color: #CBD5E1; }
+    .header-title { font-size: 1.15rem; font-weight: 800; color: #FFFFFF; letter-spacing: -0.3px; }
+
+    /* (7) Pulsierender Live-Punkt statt statischem Badge-Text */
+    .live-dot {
+        display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+        background: #00C853; margin-right: 6px; vertical-align: middle;
+        animation: pulse 2s ease-in-out infinite;
+    }
+    .live-dot.offline { background: #FF3D00; animation: none; }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0, 200, 83, 0.6); }
+        50% { opacity: 0.75; box-shadow: 0 0 0 6px rgba(0, 200, 83, 0); }
+    }
+
+    .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 22px; }
+
+    /* (2) Kacheln: Verlauf + weicher Schatten statt flacher Einfarbigkeit,
+       (5) plus sanftes Einblenden beim Aufbau. */
+    .m-card {
+        background: linear-gradient(160deg, #101014 0%, #09090B 60%);
+        border: 1px solid #1f1f23; border-radius: 10px; padding: 16px 18px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        animation: cardIn 0.35s ease-out both;
+        transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+    .m-card:hover { border-color: #2f2f35; transform: translateY(-1px); }
+    @keyframes cardIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    /* Leicht gestaffeltes Einblenden, damit es nicht wie ein harter Block wirkt */
+    .grid-container .m-card:nth-child(2) { animation-delay: 0.04s; }
+    .grid-container .m-card:nth-child(3) { animation-delay: 0.08s; }
+    .grid-container .m-card:nth-child(4) { animation-delay: 0.12s; }
+
+    /* (3) Systematische Akzentkanten nach Bedeutung */
+    .m-card.accent-green  { border-left: 3px solid #00C853; }
+    .m-card.accent-red    { border-left: 3px solid #FF3D00; }
+    .m-card.accent-blue   { border-left: 3px solid #29B6F6; }
+    .m-card.accent-amber  { border-left: 3px solid #FFB300; }
+    .m-card.accent-grey   { border-left: 3px solid #52525B; }
+
+    .m-label { font-size: 0.72rem; color: #A1A1AA; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
+    .m-val { font-size: 1.45rem; font-weight: 800; color: #FFFFFF; margin: 7px 0; letter-spacing: -0.5px; }
+    /* (4) Hervorhebung fuer die wichtigste Kennzahl */
+    .m-card.hero { padding: 20px 18px; }
+    .m-card.hero .m-val { font-size: 2rem; }
+    .m-sub { font-size: 0.82rem; font-weight: 600; color: #CBD5E1; }
     .pos { color: #00C853; } .neg { color: #FF3D00; } .blue { color: #29B6F6; } .orange { color: #FF3D00; }
+
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
@@ -721,9 +793,9 @@ def render_dashboard():
 
     # HEADER BAR
     live_badge = (
-        '<span style="color:#00C853; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● VOLLAUTOMATISCH LIVE</span>'
+        '<span style="color:#00C853; background:#0f1a12; padding:5px 10px; border-radius:20px; border:1px solid #1c3a24; font-size:0.72rem; font-weight:700; letter-spacing:0.4px;"><span class="live-dot"></span>LIVE</span>'
         if is_live_data else
-        '<span style="color:#FF3D00; background:#18181B; padding:4px 8px; border-radius:4px; border:1px solid #27272A; font-size:0.75rem; font-weight:700;">● KEINE LIVE-DATEN</span>'
+        '<span style="color:#FF3D00; background:#1a0f0d; padding:5px 10px; border-radius:20px; border:1px solid #3a1c18; font-size:0.72rem; font-weight:700; letter-spacing:0.4px;"><span class="live-dot offline"></span>OFFLINE</span>'
     )
 
     st.markdown(f"""
@@ -740,7 +812,7 @@ def render_dashboard():
     differenz_zum_vortag = aktueller_kurs - vortag_kurs
     st.markdown(f"""
     <div class="grid-container">
-        <div class="m-card">
+        <div class="m-card accent-grey">
             <div class="m-label">Veränderung vs. Vortag</div>
             <div class="m-val {verenderung_cls}">{tages_verenderung_pct:+.2f}%</div>
             <div class="m-sub {verenderung_cls}">{differenz_zum_vortag:+.3f}€</div>
@@ -784,19 +856,19 @@ def render_dashboard():
     # GRID OVERVIEW - Teil 2: High Watermark + restliche Kacheln
     st.markdown(f"""
     <div class="grid-container">
-        <div class="m-card" style="border-left: 3px solid #FFB300;">
+        <div class="m-card accent-amber">
             <div class="m-label" style="color: #FFB300;">🏆 High Watermark</div>
             <div class="m-val" style="color: #FFB300;">{high_watermark_anzeige:.3f}€</div>
             <div class="m-sub">Erreicht am: {high_watermark_datum}</div>
             <div class="m-sub">Ab hier: {config.PERFORMANCE_FEE_PCT:.1f}% Performance Fee auf neue Gewinne</div>
         </div>
-        <div class="m-card">
+        <div class="m-card accent-green hero">
             <div class="m-label">Brutto Depotwert</div>
             <div class="m-val pos">{fmt(brutto_ist, 2)}</div>
             <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {erwartete_rendite_pa:.1f}% p.a.</div>
             <div class="m-sub">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{' (davon ' + f'{zusaetzliche_stueckzahl_sparplan:.4f}' + ' aus Sparplan)' if zusaetzliche_stueckzahl_sparplan > 0 else ''}</div>
         </div>
-        <div class="m-card" style="border-left: 3px solid #00C853; background: #0c1410;">
+        <div class="m-card accent-green" style="background: linear-gradient(160deg, #0e1a12 0%, #0a1410 100%);">
             <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
             <div class="m-val" style="color: #00C853; font-size: 1.15rem;">{meilenstein_datum_str}</div>
             <div class="m-sub" style="color: #CBD5E1; font-size: 0.75rem;">{meilenstein_details_str}</div>
@@ -812,17 +884,17 @@ def render_dashboard():
     with st.expander("💰 Netto-Werte & laufende Kosten anzeigen", expanded=False):
         st.markdown(f"""
         <div class="grid-container">
-            <div class="m-card">
+            <div class="m-card accent-blue">
                 <div class="m-label">Netto (Simulation)</div>
                 <div class="m-val blue">{fmt(netto_ist, 2)}</div>
                 <div class="m-sub">Entnahme nur buchhalterisch abgezogen{sparrate_sub_hinweis}</div>
             </div>
-            <div class="m-card">
+            <div class="m-card accent-amber">
                 <div class="m-label">Netto (Real, Anteile verkauft)</div>
                 <div class="m-val" style="color:#FFB300;">{fmt(depotwert_real_ist, 2)}</div>
                 <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme (inkl. {config.SPREAD_PCT:.2f}% Spread){sparrate_sub_hinweis}</div>
             </div>
-            <div class="m-card">
+            <div class="m-card accent-red">
                 <div class="m-label">Laufende Kosten (im Kurs enthalten)</div>
                 <div class="m-val" style="font-size: 1.1rem;">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f}% p.a.</div>
                 <div class="m-sub">Zertifikatsgebühr, bereits im ls-tc.de-Kurs eingepreist</div>
