@@ -398,9 +398,23 @@ def render_dashboard():
     # Höchststand korrigiert, falls der genauer/höher ist.
     if not df_chart.empty:
         historischer_hoechststand = float(df_chart["Close"].max())
+        historischer_hoechststand_datum = df_chart["Close"].idxmax()  # echtes Datum des Hochs, nicht "jetzt"
         hw_state = gh_read_cached(config.STATE_PATH_HIGH_WATERMARK, None)
         aktuelles_hoch = float(hw_state["high_watermark"]) if hw_state and "high_watermark" in hw_state else 0.0
         korrigiertes_hoch = max(historischer_hoechststand, aktuelles_hoch)
+
+        if historischer_hoechststand >= aktuelles_hoch:
+            # Die Chart-Historie kennt das (mindestens ebenso) hohe Hoch - deren echtes Datum nutzen
+            high_watermark_datum = historischer_hoechststand_datum.strftime("%d.%m.%Y")
+        else:
+            # Der gespeicherte State (z.B. vom Cron erfasster Intraday-Wert) ist hoeher als
+            # die Tages-Schlusskurse - dessen eigenes gespeichertes Datum nutzen
+            gespeichertes_datum = hw_state.get("erreicht_am") if hw_state else None
+            try:
+                high_watermark_datum = datetime.datetime.fromisoformat(gespeichertes_datum).strftime("%d.%m.%Y") if gespeichertes_datum else "-"
+            except Exception:
+                high_watermark_datum = "-"
+
         if not hw_state or korrigiertes_hoch > aktuelles_hoch:
             gh_write(
                 config.STATE_PATH_HIGH_WATERMARK,
@@ -410,6 +424,7 @@ def render_dashboard():
         high_watermark_anzeige = korrigiertes_hoch
     else:
         high_watermark_anzeige = aktueller_kurs
+        high_watermark_datum = "-"
 
     start_dt = pd.to_datetime(config.KAUFDATUM)
     def get_entnahme_at_date(ts):
@@ -772,6 +787,7 @@ def render_dashboard():
         <div class="m-card" style="border-left: 3px solid #FFB300;">
             <div class="m-label" style="color: #FFB300;">🏆 High Watermark</div>
             <div class="m-val" style="color: #FFB300;">{high_watermark_anzeige:.3f}€</div>
+            <div class="m-sub">Erreicht am: {high_watermark_datum}</div>
             <div class="m-sub">Ab hier: {config.PERFORMANCE_FEE_PCT:.1f}% Performance Fee auf neue Gewinne</div>
         </div>
         <div class="m-card">
