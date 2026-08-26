@@ -51,93 +51,116 @@ BERLIN_TZ = pytz.timezone("Europe/Berlin")
 st.markdown("""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-    /* (1) Echte Terminal-Schrift - war vorher nur im CSS referenziert, aber nie
-       geladen, daher lief alles auf der System-Standardschrift. */
-    .stApp, .stApp * {
-        font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace !important;
+    /* ============================================================
+       DESIGN-SYSTEM
+       Typo:  Space Grotesk = Labels/Text (charaktervoll, technisch)
+              IBM Plex Mono = ALLE Zahlen (echte Tabellenziffern,
+              fuer Datendarstellung entworfen - Betraege stehen
+              dadurch sauber untereinander statt zu "wackeln")
+       Farbe: Graustufen als Basis. Gruen/Rot AUSSCHLIESSLICH fuer
+              Kursveraenderungen - dadurch sticht das hervor, was
+              wirklich wichtig ist.
+       ============================================================ */
+    :root {
+        --ink:     #0A0B0D;   /* Hintergrund - nicht reines Schwarz, Hauch Blau */
+        --surface: #131519;   /* erhoehte Flaechen */
+        --line:    #21252C;   /* Haarlinien */
+        --muted:   #7C8493;   /* Sekundaertext */
+        --text:    #E9EBEF;   /* Primaertext */
+        --up:      #16C784;
+        --down:    #EA3943;
     }
-    .stApp { background-color: #000000; color: #E5E7EB; }
 
-    /* (7) Kopfzeile: dezenter Verlauf + weicher gruener Schimmer */
-    .header-bar {
-        display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
-        background: linear-gradient(135deg, #0d0d10 0%, #09090B 100%);
-        border: 1px solid #27272A; border-left: 3px solid #00C853;
-        border-radius: 10px; padding: 14px 18px; margin-bottom: 18px;
-        box-shadow: 0 4px 20px rgba(0, 200, 83, 0.07);
+    .stApp { background-color: var(--ink); color: var(--text); }
+    .stApp, .stApp * { font-family: 'Space Grotesk', -apple-system, sans-serif; }
+
+    /* Zahlen bekommen konsequent die Datenschrift mit Tabellenziffern */
+    .num, .q-price, .q-delta, .row-val, .hero-val, .hero-sub {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
     }
-    .header-title { font-size: 1.15rem; font-weight: 800; color: #FFFFFF; letter-spacing: -0.3px; }
 
-    /* (7) Pulsierender Live-Punkt statt statischem Badge-Text */
+    /* ---------- KURS-KOPF: die Zahl ist der Held der Seite ---------- */
+    .quote {
+        padding: 4px 2px 20px 2px;
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 22px;
+    }
+    .q-name {
+        font-size: 0.78rem; font-weight: 600; color: var(--muted);
+        letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 10px;
+    }
+    .q-price {
+        font-size: 3.1rem; font-weight: 600; color: var(--text);
+        line-height: 1; letter-spacing: -2px;
+    }
+    .q-delta { font-size: 1.05rem; font-weight: 600; margin-top: 10px; }
+    .q-meta {
+        font-size: 0.72rem; color: var(--muted); margin-top: 14px;
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .up { color: var(--up); } .down { color: var(--down); }
+
     .live-dot {
-        display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-        background: #00C853; margin-right: 6px; vertical-align: middle;
-        animation: pulse 2s ease-in-out infinite;
+        display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+        background: var(--up); animation: pulse 2.4s ease-in-out infinite;
     }
-    .live-dot.offline { background: #FF3D00; animation: none; }
+    .live-dot.offline { background: var(--down); animation: none; }
     @keyframes pulse {
-        0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0, 200, 83, 0.6); }
-        50% { opacity: 0.75; box-shadow: 0 0 0 6px rgba(0, 200, 83, 0); }
+        0%, 100% { opacity: 1; }
+        50%      { opacity: 0.35; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .live-dot { animation: none; }
     }
 
-    .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 22px; }
-
-    /* (2) Kacheln: Verlauf + weicher Schatten statt flacher Einfarbigkeit,
-       (5) plus sanftes Einblenden beim Aufbau. */
-    .m-card {
-        background: linear-gradient(160deg, #101014 0%, #09090B 60%);
-        border: 1px solid #1f1f23; border-radius: 10px; padding: 16px 18px;
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.03);
-        animation: cardIn 0.35s ease-out both;
-        transition: border-color 0.2s ease, transform 0.2s ease;
+    /* ---------- HERO: eine einzige hervorgehobene Kennzahl ---------- */
+    .hero {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: 12px; padding: 20px 22px; margin-bottom: 8px;
     }
-    .m-card:hover { border-color: #2f2f35; transform: translateY(-1px); }
-    @keyframes cardIn {
-        from { opacity: 0; transform: translateY(6px); }
-        to   { opacity: 1; transform: translateY(0); }
+    .hero-label {
+        font-size: 0.7rem; font-weight: 600; color: var(--muted);
+        letter-spacing: 1.2px; text-transform: uppercase;
     }
-    /* Leicht gestaffeltes Einblenden, damit es nicht wie ein harter Block wirkt */
-    .grid-container .m-card:nth-child(2) { animation-delay: 0.04s; }
-    .grid-container .m-card:nth-child(3) { animation-delay: 0.08s; }
-    .grid-container .m-card:nth-child(4) { animation-delay: 0.12s; }
+    .hero-val { font-size: 2.1rem; font-weight: 600; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -1px; }
+    .hero-sub { font-size: 0.82rem; color: var(--muted); }
 
-    /* (3) Systematische Akzentkanten nach Bedeutung */
-    .m-card.accent-green  { border-left: 3px solid #00C853; }
-    .m-card.accent-red    { border-left: 3px solid #FF3D00; }
-    .m-card.accent-blue   { border-left: 3px solid #29B6F6; }
-    .m-card.accent-amber  { border-left: 3px solid #FFB300; }
-    .m-card.accent-grey   { border-left: 3px solid #52525B; }
+    /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
+       Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
+       und deutlich schneller zu scannen als 8 gleich grosse Boxen. */
+    .rows { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 22px; }
+    .row {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 16px; padding: 13px 18px; background: var(--surface);
+        border-bottom: 1px solid var(--line);
+    }
+    .row:last-child { border-bottom: none; }
+    .row-label { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+    .row-val { font-size: 0.95rem; color: var(--text); font-weight: 500; text-align: right; white-space: nowrap; }
+    .row-note { display: block; font-size: 0.7rem; color: var(--muted); font-weight: 400; margin-top: 3px; }
 
-    .m-label { font-size: 0.72rem; color: #A1A1AA; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
-    .m-val { font-size: 1.45rem; font-weight: 800; color: #FFFFFF; margin: 7px 0; letter-spacing: -0.5px; }
-    /* (4) Hervorhebung fuer die wichtigste Kennzahl */
-    .m-card.hero { padding: 20px 18px; }
-    .m-card.hero .m-val { font-size: 2rem; }
-    .m-sub { font-size: 0.82rem; font-weight: 600; color: #CBD5E1; }
-    .pos { color: #00C853; } .neg { color: #FF3D00; } .blue { color: #29B6F6; } .orange { color: #FF3D00; }
-
+    /* ---------- Streamlit-Eigenheiten ---------- */
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
-    .block-container { padding-top: 0.8rem; padding-bottom: 4rem; }
-    /* Zahlen-Eingabefelder (Anfangskapital, Entnommenes Kapital, Szenario-
-       Werte) - Text deutlich groesser, war im Verhaeltnis zur Feldgroesse
-       zu klein und kaum lesbar. */
+    .block-container { padding-top: 1rem; padding-bottom: 4rem; max-width: 780px; }
+
     [data-testid="stNumberInput"] input {
-        font-size: 1.3rem !important;
-        font-weight: 700 !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-variant-numeric: tabular-nums;
+        font-size: 1.15rem !important; font-weight: 600 !important;
     }
-    /* +/- Stepper-Buttons der Zahlen-Eingabefelder vergroessern */
     [data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"] {
-        width: 42px !important;
-        height: 42px !important;
-        min-width: 42px !important;
+        width: 42px !important; height: 42px !important; min-width: 42px !important;
     }
     [data-testid="stNumberInputStepUp"] svg, [data-testid="stNumberInputStepDown"] svg {
-        width: 22px !important;
-        height: 22px !important;
+        width: 20px !important; height: 20px !important;
     }
+    /* Tabs ruhiger, ohne dicke gruene Unterstreichung */
+    [data-testid="stTabs"] button { font-size: 0.78rem !important; letter-spacing: 0.3px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -789,115 +812,130 @@ def render_dashboard():
     else:
         meilenstein_datum_str, meilenstein_details_str = "> 50 Jahre", "Unrealistisch"
 
-    verenderung_cls = "pos" if tages_verenderung_pct >= 0 else "neg"
-
-    # HEADER BAR
-    live_badge = (
-        '<span style="color:#00C853; background:#0f1a12; padding:5px 10px; border-radius:20px; border:1px solid #1c3a24; font-size:0.72rem; font-weight:700; letter-spacing:0.4px;"><span class="live-dot"></span>LIVE</span>'
-        if is_live_data else
-        '<span style="color:#FF3D00; background:#1a0f0d; padding:5px 10px; border-radius:20px; border:1px solid #3a1c18; font-size:0.72rem; font-weight:700; letter-spacing:0.4px;"><span class="live-dot offline"></span>OFFLINE</span>'
-    )
-
-    st.markdown(f"""
-    <div class="header-bar">
-        <div style="flex: 1; min-width: 220px;">
-            <div class="header-title">HAUPTINDIZES GLOBAL <span class="pos">{aktueller_kurs:.3f}€</span></div>
-            <div style="font-size: 0.75rem; color: #CBD5E1; margin-top:3px;">WKN: {config.WKN} • ISIN: {config.ISIN} • Lang & Schwarz Exchange • Stand: {letztes_update_zeit}</div>
-        </div>
-        <div>{live_badge}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # GRID OVERVIEW - Teil 1: Veränderung vs. Vortag
+    richtung = "up" if tages_verenderung_pct >= 0 else "down"
     differenz_zum_vortag = aktueller_kurs - vortag_kurs
-    st.markdown(f"""
-    <div class="grid-container">
-        <div class="m-card accent-grey">
-            <div class="m-label">Veränderung vs. Vortag</div>
-            <div class="m-val {verenderung_cls}">{tages_verenderung_pct:+.2f}%</div>
-            <div class="m-sub {verenderung_cls}">{differenz_zum_vortag:+.3f}€</div>
-            <div class="m-sub">Vortag: {vortag_kurs:.3f}€</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
-    # --- ANFANGSKAPITAL & ENTNOMMENES KAPITAL: editierbar, direkt unter der Vortag-Kachel ---
-    # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
-    # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein: value + key
-    # gleichzeitig auf jedem Rerun kann zu unnoetigen Extra-Reruns fuehren).
-    col_ak, col_ek = st.columns(2)
-    with col_ak:
-        ak_kwargs = dict(
-            min_value=0.0, step=100.0, key="haupt_startkapital_input",
-            help=f"Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€ - Stückzahl wird automatisch neu berechnet.",
-        )
-        if "haupt_startkapital_input" not in st.session_state:
-            ak_kwargs["value"] = startkapital_aktiv
-        st.number_input("✏️ Anfangskapital (€)", **ak_kwargs)
-    with col_ek:
-        ek_kwargs = dict(
-            min_value=0.0, step=10.0, key="haupt_entnommen_input",
-            help="Standard: 0€ - hier frei einstellbar, ganz wie du es tatsächlich entnommen hast.",
-        )
-        if "haupt_entnommen_input" not in st.session_state:
-            ek_kwargs["value"] = entnommen_aktiv
-        st.number_input("✏️ Monatliches Entnommenes Kapital (€)", **ek_kwargs)
-
-    sparrate_kwargs = dict(
-        min_value=0.0, step=10.0, key="haupt_sparrate_input",
-        help="Zusätzliche monatliche Einzahlung (Sparplan) - fließt in die Netto-Werte (ab heute "
-             "kumuliert) sowie in die Zukunfts-Hochrechnungen (100k-Meilenstein, Prognose-Tab) ein. "
-             "Betrifft nicht die bisherige Chart-Historie.",
+    # ---------- KURS-KOPF: der Kurs ist die eine Zahl, die zaehlt ----------
+    live_markup = (
+        '<span class="live-dot"></span>Live'
+        if is_live_data else
+        '<span class="live-dot offline"></span>Keine Live-Daten'
     )
-    if "haupt_sparrate_input" not in st.session_state:
-        sparrate_kwargs["value"] = 0.0
-    st.number_input("✏️ Monatliche Sparrate (€)", **sparrate_kwargs)
 
-    # GRID OVERVIEW - Teil 2: High Watermark + restliche Kacheln
+    def de_zahl(wert, nachkomma=3):
+        """Deutsche Schreibweise (Punkt = Tausender, Komma = Dezimal) - bewusst
+        nur auf den ZAHLENWERT angewendet, nicht auf das umgebende HTML."""
+        s = f"{wert:,.{nachkomma}f}"
+        return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
     st.markdown(f"""
-    <div class="grid-container">
-        <div class="m-card accent-amber">
-            <div class="m-label" style="color: #FFB300;">🏆 High Watermark</div>
-            <div class="m-val" style="color: #FFB300;">{high_watermark_anzeige:.3f}€</div>
-            <div class="m-sub">Erreicht am: {high_watermark_datum}</div>
-            <div class="m-sub">Ab hier: {config.PERFORMANCE_FEE_PCT:.1f}% Performance Fee auf neue Gewinne</div>
-        </div>
-        <div class="m-card accent-green hero">
-            <div class="m-label">Brutto Depotwert</div>
-            <div class="m-val pos">{fmt(brutto_ist, 2)}</div>
-            <div class="m-sub pos">+{fmt(gewinn_brutto, 2)} ({rendite_ist_pct:.2f}%) | Ø {erwartete_rendite_pa:.1f}% p.a.</div>
-            <div class="m-sub">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{' (davon ' + f'{zusaetzliche_stueckzahl_sparplan:.4f}' + ' aus Sparplan)' if zusaetzliche_stueckzahl_sparplan > 0 else ''}</div>
-        </div>
-        <div class="m-card accent-green" style="background: linear-gradient(160deg, #0e1a12 0%, #0a1410 100%);">
-            <div class="m-label" style="color: #00C853;">🎯 100k-Meilenstein</div>
-            <div class="m-val" style="color: #00C853; font-size: 1.15rem;">{meilenstein_datum_str}</div>
-            <div class="m-sub" style="color: #CBD5E1; font-size: 0.75rem;">{meilenstein_details_str}</div>
+    <div class="quote">
+        <div class="q-name">Hauptindizes Global · {config.WKN}</div>
+        <div class="q-price">{de_zahl(aktueller_kurs)} €</div>
+        <div class="q-delta {richtung}">{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} %&nbsp;&nbsp;{'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</div>
+        <div class="q-meta">
+            <span>{live_markup}</span><span>·</span>
+            <span>Lang &amp; Schwarz</span><span>·</span>
+            <span>Vortag {de_zahl(vortag_kurs)} €</span><span>·</span>
+            <span>{letztes_update_zeit}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- NETTO-WERTE (Simulation/Real) + Kosten-Hinweis: nur bei Bedarf einblenden ---
-    sparrate_sub_hinweis = (
-        f" | +{zusaetzliche_stueckzahl_sparplan:.4f} Anteile aus Sparplan "
-        f"(aktueller Marktwert: {fmt(kumulierte_sparrate_marktwert, 2)}) seit {sparplan_state.get('start_datum', '')}"
-    ) if zusaetzliche_stueckzahl_sparplan > 0 else ""
-    with st.expander("💰 Netto-Werte & laufende Kosten anzeigen", expanded=False):
+    # ---------- HERO: Depotwert ----------
+    sparplan_zusatz = (
+        f" · davon {zusaetzliche_stueckzahl_sparplan:.4f} aus Sparplan"
+        if zusaetzliche_stueckzahl_sparplan > 0 else ""
+    )
+    st.markdown(f"""
+    <div class="hero">
+        <div class="hero-label">Depotwert</div>
+        <div class="hero-val">{fmt(brutto_ist, 2)}</div>
+        <div class="hero-sub"><span class="up">+{fmt(gewinn_brutto, 2)} · {rendite_ist_pct:+.2f} %</span> · Ø {erwartete_rendite_pa:.1f} % p.a.</div>
+        <div class="hero-sub" style="margin-top:4px;">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ---------- Eingaben ----------
+    # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
+    # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
+    with st.expander("Anfangskapital, Entnahme und Sparrate anpassen", expanded=False):
+        col_ak, col_ek = st.columns(2)
+        with col_ak:
+            ak_kwargs = dict(
+                min_value=0.0, step=100.0, key="haupt_startkapital_input",
+                help=f"Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€ - Stückzahl wird automatisch neu berechnet.",
+            )
+            if "haupt_startkapital_input" not in st.session_state:
+                ak_kwargs["value"] = startkapital_aktiv
+            st.number_input("Anfangskapital (€)", **ak_kwargs)
+        with col_ek:
+            ek_kwargs = dict(
+                min_value=0.0, step=10.0, key="haupt_entnommen_input",
+                help="Standard: 0€ - hier frei einstellbar, ganz wie du es tatsächlich entnommen hast.",
+            )
+            if "haupt_entnommen_input" not in st.session_state:
+                ek_kwargs["value"] = entnommen_aktiv
+            st.number_input("Monatliche Entnahme (€)", **ek_kwargs)
+
+        sparrate_kwargs = dict(
+            min_value=0.0, step=10.0, key="haupt_sparrate_input",
+            help="Zusätzliche monatliche Einzahlung (Sparplan) - kauft laufend Anteile dazu und "
+                 "fließt in die Zukunfts-Hochrechnungen ein. Ändert die bisherige Chart-Historie nicht.",
+        )
+        if "haupt_sparrate_input" not in st.session_state:
+            sparrate_kwargs["value"] = 0.0
+        st.number_input("Monatliche Sparrate (€)", **sparrate_kwargs)
+
+    # ---------- DATENZEILEN: Sekundaerwerte kompakt und scanbar ----------
+    st.markdown(f"""
+    <div class="rows">
+        <div class="row">
+            <span class="row-label">100k-Meilenstein</span>
+            <span class="row-val">{meilenstein_datum_str}
+                <span class="row-note">{meilenstein_details_str}</span>
+            </span>
+        </div>
+        <div class="row">
+            <span class="row-label">High Watermark</span>
+            <span class="row-val">{de_zahl(high_watermark_anzeige)} €
+                <span class="row-note">Erreicht am {high_watermark_datum} · ab hier {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</span>
+            </span>
+        </div>
+        <div class="row">
+            <span class="row-label">Anfangskapital</span>
+            <span class="row-val">{fmt(startkapital_aktiv, 2)}
+                <span class="row-note">Kauf am {config.KAUFDATUM.strftime('%d.%m.%Y')} zu {de_zahl(config.ANFANGSKURS, 2)} €</span>
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- NETTO-WERTE + Kosten: nur bei Bedarf einblenden ---
+    sparrate_note = (
+        f" · inkl. {zusaetzliche_stueckzahl_sparplan:.4f} Sparplan-Anteile ({fmt(kumulierte_sparrate_marktwert, 2)})"
+        if zusaetzliche_stueckzahl_sparplan > 0 else ""
+    )
+    with st.expander("Netto-Werte und laufende Kosten", expanded=False):
         st.markdown(f"""
-        <div class="grid-container">
-            <div class="m-card accent-blue">
-                <div class="m-label">Netto (Simulation)</div>
-                <div class="m-val blue">{fmt(netto_ist, 2)}</div>
-                <div class="m-sub">Entnahme nur buchhalterisch abgezogen{sparrate_sub_hinweis}</div>
+        <div class="rows">
+            <div class="row">
+                <span class="row-label">Netto (Simulation)</span>
+                <span class="row-val">{fmt(netto_ist, 2)}
+                    <span class="row-note">Entnahme nur buchhalterisch abgezogen{sparrate_note}</span>
+                </span>
             </div>
-            <div class="m-card accent-amber">
-                <div class="m-label">Netto (Real, Anteile verkauft)</div>
-                <div class="m-val" style="color:#FFB300;">{fmt(depotwert_real_ist, 2)}</div>
-                <div class="m-sub">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme (inkl. {config.SPREAD_PCT:.2f}% Spread){sparrate_sub_hinweis}</div>
+            <div class="row">
+                <span class="row-label">Netto (real verkauft)</span>
+                <span class="row-val">{fmt(depotwert_real_ist, 2)}
+                    <span class="row-note">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme, inkl. {config.SPREAD_PCT:.2f} % Spread</span>
+                </span>
             </div>
-            <div class="m-card accent-red">
-                <div class="m-label">Laufende Kosten (im Kurs enthalten)</div>
-                <div class="m-val" style="font-size: 1.1rem;">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f}% p.a.</div>
-                <div class="m-sub">Zertifikatsgebühr, bereits im ls-tc.de-Kurs eingepreist</div>
+            <div class="row">
+                <span class="row-label">Laufende Kosten</span>
+                <span class="row-val">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f} % p.a.
+                    <span class="row-note">Zertifikatsgebühr, bereits im Kurs eingepreist</span>
+                </span>
             </div>
         </div>
         """, unsafe_allow_html=True)
