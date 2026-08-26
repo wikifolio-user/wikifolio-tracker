@@ -702,7 +702,7 @@ def render_dashboard():
     sim_b = brutto_ist
     monate_bis_ziel = 0
     while sim_b < 100000.0 and monate_bis_ziel < 600:
-        sim_b = (sim_b * (1 + erwarteter_zins_mo)) - config.ENTNAHME_PM + sparrate_aktiv
+        sim_b = (sim_b * (1 + erwarteter_zins_mo)) - entnommen_aktiv + sparrate_aktiv
         monate_bis_ziel += 1
 
     monate_namen = {1: "Januar", 2: "Februar", 3: "März", 4: "April", 5: "Mai", 6: "Juni", 
@@ -1300,7 +1300,7 @@ def render_dashboard():
 
                 for m_idx in range(1, 121):
                     sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo)) + sparrate_aktiv
-                    sim_e_prog += config.ENTNAHME_PM
+                    sim_e_prog += entnommen_aktiv
                     sim_n_prog = sim_b_prog - sim_e_prog
         
                     current_date = now_berlin.replace(tzinfo=None) + pd.DateOffset(months=m_idx)
