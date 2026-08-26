@@ -106,7 +106,7 @@ st.markdown("""
         margin-bottom: 22px;
     }
     .q-name {
-        font-size: 0.88rem; font-weight: 700; color: var(--label);
+        font-size: 0.88rem; font-weight: 700; color: var(--text);
         letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 10px;
     }
     .q-price {
@@ -143,7 +143,7 @@ st.markdown("""
         border-radius: 12px; padding: 20px 22px; margin-bottom: 8px;
     }
     .hero-label {
-        font-size: 0.78rem; font-weight: 700; color: var(--label);
+        font-size: 0.78rem; font-weight: 700; color: var(--text);
         letter-spacing: 1.1px; text-transform: uppercase;
     }
     .hero-val { font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.3px; }
@@ -160,7 +160,7 @@ st.markdown("""
     }
     .row:last-child { border-bottom: none; }
     .row-label {
-        font-size: 0.88rem; color: var(--label); font-weight: 600;
+        font-size: 0.88rem; color: var(--text); font-weight: 600;
         line-height: 1.35; flex: 1 1 42%; min-width: 0;
     }
     .row-val {
