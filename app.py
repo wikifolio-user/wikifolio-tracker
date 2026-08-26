@@ -67,7 +67,8 @@ st.markdown("""
         --ink:     #0A0B0D;   /* Hintergrund - nicht reines Schwarz, Hauch Blau */
         --surface: #131519;   /* erhoehte Flaechen */
         --line:    #21252C;   /* Haarlinien */
-        --muted:   #7C8493;   /* Sekundaertext */
+        --muted:   #7C8493;   /* Sekundaertext, tertiaer (Fussnoten) */
+        --label:   #AAB1BE;   /* Zeilen-Labels - deutlich besser lesbar als --muted */
         --text:    #E9EBEF;   /* Primaertext */
         --up:      #16C784;
         --down:    #EA3943;
@@ -105,7 +106,7 @@ st.markdown("""
         margin-bottom: 22px;
     }
     .q-name {
-        font-size: 0.88rem; font-weight: 600; color: var(--muted);
+        font-size: 0.88rem; font-weight: 700; color: var(--label);
         letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 10px;
     }
     .q-price {
@@ -142,7 +143,7 @@ st.markdown("""
         border-radius: 12px; padding: 20px 22px; margin-bottom: 8px;
     }
     .hero-label {
-        font-size: 0.78rem; font-weight: 600; color: var(--muted);
+        font-size: 0.78rem; font-weight: 700; color: var(--label);
         letter-spacing: 1.1px; text-transform: uppercase;
     }
     .hero-val { font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.3px; }
@@ -159,11 +160,11 @@ st.markdown("""
     }
     .row:last-child { border-bottom: none; }
     .row-label {
-        font-size: 0.85rem; color: var(--muted); font-weight: 500;
+        font-size: 0.88rem; color: var(--label); font-weight: 600;
         line-height: 1.35; flex: 1 1 42%; min-width: 0;
     }
     .row-val {
-        font-size: 0.95rem; color: var(--text); font-weight: 600;
+        font-size: 1rem; color: var(--text); font-weight: 700;
         text-align: right; line-height: 1.35; flex: 1 1 58%; min-width: 0;
         overflow-wrap: break-word;
     }
