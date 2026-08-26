@@ -113,17 +113,35 @@ st.markdown("""
         line-height: 1; letter-spacing: -0.5px;
     }
     .q-delta { font-size: 1.1rem; font-weight: 600; margin-top: 12px; }
-    .q-meta {
-        font-size: 0.92rem; color: var(--label); font-weight: 500; margin-top: 14px;
-        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    }
     .up { color: var(--up); } .down { color: var(--down); }
 
-    .live-tag {
-        display: inline-flex; align-items: center; gap: 6px;
+    /* ---------- META-CHIPS statt Punkt-getrennter Textwurst ----------
+       Live-Status als farbiges Pill-Badge, restliche Fakten als eigene
+       Chips - deutlich schneller erfassbar als eine lange "A · B · C"
+       Zeile. Zeitstempel bewusst separat und kleiner: es ist die am
+       wenigsten wichtige Information hier (Meta zur Meta). */
+    .meta-row {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        margin-top: 14px;
     }
+    .live-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: rgba(22, 199, 132, 0.12); color: var(--up);
+        font-size: 0.8rem; font-weight: 700; letter-spacing: 0.2px;
+        padding: 4px 10px 4px 8px; border-radius: 999px;
+    }
+    .live-pill.offline { background: rgba(234, 57, 67, 0.12); color: var(--down); }
+    .meta-chip {
+        font-size: 0.85rem; color: var(--label); font-weight: 500;
+        background: rgba(255, 255, 255, 0.04);
+        padding: 4px 10px; border-radius: 999px;
+    }
+    .meta-timestamp {
+        font-size: 0.78rem; color: var(--muted); margin-top: 10px;
+    }
+
     .live-dot {
-        display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+        display: inline-block; width: 7px; height: 7px; border-radius: 50%;
         background: var(--up); animation: pulse 2.4s ease-in-out infinite;
         flex-shrink: 0;
     }
@@ -147,6 +165,24 @@ st.markdown("""
     }
     .hero-val { font-size: 1.8rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.3px; }
     .hero-sub { font-size: 0.92rem; color: var(--label); font-weight: 500; }
+
+    /* ---------- STAT-GRID: einzelne Kennzahlen mit eigenem Label
+       statt einer verketteten "+X · +Y% · Z%" Textzeile - jede Zahl
+       ist auf einen Blick zuzuordnen. ---------- */
+    .stat-grid {
+        display: flex; gap: 20px; margin-top: 10px; flex-wrap: wrap;
+    }
+    .stat-item { min-width: 74px; }
+    .stat-label {
+        font-size: 0.68rem; font-weight: 600; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px;
+    }
+    .stat-val {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+        font-size: 1rem; font-weight: 700; color: var(--text);
+    }
+    .stat-val.up { color: var(--up); } .stat-val.down { color: var(--down); }
 
     /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
        Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
@@ -846,9 +882,9 @@ def render_dashboard():
 
     # ---------- KURS-KOPF: der Kurs ist die eine Zahl, die zaehlt ----------
     live_markup = (
-        '<span class="live-tag"><span class="live-dot"></span>Live</span>'
+        '<span class="live-pill"><span class="live-dot"></span>Live</span>'
         if is_live_data else
-        '<span class="live-tag"><span class="live-dot offline"></span>Keine Live-Daten</span>'
+        '<span class="live-pill offline"><span class="live-dot offline"></span>Keine Live-Daten</span>'
     )
 
     def de_zahl(wert, nachkomma=3):
@@ -862,12 +898,12 @@ def render_dashboard():
         <div class="q-name">Hauptindizes Global · {config.WKN}</div>
         <div class="q-price">{de_zahl(aktueller_kurs)} €</div>
         <div class="q-delta {richtung}">{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} %&nbsp;&nbsp;{'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</div>
-        <div class="q-meta">
-            <span>{live_markup}</span><span>·</span>
-            <span>Lang &amp; Schwarz</span><span>·</span>
-            <span>Vortag {de_zahl(vortag_kurs)} €</span><span>·</span>
-            <span>{letztes_update_zeit}</span>
+        <div class="meta-row">
+            {live_markup}
+            <span class="meta-chip">Lang &amp; Schwarz</span>
+            <span class="meta-chip">Vortag {de_zahl(vortag_kurs)} €</span>
         </div>
+        <div class="meta-timestamp">Stand: {letztes_update_zeit}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -876,12 +912,26 @@ def render_dashboard():
         f" · davon {zusaetzliche_stueckzahl_sparplan:.4f} aus Sparplan"
         if zusaetzliche_stueckzahl_sparplan > 0 else ""
     )
+    richtung_gewinn = "up" if gewinn_brutto >= 0 else "down"
     st.markdown(f"""
     <div class="hero">
         <div class="hero-label">Depotwert</div>
         <div class="hero-val">{fmt(brutto_ist, 2)}</div>
-        <div class="hero-sub"><span class="up">+{fmt(gewinn_brutto, 2)} · {rendite_ist_pct:+.2f} %</span> · Ø {erwartete_rendite_pa:.1f} % p.a.</div>
-        <div class="hero-sub" style="margin-top:4px;">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
+        <div class="stat-grid">
+            <div class="stat-item">
+                <div class="stat-label">Gewinn</div>
+                <div class="stat-val {richtung_gewinn}">{'+' if gewinn_brutto >= 0 else ''}{fmt(gewinn_brutto, 2)}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Rendite</div>
+                <div class="stat-val {richtung_gewinn}">{rendite_ist_pct:+.2f} %</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Ø p.a.</div>
+                <div class="stat-val">{erwartete_rendite_pa:.1f} %</div>
+            </div>
+        </div>
+        <div class="hero-sub" style="margin-top:12px;">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
     </div>
     """, unsafe_allow_html=True)
 
