@@ -101,9 +101,8 @@ st.markdown("""
 
     /* ---------- KURS-KOPF: die Zahl ist der Held der Seite ---------- */
     .quote {
-        padding: 4px 2px 20px 2px;
-        border-bottom: 1px solid var(--line);
-        margin-bottom: 22px;
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: 12px; padding: 20px 22px; margin-bottom: 16px;
     }
     .q-name {
         font-size: 0.88rem; font-weight: 700; color: var(--text);
