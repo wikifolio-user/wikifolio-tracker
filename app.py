@@ -15,7 +15,7 @@ import github_store
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
 # --- PWA / "App-Icon"-Unterstuetzung ---
 # Ermoeglicht, die Seite ueber "Zum Home-Bildschirm hinzufuegen" wie eine
