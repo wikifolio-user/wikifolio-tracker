@@ -1212,11 +1212,12 @@ def render_dashboard():
     periods_depot = [(lbl, d * gesamt_stueckzahl_perf, p) for lbl, d, p in periods_kurs]
     periods_depot.append(("seit Kauf", gewinn_brutto, rendite_ist_pct))
 
-    def perf_zeilen_html(zeilen, nachkomma, kopfzeile=None):
+    def perf_zeilen_html(zeilen, nachkomma, kopfzeile=None, fusszeile=""):
         """Rendert die Zeitraum-Zeilen INNERHALB einer Kachel: hairline-getrennt,
         Betrag und Prozent rechtsbuendig nebeneinander, eingefaerbt nach Vorzeichen.
         kopfzeile: optionales (label, wert_html) Tupel fuer eine neutrale
-        Referenzzeile ohne +/- Faerbung (z.B. der Vortageskurs) ganz oben."""
+        Referenzzeile ohne +/- Faerbung (z.B. der Vortageskurs) ganz oben.
+        fusszeile: fertiges Zeilen-HTML, das unten angehaengt wird (z.B. Höchststand)."""
         html = ""
         if kopfzeile:
             k_label, k_wert = kopfzeile
@@ -1233,6 +1234,7 @@ def render_dashboard():
                 f'<span class="{cls}">{"+" if prozent >= 0 else ""}{de_zahl(prozent, 2)} %</span>'
                 f'</span></div>'
             )
+        html += fusszeile
         return f'<div class="perf-table">{html}</div>' if html else ""
 
     # Positionsliste einmalig laden - wird sowohl von der Verwaltung unten
@@ -1283,187 +1285,28 @@ def render_dashboard():
         )
         return gewaehlt
 
-    with st.expander("➕ Positionen verwalten", expanded=False):
-        if not GH_STATE_READY:
-            st.warning(
-                "Ohne persistenten State (GITHUB_REPO/GITHUB_TOKEN) gehen angelegte "
-                "Positionen beim nächsten Neustart verloren."
-            )
-        st.caption(
-            "WKN oder ISIN ins Suchfeld eingeben – Name und Instrument-ID werden "
-            "automatisch übernommen. Die erste Position ist die Hauptposition, "
-            "sie speist zusätzlich alle Charts und Prognose-Tabs."
-        )
-
-        # --- Bestehende Positionen bearbeiten/loeschen ---
-        for idx, pos in enumerate(alle_positionen):
-            rolle = "Hauptposition" if idx == 0 else f"Position {idx + 1}"
-            st.markdown("---")
-            st.markdown(f"**{rolle}: {pos.get('name', '')}**")
-
-            # Suchblock ausserhalb des Formulars - erlaubt, jederzeit ein
-            # anderes Wertpapier fuer diese Position zu suchen und zu uebernehmen.
-            treffer_edit = instrument_suchblock(
-                f"edit_{idx}", label="Anderes Wertpapier suchen (optional)")
-
-            with st.form(f"pos_form_{pos.get('id', idx)}"):
-                # Wurde oben ein Treffer gewaehlt, ueberschreibt der die
-                # gespeicherten Werte als Vorbelegung - so laesst sich eine
-                # Position per Suche auf ein anderes Papier umstellen.
-                v_name = treffer_edit["name"] if treffer_edit else pos.get("name", "")
-                v_wkn = ((treffer_edit["wkn"] or treffer_edit["isin"]) if treffer_edit
-                         else pos.get("wkn", ""))
-                v_inst = (int(treffer_edit["instrument_id"]) if treffer_edit
-                          else int(pos.get("instrument_id") or 0))
-                # key vom Treffer abhaengig machen, damit Streamlit das Widget
-                # neu aufbaut und die Vorbelegung wirklich uebernimmt.
-                suffix = f"{idx}_{v_inst}"
-
-                n_name = st.text_input("Name", value=v_name, key=f"n_{suffix}")
-                n_wkn = st.text_input("WKN / ISIN", value=v_wkn, key=f"w_{suffix}")
-                n_inst = st.number_input(
-                    "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
-                    value=v_inst, key=f"i_{suffix}",
-                    help="0 = keine Kursquelle. Die Position wird dann ohne Kurse "
-                         "angezeigt und nicht in die Depot-Summe eingerechnet.",
-                )
-                n_kaufdatum = st.date_input(
-                    "Kaufdatum", value=datetime.date.fromisoformat(pos["kaufdatum"]), key=f"d_{idx}")
-                n_kaufkurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f",
-                                             value=float(pos.get("kaufkurs") or 0), key=f"k_{idx}")
-                n_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0,
-                                            value=float(pos.get("startkapital") or 0), key=f"s_{idx}")
-                if n_kaufkurs > 0:
-                    st.caption(f"Ergibt {n_kapital / n_kaufkurs:.4f} Anteile")
-
-                c_save, c_del = st.columns(2)
-                gespeichert = c_save.form_submit_button("💾 Speichern", width="stretch")
-                geloescht = c_del.form_submit_button("🗑️ Löschen", width="stretch")
-
-                if gespeichert:
-                    alle_positionen[idx] = {
-                        "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
-                        "name": n_name, "wkn": n_wkn,
-                        "instrument_id": int(n_inst) if n_inst else None,
-                        "kaufdatum": n_kaufdatum.isoformat(), "kaufkurs": float(n_kaufkurs),
-                        "startkapital": float(n_kapital),
-                    }
-                    if speichere_positionen(alle_positionen, "position geaendert [skip ci]"):
-                        for k in (f"edit_{idx}_suche", f"edit_{idx}_letzter",
-                                  f"edit_{idx}_treffer", f"edit_{idx}_wahl"):
-                            st.session_state.pop(k, None)
-                        st.success("Gespeichert.")
-                        st.rerun()
-                    else:
-                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
-
-                if geloescht:
-                    if len(alle_positionen) <= 1:
-                        st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
-                    else:
-                        alle_positionen.pop(idx)
-                        if speichere_positionen(alle_positionen, "position geloescht [skip ci]"):
-                            st.success("Gelöscht.")
-                            st.rerun()
-                        else:
-                            st.error("Löschen fehlgeschlagen (kein persistenter State?).")
-
-        # --- Neue Position anlegen ---
-        st.markdown("---")
-        st.markdown("**Neue Position hinzufügen**")
-
-        gewaehlt = instrument_suchblock("neu")
-
-        with st.form("pos_form_neu", clear_on_submit=True):
-            neu_name = st.text_input(
-                "Name", value=(gewaehlt["name"] if gewaehlt else ""),
-                placeholder="z. B. MSCI World ETF")
-            neu_wkn = st.text_input(
-                "WKN / ISIN",
-                value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
-                placeholder="z. B. A0RPWH")
-            neu_inst = st.number_input(
-                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
-                value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
-                help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
-                     "(0) bleiben - dann werden für diese Position keine Kurse geladen "
-                     "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
-            )
-            neu_datum = st.date_input("Kaufdatum", value=heute_date)
-            neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0)
-            neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0)
-
-            if st.form_submit_button("➕ Position anlegen", width="stretch"):
-                if not neu_name or neu_kurs <= 0 or neu_kapital <= 0:
-                    st.error("Bitte Name, Kaufkurs und Kapital ausfüllen.")
-                else:
-                    # Instrument-ID, falls angegeben, vor dem Speichern pruefen -
-                    # verhindert stumme Fehlkonfiguration. Ohne ID wird die
-                    # Position angelegt und spaeter als "keine Kursquelle" markiert.
-                    test_kurs = None
-                    if neu_inst:
-                        test_kurs, _, _ = get_live_kurs(int(neu_inst))
-
-                    if neu_inst and test_kurs is None:
-                        st.error(
-                            f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
-                            "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
-                        )
-                    else:
-                        alle_positionen.append({
-                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
-                            "name": neu_name, "wkn": neu_wkn,
-                            "instrument_id": int(neu_inst) if neu_inst else None,
-                            "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
-                            "startkapital": float(neu_kapital),
-                        })
-                        if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
-                            for k in ("neu_suche", "neu_letzter", "neu_treffer", "neu_wahl"):
-                                st.session_state.pop(k, None)
-                            if test_kurs is not None:
-                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
-                            else:
-                                st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
-                                           "Instrument-ID kann oben jederzeit ergänzt werden.")
-                            st.rerun()
-                        else:
-                            st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
-
-    # ---------- HIGH WATERMARK: ganz oben, mit Abstand zum aktuellen Kurs ----------
-    # Zeigt den Hoechststand und wie weit der aktuelle Kurs davon entfernt ist.
-    # Steht der Kurs auf/ueber dem Hoch, wird das als "Allzeithoch" markiert -
-    # ab dort greift die Performance Fee auf neue Gewinne.
+    # ---------- HIGH WATERMARK: als Zeile in der Kurskachel ----------
+    # Bewusst KEINE eigene Kachel mehr: der Hoechststand ist eine Eigenschaft
+    # des Kurses, keine gleichrangige Kennzahl. Als Zeile unter Vortag/Tag/
+    # Woche steht er im richtigen Kontext und spart eine ganze Kachel.
     hw_abstand = aktueller_kurs - high_watermark_anzeige
     hw_abstand_pct = (hw_abstand / high_watermark_anzeige * 100) if high_watermark_anzeige else 0.0
     hw_am_hoch = hw_abstand >= -0.0005  # Toleranz gegen Rundungsrauschen
 
     if hw_am_hoch:
-        hw_status_chip = '<span class="hw-pill peak">🏔️ Allzeithoch</span>'
-        hw_abstand_html = ""
+        hw_status_chip = '<span class="hw-pill">Allzeithoch</span>'
+        hw_zeile = (
+            '<div class="perf-row"><span class="perf-label">Höchststand</span>'
+            f'<span class="perf-vals"><span class="neutral">{de_zahl(high_watermark_anzeige)} €</span>'
+            '<span class="up">erreicht</span></span></div>'
+        )
     else:
         hw_status_chip = ""
-        hw_abstand_html = (
-            f'<div class="perf-table"><div class="perf-row">'
-            f'<span class="perf-label">Abstand zum Hoch</span>'
-            f'<span class="perf-vals">'
-            f'<span class="down">{de_zahl(hw_abstand, 3)} €</span>'
-            f'<span class="down">{de_zahl(hw_abstand_pct, 2)} %</span>'
-            f'</span></div></div>'
+        hw_zeile = (
+            '<div class="perf-row"><span class="perf-label">Höchststand</span>'
+            f'<span class="perf-vals"><span class="neutral">{de_zahl(high_watermark_anzeige)} €</span>'
+            f'<span class="down">{de_zahl(hw_abstand_pct, 2)} %</span></span></div>'
         )
-
-    hw_karte = (
-        '<div class="quote">'
-        '<div class="q-name">High Watermark</div>'
-        '<div class="price-line">'
-        f'<span class="q-price">{de_zahl(high_watermark_anzeige)} €</span>'
-        f'{hw_status_chip}'
-        '</div>'
-        f'{hw_abstand_html}'
-        f'<div class="card-footnote">Erreicht am {high_watermark_datum} · '
-        f'ab hier {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>'
-        '</div>'
-    )
-    st.markdown(hw_karte, unsafe_allow_html=True)
 
     kurs_karte = (
         '<div class="quote">'
@@ -1471,11 +1314,17 @@ def render_dashboard():
         '<div class="price-line">'
         f'<span class="q-price">{de_zahl(aktueller_kurs)} €</span>'
         f'{live_markup}'
-        '<span class="meta-chip">Lang &amp; Schwarz</span>'
+        f'{hw_status_chip}'
         '</div>'
-        f'{perf_zeilen_html(periods_kurs, 3, kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"))}'
-        f'<div class="card-footnote">Stand: {letztes_update_zeit}</div>'
-        '</div>'
+        # Hoechststand als letzte Zeile der Zeitraum-Tabelle - dadurch steht er
+        # im selben Raster wie Vortag/Tag/Woche/Monat/Jahr statt in eigener Kachel.
+        + perf_zeilen_html(periods_kurs, 3,
+                           kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"),
+                           fusszeile=hw_zeile)
+        + f'<div class="card-footnote">Lang &amp; Schwarz · Stand: {letztes_update_zeit} · '
+          f'Höchststand vom {high_watermark_datum}, ab dort '
+          f'{config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>'
+        + '</div>'
     )
     st.markdown(kurs_karte, unsafe_allow_html=True)
 
@@ -1596,22 +1445,6 @@ def render_dashboard():
             st.error(f"⚠️ Position **{pos.get('name', '?')}** konnte nicht berechnet werden: {e}")
             notify_app_error(f"Position-{pos.get('id', '?')}", e)
 
-    # ---------- POSITIONSKACHELN: horizontal wischbar ----------
-    # Bei nur einer Position waere ein Swipe-Container sinnlos - dann normal
-    # rendern. Ab zwei Positionen: scroll-snap-Container, in dem jede Kachel
-    # die volle Breite einnimmt und beim Wischen sauber einrastet.
-    if len(positions_karten) > 1:
-        # st.tabs statt eines CSS-Swipe-Containers: auf iOS blockiert Streamlits
-        # eigenes Container-Styling horizontales Wischen zuverlaessig, Tabs
-        # funktionieren dagegen ueberall per Tap (und lassen sich bei vielen
-        # Positionen zusaetzlich seitlich scrollen).
-        tab_labels = [lbl[:18] for lbl, _ in positions_karten]
-        for tab, (_, karte_html) in zip(st.tabs(tab_labels), positions_karten):
-            with tab:
-                st.markdown(karte_html, unsafe_allow_html=True)
-    else:
-        st.markdown(positions_karten[0][1], unsafe_allow_html=True)
-
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if weitere_positionen:
         gesamt_gewinn = gesamt_wert - gesamt_einstand
@@ -1654,6 +1487,23 @@ def render_dashboard():
         )
         st.markdown(gesamt_karte, unsafe_allow_html=True)
 
+    # ---------- POSITIONSKACHELN (Detailansicht je Position) ----------
+    # Bei nur einer Position waere ein Swipe-Container sinnlos - dann normal
+    # rendern. Ab zwei Positionen: scroll-snap-Container, in dem jede Kachel
+    # die volle Breite einnimmt und beim Wischen sauber einrastet.
+    if len(positions_karten) > 1:
+        # st.tabs statt eines CSS-Swipe-Containers: auf iOS blockiert Streamlits
+        # eigenes Container-Styling horizontales Wischen zuverlaessig, Tabs
+        # funktionieren dagegen ueberall per Tap (und lassen sich bei vielen
+        # Positionen zusaetzlich seitlich scrollen).
+        tab_labels = [lbl[:18] for lbl, _ in positions_karten]
+        for tab, (_, karte_html) in zip(st.tabs(tab_labels), positions_karten):
+            with tab:
+                st.markdown(karte_html, unsafe_allow_html=True)
+    else:
+        st.markdown(positions_karten[0][1], unsafe_allow_html=True)
+
+
 
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
@@ -1687,8 +1537,11 @@ def render_dashboard():
             ek_kwargs["value"] = entnommen_aktiv
         st.number_input("Monatliche Entnahme (€)", **ek_kwargs)
 
-    # ---------- DATENZEILEN: Sekundaerwerte kompakt und scanbar ----------
-    st.markdown(f"""
+    # ---------- DATENZEILEN: Sekundaerwerte, eingeklappt ----------
+    # Meilenstein und Anfangskapital sind Kontext, keine taeglich relevanten
+    # Kennzahlen - eingeklappt konkurrieren sie nicht mit Kurs und Depotwert.
+    with st.expander("Meilenstein und Anfangskapital", expanded=False):
+        st.markdown(f"""
     <div class="rows">
         <div class="row">
             <span class="row-label">100k-Meilenstein</span>
@@ -2352,6 +2205,152 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Szenarien", e)
     _render_scenarios()
+
+    with st.expander("➕ Positionen verwalten", expanded=False):
+        if not GH_STATE_READY:
+            st.warning(
+                "Ohne persistenten State (GITHUB_REPO/GITHUB_TOKEN) gehen angelegte "
+                "Positionen beim nächsten Neustart verloren."
+            )
+        st.caption(
+            "WKN oder ISIN ins Suchfeld eingeben – Name und Instrument-ID werden "
+            "automatisch übernommen. Die erste Position ist die Hauptposition, "
+            "sie speist zusätzlich alle Charts und Prognose-Tabs."
+        )
+
+        # --- Bestehende Positionen bearbeiten/loeschen ---
+        for idx, pos in enumerate(alle_positionen):
+            rolle = "Hauptposition" if idx == 0 else f"Position {idx + 1}"
+            st.markdown("---")
+            st.markdown(f"**{rolle}: {pos.get('name', '')}**")
+
+            # Suchblock ausserhalb des Formulars - erlaubt, jederzeit ein
+            # anderes Wertpapier fuer diese Position zu suchen und zu uebernehmen.
+            treffer_edit = instrument_suchblock(
+                f"edit_{idx}", label="Anderes Wertpapier suchen (optional)")
+
+            with st.form(f"pos_form_{pos.get('id', idx)}"):
+                # Wurde oben ein Treffer gewaehlt, ueberschreibt der die
+                # gespeicherten Werte als Vorbelegung - so laesst sich eine
+                # Position per Suche auf ein anderes Papier umstellen.
+                v_name = treffer_edit["name"] if treffer_edit else pos.get("name", "")
+                v_wkn = ((treffer_edit["wkn"] or treffer_edit["isin"]) if treffer_edit
+                         else pos.get("wkn", ""))
+                v_inst = (int(treffer_edit["instrument_id"]) if treffer_edit
+                          else int(pos.get("instrument_id") or 0))
+                # key vom Treffer abhaengig machen, damit Streamlit das Widget
+                # neu aufbaut und die Vorbelegung wirklich uebernimmt.
+                suffix = f"{idx}_{v_inst}"
+
+                n_name = st.text_input("Name", value=v_name, key=f"n_{suffix}")
+                n_wkn = st.text_input("WKN / ISIN", value=v_wkn, key=f"w_{suffix}")
+                n_inst = st.number_input(
+                    "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                    value=v_inst, key=f"i_{suffix}",
+                    help="0 = keine Kursquelle. Die Position wird dann ohne Kurse "
+                         "angezeigt und nicht in die Depot-Summe eingerechnet.",
+                )
+                n_kaufdatum = st.date_input(
+                    "Kaufdatum", value=datetime.date.fromisoformat(pos["kaufdatum"]), key=f"d_{idx}")
+                n_kaufkurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f",
+                                             value=float(pos.get("kaufkurs") or 0), key=f"k_{idx}")
+                n_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0,
+                                            value=float(pos.get("startkapital") or 0), key=f"s_{idx}")
+                if n_kaufkurs > 0:
+                    st.caption(f"Ergibt {n_kapital / n_kaufkurs:.4f} Anteile")
+
+                c_save, c_del = st.columns(2)
+                gespeichert = c_save.form_submit_button("💾 Speichern", width="stretch")
+                geloescht = c_del.form_submit_button("🗑️ Löschen", width="stretch")
+
+                if gespeichert:
+                    alle_positionen[idx] = {
+                        "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
+                        "name": n_name, "wkn": n_wkn,
+                        "instrument_id": int(n_inst) if n_inst else None,
+                        "kaufdatum": n_kaufdatum.isoformat(), "kaufkurs": float(n_kaufkurs),
+                        "startkapital": float(n_kapital),
+                    }
+                    if speichere_positionen(alle_positionen, "position geaendert [skip ci]"):
+                        for k in (f"edit_{idx}_suche", f"edit_{idx}_letzter",
+                                  f"edit_{idx}_treffer", f"edit_{idx}_wahl"):
+                            st.session_state.pop(k, None)
+                        st.success("Gespeichert.")
+                        st.rerun()
+                    else:
+                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
+
+                if geloescht:
+                    if len(alle_positionen) <= 1:
+                        st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
+                    else:
+                        alle_positionen.pop(idx)
+                        if speichere_positionen(alle_positionen, "position geloescht [skip ci]"):
+                            st.success("Gelöscht.")
+                            st.rerun()
+                        else:
+                            st.error("Löschen fehlgeschlagen (kein persistenter State?).")
+
+        # --- Neue Position anlegen ---
+        st.markdown("---")
+        st.markdown("**Neue Position hinzufügen**")
+
+        gewaehlt = instrument_suchblock("neu")
+
+        with st.form("pos_form_neu", clear_on_submit=True):
+            neu_name = st.text_input(
+                "Name", value=(gewaehlt["name"] if gewaehlt else ""),
+                placeholder="z. B. MSCI World ETF")
+            neu_wkn = st.text_input(
+                "WKN / ISIN",
+                value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
+                placeholder="z. B. A0RPWH")
+            neu_inst = st.number_input(
+                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
+                help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
+                     "(0) bleiben - dann werden für diese Position keine Kurse geladen "
+                     "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
+            )
+            neu_datum = st.date_input("Kaufdatum", value=heute_date)
+            neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0)
+            neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0)
+
+            if st.form_submit_button("➕ Position anlegen", width="stretch"):
+                if not neu_name or neu_kurs <= 0 or neu_kapital <= 0:
+                    st.error("Bitte Name, Kaufkurs und Kapital ausfüllen.")
+                else:
+                    # Instrument-ID, falls angegeben, vor dem Speichern pruefen -
+                    # verhindert stumme Fehlkonfiguration. Ohne ID wird die
+                    # Position angelegt und spaeter als "keine Kursquelle" markiert.
+                    test_kurs = None
+                    if neu_inst:
+                        test_kurs, _, _ = get_live_kurs(int(neu_inst))
+
+                    if neu_inst and test_kurs is None:
+                        st.error(
+                            f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
+                            "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
+                        )
+                    else:
+                        alle_positionen.append({
+                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
+                            "name": neu_name, "wkn": neu_wkn,
+                            "instrument_id": int(neu_inst) if neu_inst else None,
+                            "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
+                            "startkapital": float(neu_kapital),
+                        })
+                        if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
+                            for k in ("neu_suche", "neu_letzter", "neu_treffer", "neu_wahl"):
+                                st.session_state.pop(k, None)
+                            if test_kurs is not None:
+                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
+                            else:
+                                st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
+                                           "Instrument-ID kann oben jederzeit ergänzt werden.")
+                            st.rerun()
+                        else:
+                            st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
 
     # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
     # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
