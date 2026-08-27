@@ -136,9 +136,6 @@ st.markdown("""
         background: rgba(255, 255, 255, 0.04);
         padding: 4px 10px; border-radius: 999px;
     }
-    .meta-timestamp, .footnote {
-        font-size: 0.8rem; color: var(--muted); font-weight: 400; margin-top: 10px;
-    }
 
     .live-dot {
         display: inline-block; width: 7px; height: 7px; border-radius: 50%;
@@ -905,7 +902,9 @@ def render_dashboard():
             <span class="meta-chip">Lang &amp; Schwarz</span>
             <span class="meta-chip">Vortag {de_zahl(vortag_kurs)} €</span>
         </div>
-        <div class="meta-timestamp">Stand: {letztes_update_zeit}</div>
+        <div class="meta-row" style="margin-top: 8px;">
+            <span class="meta-chip">Stand: {letztes_update_zeit}</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -924,7 +923,9 @@ def render_dashboard():
             <span class="stat-chip"><span class="stat-chip-label">Rendite</span><span class="stat-chip-val {richtung_gewinn}">{rendite_ist_pct:+.2f} %</span></span>
             <span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span><span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>
         </div>
-        <div class="footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
+        <div class="meta-row" style="margin-top: 8px;">
+            <span class="meta-chip">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
