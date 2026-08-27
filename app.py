@@ -969,16 +969,6 @@ def render_dashboard():
             "Prüfe die Server-Logs bzw. die JSON-Struktur des ls-tc.de-Endpunkts."
         )
 
-    # --- DIAGNOSE IM HAUPTBEREICH (statt Sidebar - auf Mobile oft nicht auffindbar) ---
-    with st.expander("🔧 System-Status / Diagnose", expanded=not GH_STATE_READY):
-        st.write(f"**Live-Daten aktiv:** {'✅ Ja' if is_live_data else '❌ Nein'} ({fetched_source})")
-        st.write(f"**Chart-Historie live:** {'✅ Ja' if is_live_history else '❌ Nein'} ({hist_source_name})")
-        st.write(f"**Discord-Webhook geladen:** {'✅ Ja' if DISCORD_WEBHOOK_URL else '❌ Nein'}")
-        st.write(f"**Persistenter State (GitHub):** {'✅ Ja' if GH_STATE_READY else '❌ Nein - GITHUB_REPO/GITHUB_TOKEN fehlen'}")
-        if GH_STATE_READY:
-            st.caption(f"Repo: {GITHUB_REPO} • Branch: {config.GITHUB_STATE_BRANCH}")
-        st.write(f"**High Watermark:** {high_watermark_anzeige:.3f}€")
-
     # --- KENNZAHLEN ---
     tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100 if vortag_kurs else 0.0
     letztes_update_zeit = now_berlin.strftime("%d.%m.%Y %H:%M:%S Uhr")
@@ -1859,6 +1849,19 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Szenarien", e)
     _render_scenarios()
+
+    # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
+    # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
+    # Systemstatus wird nur im Fehlerfall gebraucht. Faellt der persistente
+    # State aus, klappt der Expander weiterhin automatisch auf.
+    with st.expander("🔧 System-Status / Diagnose", expanded=not GH_STATE_READY):
+        st.write(f"**Live-Daten aktiv:** {'✅ Ja' if is_live_data else '❌ Nein'} ({fetched_source})")
+        st.write(f"**Chart-Historie live:** {'✅ Ja' if is_live_history else '❌ Nein'} ({hist_source_name})")
+        st.write(f"**Discord-Webhook geladen:** {'✅ Ja' if DISCORD_WEBHOOK_URL else '❌ Nein'}")
+        st.write(f"**Persistenter State (GitHub):** {'✅ Ja' if GH_STATE_READY else '❌ Nein - GITHUB_REPO/GITHUB_TOKEN fehlen'}")
+        if GH_STATE_READY:
+            st.caption(f"Repo: {GITHUB_REPO} • Branch: {config.GITHUB_STATE_BRANCH}")
+        st.write(f"**High Watermark:** {high_watermark_anzeige:.3f}€")
 
 
 
