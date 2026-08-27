@@ -255,7 +255,7 @@ st.markdown("""
     /* ---------- Streamlit-Eigenheiten ---------- */
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
-    .block-container { padding-top: 3rem; padding-bottom: 4rem; max-width: 780px; }
+    .block-container { padding-top: 1.8rem; padding-bottom: 4rem; max-width: 780px; }
 
     [data-testid="stNumberInput"] input {
         font-family: 'IBM Plex Mono', monospace !important;
