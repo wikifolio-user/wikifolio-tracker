@@ -1232,6 +1232,49 @@ def render_dashboard():
     alle_positionen = lade_positionen()
 
     # ---------- POSITIONEN VERWALTEN (anlegen / aendern / loeschen) ----------
+    def instrument_suchblock(prefix, label="WKN, ISIN oder Name suchen"):
+        """Wiederverwendbarer Suchblock. Muss AUSSERHALB eines st.form stehen,
+        da Formulare erst beim Submit einen Rerun ausloesen - die Suche soll
+        aber sofort reagieren. Sucht bei Eingabe (Enter/Verlassen des Felds),
+        ohne extra Klick. Gibt den gewaehlten Treffer als dict zurueck (oder None).
+
+        prefix trennt die session_state-Keys, damit jede Position ihren
+        eigenen, unabhaengigen Suchzustand hat."""
+        suchbegriff = st.text_input(
+            label, key=f"{prefix}_suche",
+            placeholder="z. B. A0LC12, IE00B4L5Y983 oder MSCI World",
+        )
+
+        # Nur neu suchen, wenn sich der Begriff geaendert hat - sonst wuerde
+        # jeder Rerun (z.B. durch ein anderes Widget) erneut suchen.
+        if suchbegriff and st.session_state.get(f"{prefix}_letzter") != suchbegriff:
+            st.session_state[f"{prefix}_letzter"] = suchbegriff
+            st.session_state[f"{prefix}_treffer"] = suche_instrument(suchbegriff)
+            st.session_state.pop(f"{prefix}_wahl", None)
+
+        if not suchbegriff:
+            return None
+
+        treffer = st.session_state.get(f"{prefix}_treffer", [])
+        if not treffer:
+            st.caption("⚠️ Keine Treffer – Schreibweise prüfen oder Instrument-ID manuell eintragen.")
+            return None
+
+        optionen = {
+            f"{t['name']} · {t['kategorie']} · WKN {t['wkn'] or '–'}": t
+            for t in treffer
+        }
+        wahl = st.selectbox("Treffer auswählen", list(optionen.keys()), key=f"{prefix}_wahl")
+        gewaehlt = optionen[wahl]
+
+        live_kurs, _, _ = get_live_kurs(gewaehlt["instrument_id"])
+        kurs_txt = f"{de_zahl(live_kurs)} €" if live_kurs else "kein Kurs verfügbar"
+        st.caption(
+            f"→ **{gewaehlt['name']}** · ID {gewaehlt['instrument_id']} · "
+            f"ISIN {gewaehlt['isin'] or '–'} · aktuell {kurs_txt}"
+        )
+        return gewaehlt
+
     with st.expander("➕ Positionen verwalten", expanded=False):
         if not GH_STATE_READY:
             st.warning(
@@ -1239,21 +1282,40 @@ def render_dashboard():
                 "Positionen beim nächsten Neustart verloren."
             )
         st.caption(
-            "Die **Instrument-ID** findest du in der ls-tc.de-URL des Produkts, "
-            "z. B. `ls-tc.de/de/wikifolio/`**`3865540`**. Die erste Position ist die "
-            "Hauptposition - sie speist zusätzlich alle Charts und Prognose-Tabs."
+            "WKN oder ISIN ins Suchfeld eingeben – Name und Instrument-ID werden "
+            "automatisch übernommen. Die erste Position ist die Hauptposition, "
+            "sie speist zusätzlich alle Charts und Prognose-Tabs."
         )
 
         # --- Bestehende Positionen bearbeiten/loeschen ---
         for idx, pos in enumerate(alle_positionen):
             rolle = "Hauptposition" if idx == 0 else f"Position {idx + 1}"
+            st.markdown("---")
+            st.markdown(f"**{rolle}: {pos.get('name', '')}**")
+
+            # Suchblock ausserhalb des Formulars - erlaubt, jederzeit ein
+            # anderes Wertpapier fuer diese Position zu suchen und zu uebernehmen.
+            treffer_edit = instrument_suchblock(
+                f"edit_{idx}", label="Anderes Wertpapier suchen (optional)")
+
             with st.form(f"pos_form_{pos.get('id', idx)}"):
-                st.markdown(f"**{rolle}: {pos.get('name', '')}**")
-                n_name = st.text_input("Name", value=pos.get("name", ""), key=f"n_{idx}")
-                n_wkn = st.text_input("WKN / ISIN", value=pos.get("wkn", ""), key=f"w_{idx}")
+                # Wurde oben ein Treffer gewaehlt, ueberschreibt der die
+                # gespeicherten Werte als Vorbelegung - so laesst sich eine
+                # Position per Suche auf ein anderes Papier umstellen.
+                v_name = treffer_edit["name"] if treffer_edit else pos.get("name", "")
+                v_wkn = ((treffer_edit["wkn"] or treffer_edit["isin"]) if treffer_edit
+                         else pos.get("wkn", ""))
+                v_inst = (int(treffer_edit["instrument_id"]) if treffer_edit
+                          else int(pos.get("instrument_id") or 0))
+                # key vom Treffer abhaengig machen, damit Streamlit das Widget
+                # neu aufbaut und die Vorbelegung wirklich uebernimmt.
+                suffix = f"{idx}_{v_inst}"
+
+                n_name = st.text_input("Name", value=v_name, key=f"n_{suffix}")
+                n_wkn = st.text_input("WKN / ISIN", value=v_wkn, key=f"w_{suffix}")
                 n_inst = st.number_input(
                     "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
-                    value=int(pos.get("instrument_id") or 0), key=f"i_{idx}",
+                    value=v_inst, key=f"i_{suffix}",
                     help="0 = keine Kursquelle. Die Position wird dann ohne Kurse "
                          "angezeigt und nicht in die Depot-Summe eingerechnet.",
                 )
@@ -1279,6 +1341,9 @@ def render_dashboard():
                         "startkapital": float(n_kapital),
                     }
                     if speichere_positionen(alle_positionen, "position geaendert [skip ci]"):
+                        for k in (f"edit_{idx}_suche", f"edit_{idx}_letzter",
+                                  f"edit_{idx}_treffer", f"edit_{idx}_wahl"):
+                            st.session_state.pop(k, None)
                         st.success("Gespeichert.")
                         st.rerun()
                     else:
@@ -1299,43 +1364,7 @@ def render_dashboard():
         st.markdown("---")
         st.markdown("**Neue Position hinzufügen**")
 
-        # Suche BEWUSST ausserhalb des Formulars: Streamlit-Formulare erlauben
-        # nur einen Submit-Button, die Suche muss aber vor dem Anlegen laufen
-        # koennen, damit der Treffer im Formular vorbelegt werden kann.
-        such_col, btn_col = st.columns([3, 1])
-        suchbegriff = such_col.text_input(
-            "WKN, ISIN oder Name suchen", key="pos_suche",
-            placeholder="z. B. A0LC12, IE00B4L5Y983 oder MSCI World",
-        )
-        gesucht = btn_col.button("🔍 Suchen", width="stretch")
-
-        if gesucht and suchbegriff:
-            st.session_state["pos_treffer"] = suche_instrument(suchbegriff)
-            st.session_state.pop("pos_gewaehlt", None)
-
-        treffer = st.session_state.get("pos_treffer", [])
-        if gesucht and not treffer:
-            st.warning(
-                "Keine Treffer. Prüfe die Schreibweise – oder trage die Instrument-ID "
-                "unten manuell ein (steht in der ls-tc.de-Produkt-URL)."
-            )
-
-        if treffer:
-            optionen = {
-                f"{t['name']} · {t['kategorie']} · WKN {t['wkn'] or '–'}": t
-                for t in treffer
-            }
-            wahl = st.selectbox("Treffer auswählen", list(optionen.keys()), key="pos_treffer_wahl")
-            st.session_state["pos_gewaehlt"] = optionen[wahl]
-
-        gewaehlt = st.session_state.get("pos_gewaehlt")
-        if gewaehlt:
-            live_kurs, _, _ = get_live_kurs(gewaehlt["instrument_id"])
-            kurs_txt = f"{de_zahl(live_kurs)} €" if live_kurs else "kein Kurs verfügbar"
-            st.info(
-                f"**{gewaehlt['name']}** · ID {gewaehlt['instrument_id']} · "
-                f"ISIN {gewaehlt['isin'] or '–'} · aktuell {kurs_txt}"
-            )
+        gewaehlt = instrument_suchblock("neu")
 
         with st.form("pos_form_neu", clear_on_submit=True):
             neu_name = st.text_input(
@@ -1381,8 +1410,8 @@ def render_dashboard():
                             "startkapital": float(neu_kapital),
                         })
                         if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
-                            st.session_state.pop("pos_treffer", None)
-                            st.session_state.pop("pos_gewaehlt", None)
+                            for k in ("neu_suche", "neu_letzter", "neu_treffer", "neu_wahl"):
+                                st.session_state.pop(k, None)
                             if test_kurs is not None:
                                 st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
                             else:
