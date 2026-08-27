@@ -109,14 +109,14 @@ st.markdown("""
     /* ---------- KURS-KOPF: die Zahl ist der Held der Seite ---------- */
     .quote {
         background: var(--surface); border: 1px solid var(--line);
-        border-radius: 12px; padding: 20px 22px; margin-bottom: 16px;
+        border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
     }
     .q-name {
-        font-size: 0.88rem; font-weight: 700; color: var(--text);
-        letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 10px;
+        font-size: 0.72rem; font-weight: 700; color: var(--text);
+        letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 6px;
     }
     .q-price {
-        font-size: 1.8rem; font-weight: 700; color: var(--text);
+        font-size: 1.6rem; font-weight: 700; color: var(--text);
         line-height: 1; letter-spacing: -0.5px;
     }
     /* Kurs + Live-Badge + Boerse in einer Zeile: die Statusinfos gehoeren
@@ -166,14 +166,20 @@ st.markdown("""
     /* ---------- HERO: eine einzige hervorgehobene Kennzahl ---------- */
     .hero {
         background: var(--surface); border: 1px solid var(--line);
-        border-radius: 12px; padding: 20px 22px; margin-bottom: 8px;
+        border-radius: 12px; padding: 14px 16px; margin-bottom: 8px;
     }
     .hero-label {
-        font-size: 0.78rem; font-weight: 700; color: var(--text);
+        font-size: 0.72rem; font-weight: 700; color: var(--text);
         letter-spacing: 1.1px; text-transform: uppercase;
     }
-    .hero-val { font-size: 1.8rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.3px; }
+    .hero-val { font-size: 1.6rem; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
     .hero-sub { font-size: 0.92rem; color: var(--label); font-weight: 500; }
+
+    /* Kompakte Fussnote am Kachelende (Zeitstempel, Stueckzahl) - bewusst
+       ohne Chip-Pille, damit sie moeglichst wenig Hoehe kostet. */
+    .card-footnote {
+        font-size: 0.72rem; color: var(--muted); margin-top: 8px;
+    }
 
     /* ---------- STAT-CHIPS: gleiche Pill-Optik wie die Meta-Chips
        oben beim Kurs-Kopf - Label + Wert in einer Pille, statt Label
@@ -225,31 +231,31 @@ st.markdown("""
        sie sitzt ja schon IN der Kachel, ein zweiter Rahmen wuerde
        verschachtelt und unruhig wirken. */
     .perf-table {
-        margin-top: 16px; border-top: 1px solid var(--line);
+        margin-top: 10px; border-top: 1px solid var(--line);
     }
     .perf-row {
         display: flex; justify-content: space-between; align-items: baseline;
-        gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--line);
+        gap: 12px; padding: 7px 2px; border-bottom: 1px solid var(--line);
     }
     .perf-row:last-child { border-bottom: none; padding-bottom: 2px; }
     .perf-label {
-        font-size: 0.88rem; color: var(--label); font-weight: 500;
+        font-size: 0.82rem; color: var(--label); font-weight: 500;
     }
     .perf-vals {
-        display: inline-flex; gap: 14px; justify-content: flex-end;
+        display: inline-flex; gap: 12px; justify-content: flex-end;
         flex-wrap: wrap; text-align: right;
     }
     .perf-vals .up, .perf-vals .down, .perf-vals .neutral {
         font-family: 'IBM Plex Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
-        font-size: 0.92rem; font-weight: 600; white-space: nowrap;
+        font-size: 0.85rem; font-weight: 600; white-space: nowrap;
     }
     .perf-vals .neutral { color: var(--label); }
 
     /* ---------- Streamlit-Eigenheiten ---------- */
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
-    .block-container { padding-top: 1rem; padding-bottom: 4rem; max-width: 780px; }
+    .block-container { padding-top: 0.5rem; padding-bottom: 4rem; max-width: 780px; }
 
     [data-testid="stNumberInput"] input {
         font-family: 'IBM Plex Mono', monospace !important;
@@ -1058,11 +1064,8 @@ def render_dashboard():
             {live_markup}
             <span class="meta-chip">Lang &amp; Schwarz</span>
         </div>
-        <div class="meta-row">
-            <span class="stat-chip"><span class="stat-chip-label">Heute</span><span class="stat-chip-val {richtung}">{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} % / {'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</span></span>
-            <span class="meta-chip">Stand: {letztes_update_zeit}</span>
-        </div>
         {perf_zeilen_html(periods_kurs, 3, kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"))}
+        <div class="card-footnote">Stand: {letztes_update_zeit}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1075,14 +1078,12 @@ def render_dashboard():
     st.markdown(f"""
     <div class="hero">
         <div class="hero-label">Depotwert</div>
-        <div class="hero-val">{fmt(brutto_ist, 2)}</div>
-        <div class="meta-row">
-            <span class="stat-chip"><span class="stat-chip-label">Gewinn</span><span class="stat-chip-val {richtung_gewinn}">{'+' if gewinn_brutto >= 0 else ''}{fmt(gewinn_brutto, 2)}</span></span>
-            <span class="stat-chip"><span class="stat-chip-label">Rendite</span><span class="stat-chip-val {richtung_gewinn}">{rendite_ist_pct:+.2f} %</span></span>
+        <div class="price-line">
+            <span class="hero-val">{fmt(brutto_ist, 2)}</span>
             <span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span><span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>
-            <span class="meta-chip">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</span>
         </div>
         {perf_zeilen_html(periods_depot, 2)}
+        <div class="card-footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
     </div>
     """, unsafe_allow_html=True)
 
