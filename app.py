@@ -119,6 +119,11 @@ st.markdown("""
         font-size: 1.8rem; font-weight: 700; color: var(--text);
         line-height: 1; letter-spacing: -0.5px;
     }
+    /* Kurs + Live-Badge + Boerse in einer Zeile: die Statusinfos gehoeren
+       unmittelbar zum Kurs, nicht in die Kennzahlen-Chipreihe darunter. */
+    .price-line {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
     .q-delta { font-size: 1.1rem; font-weight: 600; margin-top: 12px; }
     .up { color: var(--up); } .down { color: var(--down); }
 
@@ -234,11 +239,12 @@ st.markdown("""
         display: inline-flex; gap: 14px; justify-content: flex-end;
         flex-wrap: wrap; text-align: right;
     }
-    .perf-vals .up, .perf-vals .down {
+    .perf-vals .up, .perf-vals .down, .perf-vals .neutral {
         font-family: 'IBM Plex Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
         font-size: 0.92rem; font-weight: 600; white-space: nowrap;
     }
+    .perf-vals .neutral { color: var(--label); }
 
     /* ---------- Streamlit-Eigenheiten ---------- */
     #MainMenu, footer { visibility: hidden; }
@@ -1021,10 +1027,18 @@ def render_dashboard():
     periods_depot = [(lbl, d * gesamt_stueckzahl_perf, p) for lbl, d, p in periods_kurs]
     periods_depot.append(("seit Kauf", gewinn_brutto, rendite_ist_pct))
 
-    def perf_zeilen_html(zeilen, nachkomma):
+    def perf_zeilen_html(zeilen, nachkomma, kopfzeile=None):
         """Rendert die Zeitraum-Zeilen INNERHALB einer Kachel: hairline-getrennt,
-        Betrag und Prozent rechtsbuendig nebeneinander, eingefaerbt nach Vorzeichen."""
+        Betrag und Prozent rechtsbuendig nebeneinander, eingefaerbt nach Vorzeichen.
+        kopfzeile: optionales (label, wert_html) Tupel fuer eine neutrale
+        Referenzzeile ohne +/- Faerbung (z.B. der Vortageskurs) ganz oben."""
         html = ""
+        if kopfzeile:
+            k_label, k_wert = kopfzeile
+            html += (
+                f'<div class="perf-row"><span class="perf-label">{k_label}</span>'
+                f'<span class="perf-vals"><span class="neutral">{k_wert}</span></span></div>'
+            )
         for label, diff, prozent in zeilen:
             cls = "up" if diff >= 0 else "down"
             html += (
@@ -1039,15 +1053,16 @@ def render_dashboard():
     st.markdown(f"""
     <div class="quote">
         <div class="q-name">Hauptindizes Global · {config.WKN}</div>
-        <div class="q-price">{de_zahl(aktueller_kurs)} €</div>
-        <div class="meta-row">
-            <span class="stat-chip"><span class="stat-chip-label">Heute</span><span class="stat-chip-val {richtung}">{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} % / {'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</span></span>
+        <div class="price-line">
+            <span class="q-price">{de_zahl(aktueller_kurs)} €</span>
             {live_markup}
             <span class="meta-chip">Lang &amp; Schwarz</span>
-            <span class="meta-chip">Vortag {de_zahl(vortag_kurs)} €</span>
+        </div>
+        <div class="meta-row">
+            <span class="stat-chip"><span class="stat-chip-label">Heute</span><span class="stat-chip-val {richtung}">{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} % / {'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</span></span>
             <span class="meta-chip">Stand: {letztes_update_zeit}</span>
         </div>
-        {perf_zeilen_html(periods_kurs, 3)}
+        {perf_zeilen_html(periods_kurs, 3, kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"))}
     </div>
     """, unsafe_allow_html=True)
 
