@@ -256,8 +256,27 @@ st.markdown("""
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
     /* Streamlits eigenes "Running ..."-Kaestchen ausblenden - wir zeigen
-       stattdessen den zentrierten Ladefortschritt unten. */
-    [data-testid="stStatusWidget"] { display: none !important; }
+       stattdessen den zentrierten Ladefortschritt unten. Mehrere Selektoren,
+       da Streamlit das Widget je nach Version unterschiedlich benennt
+       (stStatusWidget / stStatus / Toolbar-Container) - so greift es
+       versionsunabhaengig. */
+    [data-testid="stStatusWidget"],
+    [data-testid="stStatus"],
+    [data-testid="stHeader"] [data-testid="stStatusWidget"],
+    .stStatusWidget,
+    div[class*="StatusWidget"],
+    div[data-testid="stDecoration"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        height: 0 !important;
+        width: 0 !important;
+        overflow: hidden !important;
+    }
+    /* Der Header selbst darf bleiben (er haelt den Abstand oben frei),
+       nur sein Inhalt wird unsichtbar. */
+    [data-testid="stHeader"] { background: transparent !important; }
 
     /* ---------- ZENTRIERTER LADEFORTSCHRITT ---------- */
     .loading-overlay {
