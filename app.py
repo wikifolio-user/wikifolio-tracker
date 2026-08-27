@@ -166,23 +166,25 @@ st.markdown("""
     .hero-val { font-size: 1.8rem; font-weight: 700; color: var(--text); margin: 8px 0 4px 0; letter-spacing: -0.3px; }
     .hero-sub { font-size: 0.92rem; color: var(--label); font-weight: 500; }
 
-    /* ---------- STAT-GRID: einzelne Kennzahlen mit eigenem Label
-       statt einer verketteten "+X · +Y% · Z%" Textzeile - jede Zahl
-       ist auf einen Blick zuzuordnen. ---------- */
-    .stat-grid {
-        display: flex; gap: 20px; margin-top: 10px; flex-wrap: wrap;
+    /* ---------- STAT-CHIPS: gleiche Pill-Optik wie die Meta-Chips
+       oben beim Kurs-Kopf - Label + Wert in einer Pille, statt Label
+       ueber Wert gestapelt. Sorgt fuer ein einheitliches Design ueber
+       beide Kacheln hinweg. ---------- */
+    .stat-chip {
+        display: inline-flex; align-items: center; gap: 7px;
+        background: rgba(255, 255, 255, 0.04);
+        padding: 6px 12px; border-radius: 999px;
     }
-    .stat-item { min-width: 74px; }
-    .stat-label {
-        font-size: 0.68rem; font-weight: 600; color: var(--muted);
-        text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px;
+    .stat-chip-label {
+        font-size: 0.68rem; font-weight: 700; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.4px;
     }
-    .stat-val {
+    .stat-chip-val {
         font-family: 'IBM Plex Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
-        font-size: 1rem; font-weight: 700; color: var(--text);
+        font-size: 0.9rem; font-weight: 700; color: var(--text);
     }
-    .stat-val.up { color: var(--up); } .stat-val.down { color: var(--down); }
+    .stat-chip-val.up { color: var(--up); } .stat-chip-val.down { color: var(--down); }
 
     /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
        Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
@@ -917,19 +919,10 @@ def render_dashboard():
     <div class="hero">
         <div class="hero-label">Depotwert</div>
         <div class="hero-val">{fmt(brutto_ist, 2)}</div>
-        <div class="stat-grid">
-            <div class="stat-item">
-                <div class="stat-label">Gewinn</div>
-                <div class="stat-val {richtung_gewinn}">{'+' if gewinn_brutto >= 0 else ''}{fmt(gewinn_brutto, 2)}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label">Rendite</div>
-                <div class="stat-val {richtung_gewinn}">{rendite_ist_pct:+.2f} %</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label">Ø p.a.</div>
-                <div class="stat-val">{erwartete_rendite_pa:.1f} %</div>
-            </div>
+        <div class="meta-row">
+            <span class="stat-chip"><span class="stat-chip-label">Gewinn</span><span class="stat-chip-val {richtung_gewinn}">{'+' if gewinn_brutto >= 0 else ''}{fmt(gewinn_brutto, 2)}</span></span>
+            <span class="stat-chip"><span class="stat-chip-label">Rendite</span><span class="stat-chip-val {richtung_gewinn}">{rendite_ist_pct:+.2f} %</span></span>
+            <span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span><span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>
         </div>
         <div class="hero-sub" style="margin-top:12px;">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
     </div>
