@@ -1146,30 +1146,33 @@ def render_dashboard():
             f'</span></div></div>'
         )
 
-    st.markdown(f"""
-    <div class="quote">
-        <div class="q-name">High Watermark</div>
-        <div class="price-line">
-            <span class="q-price">{de_zahl(high_watermark_anzeige)} €</span>
-            {hw_status_chip}
-        </div>
-        {hw_abstand_html}
-        <div class="card-footnote">Erreicht am {high_watermark_datum} · ab hier {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>
-    </div>
-    """, unsafe_allow_html=True)
+    hw_karte = (
+        '<div class="quote">'
+        '<div class="q-name">High Watermark</div>'
+        '<div class="price-line">'
+        f'<span class="q-price">{de_zahl(high_watermark_anzeige)} €</span>'
+        f'{hw_status_chip}'
+        '</div>'
+        f'{hw_abstand_html}'
+        f'<div class="card-footnote">Erreicht am {high_watermark_datum} · '
+        f'ab hier {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>'
+        '</div>'
+    )
+    st.markdown(hw_karte, unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div class="quote">
-        <div class="q-name">Hauptindizes Global · {config.WKN}</div>
-        <div class="price-line">
-            <span class="q-price">{de_zahl(aktueller_kurs)} €</span>
-            {live_markup}
-            <span class="meta-chip">Lang &amp; Schwarz</span>
-        </div>
-        {perf_zeilen_html(periods_kurs, 3, kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"))}
-        <div class="card-footnote">Stand: {letztes_update_zeit}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    kurs_karte = (
+        '<div class="quote">'
+        f'<div class="q-name">Hauptindizes Global · {config.WKN}</div>'
+        '<div class="price-line">'
+        f'<span class="q-price">{de_zahl(aktueller_kurs)} €</span>'
+        f'{live_markup}'
+        '<span class="meta-chip">Lang &amp; Schwarz</span>'
+        '</div>'
+        f'{perf_zeilen_html(periods_kurs, 3, kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"))}'
+        f'<div class="card-footnote">Stand: {letztes_update_zeit}</div>'
+        '</div>'
+    )
+    st.markdown(kurs_karte, unsafe_allow_html=True)
 
     # ---------- HERO: Depotwert ----------
     sparplan_zusatz = (
@@ -1177,17 +1180,20 @@ def render_dashboard():
         if zusaetzliche_stueckzahl_sparplan > 0 else ""
     )
     richtung_gewinn = "up" if gewinn_brutto >= 0 else "down"
-    st.markdown(f"""
-    <div class="hero">
-        <div class="hero-label">Depotwert</div>
-        <div class="price-line">
-            <span class="hero-val">{fmt(brutto_ist, 2)}</span>
-            <span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span><span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>
-        </div>
-        {perf_zeilen_html(periods_depot, 2)}
-        <div class="card-footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    depot_karte = (
+        '<div class="hero">'
+        '<div class="hero-label">Depotwert</div>'
+        '<div class="price-line">'
+        f'<span class="hero-val">{fmt(brutto_ist, 2)}</span>'
+        '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
+        f'<span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>'
+        '</div>'
+        f'{perf_zeilen_html(periods_depot, 2)}'
+        f'<div class="card-footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} '
+        f'Anteile{sparplan_zusatz}</div>'
+        '</div>'
+    )
+    st.markdown(depot_karte, unsafe_allow_html=True)
 
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
