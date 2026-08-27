@@ -1186,175 +1186,9 @@ def render_dashboard():
             )
         return f'<div class="perf-table">{html}</div>' if html else ""
 
-    # ---------- HIGH WATERMARK: ganz oben, mit Abstand zum aktuellen Kurs ----------
-    # Zeigt den Hoechststand und wie weit der aktuelle Kurs davon entfernt ist.
-    # Steht der Kurs auf/ueber dem Hoch, wird das als "Allzeithoch" markiert -
-    # ab dort greift die Performance Fee auf neue Gewinne.
-    hw_abstand = aktueller_kurs - high_watermark_anzeige
-    hw_abstand_pct = (hw_abstand / high_watermark_anzeige * 100) if high_watermark_anzeige else 0.0
-    hw_am_hoch = hw_abstand >= -0.0005  # Toleranz gegen Rundungsrauschen
-
-    if hw_am_hoch:
-        hw_status_chip = '<span class="hw-pill peak">🏔️ Allzeithoch</span>'
-        hw_abstand_html = ""
-    else:
-        hw_status_chip = ""
-        hw_abstand_html = (
-            f'<div class="perf-table"><div class="perf-row">'
-            f'<span class="perf-label">Abstand zum Hoch</span>'
-            f'<span class="perf-vals">'
-            f'<span class="down">{de_zahl(hw_abstand, 3)} €</span>'
-            f'<span class="down">{de_zahl(hw_abstand_pct, 2)} %</span>'
-            f'</span></div></div>'
-        )
-
-    hw_karte = (
-        '<div class="quote">'
-        '<div class="q-name">High Watermark</div>'
-        '<div class="price-line">'
-        f'<span class="q-price">{de_zahl(high_watermark_anzeige)} €</span>'
-        f'{hw_status_chip}'
-        '</div>'
-        f'{hw_abstand_html}'
-        f'<div class="card-footnote">Erreicht am {high_watermark_datum} · '
-        f'ab hier {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>'
-        '</div>'
-    )
-    st.markdown(hw_karte, unsafe_allow_html=True)
-
-    kurs_karte = (
-        '<div class="quote">'
-        f'<div class="q-name">Hauptindizes Global · {config.WKN}</div>'
-        '<div class="price-line">'
-        f'<span class="q-price">{de_zahl(aktueller_kurs)} €</span>'
-        f'{live_markup}'
-        '<span class="meta-chip">Lang &amp; Schwarz</span>'
-        '</div>'
-        f'{perf_zeilen_html(periods_kurs, 3, kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"))}'
-        f'<div class="card-footnote">Stand: {letztes_update_zeit}</div>'
-        '</div>'
-    )
-    st.markdown(kurs_karte, unsafe_allow_html=True)
-
-    # ---------- HERO: Depotwert ----------
-    sparplan_zusatz = (
-        f" · davon {zusaetzliche_stueckzahl_sparplan:.4f} aus Sparplan"
-        if zusaetzliche_stueckzahl_sparplan > 0 else ""
-    )
-    richtung_gewinn = "up" if gewinn_brutto >= 0 else "down"
-    depot_karte = (
-        '<div class="hero">'
-        '<div class="hero-label">Depotwert</div>'
-        '<div class="price-line">'
-        f'<span class="hero-val">{fmt(brutto_ist, 2)}</span>'
-        '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
-        f'<span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>'
-        '</div>'
-        f'{perf_zeilen_html(periods_depot, 2)}'
-        f'<div class="card-footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} '
-        f'Anteile{sparplan_zusatz}</div>'
-        '</div>'
-    )
-    st.markdown(depot_karte, unsafe_allow_html=True)
-
-    # =================================================================
-    # WEITERE POSITIONEN + GESAMTUEBERSICHT
-    # =================================================================
-    # Die erste Position ist die oben ausfuehrlich dargestellte Hauptposition
-    # (sie speist auch alle Tabs/Charts). Jede weitere Position bekommt eine
-    # eigene Kachel im selben Design; darunter folgt die Depot-Gesamtsumme.
+    # Positionsliste einmalig laden - wird sowohl von der Verwaltung unten
+    # als auch von den Positionskacheln weiter unten genutzt.
     alle_positionen = lade_positionen()
-    weitere_positionen = alle_positionen[1:] if len(alle_positionen) > 1 else []
-
-    # Kennzahlen der Hauptposition als Startwert der Gesamtsumme
-    gesamt_wert = brutto_ist
-    gesamt_einstand = startkapital_aktiv
-    gesamt_zeitraeume = {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"}
-    positionen_ok = True
-
-    for pos in weitere_positionen:
-        try:
-            p_kurs, p_vortag, p_quelle = get_live_kurs(pos["instrument_id"])
-            if p_kurs is None:
-                positionen_ok = False
-                st.warning(f"⚠️ Für **{pos.get('name', pos.get('wkn', '?'))}** sind gerade keine Live-Daten verfügbar.")
-                continue
-
-            p_stueck = position_stueckzahl(pos)
-            p_wert = p_kurs * p_stueck
-            p_einstand = float(pos.get("startkapital") or 0)
-            p_gewinn = p_wert - p_einstand
-            p_rendite = (p_gewinn / p_einstand * 100) if p_einstand else 0.0
-
-            p_kaufdatum = datetime.date.fromisoformat(pos["kaufdatum"])
-            p_hist = get_kurshistorie(
-                pos["instrument_id"], heute_date - datetime.timedelta(days=420), heute_date
-            )
-            p_perioden_kurs = berechne_zeitraeume(p_kurs, p_vortag, p_hist, heute_date)
-            p_perioden_depot = [(lbl, d * p_stueck, pct) for lbl, d, pct in p_perioden_kurs]
-            p_perioden_depot.append(("seit Kauf", p_gewinn, p_rendite))
-
-            # in die Gesamtsumme einrechnen
-            gesamt_wert += p_wert
-            gesamt_einstand += p_einstand
-            for lbl, betrag, _ in p_perioden_depot:
-                if lbl != "seit Kauf":
-                    gesamt_zeitraeume[lbl] = gesamt_zeitraeume.get(lbl, 0.0) + betrag
-
-            p_tage = max(1, (heute_date - p_kaufdatum).days)
-            p_cagr = (((p_wert / p_einstand) ** (365.25 / p_tage)) - 1) * 100 if p_einstand > 0 and p_wert > 0 else 0.0
-
-            karte = (
-                '<div class="hero">'
-                f'<div class="hero-label">{pos.get("name", "Position")} · {pos.get("wkn", "")}</div>'
-                '<div class="price-line">'
-                f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
-                '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
-                f'<span class="stat-chip-val">{p_cagr:.1f} %</span></span>'
-                f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
-                '</div>'
-                f'{perf_zeilen_html(p_perioden_depot, 2)}'
-                f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
-                f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {de_zahl(float(pos["kaufkurs"]), 2)} €</div>'
-                '</div>'
-            )
-            st.markdown(karte, unsafe_allow_html=True)
-
-        except Exception as e:
-            positionen_ok = False
-            st.error(f"⚠️ Position **{pos.get('name', '?')}** konnte nicht berechnet werden: {e}")
-            notify_app_error(f"Position-{pos.get('id', '?')}", e)
-
-    # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
-    if weitere_positionen:
-        gesamt_gewinn = gesamt_wert - gesamt_einstand
-        gesamt_rendite = (gesamt_gewinn / gesamt_einstand * 100) if gesamt_einstand else 0.0
-
-        # Prozent je Zeitraum aus den summierten €-Betraegen ableiten, NICHT die
-        # Einzelprozente mitteln - Positionen haben unterschiedliche Groessen,
-        # ein einfacher Mittelwert waere schlicht falsch.
-        gesamt_perioden = []
-        for lbl in ["Tag", "Woche", "Monat", "Jahr"]:
-            if lbl in gesamt_zeitraeume:
-                betrag = gesamt_zeitraeume[lbl]
-                basis = gesamt_wert - betrag
-                pct = (betrag / basis * 100) if basis else 0.0
-                gesamt_perioden.append((lbl, betrag, pct))
-        gesamt_perioden.append(("seit Kauf", gesamt_gewinn, gesamt_rendite))
-
-        hinweis = "" if positionen_ok else " · ⚠️ unvollständig, s. Warnungen oben"
-        gesamt_karte = (
-            '<div class="hero gesamt">'
-            '<div class="hero-label">Depot gesamt</div>'
-            '<div class="price-line">'
-            f'<span class="hero-val">{fmt(gesamt_wert, 2)}</span>'
-            f'<span class="meta-chip">{len(alle_positionen)} Positionen</span>'
-            '</div>'
-            f'{perf_zeilen_html(gesamt_perioden, 2)}'
-            f'<div class="card-footnote">Einstand {fmt(gesamt_einstand, 2)}{hinweis}</div>'
-            '</div>'
-        )
-        st.markdown(gesamt_karte, unsafe_allow_html=True)
 
     # ---------- POSITIONEN VERWALTEN (anlegen / aendern / loeschen) ----------
     with st.expander("➕ Positionen verwalten", expanded=False):
@@ -1450,6 +1284,175 @@ def render_dashboard():
                             st.rerun()
                         else:
                             st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
+
+    # ---------- HIGH WATERMARK: ganz oben, mit Abstand zum aktuellen Kurs ----------
+    # Zeigt den Hoechststand und wie weit der aktuelle Kurs davon entfernt ist.
+    # Steht der Kurs auf/ueber dem Hoch, wird das als "Allzeithoch" markiert -
+    # ab dort greift die Performance Fee auf neue Gewinne.
+    hw_abstand = aktueller_kurs - high_watermark_anzeige
+    hw_abstand_pct = (hw_abstand / high_watermark_anzeige * 100) if high_watermark_anzeige else 0.0
+    hw_am_hoch = hw_abstand >= -0.0005  # Toleranz gegen Rundungsrauschen
+
+    if hw_am_hoch:
+        hw_status_chip = '<span class="hw-pill peak">🏔️ Allzeithoch</span>'
+        hw_abstand_html = ""
+    else:
+        hw_status_chip = ""
+        hw_abstand_html = (
+            f'<div class="perf-table"><div class="perf-row">'
+            f'<span class="perf-label">Abstand zum Hoch</span>'
+            f'<span class="perf-vals">'
+            f'<span class="down">{de_zahl(hw_abstand, 3)} €</span>'
+            f'<span class="down">{de_zahl(hw_abstand_pct, 2)} %</span>'
+            f'</span></div></div>'
+        )
+
+    hw_karte = (
+        '<div class="quote">'
+        '<div class="q-name">High Watermark</div>'
+        '<div class="price-line">'
+        f'<span class="q-price">{de_zahl(high_watermark_anzeige)} €</span>'
+        f'{hw_status_chip}'
+        '</div>'
+        f'{hw_abstand_html}'
+        f'<div class="card-footnote">Erreicht am {high_watermark_datum} · '
+        f'ab hier {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>'
+        '</div>'
+    )
+    st.markdown(hw_karte, unsafe_allow_html=True)
+
+    kurs_karte = (
+        '<div class="quote">'
+        f'<div class="q-name">Hauptindizes Global · {config.WKN}</div>'
+        '<div class="price-line">'
+        f'<span class="q-price">{de_zahl(aktueller_kurs)} €</span>'
+        f'{live_markup}'
+        '<span class="meta-chip">Lang &amp; Schwarz</span>'
+        '</div>'
+        f'{perf_zeilen_html(periods_kurs, 3, kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"))}'
+        f'<div class="card-footnote">Stand: {letztes_update_zeit}</div>'
+        '</div>'
+    )
+    st.markdown(kurs_karte, unsafe_allow_html=True)
+
+    # ---------- HERO: Depotwert ----------
+    sparplan_zusatz = (
+        f" · davon {zusaetzliche_stueckzahl_sparplan:.4f} aus Sparplan"
+        if zusaetzliche_stueckzahl_sparplan > 0 else ""
+    )
+    richtung_gewinn = "up" if gewinn_brutto >= 0 else "down"
+    depot_karte = (
+        '<div class="hero">'
+        '<div class="hero-label">Depotwert</div>'
+        '<div class="price-line">'
+        f'<span class="hero-val">{fmt(brutto_ist, 2)}</span>'
+        '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
+        f'<span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>'
+        '</div>'
+        f'{perf_zeilen_html(periods_depot, 2)}'
+        f'<div class="card-footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} '
+        f'Anteile{sparplan_zusatz}</div>'
+        '</div>'
+    )
+    st.markdown(depot_karte, unsafe_allow_html=True)
+
+    # =================================================================
+    # WEITERE POSITIONEN + GESAMTUEBERSICHT
+    # =================================================================
+    # Die erste Position ist die oben ausfuehrlich dargestellte Hauptposition
+    # (sie speist auch alle Tabs/Charts). Jede weitere Position bekommt eine
+    # eigene Kachel im selben Design; darunter folgt die Depot-Gesamtsumme.
+    weitere_positionen = alle_positionen[1:] if len(alle_positionen) > 1 else []
+
+    # Kennzahlen der Hauptposition als Startwert der Gesamtsumme
+    gesamt_wert = brutto_ist
+    gesamt_einstand = startkapital_aktiv
+    gesamt_zeitraeume = {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"}
+    positionen_ok = True
+
+    for pos in weitere_positionen:
+        try:
+            p_kurs, p_vortag, p_quelle = get_live_kurs(pos["instrument_id"])
+            if p_kurs is None:
+                positionen_ok = False
+                st.warning(f"⚠️ Für **{pos.get('name', pos.get('wkn', '?'))}** sind gerade keine Live-Daten verfügbar.")
+                continue
+
+            p_stueck = position_stueckzahl(pos)
+            p_wert = p_kurs * p_stueck
+            p_einstand = float(pos.get("startkapital") or 0)
+            p_gewinn = p_wert - p_einstand
+            p_rendite = (p_gewinn / p_einstand * 100) if p_einstand else 0.0
+
+            p_kaufdatum = datetime.date.fromisoformat(pos["kaufdatum"])
+            p_hist = get_kurshistorie(
+                pos["instrument_id"], heute_date - datetime.timedelta(days=420), heute_date
+            )
+            p_perioden_kurs = berechne_zeitraeume(p_kurs, p_vortag, p_hist, heute_date)
+            p_perioden_depot = [(lbl, d * p_stueck, pct) for lbl, d, pct in p_perioden_kurs]
+            p_perioden_depot.append(("seit Kauf", p_gewinn, p_rendite))
+
+            # in die Gesamtsumme einrechnen
+            gesamt_wert += p_wert
+            gesamt_einstand += p_einstand
+            for lbl, betrag, _ in p_perioden_depot:
+                if lbl != "seit Kauf":
+                    gesamt_zeitraeume[lbl] = gesamt_zeitraeume.get(lbl, 0.0) + betrag
+
+            p_tage = max(1, (heute_date - p_kaufdatum).days)
+            p_cagr = (((p_wert / p_einstand) ** (365.25 / p_tage)) - 1) * 100 if p_einstand > 0 and p_wert > 0 else 0.0
+
+            karte = (
+                '<div class="hero">'
+                f'<div class="hero-label">{pos.get("name", "Position")} · {pos.get("wkn", "")}</div>'
+                '<div class="price-line">'
+                f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
+                '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
+                f'<span class="stat-chip-val">{p_cagr:.1f} %</span></span>'
+                f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
+                '</div>'
+                f'{perf_zeilen_html(p_perioden_depot, 2)}'
+                f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
+                f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {de_zahl(float(pos["kaufkurs"]), 2)} €</div>'
+                '</div>'
+            )
+            st.markdown(karte, unsafe_allow_html=True)
+
+        except Exception as e:
+            positionen_ok = False
+            st.error(f"⚠️ Position **{pos.get('name', '?')}** konnte nicht berechnet werden: {e}")
+            notify_app_error(f"Position-{pos.get('id', '?')}", e)
+
+    # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
+    if weitere_positionen:
+        gesamt_gewinn = gesamt_wert - gesamt_einstand
+        gesamt_rendite = (gesamt_gewinn / gesamt_einstand * 100) if gesamt_einstand else 0.0
+
+        # Prozent je Zeitraum aus den summierten €-Betraegen ableiten, NICHT die
+        # Einzelprozente mitteln - Positionen haben unterschiedliche Groessen,
+        # ein einfacher Mittelwert waere schlicht falsch.
+        gesamt_perioden = []
+        for lbl in ["Tag", "Woche", "Monat", "Jahr"]:
+            if lbl in gesamt_zeitraeume:
+                betrag = gesamt_zeitraeume[lbl]
+                basis = gesamt_wert - betrag
+                pct = (betrag / basis * 100) if basis else 0.0
+                gesamt_perioden.append((lbl, betrag, pct))
+        gesamt_perioden.append(("seit Kauf", gesamt_gewinn, gesamt_rendite))
+
+        hinweis = "" if positionen_ok else " · ⚠️ unvollständig, s. Warnungen oben"
+        gesamt_karte = (
+            '<div class="hero gesamt">'
+            '<div class="hero-label">Depot gesamt</div>'
+            '<div class="price-line">'
+            f'<span class="hero-val">{fmt(gesamt_wert, 2)}</span>'
+            f'<span class="meta-chip">{len(alle_positionen)} Positionen</span>'
+            '</div>'
+            f'{perf_zeilen_html(gesamt_perioden, 2)}'
+            f'<div class="card-footnote">Einstand {fmt(gesamt_einstand, 2)}{hinweis}</div>'
+            '</div>'
+        )
+        st.markdown(gesamt_karte, unsafe_allow_html=True)
 
 
     # ---------- Eingaben ----------
