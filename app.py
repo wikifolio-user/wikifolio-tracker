@@ -42,12 +42,11 @@ GH_STATE_READY = bool(GITHUB_REPO and GITHUB_TOKEN)
 
 BERLIN_TZ = pytz.timezone("Europe/Berlin")
 
-# --- ZUSATZQUELLE: Referenzkurse (1 Woche/1 Monat/lfd. Jahr/1 Jahr) fuer die
-# Performance-Uebersicht (Tag/Woche/Monat/Jahr/seit Kauf). Kommt bewusst von
-# der oeffentlichen wikifolio-Seite, NICHT vom LS9VFS-Zertifikat-Endpunkt -
-# dort stehen die vorgerechneten Referenzwerte direkt in der Performance-
-# Tabelle, muessten sonst muehsam aus der Tages-History rekonstruiert werden.
-LS_WIKIFOLIO_PERFORMANCE_URL = "https://www.ls-tc.de/de/wikifolio/3865540"
+# --- MEHRERE DEPOTPOSITIONEN ---
+# Bewusst hier statt in config.py definiert, damit config.py unveraendert
+# bleiben kann. Die Positionsliste selbst liegt im GitHub-State und ist damit
+# zur Laufzeit anlegbar/aenderbar/loeschbar - ohne Code-Deploy.
+STATE_PATH_POSITIONEN = "state/positionen.json"
 
 # --- TERMINAL STYLING ---
 # Bewusst AUSSERHALB des periodisch aktualisierenden Fragments (siehe unten) -
@@ -179,6 +178,12 @@ st.markdown("""
     .hero-label {
         font-size: 0.72rem; font-weight: 700; color: var(--text);
         letter-spacing: 1.1px; text-transform: uppercase;
+    }
+    /* Gesamtsumme optisch abheben - gruener Akzentrand, damit sie sich
+       trotz gleicher Struktur klar von den Einzelpositionen unterscheidet. */
+    .hero.gesamt {
+        border-color: rgba(22, 199, 132, 0.35);
+        background: linear-gradient(rgba(22, 199, 132, 0.05), rgba(22, 199, 132, 0.05)), var(--surface);
     }
     .hero-val { font-size: 1.6rem; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
     .hero-sub { font-size: 0.92rem; color: var(--label); font-weight: 500; }
@@ -575,74 +580,138 @@ def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end
     return normiert, erstes_echtes_datum
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def get_performance_referenzwerte():
-    """Holt die Referenzkurse fuer 1 Woche/1 Monat/lfd. Jahr/1 Jahr von der
-    oeffentlichen wikifolio-Seite auf ls-tc.de. Dient NUR als Basis fuer die
-    Performance-Uebersicht (Tag/Woche/Monat/Jahr/seit Kauf) - der Live-Kurs
-    selbst kommt weiterhin ausschliesslich aus get_live_market_data() oben.
-    30 Min. Cache, da sich diese Referenzwerte nur einmal taeglich aendern.
+# =====================================================================
+# MEHRERE POSITIONEN: Verwaltung, generische Kursabrufe, Kennzahlen
+# =====================================================================
 
-    Zweistufig: primaer BeautifulSoup (liest die Performance-Tabelle strukturell
-    ueber die Tabellenzeilen aus und ueberlebt damit reine Layout-/CSS-Aenderungen),
-    als Fallback der einfachere Regex-Ansatz. Schlaegt beides fehl oder ist bs4
-    nicht installiert, wird ein leeres Dict zurueckgegeben - die Anzeige laesst
-    die betroffenen Zeilen dann einfach weg, statt die App abstuerzen zu lassen."""
-    LABEL_MAP = {"1 woche": "Woche", "1 monat": "Monat",
-                 "lfd. jahr": "YTD", "1 jahr": "Jahr"}
+def _position_aus_config():
+    """Die urspruengliche, fest in config.py verdrahtete Position - dient als
+    Startbestand, damit nach dem Update sofort alles wie gewohnt aussieht."""
+    return {
+        "id": "config-hauptposition",
+        "name": "Hauptindizes Global",
+        "wkn": config.WKN,
+        "instrument_id": int(config.LS_INSTRUMENT_ID),
+        "kaufdatum": config.KAUFDATUM.isoformat(),
+        "kaufkurs": float(config.ANFANGSKURS),
+        "startkapital": float(config.STARTKAPITAL),
+    }
 
-    def zahl(s):
-        return float(s.replace(".", "").replace(",", "."))
 
+def lade_positionen():
+    """Liest die Positionsliste aus dem GitHub-State. Ist noch keine
+    gespeichert, wird die config-Position als Startbestand zurueckgegeben
+    (ohne zu schreiben - erst eine echte Nutzeraenderung legt die Datei an)."""
+    positionen = gh_read(STATE_PATH_POSITIONEN, None)
+    if not positionen:
+        return [_position_aus_config()]
+    return positionen
+
+
+def speichere_positionen(positionen, message="update positionen [skip ci]"):
+    return gh_write(STATE_PATH_POSITIONEN, positionen, message=message)
+
+
+def position_stueckzahl(pos):
+    """Stueckzahl ergibt sich aus Startkapital / Kaufkurs - damit bleibt sie
+    automatisch konsistent, wenn das Startkapital angepasst wird."""
+    kaufkurs = float(pos.get("kaufkurs") or 0)
+    if kaufkurs <= 0:
+        return 0.0
+    return float(pos.get("startkapital") or 0) / kaufkurs
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def get_live_kurs(instrument_id):
+    """Wie get_live_market_data(), aber fuer eine beliebige Instrument-ID.
+    Gibt (aktueller_kurs, vortageskurs, quelle) zurueck bzw. (None, None, Fehler)."""
+    params = {
+        "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
+        "quotetype": "mid", "series": "intraday,history,flags", "type": "", "localeId": "2",
+    }
     try:
-        r = requests.get(
-            LS_WIKIFOLIO_PERFORMANCE_URL, timeout=10,
-            headers={"User-Agent": config.LS_TC_HEADERS.get("User-Agent", "Mozilla/5.0")},
-        )
+        r = requests.get(config.LS_TC_BASE_URL, params=params,
+                         headers=config.LS_TC_HEADERS, timeout=6)
         r.raise_for_status()
-        html = r.text
+        data = r.json()
+        intraday = (data.get("series", {}).get("intraday", {}).get("data")
+                    or data.get("intraday", {}).get("data") or [])
+        if intraday:
+            akt = float(intraday[-1][1])
+            vor = config.extract_previous_close(data)
+            if vor is None:
+                history = (data.get("series", {}).get("history", {}).get("data")
+                           or data.get("history", {}).get("data") or [])
+                vor = config.pick_previous_close_from_history(history)
+            if vor is None:
+                vor = float(intraday[0][1])
+            if akt > 0 and vor > 0:
+                return akt, vor, "ls-tc.de Live (Emittent)"
     except Exception as e:
-        logging.warning(f"Performance-Referenzwerte: Seite nicht abrufbar: {e}")
-        return {}
+        logging.error(f"Live-Kurs für Instrument {instrument_id} nicht ladbar: {e}")
+    return None, None, "Fehler – keine Live-Daten"
 
-    # --- 1. Versuch: strukturell ueber die Tabellenzeilen ---
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_kurshistorie(instrument_id, start_date, end_date):
+    """Tages-Schlusskurse einer beliebigen Instrument-ID als Series
+    (Index=Datum). Basis fuer die Zeitraum-Kennzahlen - ersetzt das
+    produktspezifische Scraping der wikifolio-Seite."""
+    params = {
+        "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
+        "quotetype": "mid", "series": "history", "type": "", "localeId": "2",
+    }
     try:
-        from bs4 import BeautifulSoup
-
-        soup = BeautifulSoup(html, "html.parser")
-        referenz = {}
-        for tr in soup.find_all("tr"):
-            zellen = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
-            if len(zellen) < 2:
-                continue
-            key = LABEL_MAP.get(zellen[0].lower())
-            if not key:
-                continue
-            # erste Zelle nach dem Label, die wie eine deutsche Dezimalzahl aussieht
-            for zelle in zellen[1:]:
-                m = re.fullmatch(r"([\d.]+,\d+)\s*€?", zelle)
-                if m:
-                    referenz[key] = zahl(m.group(1))
-                    break
-        if referenz:
-            return referenz
-        logging.warning("Performance-Referenzwerte: bs4 fand keine Tabellenzeilen, nutze Regex-Fallback.")
-    except ImportError:
-        logging.info("Performance-Referenzwerte: beautifulsoup4 nicht installiert, nutze Regex-Fallback.")
+        r = requests.get(config.LS_TC_BASE_URL, params=params,
+                         headers=config.LS_TC_HEADERS, timeout=8)
+        r.raise_for_status()
+        raw = r.json()
+        history = (raw.get("series", {}).get("history", {}).get("data")
+                   or raw.get("history", {}).get("data") or [])
+        rows = []
+        for ts_ms, close in history:
+            ts = pd.to_datetime(ts_ms, unit="ms")
+            if start_date <= ts.date() <= end_date:
+                rows.append({"Date": ts, "Close": float(close)})
+        if rows:
+            s = pd.DataFrame(rows).set_index("Date").sort_index()["Close"]
+            return s[s > 0]
     except Exception as e:
-        logging.warning(f"Performance-Referenzwerte: bs4-Parsing fehlgeschlagen ({e}), nutze Regex-Fallback.")
+        logging.error(f"Historie für Instrument {instrument_id} nicht ladbar: {e}")
+    return pd.Series(dtype=float)
 
-    # --- 2. Versuch (Fallback): Regex direkt auf dem Rohtext ---
-    try:
-        referenz = {}
-        for label, key in LABEL_MAP.items():
-            m = re.search(re.escape(label) + r"\D*?([\d.]+,\d+)", html, re.IGNORECASE)
-            if m:
-                referenz[key] = zahl(m.group(1))
-        return referenz
-    except Exception as e:
-        logging.warning(f"Performance-Referenzwerte: auch Regex-Fallback fehlgeschlagen: {e}")
-        return {}
+
+def referenzkurs_vor_tagen(historie, tage, heute):
+    """Letzter Schlusskurs am oder vor dem Stichtag (heute - tage). Nimmt
+    bewusst den naechstfrueheren Handelstag, wenn der Stichtag auf ein
+    Wochenende/Feiertag faellt. None, wenn die Historie nicht weit genug
+    zurueckreicht - dann entfaellt die Zeile in der Anzeige."""
+    if historie is None or historie.empty:
+        return None
+    stichtag = pd.Timestamp(heute) - pd.Timedelta(days=tage)
+    passend = historie[historie.index <= stichtag]
+    if passend.empty:
+        return None
+    # Nur nutzen, wenn die Historie wirklich bis in die Naehe des Stichtags
+    # reicht (sonst waere "1 Jahr" bei 3 Monaten Historie schlicht falsch).
+    if (stichtag - passend.index[-1]).days > 10:
+        return None
+    return float(passend.iloc[-1])
+
+
+def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
+    """Liefert [(Label, Kursdifferenz, Prozent), ...] fuer Tag/Woche/Monat/Jahr.
+    Zeitraeume ohne ausreichende Historie werden weggelassen."""
+    zeilen = []
+    if vortag_kurs:
+        d = aktueller_kurs - vortag_kurs
+        zeilen.append(("Tag", d, d / vortag_kurs * 100))
+    for label, tage in [("Woche", 7), ("Monat", 30), ("Jahr", 365)]:
+        ref = referenzkurs_vor_tagen(historie, tage, heute)
+        if ref:
+            d = aktueller_kurs - ref
+            zeilen.append((label, d, d / ref * 100))
+    return zeilen
 
 
 def check_and_alert_fetch_failure(is_live_data, is_live_history):
@@ -1076,27 +1145,20 @@ def render_dashboard():
         return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
     # ---------- PERFORMANCE JE ZEITRAUM (Tag/Woche/Monat/Jahr/seit Kauf) ----------
-    # Referenzkurse fuer Woche/Monat/Jahr kommen von der oeffentlichen
-    # wikifolio-Seite (get_performance_referenzwerte), "Tag" nutzt den bereits
-    # vorhandenen Vortageskurs, "seit Kauf" nutzt die bereits berechneten
-    # gewinn_brutto/rendite_ist_pct - dieselben Zahlen wie im Gewinn/Rendite-Chip,
-    # keine zweite, potenziell abweichende Berechnung.
+    # Referenzkurse werden aus der Kurshistorie berechnet (letzter Schlusskurs
+    # am/vor dem Stichtag) - generisch fuer jedes Instrument, kein Scraping
+    # einer produktspezifischen Seite mehr. "Tag" nutzt den Vortageskurs,
+    # "seit Kauf" die bereits berechneten gewinn_brutto/rendite_ist_pct.
     #
     # WICHTIG - Einschraenkung: die €-Betraege je Zeitraum unterstellen eine ueber
     # den jeweiligen Zeitraum konstante Stueckzahl (aktuelle Stueckzahl rueckwirkend
     # angewendet). Bei zwischenzeitlichen Sparplan-Kaeufen ist das eine Naeherung.
-    referenzwerte = get_performance_referenzwerte()
     gesamt_stueckzahl_perf = stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan
 
-    periods_kurs = []
-    if vortag_kurs:
-        _d = aktueller_kurs - vortag_kurs
-        periods_kurs.append(("Tag", _d, _d / vortag_kurs * 100))
-    for _label, _key in [("Woche", "Woche"), ("Monat", "Monat"), ("Jahr", "Jahr")]:
-        _ref = referenzwerte.get(_key)
-        if _ref:
-            _d = aktueller_kurs - _ref
-            periods_kurs.append((_label, _d, _d / _ref * 100))
+    _hist_haupt = get_kurshistorie(
+        config.LS_INSTRUMENT_ID, heute_date - datetime.timedelta(days=420), heute_date
+    )
+    periods_kurs = berechne_zeitraeume(aktueller_kurs, vortag_kurs, _hist_haupt, heute_date)
 
     periods_depot = [(lbl, d * gesamt_stueckzahl_perf, p) for lbl, d, p in periods_kurs]
     periods_depot.append(("seit Kauf", gewinn_brutto, rendite_ist_pct))
@@ -1194,6 +1256,201 @@ def render_dashboard():
         '</div>'
     )
     st.markdown(depot_karte, unsafe_allow_html=True)
+
+    # =================================================================
+    # WEITERE POSITIONEN + GESAMTUEBERSICHT
+    # =================================================================
+    # Die erste Position ist die oben ausfuehrlich dargestellte Hauptposition
+    # (sie speist auch alle Tabs/Charts). Jede weitere Position bekommt eine
+    # eigene Kachel im selben Design; darunter folgt die Depot-Gesamtsumme.
+    alle_positionen = lade_positionen()
+    weitere_positionen = alle_positionen[1:] if len(alle_positionen) > 1 else []
+
+    # Kennzahlen der Hauptposition als Startwert der Gesamtsumme
+    gesamt_wert = brutto_ist
+    gesamt_einstand = startkapital_aktiv
+    gesamt_zeitraeume = {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"}
+    positionen_ok = True
+
+    for pos in weitere_positionen:
+        try:
+            p_kurs, p_vortag, p_quelle = get_live_kurs(pos["instrument_id"])
+            if p_kurs is None:
+                positionen_ok = False
+                st.warning(f"⚠️ Für **{pos.get('name', pos.get('wkn', '?'))}** sind gerade keine Live-Daten verfügbar.")
+                continue
+
+            p_stueck = position_stueckzahl(pos)
+            p_wert = p_kurs * p_stueck
+            p_einstand = float(pos.get("startkapital") or 0)
+            p_gewinn = p_wert - p_einstand
+            p_rendite = (p_gewinn / p_einstand * 100) if p_einstand else 0.0
+
+            p_kaufdatum = datetime.date.fromisoformat(pos["kaufdatum"])
+            p_hist = get_kurshistorie(
+                pos["instrument_id"], heute_date - datetime.timedelta(days=420), heute_date
+            )
+            p_perioden_kurs = berechne_zeitraeume(p_kurs, p_vortag, p_hist, heute_date)
+            p_perioden_depot = [(lbl, d * p_stueck, pct) for lbl, d, pct in p_perioden_kurs]
+            p_perioden_depot.append(("seit Kauf", p_gewinn, p_rendite))
+
+            # in die Gesamtsumme einrechnen
+            gesamt_wert += p_wert
+            gesamt_einstand += p_einstand
+            for lbl, betrag, _ in p_perioden_depot:
+                if lbl != "seit Kauf":
+                    gesamt_zeitraeume[lbl] = gesamt_zeitraeume.get(lbl, 0.0) + betrag
+
+            p_tage = max(1, (heute_date - p_kaufdatum).days)
+            p_cagr = (((p_wert / p_einstand) ** (365.25 / p_tage)) - 1) * 100 if p_einstand > 0 and p_wert > 0 else 0.0
+
+            karte = (
+                '<div class="hero">'
+                f'<div class="hero-label">{pos.get("name", "Position")} · {pos.get("wkn", "")}</div>'
+                '<div class="price-line">'
+                f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
+                '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
+                f'<span class="stat-chip-val">{p_cagr:.1f} %</span></span>'
+                f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
+                '</div>'
+                f'{perf_zeilen_html(p_perioden_depot, 2)}'
+                f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
+                f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {de_zahl(float(pos["kaufkurs"]), 2)} €</div>'
+                '</div>'
+            )
+            st.markdown(karte, unsafe_allow_html=True)
+
+        except Exception as e:
+            positionen_ok = False
+            st.error(f"⚠️ Position **{pos.get('name', '?')}** konnte nicht berechnet werden: {e}")
+            notify_app_error(f"Position-{pos.get('id', '?')}", e)
+
+    # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
+    if weitere_positionen:
+        gesamt_gewinn = gesamt_wert - gesamt_einstand
+        gesamt_rendite = (gesamt_gewinn / gesamt_einstand * 100) if gesamt_einstand else 0.0
+
+        # Prozent je Zeitraum aus den summierten €-Betraegen ableiten, NICHT die
+        # Einzelprozente mitteln - Positionen haben unterschiedliche Groessen,
+        # ein einfacher Mittelwert waere schlicht falsch.
+        gesamt_perioden = []
+        for lbl in ["Tag", "Woche", "Monat", "Jahr"]:
+            if lbl in gesamt_zeitraeume:
+                betrag = gesamt_zeitraeume[lbl]
+                basis = gesamt_wert - betrag
+                pct = (betrag / basis * 100) if basis else 0.0
+                gesamt_perioden.append((lbl, betrag, pct))
+        gesamt_perioden.append(("seit Kauf", gesamt_gewinn, gesamt_rendite))
+
+        hinweis = "" if positionen_ok else " · ⚠️ unvollständig, s. Warnungen oben"
+        gesamt_karte = (
+            '<div class="hero gesamt">'
+            '<div class="hero-label">Depot gesamt</div>'
+            '<div class="price-line">'
+            f'<span class="hero-val">{fmt(gesamt_wert, 2)}</span>'
+            f'<span class="meta-chip">{len(alle_positionen)} Positionen</span>'
+            '</div>'
+            f'{perf_zeilen_html(gesamt_perioden, 2)}'
+            f'<div class="card-footnote">Einstand {fmt(gesamt_einstand, 2)}{hinweis}</div>'
+            '</div>'
+        )
+        st.markdown(gesamt_karte, unsafe_allow_html=True)
+
+    # ---------- POSITIONEN VERWALTEN (anlegen / aendern / loeschen) ----------
+    with st.expander("➕ Positionen verwalten", expanded=False):
+        if not GH_STATE_READY:
+            st.warning(
+                "Ohne persistenten State (GITHUB_REPO/GITHUB_TOKEN) gehen angelegte "
+                "Positionen beim nächsten Neustart verloren."
+            )
+        st.caption(
+            "Die **Instrument-ID** findest du in der ls-tc.de-URL des Produkts, "
+            "z. B. `ls-tc.de/de/wikifolio/`**`3865540`**. Die erste Position ist die "
+            "Hauptposition - sie speist zusätzlich alle Charts und Prognose-Tabs."
+        )
+
+        # --- Bestehende Positionen bearbeiten/loeschen ---
+        for idx, pos in enumerate(alle_positionen):
+            rolle = "Hauptposition" if idx == 0 else f"Position {idx + 1}"
+            with st.form(f"pos_form_{pos.get('id', idx)}"):
+                st.markdown(f"**{rolle}: {pos.get('name', '')}**")
+                n_name = st.text_input("Name", value=pos.get("name", ""), key=f"n_{idx}")
+                n_wkn = st.text_input("WKN / ISIN", value=pos.get("wkn", ""), key=f"w_{idx}")
+                n_inst = st.number_input("Instrument-ID (ls-tc.de)", min_value=0, step=1,
+                                         value=int(pos.get("instrument_id") or 0), key=f"i_{idx}")
+                n_kaufdatum = st.date_input(
+                    "Kaufdatum", value=datetime.date.fromisoformat(pos["kaufdatum"]), key=f"d_{idx}")
+                n_kaufkurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f",
+                                             value=float(pos.get("kaufkurs") or 0), key=f"k_{idx}")
+                n_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0,
+                                            value=float(pos.get("startkapital") or 0), key=f"s_{idx}")
+                if n_kaufkurs > 0:
+                    st.caption(f"Ergibt {n_kapital / n_kaufkurs:.4f} Anteile")
+
+                c_save, c_del = st.columns(2)
+                gespeichert = c_save.form_submit_button("💾 Speichern", width="stretch")
+                geloescht = c_del.form_submit_button("🗑️ Löschen", width="stretch")
+
+                if gespeichert:
+                    alle_positionen[idx] = {
+                        "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
+                        "name": n_name, "wkn": n_wkn, "instrument_id": int(n_inst),
+                        "kaufdatum": n_kaufdatum.isoformat(), "kaufkurs": float(n_kaufkurs),
+                        "startkapital": float(n_kapital),
+                    }
+                    if speichere_positionen(alle_positionen, "position geaendert [skip ci]"):
+                        st.success("Gespeichert.")
+                        st.rerun()
+                    else:
+                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
+
+                if geloescht:
+                    if len(alle_positionen) <= 1:
+                        st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
+                    else:
+                        alle_positionen.pop(idx)
+                        if speichere_positionen(alle_positionen, "position geloescht [skip ci]"):
+                            st.success("Gelöscht.")
+                            st.rerun()
+                        else:
+                            st.error("Löschen fehlgeschlagen (kein persistenter State?).")
+
+        # --- Neue Position anlegen ---
+        st.markdown("---")
+        with st.form("pos_form_neu", clear_on_submit=True):
+            st.markdown("**Neue Position hinzufügen**")
+            neu_name = st.text_input("Name", placeholder="z. B. MSCI World ETF")
+            neu_wkn = st.text_input("WKN / ISIN", placeholder="z. B. A0RPWH")
+            neu_inst = st.number_input("Instrument-ID (ls-tc.de)", min_value=0, step=1, value=0)
+            neu_datum = st.date_input("Kaufdatum", value=heute_date)
+            neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0)
+            neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0)
+
+            if st.form_submit_button("➕ Position anlegen", width="stretch"):
+                if not neu_name or not neu_inst or neu_kurs <= 0 or neu_kapital <= 0:
+                    st.error("Bitte Name, Instrument-ID, Kaufkurs und Kapital ausfüllen.")
+                else:
+                    # Instrument-ID vor dem Speichern gegen die Quelle pruefen -
+                    # verhindert stumme Fehlkonfiguration, die erst spaeter auffaellt.
+                    test_kurs, _, _ = get_live_kurs(int(neu_inst))
+                    if test_kurs is None:
+                        st.error(
+                            f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
+                            "Bitte die ID in der Produkt-URL prüfen."
+                        )
+                    else:
+                        alle_positionen.append({
+                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
+                            "name": neu_name, "wkn": neu_wkn, "instrument_id": int(neu_inst),
+                            "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
+                            "startkapital": float(neu_kapital),
+                        })
+                        if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
+                            st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
+                            st.rerun()
+                        else:
+                            st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
+
 
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
