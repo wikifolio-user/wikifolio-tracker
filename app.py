@@ -896,8 +896,8 @@ def render_dashboard():
     <div class="quote">
         <div class="q-name">Hauptindizes Global · {config.WKN}</div>
         <div class="q-price">{de_zahl(aktueller_kurs)} €</div>
-        <div class="q-delta {richtung}"><span class="stat-chip-label" style="margin-right: 8px; vertical-align: middle;">Heute</span>{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} %&nbsp;&nbsp;{'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</div>
         <div class="meta-row">
+            <span class="stat-chip"><span class="stat-chip-label">Heute</span><span class="stat-chip-val {richtung}">{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} % / {'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</span></span>
             {live_markup}
             <span class="meta-chip">Lang &amp; Schwarz</span>
             <span class="meta-chip">Vortag {de_zahl(vortag_kurs)} €</span>
