@@ -255,6 +255,33 @@ st.markdown("""
     /* ---------- Streamlit-Eigenheiten ---------- */
     #MainMenu, footer { visibility: hidden; }
     [data-testid="stToolbar"] { visibility: hidden; }
+    /* Streamlits eigenes "Running ..."-Kaestchen ausblenden - wir zeigen
+       stattdessen den zentrierten Ladefortschritt unten. */
+    [data-testid="stStatusWidget"] { display: none !important; }
+
+    /* ---------- ZENTRIERTER LADEFORTSCHRITT ---------- */
+    .loading-overlay {
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 12px;
+        padding: 48px 20px; text-align: center;
+    }
+    .loading-pct {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-variant-numeric: tabular-nums;
+        font-size: 2.2rem; font-weight: 700; color: var(--text);
+        letter-spacing: -1px; line-height: 1;
+    }
+    .loading-bar {
+        width: min(280px, 80vw); height: 6px; border-radius: 999px;
+        background: var(--line); overflow: hidden;
+    }
+    .loading-bar-fill {
+        height: 100%; background: var(--up); border-radius: 999px;
+        transition: width 0.3s ease;
+    }
+    .loading-text {
+        font-size: 0.85rem; color: var(--muted); font-weight: 500;
+    }
     .block-container { padding-top: 1.8rem; padding-bottom: 4rem; max-width: 780px; }
 
     [data-testid="stNumberInput"] input {
@@ -746,15 +773,39 @@ def render_dashboard():
             gh_write(config.STATE_PATH_SPARPLAN, {}, message="sparplan gestoppt [skip ci]")
 
     # --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
-    benchmark_series = {}
-    benchmark_start_daten = {}
-    for label, inst_id in config.BENCHMARKS.items():
-        s, erstes_datum = benchmark_normiert_auf_startkapital(
-            df_chart.index, inst_id, config.KAUFDATUM, heute_date, startkapital_aktiv
-        )
-        if s is not None:
-            benchmark_series[label] = s
-            benchmark_start_daten[label] = erstes_datum
+    # Zentrierter Ladefortschritt mit Prozentangabe statt Streamlits kleinem
+    # "Running get_benchmark_history(...)"-Widget oben rechts (per CSS
+    # ausgeblendet). Jeder Vergleichswert ist ein eigener Netzabruf, deshalb
+    # laesst sich der Fortschritt hier ehrlich in Schritten anzeigen.
+    def lade_benchmarks_mit_fortschritt(df_index, start_datum, kapital, hinweis="Lade Vergleichswerte"):
+        """Laedt alle Vergleichswerte und zeigt dabei einen zentrierten
+        Fortschrittsbalken mit Prozentangabe. Gibt (series_dict, startdaten_dict)
+        zurueck. Die Anzeige wird am Ende restlos entfernt."""
+        series, startdaten = {}, {}
+        items = list(config.BENCHMARKS.items())
+        gesamt = len(items)
+        box = st.empty()
+        for i, (label, inst_id) in enumerate(items):
+            pct = int(i / gesamt * 100) if gesamt else 100
+            box.markdown(f"""
+            <div class="loading-overlay">
+                <div class="loading-pct">{pct} %</div>
+                <div class="loading-bar"><div class="loading-bar-fill" style="width:{pct}%"></div></div>
+                <div class="loading-text">{hinweis} … ({i + 1}/{gesamt})</div>
+            </div>
+            """, unsafe_allow_html=True)
+            s, erstes_datum = benchmark_normiert_auf_startkapital(
+                df_index, inst_id, start_datum, heute_date, kapital
+            )
+            if s is not None:
+                series[label] = s
+                startdaten[label] = erstes_datum
+        box.empty()
+        return series, startdaten
+
+    benchmark_series, benchmark_start_daten = lade_benchmarks_mit_fortschritt(
+        df_chart.index, config.KAUFDATUM, startkapital_aktiv
+    )
 
     # --- SIMULATION (bisheriges Verhalten): Stückzahl bleibt konstant, Entnahme
     # wird nur buchhalterisch vom Bruttowert abgezogen. ---
@@ -1301,15 +1352,9 @@ def render_dashboard():
 
                 # Benchmarks: eigener, frischer Abruf ab v2_start (eigene Cache-Zeile,
                 # da anderer Startzeitpunkt als der Hauptvergleich oben)
-                benchmark_series_v2 = {}
-                benchmark_start_daten_v2 = {}
-                for label, inst_id in config.BENCHMARKS.items():
-                    s_v2, erstes_datum_v2 = benchmark_normiert_auf_startkapital(
-                        eigene_reihe_v2.index, inst_id, config.VERGLEICH2_START_DATUM, heute_date, v2_kapital
-                    )
-                    if s_v2 is not None:
-                        benchmark_series_v2[label] = s_v2
-                        benchmark_start_daten_v2[label] = erstes_datum_v2
+                benchmark_series_v2, benchmark_start_daten_v2 = lade_benchmarks_mit_fortschritt(
+                    eigene_reihe_v2.index, config.VERGLEICH2_START_DATUM, v2_kapital
+                )
 
                 # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
                 # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
@@ -1442,15 +1487,9 @@ def render_dashboard():
                 else:
                     eigene_reihe_v3 = pd.Series(index=master_index_v3, dtype=float)
 
-                benchmark_series_v3 = {}
-                benchmark_start_daten_v3 = {}
-                for label, inst_id in config.BENCHMARKS.items():
-                    s_v3, erstes_datum_v3 = benchmark_normiert_auf_startkapital(
-                        master_index_v3, inst_id, config.VERGLEICH3_START_DATUM, heute_date, v3_kapital
-                    )
-                    if s_v3 is not None:
-                        benchmark_series_v3[label] = s_v3
-                        benchmark_start_daten_v3[label] = erstes_datum_v3
+                benchmark_series_v3, benchmark_start_daten_v3 = lade_benchmarks_mit_fortschritt(
+                    master_index_v3, config.VERGLEICH3_START_DATUM, v3_kapital
+                )
 
                 # Auswahl still aus dem gespeicherten Zustand lesen - der sichtbare
                 # Auswahl-Bereich steht weiter unten, direkt vor dem Chart.
