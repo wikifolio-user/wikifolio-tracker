@@ -291,6 +291,32 @@ st.markdown("""
        nur sein Inhalt wird unsichtbar. */
     [data-testid="stHeader"] { background: transparent !important; }
 
+    /* ---------- SWIPE-CONTAINER FUER POSITIONSKACHELN ----------
+       Horizontal wischbar mit scroll-snap: jede Kachel nimmt die volle
+       Breite ein und rastet beim Wischen sauber ein. Auf dem Smartphone
+       deutlich angenehmer als eine lange vertikale Scrollstrecke;
+       am Desktop laesst sich mit Shift+Mausrad oder Trackpad wischen. */
+    .swipe-row {
+        display: flex; gap: 10px;
+        overflow-x: auto; overflow-y: hidden;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;            /* Firefox */
+        padding-bottom: 4px; margin-bottom: 8px;
+    }
+    .swipe-row::-webkit-scrollbar { display: none; }   /* WebKit */
+    .swipe-item {
+        flex: 0 0 100%; min-width: 0;
+        scroll-snap-align: start; scroll-snap-stop: always;
+    }
+    /* Kachel im Swipe-Container darf keinen eigenen Aussenabstand haben,
+       sonst verrutscht das Einrasten. */
+    .swipe-item > .hero { margin-bottom: 0; height: 100%; }
+    .swipe-hint {
+        font-size: 0.72rem; color: var(--muted);
+        text-align: center; margin-bottom: 6px; letter-spacing: 0.3px;
+    }
+
     /* ---------- ZENTRIERTER LADEFORTSCHRITT ---------- */
     .loading-overlay {
         display: flex; flex-direction: column; align-items: center;
@@ -1490,7 +1516,10 @@ def render_dashboard():
         f'Anteile{sparplan_zusatz}</div>'
         '</div>'
     )
-    st.markdown(depot_karte, unsafe_allow_html=True)
+    # Alle Positionskacheln werden gesammelt und weiter unten gemeinsam in
+    # einem horizontal wischbaren Container ausgegeben (Swipe statt langer
+    # Scrollstrecke - auf dem Smartphone deutlich angenehmer).
+    positions_karten = [depot_karte]
 
     # =================================================================
     # WEITERE POSITIONEN + GESAMTUEBERSICHT
@@ -1530,7 +1559,7 @@ def render_dashboard():
                     'Instrument-ID ergänzen, um Kurse und Performance zu sehen</div>'
                     '</div>'
                 )
-                st.markdown(karte, unsafe_allow_html=True)
+                positions_karten.append(karte)
                 continue
 
             p_kurs, p_vortag, p_quelle = get_live_kurs(pos["instrument_id"])
@@ -1577,12 +1606,26 @@ def render_dashboard():
                 f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {de_zahl(float(pos["kaufkurs"]), 2)} €</div>'
                 '</div>'
             )
-            st.markdown(karte, unsafe_allow_html=True)
+            positions_karten.append(karte)
 
         except Exception as e:
             positionen_ok = False
             st.error(f"⚠️ Position **{pos.get('name', '?')}** konnte nicht berechnet werden: {e}")
             notify_app_error(f"Position-{pos.get('id', '?')}", e)
+
+    # ---------- POSITIONSKACHELN: horizontal wischbar ----------
+    # Bei nur einer Position waere ein Swipe-Container sinnlos - dann normal
+    # rendern. Ab zwei Positionen: scroll-snap-Container, in dem jede Kachel
+    # die volle Breite einnimmt und beim Wischen sauber einrastet.
+    if len(positions_karten) > 1:
+        inhalt = "".join(f'<div class="swipe-item">{k}</div>' for k in positions_karten)
+        st.markdown(
+            f'<div class="swipe-hint">← {len(positions_karten)} Positionen · wischen →</div>'
+            f'<div class="swipe-row">{inhalt}</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(positions_karten[0], unsafe_allow_html=True)
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if weitere_positionen:
