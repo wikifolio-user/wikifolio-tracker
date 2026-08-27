@@ -714,6 +714,47 @@ def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
     return zeilen
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def suche_instrument(suchbegriff):
+    """Sucht auf ls-tc.de nach WKN, ISIN oder Name und gibt eine Liste von
+    Treffern zurueck: [{"instrument_id", "name", "wkn", "isin", "kategorie"}].
+
+    Nutzt den Such-Endpunkt der Seite, der pro Treffer bereits die
+    'instrumentId' liefert - genau die ID, die die Kurs- und Historien-
+    Endpunkte erwarten. 1 Std. Cache, da sich Stammdaten praktisch nie aendern.
+    Bei Fehlern eine leere Liste, damit die manuelle Eingabe immer Fallback bleibt."""
+    if not suchbegriff or not suchbegriff.strip():
+        return []
+    try:
+        r = requests.get(
+            "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main",
+            params={"q": suchbegriff.strip(), "localeId": "2"},
+            headers=config.LS_TC_HEADERS, timeout=8,
+        )
+        r.raise_for_status()
+        daten = r.json()
+        # Der Endpunkt liefert je nach Aufruf ein blankes Array oder ein
+        # Objekt mit "results"/"data" - beide Formen abfangen.
+        if isinstance(daten, dict):
+            daten = daten.get("results") or daten.get("data", {}).get("results") or []
+        treffer = []
+        for eintrag in daten or []:
+            inst_id = eintrag.get("instrumentId") or eintrag.get("id")
+            if not inst_id:
+                continue
+            treffer.append({
+                "instrument_id": int(inst_id),
+                "name": eintrag.get("displayname") or "(ohne Namen)",
+                "wkn": str(eintrag.get("wkn") or ""),
+                "isin": eintrag.get("isin") or "",
+                "kategorie": eintrag.get("categoryName") or "",
+            })
+        return treffer
+    except Exception as e:
+        logging.warning(f"Instrumentensuche für '{suchbegriff}' fehlgeschlagen: {e}")
+        return []
+
+
 def check_and_alert_fetch_failure(is_live_data, is_live_history):
     """Meldet per Discord, wenn Live-Kurs und/oder Chart-Historie gerade NICHT
     echt sind - mit 30-Min-Cooldown, damit nicht jede Sekunde gepingt wird."""
@@ -1256,15 +1297,60 @@ def render_dashboard():
 
         # --- Neue Position anlegen ---
         st.markdown("---")
+        st.markdown("**Neue Position hinzufügen**")
+
+        # Suche BEWUSST ausserhalb des Formulars: Streamlit-Formulare erlauben
+        # nur einen Submit-Button, die Suche muss aber vor dem Anlegen laufen
+        # koennen, damit der Treffer im Formular vorbelegt werden kann.
+        such_col, btn_col = st.columns([3, 1])
+        suchbegriff = such_col.text_input(
+            "WKN, ISIN oder Name suchen", key="pos_suche",
+            placeholder="z. B. A0LC12, IE00B4L5Y983 oder MSCI World",
+        )
+        gesucht = btn_col.button("🔍 Suchen", width="stretch")
+
+        if gesucht and suchbegriff:
+            st.session_state["pos_treffer"] = suche_instrument(suchbegriff)
+            st.session_state.pop("pos_gewaehlt", None)
+
+        treffer = st.session_state.get("pos_treffer", [])
+        if gesucht and not treffer:
+            st.warning(
+                "Keine Treffer. Prüfe die Schreibweise – oder trage die Instrument-ID "
+                "unten manuell ein (steht in der ls-tc.de-Produkt-URL)."
+            )
+
+        if treffer:
+            optionen = {
+                f"{t['name']} · {t['kategorie']} · WKN {t['wkn'] or '–'}": t
+                for t in treffer
+            }
+            wahl = st.selectbox("Treffer auswählen", list(optionen.keys()), key="pos_treffer_wahl")
+            st.session_state["pos_gewaehlt"] = optionen[wahl]
+
+        gewaehlt = st.session_state.get("pos_gewaehlt")
+        if gewaehlt:
+            live_kurs, _, _ = get_live_kurs(gewaehlt["instrument_id"])
+            kurs_txt = f"{de_zahl(live_kurs)} €" if live_kurs else "kein Kurs verfügbar"
+            st.info(
+                f"**{gewaehlt['name']}** · ID {gewaehlt['instrument_id']} · "
+                f"ISIN {gewaehlt['isin'] or '–'} · aktuell {kurs_txt}"
+            )
+
         with st.form("pos_form_neu", clear_on_submit=True):
-            st.markdown("**Neue Position hinzufügen**")
-            neu_name = st.text_input("Name", placeholder="z. B. MSCI World ETF")
-            neu_wkn = st.text_input("WKN / ISIN", placeholder="z. B. A0RPWH")
+            neu_name = st.text_input(
+                "Name", value=(gewaehlt["name"] if gewaehlt else ""),
+                placeholder="z. B. MSCI World ETF")
+            neu_wkn = st.text_input(
+                "WKN / ISIN",
+                value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
+                placeholder="z. B. A0RPWH")
             neu_inst = st.number_input(
-                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1, value=0,
-                help="Kann leer bleiben (0). Ohne ID werden für diese Position keine "
-                     "Kurse geladen - sie zählt dann auch nicht in die Depot-Summe. "
-                     "Lässt sich jederzeit nachtragen.",
+                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
+                help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
+                     "(0) bleiben - dann werden für diese Position keine Kurse geladen "
+                     "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
             )
             neu_datum = st.date_input("Kaufdatum", value=heute_date)
             neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0)
@@ -1295,6 +1381,8 @@ def render_dashboard():
                             "startkapital": float(neu_kapital),
                         })
                         if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
+                            st.session_state.pop("pos_treffer", None)
+                            st.session_state.pop("pos_gewaehlt", None)
                             if test_kurs is not None:
                                 st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
                             else:
