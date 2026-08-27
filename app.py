@@ -148,6 +148,14 @@ st.markdown("""
         background: rgba(255, 255, 255, 0.04);
         padding: 4px 10px; border-radius: 999px;
     }
+    /* Badge fuer "aktuell auf Allzeithoch" - gleiche Pill-Optik wie das
+       Live-Badge, damit sich die Statusmarker in beiden Kacheln gleichen. */
+    .hw-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: rgba(22, 199, 132, 0.12); color: var(--up);
+        font-size: 0.8rem; font-weight: 700; letter-spacing: 0.2px;
+        padding: 4px 10px; border-radius: 999px;
+    }
 
     .live-dot {
         display: inline-block; width: 7px; height: 7px; border-radius: 50%;
@@ -1116,6 +1124,40 @@ def render_dashboard():
             )
         return f'<div class="perf-table">{html}</div>' if html else ""
 
+    # ---------- HIGH WATERMARK: ganz oben, mit Abstand zum aktuellen Kurs ----------
+    # Zeigt den Hoechststand und wie weit der aktuelle Kurs davon entfernt ist.
+    # Steht der Kurs auf/ueber dem Hoch, wird das als "Allzeithoch" markiert -
+    # ab dort greift die Performance Fee auf neue Gewinne.
+    hw_abstand = aktueller_kurs - high_watermark_anzeige
+    hw_abstand_pct = (hw_abstand / high_watermark_anzeige * 100) if high_watermark_anzeige else 0.0
+    hw_am_hoch = hw_abstand >= -0.0005  # Toleranz gegen Rundungsrauschen
+
+    if hw_am_hoch:
+        hw_status_chip = '<span class="hw-pill peak">🏔️ Allzeithoch</span>'
+        hw_abstand_html = ""
+    else:
+        hw_status_chip = ""
+        hw_abstand_html = (
+            f'<div class="perf-table"><div class="perf-row">'
+            f'<span class="perf-label">Abstand zum Hoch</span>'
+            f'<span class="perf-vals">'
+            f'<span class="down">{de_zahl(hw_abstand, 3)} €</span>'
+            f'<span class="down">{de_zahl(hw_abstand_pct, 2)} %</span>'
+            f'</span></div></div>'
+        )
+
+    st.markdown(f"""
+    <div class="quote">
+        <div class="q-name">High Watermark</div>
+        <div class="price-line">
+            <span class="q-price">{de_zahl(high_watermark_anzeige)} €</span>
+            {hw_status_chip}
+        </div>
+        {hw_abstand_html}
+        <div class="card-footnote">Erreicht am {high_watermark_datum} · ab hier {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown(f"""
     <div class="quote">
         <div class="q-name">Hauptindizes Global · {config.WKN}</div>
@@ -1150,24 +1192,17 @@ def render_dashboard():
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
-    with st.expander("Anfangskapital, Entnahme und Sparrate anpassen", expanded=False):
-        col_ak, col_ek = st.columns(2)
-        with col_ak:
-            ak_kwargs = dict(
-                min_value=0.0, step=100.0, key="haupt_startkapital_input",
-                help=f"Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€ - Stückzahl wird automatisch neu berechnet.",
-            )
-            if "haupt_startkapital_input" not in st.session_state:
-                ak_kwargs["value"] = startkapital_aktiv
-            st.number_input("Anfangskapital (€)", **ak_kwargs)
-        with col_ek:
-            ek_kwargs = dict(
-                min_value=0.0, step=10.0, key="haupt_entnommen_input",
-                help="Standard: 0€ - hier frei einstellbar, ganz wie du es tatsächlich entnommen hast.",
-            )
-            if "haupt_entnommen_input" not in st.session_state:
-                ek_kwargs["value"] = entnommen_aktiv
-            st.number_input("Monatliche Entnahme (€)", **ek_kwargs)
+    with st.expander("Anfangskapital, Sparrate und Entnahme anpassen", expanded=False):
+        # Alle drei Felder bewusst untereinander (keine Spalten) - auf dem
+        # Smartphone sind zwei nebeneinanderliegende Zahlenfelder samt
+        # Steppern sonst sehr schmal und fummelig zu bedienen.
+        ak_kwargs = dict(
+            min_value=0.0, step=100.0, key="haupt_startkapital_input",
+            help=f"Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€ - Stückzahl wird automatisch neu berechnet.",
+        )
+        if "haupt_startkapital_input" not in st.session_state:
+            ak_kwargs["value"] = startkapital_aktiv
+        st.number_input("Anfangskapital (€)", **ak_kwargs)
 
         sparrate_kwargs = dict(
             min_value=0.0, step=10.0, key="haupt_sparrate_input",
@@ -1178,6 +1213,14 @@ def render_dashboard():
             sparrate_kwargs["value"] = 0.0
         st.number_input("Monatliche Sparrate (€)", **sparrate_kwargs)
 
+        ek_kwargs = dict(
+            min_value=0.0, step=10.0, key="haupt_entnommen_input",
+            help="Standard: 0€ - hier frei einstellbar, ganz wie du es tatsächlich entnommen hast.",
+        )
+        if "haupt_entnommen_input" not in st.session_state:
+            ek_kwargs["value"] = entnommen_aktiv
+        st.number_input("Monatliche Entnahme (€)", **ek_kwargs)
+
     # ---------- DATENZEILEN: Sekundaerwerte kompakt und scanbar ----------
     st.markdown(f"""
     <div class="rows">
@@ -1185,12 +1228,6 @@ def render_dashboard():
             <span class="row-label">100k-Meilenstein</span>
             <span class="row-val">{meilenstein_datum_str}
                 <span class="row-note">{meilenstein_details_str}</span>
-            </span>
-        </div>
-        <div class="row">
-            <span class="row-label">High Watermark</span>
-            <span class="row-val">{de_zahl(high_watermark_anzeige)} €
-                <span class="row-note">Erreicht am {high_watermark_datum} · ab hier {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</span>
             </span>
         </div>
         <div class="row">
