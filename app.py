@@ -1210,8 +1210,12 @@ def render_dashboard():
                 st.markdown(f"**{rolle}: {pos.get('name', '')}**")
                 n_name = st.text_input("Name", value=pos.get("name", ""), key=f"n_{idx}")
                 n_wkn = st.text_input("WKN / ISIN", value=pos.get("wkn", ""), key=f"w_{idx}")
-                n_inst = st.number_input("Instrument-ID (ls-tc.de)", min_value=0, step=1,
-                                         value=int(pos.get("instrument_id") or 0), key=f"i_{idx}")
+                n_inst = st.number_input(
+                    "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                    value=int(pos.get("instrument_id") or 0), key=f"i_{idx}",
+                    help="0 = keine Kursquelle. Die Position wird dann ohne Kurse "
+                         "angezeigt und nicht in die Depot-Summe eingerechnet.",
+                )
                 n_kaufdatum = st.date_input(
                     "Kaufdatum", value=datetime.date.fromisoformat(pos["kaufdatum"]), key=f"d_{idx}")
                 n_kaufkurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f",
@@ -1228,7 +1232,8 @@ def render_dashboard():
                 if gespeichert:
                     alle_positionen[idx] = {
                         "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
-                        "name": n_name, "wkn": n_wkn, "instrument_id": int(n_inst),
+                        "name": n_name, "wkn": n_wkn,
+                        "instrument_id": int(n_inst) if n_inst else None,
                         "kaufdatum": n_kaufdatum.isoformat(), "kaufkurs": float(n_kaufkurs),
                         "startkapital": float(n_kapital),
                     }
@@ -1255,32 +1260,46 @@ def render_dashboard():
             st.markdown("**Neue Position hinzufügen**")
             neu_name = st.text_input("Name", placeholder="z. B. MSCI World ETF")
             neu_wkn = st.text_input("WKN / ISIN", placeholder="z. B. A0RPWH")
-            neu_inst = st.number_input("Instrument-ID (ls-tc.de)", min_value=0, step=1, value=0)
+            neu_inst = st.number_input(
+                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1, value=0,
+                help="Kann leer bleiben (0). Ohne ID werden für diese Position keine "
+                     "Kurse geladen - sie zählt dann auch nicht in die Depot-Summe. "
+                     "Lässt sich jederzeit nachtragen.",
+            )
             neu_datum = st.date_input("Kaufdatum", value=heute_date)
             neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0)
             neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0)
 
             if st.form_submit_button("➕ Position anlegen", width="stretch"):
-                if not neu_name or not neu_inst or neu_kurs <= 0 or neu_kapital <= 0:
-                    st.error("Bitte Name, Instrument-ID, Kaufkurs und Kapital ausfüllen.")
+                if not neu_name or neu_kurs <= 0 or neu_kapital <= 0:
+                    st.error("Bitte Name, Kaufkurs und Kapital ausfüllen.")
                 else:
-                    # Instrument-ID vor dem Speichern gegen die Quelle pruefen -
-                    # verhindert stumme Fehlkonfiguration, die erst spaeter auffaellt.
-                    test_kurs, _, _ = get_live_kurs(int(neu_inst))
-                    if test_kurs is None:
+                    # Instrument-ID, falls angegeben, vor dem Speichern pruefen -
+                    # verhindert stumme Fehlkonfiguration. Ohne ID wird die
+                    # Position angelegt und spaeter als "keine Kursquelle" markiert.
+                    test_kurs = None
+                    if neu_inst:
+                        test_kurs, _, _ = get_live_kurs(int(neu_inst))
+
+                    if neu_inst and test_kurs is None:
                         st.error(
                             f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
-                            "Bitte die ID in der Produkt-URL prüfen."
+                            "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
                         )
                     else:
                         alle_positionen.append({
                             "id": f"pos-{int(datetime.datetime.now().timestamp())}",
-                            "name": neu_name, "wkn": neu_wkn, "instrument_id": int(neu_inst),
+                            "name": neu_name, "wkn": neu_wkn,
+                            "instrument_id": int(neu_inst) if neu_inst else None,
                             "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
                             "startkapital": float(neu_kapital),
                         })
                         if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
-                            st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
+                            if test_kurs is not None:
+                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
+                            else:
+                                st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
+                                           "Instrument-ID kann oben jederzeit ergänzt werden.")
                             st.rerun()
                         else:
                             st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
@@ -1372,10 +1391,35 @@ def render_dashboard():
 
     for pos in weitere_positionen:
         try:
+            p_name = pos.get("name", pos.get("wkn", "Position"))
+
+            # --- Position ohne Kursquelle: eigene, ruhige Kachel statt Fehler ---
+            # Sie zeigt nur den Einstand und laesst sich per Instrument-ID
+            # jederzeit "scharfschalten". Sie fliesst NICHT in die Summe ein,
+            # damit die Gesamtzahlen nicht stillschweigend falsch werden.
+            if not pos.get("instrument_id"):
+                p_stueck = position_stueckzahl(pos)
+                p_einstand = float(pos.get("startkapital") or 0)
+                p_kaufdatum = datetime.date.fromisoformat(pos["kaufdatum"])
+                karte = (
+                    '<div class="hero">'
+                    f'<div class="hero-label">{p_name} · {pos.get("wkn", "")}</div>'
+                    '<div class="price-line">'
+                    f'<span class="hero-val">{fmt(p_einstand, 2)}</span>'
+                    '<span class="meta-chip">ohne Kursquelle</span>'
+                    '</div>'
+                    f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
+                    f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {de_zahl(float(pos["kaufkurs"]), 2)} € · '
+                    'Instrument-ID ergänzen, um Kurse und Performance zu sehen</div>'
+                    '</div>'
+                )
+                st.markdown(karte, unsafe_allow_html=True)
+                continue
+
             p_kurs, p_vortag, p_quelle = get_live_kurs(pos["instrument_id"])
             if p_kurs is None:
                 positionen_ok = False
-                st.warning(f"⚠️ Für **{pos.get('name', pos.get('wkn', '?'))}** sind gerade keine Live-Daten verfügbar.")
+                st.warning(f"⚠️ Für **{p_name}** sind gerade keine Live-Daten verfügbar.")
                 continue
 
             p_stueck = position_stueckzahl(pos)
@@ -1440,13 +1484,24 @@ def render_dashboard():
                 gesamt_perioden.append((lbl, betrag, pct))
         gesamt_perioden.append(("seit Kauf", gesamt_gewinn, gesamt_rendite))
 
+        # Nur Positionen mit Kursquelle sind in der Summe enthalten - das muss
+        # sichtbar sein, sonst wirkt eine unvollstaendige Summe wie die volle.
+        anzahl_gezaehlt = sum(1 for p in alle_positionen if p.get("instrument_id"))
+        anzahl_gesamt = len(alle_positionen)
+        if anzahl_gezaehlt < anzahl_gesamt:
+            positions_chip = f"{anzahl_gezaehlt} von {anzahl_gesamt} Positionen"
+        else:
+            positions_chip = f"{anzahl_gesamt} Positionen"
+
         hinweis = "" if positionen_ok else " · ⚠️ unvollständig, s. Warnungen oben"
+        if anzahl_gezaehlt < anzahl_gesamt:
+            hinweis += " · Positionen ohne Kursquelle nicht enthalten"
         gesamt_karte = (
             '<div class="hero gesamt">'
             '<div class="hero-label">Depot gesamt</div>'
             '<div class="price-line">'
             f'<span class="hero-val">{fmt(gesamt_wert, 2)}</span>'
-            f'<span class="meta-chip">{len(alle_positionen)} Positionen</span>'
+            f'<span class="meta-chip">{positions_chip}</span>'
             '</div>'
             f'{perf_zeilen_html(gesamt_perioden, 2)}'
             f'<div class="card-footnote">Einstand {fmt(gesamt_einstand, 2)}{hinweis}</div>'
