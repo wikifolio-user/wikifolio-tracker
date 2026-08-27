@@ -328,7 +328,7 @@ def gh_read(path, default):
     return data if data is not None else default
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False)
 def gh_read_cached(path, default):
     """Wie gh_read, aber 60s gecacht - für Status-/Alarm-Reads, die bei jedem
     30s-Autorefresh sonst unnötig oft die GitHub-API belasten (Rate-Limit
@@ -389,7 +389,7 @@ def fmt(val, dec=2):
     return f"{s.replace(',', 'X').replace('.', ',').replace('X', '.')}€"
 
 # --- VOLLAUTOMATISCHER LIVE-KURS ABRUF (ls-tc.de, direkter Emittent LS9VFS) ---
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=30, show_spinner=False)
 def get_live_market_data():
     """
     Holt den aktuellen Mid-Kurs direkt von ls-tc.de (Lang & Schwarz
@@ -446,7 +446,7 @@ def get_live_market_data():
 
 
 # --- ECHTE HISTORISCHE DATEN VON ls-tc.de LADEN ---
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_historical_market_data(start_date, end_date, live_close_fallback):
     """
     Holt die Tages-History direkt von ls-tc.de. Da der Endpunkt primär
@@ -513,7 +513,7 @@ def get_historical_market_data(start_date, end_date, live_close_fallback):
 
 
 # --- BENCHMARK-VERGLEICHSDATEN (ls-tc.de, gleiche API wie LS9VFS) ---
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_benchmark_history(instrument_id, start_date, end_date):
     """Holt Tages-Schlusskurse für einen Vergleichswert (ETF) von ls-tc.de.
     Gibt eine Series (Index=Datum, Value=Close) zurück, oder None bei Fehler -
@@ -567,7 +567,7 @@ def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end
     return normiert, erstes_echtes_datum
 
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_performance_referenzwerte():
     """Holt die Referenzkurse fuer 1 Woche/1 Monat/lfd. Jahr/1 Jahr von der
     oeffentlichen wikifolio-Seite auf ls-tc.de. Dient NUR als Basis fuer die
