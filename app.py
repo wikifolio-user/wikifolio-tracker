@@ -136,8 +136,8 @@ st.markdown("""
         background: rgba(255, 255, 255, 0.04);
         padding: 4px 10px; border-radius: 999px;
     }
-    .meta-timestamp {
-        font-size: 0.78rem; color: var(--muted); margin-top: 10px;
+    .meta-timestamp, .footnote {
+        font-size: 0.8rem; color: var(--muted); font-weight: 400; margin-top: 10px;
     }
 
     .live-dot {
@@ -924,7 +924,7 @@ def render_dashboard():
             <span class="stat-chip"><span class="stat-chip-label">Rendite</span><span class="stat-chip-val {richtung_gewinn}">{rendite_ist_pct:+.2f} %</span></span>
             <span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span><span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>
         </div>
-        <div class="hero-sub" style="margin-top:12px;">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
+        <div class="footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</div>
     </div>
     """, unsafe_allow_html=True)
 
