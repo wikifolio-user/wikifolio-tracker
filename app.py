@@ -42,6 +42,13 @@ GH_STATE_READY = bool(GITHUB_REPO and GITHUB_TOKEN)
 
 BERLIN_TZ = pytz.timezone("Europe/Berlin")
 
+# --- ZUSATZQUELLE: Referenzkurse (1 Woche/1 Monat/lfd. Jahr/1 Jahr) fuer die
+# Performance-Uebersicht (Tag/Woche/Monat/Jahr/seit Kauf). Kommt bewusst von
+# der oeffentlichen wikifolio-Seite, NICHT vom LS9VFS-Zertifikat-Endpunkt -
+# dort stehen die vorgerechneten Referenzwerte direkt in der Performance-
+# Tabelle, muessten sonst muehsam aus der Tages-History rekonstruiert werden.
+LS_WIKIFOLIO_PERFORMANCE_URL = "https://www.ls-tc.de/de/wikifolio/3865540"
+
 # --- TERMINAL STYLING ---
 # Bewusst AUSSERHALB des periodisch aktualisierenden Fragments (siehe unten) -
 # wird dadurch nur EINMAL pro echtem Seitenaufbau injiziert, nicht alle 5 Min.
@@ -205,6 +212,32 @@ st.markdown("""
     .row-note {
         display: block; font-size: 0.78rem; color: var(--muted);
         font-weight: 400; margin-top: 4px; white-space: normal;
+    }
+
+    /* ---------- PERFORMANCE-TABELLE INNERHALB einer Kachel ----------
+       Hairline-getrennte Zeitraum-Zeilen (Tag/Woche/Monat/Jahr/seit Kauf)
+       direkt unter den Chips. Bewusst ohne eigenen Rahmen/Hintergrund -
+       sie sitzt ja schon IN der Kachel, ein zweiter Rahmen wuerde
+       verschachtelt und unruhig wirken. */
+    .perf-table {
+        margin-top: 16px; border-top: 1px solid var(--line);
+    }
+    .perf-row {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--line);
+    }
+    .perf-row:last-child { border-bottom: none; padding-bottom: 2px; }
+    .perf-label {
+        font-size: 0.88rem; color: var(--label); font-weight: 500;
+    }
+    .perf-vals {
+        display: inline-flex; gap: 14px; justify-content: flex-end;
+        flex-wrap: wrap; text-align: right;
+    }
+    .perf-vals .up, .perf-vals .down {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+        font-size: 0.92rem; font-weight: 600; white-space: nowrap;
     }
 
     /* ---------- Streamlit-Eigenheiten ---------- */
@@ -474,6 +507,76 @@ def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end
         return None, None
     normiert = s_reindexed / gueltige.iloc[0] * startkapital
     return normiert, erstes_echtes_datum
+
+
+@st.cache_data(ttl=1800)
+def get_performance_referenzwerte():
+    """Holt die Referenzkurse fuer 1 Woche/1 Monat/lfd. Jahr/1 Jahr von der
+    oeffentlichen wikifolio-Seite auf ls-tc.de. Dient NUR als Basis fuer die
+    Performance-Uebersicht (Tag/Woche/Monat/Jahr/seit Kauf) - der Live-Kurs
+    selbst kommt weiterhin ausschliesslich aus get_live_market_data() oben.
+    30 Min. Cache, da sich diese Referenzwerte nur einmal taeglich aendern.
+
+    Zweistufig: primaer BeautifulSoup (liest die Performance-Tabelle strukturell
+    ueber die Tabellenzeilen aus und ueberlebt damit reine Layout-/CSS-Aenderungen),
+    als Fallback der einfachere Regex-Ansatz. Schlaegt beides fehl oder ist bs4
+    nicht installiert, wird ein leeres Dict zurueckgegeben - die Anzeige laesst
+    die betroffenen Zeilen dann einfach weg, statt die App abstuerzen zu lassen."""
+    LABEL_MAP = {"1 woche": "Woche", "1 monat": "Monat",
+                 "lfd. jahr": "YTD", "1 jahr": "Jahr"}
+
+    def zahl(s):
+        return float(s.replace(".", "").replace(",", "."))
+
+    try:
+        r = requests.get(
+            LS_WIKIFOLIO_PERFORMANCE_URL, timeout=10,
+            headers={"User-Agent": config.LS_TC_HEADERS.get("User-Agent", "Mozilla/5.0")},
+        )
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        logging.warning(f"Performance-Referenzwerte: Seite nicht abrufbar: {e}")
+        return {}
+
+    # --- 1. Versuch: strukturell ueber die Tabellenzeilen ---
+    try:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, "html.parser")
+        referenz = {}
+        for tr in soup.find_all("tr"):
+            zellen = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
+            if len(zellen) < 2:
+                continue
+            key = LABEL_MAP.get(zellen[0].lower())
+            if not key:
+                continue
+            # erste Zelle nach dem Label, die wie eine deutsche Dezimalzahl aussieht
+            for zelle in zellen[1:]:
+                m = re.fullmatch(r"([\d.]+,\d+)\s*€?", zelle)
+                if m:
+                    referenz[key] = zahl(m.group(1))
+                    break
+        if referenz:
+            return referenz
+        logging.warning("Performance-Referenzwerte: bs4 fand keine Tabellenzeilen, nutze Regex-Fallback.")
+    except ImportError:
+        logging.info("Performance-Referenzwerte: beautifulsoup4 nicht installiert, nutze Regex-Fallback.")
+    except Exception as e:
+        logging.warning(f"Performance-Referenzwerte: bs4-Parsing fehlgeschlagen ({e}), nutze Regex-Fallback.")
+
+    # --- 2. Versuch (Fallback): Regex direkt auf dem Rohtext ---
+    try:
+        referenz = {}
+        for label, key in LABEL_MAP.items():
+            m = re.search(re.escape(label) + r"\D*?([\d.]+,\d+)", html, re.IGNORECASE)
+            if m:
+                referenz[key] = zahl(m.group(1))
+        return referenz
+    except Exception as e:
+        logging.warning(f"Performance-Referenzwerte: auch Regex-Fallback fehlgeschlagen: {e}")
+        return {}
 
 
 def check_and_alert_fetch_failure(is_live_data, is_live_history):
@@ -892,6 +995,47 @@ def render_dashboard():
         s = f"{wert:,.{nachkomma}f}"
         return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
+    # ---------- PERFORMANCE JE ZEITRAUM (Tag/Woche/Monat/Jahr/seit Kauf) ----------
+    # Referenzkurse fuer Woche/Monat/Jahr kommen von der oeffentlichen
+    # wikifolio-Seite (get_performance_referenzwerte), "Tag" nutzt den bereits
+    # vorhandenen Vortageskurs, "seit Kauf" nutzt die bereits berechneten
+    # gewinn_brutto/rendite_ist_pct - dieselben Zahlen wie im Gewinn/Rendite-Chip,
+    # keine zweite, potenziell abweichende Berechnung.
+    #
+    # WICHTIG - Einschraenkung: die €-Betraege je Zeitraum unterstellen eine ueber
+    # den jeweiligen Zeitraum konstante Stueckzahl (aktuelle Stueckzahl rueckwirkend
+    # angewendet). Bei zwischenzeitlichen Sparplan-Kaeufen ist das eine Naeherung.
+    referenzwerte = get_performance_referenzwerte()
+    gesamt_stueckzahl_perf = stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan
+
+    periods_kurs = []
+    if vortag_kurs:
+        _d = aktueller_kurs - vortag_kurs
+        periods_kurs.append(("Tag", _d, _d / vortag_kurs * 100))
+    for _label, _key in [("Woche", "Woche"), ("Monat", "Monat"), ("Jahr", "Jahr")]:
+        _ref = referenzwerte.get(_key)
+        if _ref:
+            _d = aktueller_kurs - _ref
+            periods_kurs.append((_label, _d, _d / _ref * 100))
+
+    periods_depot = [(lbl, d * gesamt_stueckzahl_perf, p) for lbl, d, p in periods_kurs]
+    periods_depot.append(("seit Kauf", gewinn_brutto, rendite_ist_pct))
+
+    def perf_zeilen_html(zeilen, nachkomma):
+        """Rendert die Zeitraum-Zeilen INNERHALB einer Kachel: hairline-getrennt,
+        Betrag und Prozent rechtsbuendig nebeneinander, eingefaerbt nach Vorzeichen."""
+        html = ""
+        for label, diff, prozent in zeilen:
+            cls = "up" if diff >= 0 else "down"
+            html += (
+                f'<div class="perf-row"><span class="perf-label">{label}</span>'
+                f'<span class="perf-vals">'
+                f'<span class="{cls}">{"+" if diff >= 0 else ""}{de_zahl(diff, nachkomma)} €</span>'
+                f'<span class="{cls}">{"+" if prozent >= 0 else ""}{de_zahl(prozent, 2)} %</span>'
+                f'</span></div>'
+            )
+        return f'<div class="perf-table">{html}</div>' if html else ""
+
     st.markdown(f"""
     <div class="quote">
         <div class="q-name">Hauptindizes Global · {config.WKN}</div>
@@ -903,6 +1047,7 @@ def render_dashboard():
             <span class="meta-chip">Vortag {de_zahl(vortag_kurs)} €</span>
             <span class="meta-chip">Stand: {letztes_update_zeit}</span>
         </div>
+        {perf_zeilen_html(periods_kurs, 3)}
     </div>
     """, unsafe_allow_html=True)
 
@@ -922,6 +1067,7 @@ def render_dashboard():
             <span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span><span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>
             <span class="meta-chip">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</span>
         </div>
+        {perf_zeilen_html(periods_depot, 2)}
     </div>
     """, unsafe_allow_html=True)
 
