@@ -896,13 +896,11 @@ def render_dashboard():
     <div class="quote">
         <div class="q-name">Hauptindizes Global · {config.WKN}</div>
         <div class="q-price">{de_zahl(aktueller_kurs)} €</div>
-        <div class="q-delta {richtung}">{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} %&nbsp;&nbsp;{'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</div>
+        <div class="q-delta {richtung}"><span class="stat-chip-label" style="margin-right: 8px; vertical-align: middle;">Heute</span>{'+' if tages_verenderung_pct >= 0 else ''}{de_zahl(tages_verenderung_pct, 2)} %&nbsp;&nbsp;{'+' if differenz_zum_vortag >= 0 else ''}{de_zahl(differenz_zum_vortag)} €</div>
         <div class="meta-row">
             {live_markup}
             <span class="meta-chip">Lang &amp; Schwarz</span>
             <span class="meta-chip">Vortag {de_zahl(vortag_kurs)} €</span>
-        </div>
-        <div class="meta-row" style="margin-top: 8px;">
             <span class="meta-chip">Stand: {letztes_update_zeit}</span>
         </div>
     </div>
@@ -922,8 +920,6 @@ def render_dashboard():
             <span class="stat-chip"><span class="stat-chip-label">Gewinn</span><span class="stat-chip-val {richtung_gewinn}">{'+' if gewinn_brutto >= 0 else ''}{fmt(gewinn_brutto, 2)}</span></span>
             <span class="stat-chip"><span class="stat-chip-label">Rendite</span><span class="stat-chip-val {richtung_gewinn}">{rendite_ist_pct:+.2f} %</span></span>
             <span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span><span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>
-        </div>
-        <div class="meta-row" style="margin-top: 8px;">
             <span class="meta-chip">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} Anteile{sparplan_zusatz}</span>
         </div>
     </div>
