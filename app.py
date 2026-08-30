@@ -1608,9 +1608,15 @@ def render_dashboard():
 
                 performance_liste_haupt = []
                 brutto_reihe = df_chart["Depotwert_Brutto"]
-                if not brutto_reihe.empty and brutto_reihe.iloc[0] > 0:
+                # WICHTIG: gegen das eingesetzte Kapital rechnen, NICHT gegen
+                # brutto_reihe.iloc[0]. Der erste Wert der Reihe ist der erste
+                # verfuegbare Schlusskurs der Historie - der kann vom tatsaechlichen
+                # Kaufkurs abweichen (Historie reicht weiter zurueck oder beginnt
+                # spaeter). Sonst weicht diese Zeile von der "seit Kauf"-Zeile in
+                # der Depotwert-Kachel ab, obwohl beide dasselbe messen sollen.
+                if not brutto_reihe.empty and startkapital_aktiv > 0:
                     gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        brutto_reihe.iloc[0], brutto_reihe.iloc[-1], config.KAUFDATUM, heute_date
+                        startkapital_aktiv, brutto_reihe.iloc[-1], config.KAUFDATUM, heute_date
                     )
                     performance_liste_haupt.append({
                         "Wert": f"Hauptindizes Global ({config.WKN})",
@@ -1631,7 +1637,17 @@ def render_dashboard():
                         })
 
                 if performance_liste_haupt:
-                    st.caption(f"📅 Berechnet seit {config.KAUFDATUM.strftime('%d.%m.%Y')} (Kaufdatum)")
+                    # Tatsaechliches Startdatum der geladenen Reihe mit ausweisen -
+                    # weicht es vom Kaufdatum ab, ist das ein Hinweis darauf, dass
+                    # die Vergleichslinien einen anderen Zeitraum abdecken.
+                    _daten_start = df_chart.index.min()
+                    _start_hinweis = ""
+                    if _daten_start is not None and _daten_start.date() != config.KAUFDATUM:
+                        _start_hinweis = f" · Kursdaten ab {_daten_start.strftime('%d.%m.%Y')}"
+                    st.caption(
+                        f"📅 Eigene Position berechnet ab {config.KAUFDATUM.strftime('%d.%m.%Y')} "
+                        f"(Kaufdatum, gegen eingesetztes Kapital){_start_hinweis}"
+                    )
                     performance_liste_haupt.sort(key=lambda x: x["_jaehrlich"], reverse=True)
                     zeilen_html_haupt = ""
                     for eintrag in performance_liste_haupt:
