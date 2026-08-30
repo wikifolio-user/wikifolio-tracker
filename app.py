@@ -818,7 +818,37 @@ def render_dashboard():
         aktueller_kurs, vortag_kurs = 302.980, 302.100
         fetched_source = "⚠️ FALLBACK-WERT (KEINE ECHTEN DATEN)"
 
-    df_chart, hist_source_name = get_historical_market_data(config.KAUFDATUM, heute_date, aktueller_kurs)
+    # --- KAUFDATUM, KAUFKURS, KAPITAL: manuell anpassbar ---
+    # Still aus dem gespeicherten Zustand lesen (Standard: config-Werte) - die
+    # sichtbaren Eingabefelder stehen weiter unten im Eingaben-Expander.
+    startkapital_aktiv = st.session_state.get("haupt_startkapital_input", float(config.STARTKAPITAL))
+    kaufdatum_aktiv = st.session_state.get("haupt_kaufdatum_input", config.KAUFDATUM)
+    if isinstance(kaufdatum_aktiv, datetime.datetime):
+        kaufdatum_aktiv = kaufdatum_aktiv.date()
+
+    # Kaufkurs wahlweise automatisch aus der Kurshistorie am Kaufdatum bestimmen
+    # (letzter Schlusskurs am oder vor dem Tag - faellt der Kauftag auf ein
+    # Wochenende/Feiertag, greift der vorherige Handelstag) oder manuell setzen.
+    kaufkurs_auto = st.session_state.get("haupt_kaufkurs_auto", True)
+    kaufkurs_ermittelt = None
+    if kaufkurs_auto:
+        _hist_kauf = get_kurshistorie(
+            config.LS_INSTRUMENT_ID,
+            kaufdatum_aktiv - datetime.timedelta(days=30), kaufdatum_aktiv
+        )
+        if not _hist_kauf.empty:
+            kaufkurs_ermittelt = float(_hist_kauf.iloc[-1])
+
+    kaufkurs_aktiv = (
+        kaufkurs_ermittelt if kaufkurs_ermittelt
+        else st.session_state.get("haupt_kaufkurs_input", float(config.ANFANGSKURS))
+    )
+    if not kaufkurs_aktiv or kaufkurs_aktiv <= 0:
+        kaufkurs_aktiv = float(config.ANFANGSKURS)
+
+    stueckzahl_aktiv = startkapital_aktiv / kaufkurs_aktiv
+
+    df_chart, hist_source_name = get_historical_market_data(kaufdatum_aktiv, heute_date, aktueller_kurs)
     is_live_history = "SYNTHETISCH" not in hist_source_name
 
     check_and_alert_fetch_failure(is_live_data, is_live_history)
@@ -827,14 +857,6 @@ def render_dashboard():
         df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
         df_chart.iloc[-1, df_chart.columns.get_loc("High")] = max(df_chart.iloc[-1]["High"], aktueller_kurs)
         df_chart.iloc[-1, df_chart.columns.get_loc("Low")] = min(df_chart.iloc[-1]["Low"], aktueller_kurs)
-
-    # --- ANFANGSKAPITAL & ENTNOMMENES KAPITAL: manuell anpassbar ---
-    # Still aus dem gespeicherten Zustand lesen (Standard: config-Werte) - die
-    # sichtbaren Eingabefelder selbst stehen weiter unten, direkt unter der
-    # "Veränderung vs. Vortag"-Kachel. Aendert der Nutzer das Anfangskapital,
-    # wird die Stueckzahl konsistent neu berechnet (Anfangskapital / Kaufkurs).
-    startkapital_aktiv = st.session_state.get("haupt_startkapital_input", float(config.STARTKAPITAL))
-    stueckzahl_aktiv = startkapital_aktiv / config.ANFANGSKURS
 
     df_chart["Startkapital"] = startkapital_aktiv
 
@@ -872,7 +894,7 @@ def render_dashboard():
         high_watermark_anzeige = aktueller_kurs
         high_watermark_datum = "-"
 
-    start_dt = pd.to_datetime(config.KAUFDATUM)
+    start_dt = pd.to_datetime(kaufdatum_aktiv)
     def get_entnahme_at_date(ts):
         months = (ts.year - start_dt.year) * 12 + (ts.month - start_dt.month)
         if ts.day < start_dt.day:
@@ -949,7 +971,7 @@ def render_dashboard():
         return series, startdaten
 
     benchmark_series, benchmark_start_daten = lade_benchmarks_mit_fortschritt(
-        df_chart.index, config.KAUFDATUM, startkapital_aktiv
+        df_chart.index, kaufdatum_aktiv, startkapital_aktiv
     )
 
     # --- SIMULATION (bisheriges Verhalten): Stückzahl bleibt konstant, Entnahme
@@ -1053,8 +1075,8 @@ def render_dashboard():
         return False
 
     # --- AUTOMATISCHE RENDITE-BERECHNUNG ---
-    tage_gehalten = max(1, (heute_date - config.KAUFDATUM).days)
-    erwartete_rendite_pa = (((aktueller_kurs / config.ANFANGSKURS) ** (365.25 / tage_gehalten)) - 1) * 100
+    tage_gehalten = max(1, (heute_date - kaufdatum_aktiv).days)
+    erwartete_rendite_pa = (((aktueller_kurs / kaufkurs_aktiv) ** (365.25 / tage_gehalten)) - 1) * 100
     erwarteter_zins_mo = (1 + (erwartete_rendite_pa / 100.0)) ** (1/12) - 1
 
     # --- SIDEBAR & STEUERUNG ---
@@ -1151,7 +1173,7 @@ def render_dashboard():
     brutto_ist = (stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan) * aktueller_kurs
     netto_ist = brutto_ist - gesamt_entnommen
     gewinn_brutto = brutto_ist - startkapital_aktiv
-    rendite_ist_pct = ((aktueller_kurs - config.ANFANGSKURS) / config.ANFANGSKURS) * 100
+    rendite_ist_pct = ((aktueller_kurs - kaufkurs_aktiv) / kaufkurs_aktiv) * 100
 
     # Reale Variante fuer die aktuellen Kennzahlen (Stückzahl nach echten Verkäufen)
     stueckzahl_real_ist = df_chart["Stueckzahl_Real"].iloc[-1] if not df_chart.empty else stueckzahl_aktiv
@@ -1508,17 +1530,57 @@ def render_dashboard():
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
-    with st.expander("Anfangskapital, Sparrate und Entnahme anpassen", expanded=False):
-        # Alle drei Felder bewusst untereinander (keine Spalten) - auf dem
-        # Smartphone sind zwei nebeneinanderliegende Zahlenfelder samt
-        # Steppern sonst sehr schmal und fummelig zu bedienen.
+    with st.expander("Kauf, Kapital, Sparrate und Entnahme anpassen", expanded=False):
+        # Felder bewusst untereinander (keine Spalten) - auf dem Smartphone
+        # sind nebeneinanderliegende Zahlenfelder samt Steppern sehr fummelig.
+        kd_kwargs = dict(
+            key="haupt_kaufdatum_input",
+            help="Bestimmt den Startpunkt aller Berechnungen und Charts.",
+        )
+        if "haupt_kaufdatum_input" not in st.session_state:
+            kd_kwargs["value"] = kaufdatum_aktiv
+        st.date_input("Kaufdatum", **kd_kwargs)
+
+        st.checkbox(
+            "Kaufkurs automatisch aus der Kurshistorie am Kaufdatum holen",
+            key="haupt_kaufkurs_auto", value=kaufkurs_auto,
+            help="Nimmt den letzten Schlusskurs am oder vor dem Kaufdatum. "
+                 "Ausschalten, um deinen tatsächlich gezahlten Kurs einzutragen "
+                 "(z. B. inkl. Spread oder bei untertägigem Kauf).",
+        )
+
+        if kaufkurs_auto:
+            if kaufkurs_ermittelt:
+                st.success(
+                    f"Kurs am {kaufdatum_aktiv.strftime('%d.%m.%Y')}: "
+                    f"**{de_zahl(kaufkurs_ermittelt, 4)} €** "
+                    f"→ {startkapital_aktiv / kaufkurs_ermittelt:.4f} Anteile"
+                )
+            else:
+                st.warning(
+                    f"Für den {kaufdatum_aktiv.strftime('%d.%m.%Y')} liegt kein Kurs vor "
+                    f"(Historie reicht nicht zurück). Es gilt ersatzweise "
+                    f"{de_zahl(kaufkurs_aktiv, 4)} €."
+                )
+        else:
+            kk_kwargs = dict(
+                min_value=0.0, step=0.01, format="%.4f", key="haupt_kaufkurs_input",
+                help="Dein tatsächlich gezahlter Kurs je Anteil.",
+            )
+            if "haupt_kaufkurs_input" not in st.session_state:
+                kk_kwargs["value"] = kaufkurs_aktiv
+            st.number_input("Kaufkurs (€)", **kk_kwargs)
+
         ak_kwargs = dict(
             min_value=0.0, step=100.0, key="haupt_startkapital_input",
-            help=f"Kauf ({config.KAUFDATUM.strftime('%d.%m.%Y')}): {config.ANFANGSKURS:.2f}€ - Stückzahl wird automatisch neu berechnet.",
+            help="Investiertes Kapital - die Stückzahl ergibt sich daraus "
+                 "automatisch (Kapital ÷ Kaufkurs).",
         )
         if "haupt_startkapital_input" not in st.session_state:
             ak_kwargs["value"] = startkapital_aktiv
         st.number_input("Anfangskapital (€)", **ak_kwargs)
+        st.caption(f"Ergibt aktuell **{stueckzahl_aktiv:.4f} Anteile** "
+                   f"zu {de_zahl(kaufkurs_aktiv, 4)} €")
 
         sparrate_kwargs = dict(
             min_value=0.0, step=10.0, key="haupt_sparrate_input",
@@ -1552,7 +1614,7 @@ def render_dashboard():
         <div class="row">
             <span class="row-label">Anfangskapital</span>
             <span class="row-val">{fmt(startkapital_aktiv, 2)}
-                <span class="row-note">Kauf am {config.KAUFDATUM.strftime('%d.%m.%Y')} zu {de_zahl(config.ANFANGSKURS, 2)} €</span>
+                <span class="row-note">Kauf am {kaufdatum_aktiv.strftime('%d.%m.%Y')} zu {de_zahl(kaufkurs_aktiv, 2)} €</span>
             </span>
         </div>
     </div>
@@ -1616,18 +1678,18 @@ def render_dashboard():
                 # der Depotwert-Kachel ab, obwohl beide dasselbe messen sollen.
                 if not brutto_reihe.empty and startkapital_aktiv > 0:
                     gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        startkapital_aktiv, brutto_reihe.iloc[-1], config.KAUFDATUM, heute_date
+                        startkapital_aktiv, brutto_reihe.iloc[-1], kaufdatum_aktiv, heute_date
                     )
                     performance_liste_haupt.append({
                         "Wert": f"Hauptindizes Global ({config.WKN})",
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
-                        "_gelistet_seit": config.KAUFDATUM,
+                        "_gelistet_seit": kaufdatum_aktiv,
                     })
                 for label, s in benchmark_series.items():
                     s_gueltig = s.dropna()
                     if label in ausgewaehlte_benchmarks and not s_gueltig.empty and s_gueltig.iloc[0] > 0:
                         start_dieser_wert = benchmark_start_daten.get(label)
-                        start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else config.KAUFDATUM
+                        start_dieser_wert = start_dieser_wert.date() if hasattr(start_dieser_wert, "date") else kaufdatum_aktiv
                         gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
                             s_gueltig.iloc[0], s_gueltig.iloc[-1], start_dieser_wert, heute_date
                         )
@@ -1642,10 +1704,10 @@ def render_dashboard():
                     # die Vergleichslinien einen anderen Zeitraum abdecken.
                     _daten_start = df_chart.index.min()
                     _start_hinweis = ""
-                    if _daten_start is not None and _daten_start.date() != config.KAUFDATUM:
+                    if _daten_start is not None and _daten_start.date() != kaufdatum_aktiv:
                         _start_hinweis = f" · Kursdaten ab {_daten_start.strftime('%d.%m.%Y')}"
                     st.caption(
-                        f"📅 Eigene Position berechnet ab {config.KAUFDATUM.strftime('%d.%m.%Y')} "
+                        f"📅 Eigene Position berechnet ab {kaufdatum_aktiv.strftime('%d.%m.%Y')} "
                         f"(Kaufdatum, gegen eingesetztes Kapital){_start_hinweis}"
                     )
                     performance_liste_haupt.sort(key=lambda x: x["_jaehrlich"], reverse=True)
@@ -2052,7 +2114,7 @@ def render_dashboard():
                 st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.{sparrate_hinweis}")
     
                 forecast_data = [
-                    {"Index": 0, "Jahr": "Start", "Datum": config.KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(startkapital_aktiv, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(startkapital_aktiv, 2), "Kumulierte Entnahme": "0,00€"},
+                    {"Index": 0, "Jahr": "Start", "Datum": kaufdatum_aktiv.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(startkapital_aktiv, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(startkapital_aktiv, 2), "Kumulierte Entnahme": "0,00€"},
                     {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
                 ]
     
@@ -2153,7 +2215,7 @@ def render_dashboard():
                         years_100k = m_to_100k // 12
                         rem_months = m_to_100k % 12
                         m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
-                        target_date = (pd.to_datetime(config.KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+                        target_date = (pd.to_datetime(kaufdatum_aktiv) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
                     else:
                         m_str = "Nicht erreicht (>100J)"
                         target_date = "N/A"
@@ -2380,6 +2442,24 @@ def render_dashboard():
         if GH_STATE_READY:
             st.caption(f"Repo: {GITHUB_REPO} • Branch: {config.GITHUB_STATE_BRANCH}")
         st.write(f"**High Watermark:** {high_watermark_anzeige:.3f}€")
+
+        # Abgleich der Kauf-Eckdaten: macht sichtbar, ob die geladene Historie
+        # wirklich am Kaufdatum beginnt - genau hier lief die Performance-
+        # Tabelle frueher gegen einen anderen Startwert als die Kachel.
+        st.markdown("**Kauf-Eckdaten**")
+        _cfg_kd = config.KAUFDATUM.strftime("%d.%m.%Y")
+        _akt_kd = kaufdatum_aktiv.strftime("%d.%m.%Y")
+        st.write(f"- Kaufdatum aktiv: **{_akt_kd}**" + (f" (config.py: {_cfg_kd})" if _akt_kd != _cfg_kd else " (= config.py)"))
+        st.write(f"- Kaufkurs aktiv: **{kaufkurs_aktiv:.4f} €** "
+                 f"({'automatisch aus Historie' if kaufkurs_auto and kaufkurs_ermittelt else 'manuell/Fallback'}"
+                 f", config.py: {config.ANFANGSKURS:.4f} €)")
+        st.write(f"- Stückzahl: **{stueckzahl_aktiv:.4f}** ({fmt(startkapital_aktiv, 2)} ÷ {kaufkurs_aktiv:.4f} €)")
+        if not df_chart.empty:
+            _ds, _de = df_chart.index.min(), df_chart.index.max()
+            _warnung = " ⚠️ weicht vom Kaufdatum ab" if _ds.date() != kaufdatum_aktiv else ""
+            st.write(f"- Kursdaten von **{_ds.strftime('%d.%m.%Y')}** bis {_de.strftime('%d.%m.%Y')}"
+                     f" ({len(df_chart)} Handelstage){_warnung}")
+            st.write(f"- Erster Schlusskurs der Reihe: **{df_chart['Close'].iloc[0]:.4f} €**")
 
 
 
