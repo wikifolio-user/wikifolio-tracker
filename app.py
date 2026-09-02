@@ -296,6 +296,17 @@ st.markdown("""
        nur sein Inhalt wird unsichtbar. */
     [data-testid="stHeader"] { background: transparent !important; }
 
+    /* ---------- KURSANSICHT-UMSCHALTER (st.pills) ----------
+       Grosszuegige Trefferflaeche fuer den Daumen, aktiver Zustand deutlich
+       abgesetzt. Die Buttons brechen um statt zu scrollen - dadurch bleiben
+       alle Optionen sichtbar, auch auf schmalen Displays. */
+    [data-testid="stButtonGroup"] { margin-bottom: 10px; }
+    [data-testid="stButtonGroup"] button {
+        min-height: 40px !important;
+        font-size: 0.85rem !important;
+        border-radius: 999px !important;
+    }
+
     /* ---------- ZENTRIERTER LADEFORTSCHRITT ---------- */
     .loading-overlay {
         display: flex; flex-direction: column; align-items: center;
@@ -1489,21 +1500,41 @@ def render_dashboard():
     beobachtung = [e for e in lade_beobachtung() if e.get("instrument_id")]
 
     if beobachtung:
-        # Tabs statt Untereinander: der beobachtete Wert soll gleichrangig
-        # umschaltbar sein, aber nicht die Depotansicht in die Länge ziehen.
-        kurs_tabs = st.tabs(
-            [tab_label("Hauptindizes Global", config.WKN)]
-            + [tab_label(e.get("name", ""), e.get("wkn", "")) for e in beobachtung]
+        # st.pills statt st.tabs: bei wenigen Werten die bequemste Bedienung -
+        # ein Tap, alle Optionen gleichzeitig sichtbar, und die Buttons brechen
+        # in die naechste Zeile um, statt seitlich wegzuscrollen. Dadurch
+        # muessen die Namen auch nicht mehr abgeschnitten werden.
+        kurs_optionen = ["Hauptindizes Global"] + [
+            e.get("name") or e.get("wkn") or "Wert" for e in beobachtung
+        ]
+        # Doppelte Namen eindeutig machen, sonst laesst sich die Auswahl nicht
+        # zuordnen (st.pills arbeitet mit den Beschriftungen als Schluessel).
+        gesehen = {}
+        for i, opt in enumerate(kurs_optionen):
+            if opt in gesehen:
+                gesehen[opt] += 1
+                kurs_optionen[i] = f"{opt} ({gesehen[opt]})"
+            else:
+                gesehen[opt] = 1
+
+        auswahl = st.pills(
+            "Kursansicht", kurs_optionen, default=kurs_optionen[0],
+            key="kurs_ansicht_wahl", label_visibility="collapsed",
         )
-        with kurs_tabs[0]:
+        # Abwaehlen ist bei st.pills moeglich - dann auf den ersten Wert
+        # zurueckfallen, damit nie eine leere Ansicht entsteht.
+        if auswahl not in kurs_optionen:
+            auswahl = kurs_optionen[0]
+
+        if auswahl == kurs_optionen[0]:
             st.markdown(kurs_karte, unsafe_allow_html=True)
-        for tab, eintrag in zip(kurs_tabs[1:], beobachtung):
-            with tab:
-                try:
-                    st.markdown(beobachtungs_karte(eintrag), unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"⚠️ Beobachtungswert konnte nicht geladen werden: {e}")
-                    notify_app_error(f"Beobachtung-{eintrag.get('wkn', '?')}", e)
+        else:
+            eintrag = beobachtung[kurs_optionen.index(auswahl) - 1]
+            try:
+                st.markdown(beobachtungs_karte(eintrag), unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"⚠️ Beobachtungswert konnte nicht geladen werden: {e}")
+                notify_app_error(f"Beobachtung-{eintrag.get('wkn', '?')}", e)
     else:
         st.markdown(kurs_karte, unsafe_allow_html=True)
 
