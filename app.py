@@ -732,16 +732,38 @@ def referenzkurs_vor_tagen(historie, tage, heute):
 
 def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
     """Liefert [(Label, Kursdifferenz, Prozent), ...] fuer Tag/Woche/Monat/Jahr.
-    Zeitraeume ohne ausreichende Historie werden weggelassen."""
+
+    Reicht die Historie fuer einen Zeitraum nicht aus, wird die Zeile
+    weggelassen - AUSSER beim Jahr: dort wird ersatzweise der aelteste
+    verfuegbare Kurs herangezogen und das Label entsprechend umbenannt
+    ("seit 28.01.2026"). So bleibt bei jung aufgelegten Produkten die
+    Langfrist-Zeile sichtbar, ohne einen Jahreswert vorzutaeuschen, den
+    die Daten gar nicht hergeben."""
     zeilen = []
     if vortag_kurs:
         d = aktueller_kurs - vortag_kurs
         zeilen.append(("Tag", d, d / vortag_kurs * 100))
-    for label, tage in [("Woche", 7), ("Monat", 30), ("Jahr", 365)]:
+
+    for label, tage in [("Woche", 7), ("Monat", 30)]:
         ref = referenzkurs_vor_tagen(historie, tage, heute)
         if ref:
             d = aktueller_kurs - ref
             zeilen.append((label, d, d / ref * 100))
+
+    jahr_ref = referenzkurs_vor_tagen(historie, 365, heute)
+    if jahr_ref:
+        d = aktueller_kurs - jahr_ref
+        zeilen.append(("Jahr", d, d / jahr_ref * 100))
+    elif historie is not None and not historie.empty:
+        # Kein Jahreswert vorhanden - aeltesten Kurs nehmen und ehrlich
+        # beschriften. Nur sinnvoll, wenn dieser Zeitraum laenger ist als der
+        # bereits gezeigte Monat, sonst waere es eine Dopplung.
+        aeltester_ts = historie.index[0]
+        if (pd.Timestamp(heute) - aeltester_ts).days > 31:
+            ref = float(historie.iloc[0])
+            if ref:
+                d = aktueller_kurs - ref
+                zeilen.append((f"seit {aeltester_ts.strftime('%d.%m.%Y')}", d, d / ref * 100))
     return zeilen
 
 
