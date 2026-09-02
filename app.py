@@ -857,6 +857,27 @@ def check_and_alert_fetch_failure(is_live_data, is_live_history):
         )
 
 
+def tab_label(name, wkn="", max_len=16):
+    """Kuerzt Tab-Beschriftungen lesbar statt hart mitten im Wort.
+
+    - Klammerzusaetze entfallen (die WKN steht ohnehin in der Kachel)
+    - gekuerzt wird an der letzten Wortgrenze, mit Auslassungszeichen
+    - passt der Name gar nicht, wird die WKN genommen: kurz und eindeutig
+    """
+    text = re.sub(r"\s*\([^)]*\)?\s*$", "", (name or "").strip())
+    if not text:
+        return wkn or "?"
+    if len(text) <= max_len:
+        return text
+    gekuerzt = text[:max_len].rsplit(" ", 1)[0].rstrip(" ,-·")
+    # Wuerde der Wortschnitt zu viel wegnehmen (z.B. "MSCI Semiconductors" ->
+    # nur noch "MSCI"), lieber hart auf volle Laenge kuerzen: mehr Kontext als
+    # ein einzelnes Kuerzel, und immer noch besser als die WKN.
+    if len(gekuerzt) < max_len * 0.6:
+        gekuerzt = text[:max_len - 1].rstrip(" ,-·")
+    return gekuerzt + "…"
+
+
 # --- GESAMTE RENDER-LOGIK ALS FRAGMENT ---
 # Vermeidet den harten Full-Page-Rerun von st_autorefresh (sichtbares
 # Aufhellen/Neuzeichnen alle 30s). Ein Fragment aktualisiert sich selbst
@@ -1471,7 +1492,8 @@ def render_dashboard():
         # Tabs statt Untereinander: der beobachtete Wert soll gleichrangig
         # umschaltbar sein, aber nicht die Depotansicht in die Länge ziehen.
         kurs_tabs = st.tabs(
-            [f"Hauptindizes Global"[:18]] + [e.get("name", e.get("wkn", "?"))[:18] for e in beobachtung]
+            [tab_label("Hauptindizes Global", config.WKN)]
+            + [tab_label(e.get("name", ""), e.get("wkn", "")) for e in beobachtung]
         )
         with kurs_tabs[0]:
             st.markdown(kurs_karte, unsafe_allow_html=True)
@@ -1653,7 +1675,7 @@ def render_dashboard():
         # eigenes Container-Styling horizontales Wischen zuverlaessig, Tabs
         # funktionieren dagegen ueberall per Tap (und lassen sich bei vielen
         # Positionen zusaetzlich seitlich scrollen).
-        tab_labels = [lbl[:18] for lbl, _ in positions_karten]
+        tab_labels = [tab_label(lbl) for lbl, _ in positions_karten]
         for tab, (_, karte_html) in zip(st.tabs(tab_labels), positions_karten):
             with tab:
                 st.markdown(karte_html, unsafe_allow_html=True)
