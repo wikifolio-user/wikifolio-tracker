@@ -296,16 +296,19 @@ st.markdown("""
        nur sein Inhalt wird unsichtbar. */
     [data-testid="stHeader"] { background: transparent !important; }
 
-    /* ---------- KURSANSICHT-UMSCHALTER (st.pills) ----------
-       Grosszuegige Trefferflaeche fuer den Daumen, aktiver Zustand deutlich
-       abgesetzt. Die Buttons brechen um statt zu scrollen - dadurch bleiben
-       alle Optionen sichtbar, auch auf schmalen Displays. */
-    [data-testid="stButtonGroup"] { margin-bottom: 10px; }
+    /* ---------- KURSANSICHT-UMSCHALTER ----------
+       Kompakt gehalten: der Umschalter ist Navigation, nicht Inhalt - er darf
+       die eigentliche Kurskachel nicht aus dem sichtbaren Bereich draengen.
+       Trefferflaeche bleibt mit 34px trotzdem daumentauglich. */
+    [data-testid="stButtonGroup"] { margin-bottom: 8px; }
     [data-testid="stButtonGroup"] button {
-        min-height: 40px !important;
-        font-size: 0.85rem !important;
+        min-height: 34px !important;
+        padding: 4px 12px !important;
+        font-size: 0.8rem !important;
         border-radius: 999px !important;
     }
+    /* Dropdown-Variante (ab 4 Werten) ebenfalls schlanker */
+    [data-testid="stSelectbox"] { margin-bottom: 8px; }
 
     /* ---------- ZENTRIERTER LADEFORTSCHRITT ---------- */
     .loading-overlay {
@@ -1500,15 +1503,21 @@ def render_dashboard():
     beobachtung = [e for e in lade_beobachtung() if e.get("instrument_id")]
 
     if beobachtung:
-        # st.pills statt st.tabs: bei wenigen Werten die bequemste Bedienung -
-        # ein Tap, alle Optionen gleichzeitig sichtbar, und die Buttons brechen
-        # in die naechste Zeile um, statt seitlich wegzuscrollen. Dadurch
-        # muessen die Namen auch nicht mehr abgeschnitten werden.
+        # Umschalter zwischen den Kursansichten. Bewusst adaptiv:
+        #   bis 3 Werte -> Pills (ein Tap, alles sichtbar)
+        #   ab 4 Werten -> Dropdown (Pills brauechten sonst 3+ Zeilen und
+        #                  draengen die eigentliche Kachel aus dem Bild)
+        # Die WKN wird aus den Beschriftungen entfernt - sie steht ohnehin in
+        # der Kachel darunter und macht die Buttons nur unnoetig breit.
+        def _kurzname(text, fallback=""):
+            ohne_wkn = re.sub(r"\s*\([^)]*\)\s*$", "", (text or "").strip())
+            return ohne_wkn or fallback or "Wert"
+
         kurs_optionen = ["Hauptindizes Global"] + [
-            e.get("name") or e.get("wkn") or "Wert" for e in beobachtung
+            _kurzname(e.get("name"), e.get("wkn")) for e in beobachtung
         ]
         # Doppelte Namen eindeutig machen, sonst laesst sich die Auswahl nicht
-        # zuordnen (st.pills arbeitet mit den Beschriftungen als Schluessel).
+        # zuordnen (beide Widgets arbeiten mit der Beschriftung als Schluessel).
         gesehen = {}
         for i, opt in enumerate(kurs_optionen):
             if opt in gesehen:
@@ -1517,10 +1526,17 @@ def render_dashboard():
             else:
                 gesehen[opt] = 1
 
-        auswahl = st.pills(
-            "Kursansicht", kurs_optionen, default=kurs_optionen[0],
-            key="kurs_ansicht_wahl", label_visibility="collapsed",
-        )
+        if len(kurs_optionen) <= 3:
+            auswahl = st.pills(
+                "Kursansicht", kurs_optionen, default=kurs_optionen[0],
+                key="kurs_ansicht_wahl", label_visibility="collapsed",
+            )
+        else:
+            auswahl = st.selectbox(
+                "Kursansicht", kurs_optionen,
+                key="kurs_ansicht_wahl_select", label_visibility="collapsed",
+            )
+
         # Abwaehlen ist bei st.pills moeglich - dann auf den ersten Wert
         # zurueckfallen, damit nie eine leere Ansicht entsteht.
         if auswahl not in kurs_optionen:
