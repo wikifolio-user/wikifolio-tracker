@@ -26,6 +26,17 @@ HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", "")  # optional, s. Setup-Hi
 GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "")  # von Actions automatisch gesetzt
 GITHUB_TOKEN = os.environ.get("GH_STATE_TOKEN", "")  # secrets.GITHUB_TOKEN
 
+# --- MELDESCHWELLE FUER DAS ROUTINE-KURS-UPDATE ---
+# Betrifft AUSSCHLIESSLICH die regelmaessige "Kurs-Update"-Nachricht: die wird
+# nur noch verschickt, wenn sich der Kurs um mindestens diesen Prozentsatz
+# gegenueber dem Vortag bewegt hat. Bei ruhigem Markt (z.B. +0,00%) bleibt es
+# still, statt alle paar Minuten dieselbe Nicht-Nachricht zu schicken.
+#
+# WICHTIG: Alle echten Alarme sind davon NICHT betroffen und feuern
+# unveraendert - Schwellen-Alarm (config.TAGESVERLUST_SCHWELLE_PCT),
+# Entwarnung und Allzeithoch-Meldung.
+ROUTINE_MELDESCHWELLE_PCT = 0.50
+
 
 def get_live_market_data():
     """
@@ -245,14 +256,25 @@ def main():
     else:
         state = {"unter_schwelle": False}
 
-    routine_msg = (
-        f"📊 **Kurs-Update ({config.WKN})**\n"
-        f"Aktueller Kurs: **{akt:.3f}€**\n"
-        f"Tagesveränderung: **{pct_change:+.2f}%**\n"
-        f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
-    )
-    if not send_discord(routine_msg):
-        logging.error("Routine-Update konnte NICHT an Discord gesendet werden (siehe Fehler oben).")
+    # --- ROUTINE-KURS-UPDATE: nur bei nennenswerter Bewegung ---
+    # Filtert ausschliesslich diese eine Nachricht. Die Alarm-Logik weiter
+    # unten laeuft in jedem Fall weiter - ein Schwellen-Alarm darf nie an
+    # dieser Meldeschwelle scheitern.
+    if abs(pct_change) >= ROUTINE_MELDESCHWELLE_PCT:
+        routine_msg = (
+            f"📊 **Kurs-Update ({config.WKN})**\n"
+            f"Aktueller Kurs: **{akt:.3f}€**\n"
+            f"Tagesveränderung: **{pct_change:+.2f}%**\n"
+            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
+        )
+        if not send_discord(routine_msg):
+            logging.error("Routine-Update konnte NICHT an Discord gesendet werden (siehe Fehler oben).")
+    else:
+        logging.info(
+            f"Routine-Update übersprungen: Tagesveränderung {pct_change:+.2f}% liegt unter "
+            f"der Meldeschwelle von ±{ROUTINE_MELDESCHWELLE_PCT:.2f}%. "
+            f"Alarme bleiben davon unberührt."
+        )
 
     aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
     war_unter_schwelle = state.get("unter_schwelle", False)
