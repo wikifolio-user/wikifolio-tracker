@@ -48,6 +48,11 @@ BERLIN_TZ = pytz.timezone("Europe/Berlin")
 # zur Laufzeit anlegbar/aenderbar/loeschbar - ohne Code-Deploy.
 STATE_PATH_POSITIONEN = "state/positionen.json"
 
+# --- BEOBACHTUNGSLISTE (Watchlist) ---
+# Werte, deren Kurs angezeigt werden soll, die aber KEIN Bestandteil des Depots
+# sind - sie fliessen bewusst nicht in Depotwert, Gewinn oder Gesamtsumme ein.
+STATE_PATH_BEOBACHTUNG = "state/beobachtung.json"
+
 # --- TERMINAL STYLING ---
 # Bewusst AUSSERHALB des periodisch aktualisierenden Fragments (siehe unten) -
 # wird dadurch nur EINMAL pro echtem Seitenaufbau injiziert, nicht alle 5 Min.
@@ -626,6 +631,16 @@ def lade_positionen():
 
 def speichere_positionen(positionen, message="update positionen [skip ci]"):
     return gh_write(STATE_PATH_POSITIONEN, positionen, message=message)
+
+
+def lade_beobachtung():
+    """Beobachtete Werte (reine Kursanzeige, NICHT im Depot). Standard ist eine
+    leere Liste - ohne Eintraege verhaelt sich die App exakt wie vorher."""
+    return gh_read(STATE_PATH_BEOBACHTUNG, []) or []
+
+
+def speichere_beobachtung(eintraege, message="update beobachtung [skip ci]"):
+    return gh_write(STATE_PATH_BEOBACHTUNG, eintraege, message=message)
 
 
 def position_stueckzahl(pos):
@@ -1370,7 +1385,83 @@ def render_dashboard():
           f'{config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>'
         + '</div>'
     )
-    st.markdown(kurs_karte, unsafe_allow_html=True)
+    # ---------- BEOBACHTETE WERTE: reine Kursanzeige, NICHT im Depot ----------
+    def beobachtungs_karte(eintrag):
+        """Baut eine Kurskachel im selben Aufbau wie die Hauptkachel, aber fuer
+        einen reinen Beobachtungswert. Höchststand wird hier aus der geladenen
+        Historie bestimmt (kein persistenter State noetig) - fuer einen Wert,
+        den man nicht besitzt, ist die Performance Fee ohnehin irrelevant."""
+        b_kurs, b_vortag, _ = get_live_kurs(eintrag["instrument_id"])
+        if b_kurs is None:
+            return (
+                '<div class="quote">'
+                f'<div class="q-name">{eintrag.get("name", "")} · {eintrag.get("wkn", "")}</div>'
+                '<div class="price-line">'
+                '<span class="q-price">–</span>'
+                '<span class="meta-chip">keine Live-Daten</span>'
+                '</div>'
+                '<div class="card-footnote">ls-tc.de liefert für diesen Wert gerade '
+                'keine Kurse. Instrument-ID prüfen oder später erneut versuchen.</div>'
+                '</div>'
+            )
+
+        b_hist = get_kurshistorie(
+            eintrag["instrument_id"], heute_date - datetime.timedelta(days=420), heute_date
+        )
+        b_perioden = berechne_zeitraeume(b_kurs, b_vortag, b_hist, heute_date)
+
+        b_hw_zeile = ""
+        if not b_hist.empty:
+            b_hoch = float(b_hist.max())
+            b_hoch_datum = b_hist.idxmax().strftime("%d.%m.%Y")
+            b_abstand_pct = (b_kurs - b_hoch) / b_hoch * 100 if b_hoch else 0.0
+            b_wert_html = ('<span class="up">erreicht</span>' if b_abstand_pct >= -0.0005
+                           else f'<span class="down">{de_zahl(b_abstand_pct, 2)} %</span>')
+            b_hw_zeile = (
+                '<div class="perf-row"><span class="perf-label">Höchststand</span>'
+                f'<span class="perf-vals"><span class="neutral">{de_zahl(b_hoch)} €</span>'
+                f'{b_wert_html}</span></div>'
+            )
+            b_fuss = (f'Lang &amp; Schwarz · Höchststand vom {b_hoch_datum} '
+                      f'(aus verfügbarer Kurshistorie) · nicht im Depot enthalten')
+        else:
+            b_fuss = 'Lang &amp; Schwarz · nicht im Depot enthalten'
+
+        return (
+            '<div class="quote">'
+            f'<div class="q-name">{eintrag.get("name", "")} · {eintrag.get("wkn", "")}</div>'
+            '<div class="price-line">'
+            f'<span class="q-price">{de_zahl(b_kurs)} €</span>'
+            '<span class="live-pill"><span class="live-dot"></span>Live</span>'
+            '<span class="meta-chip">Beobachtung</span>'
+            '</div>'
+            + perf_zeilen_html(
+                b_perioden, 3,
+                kopfzeile=("Vortag", f"{de_zahl(b_vortag)} €") if b_vortag else None,
+                fusszeile=b_hw_zeile)
+            + f'<div class="card-footnote">{b_fuss}</div>'
+            '</div>'
+        )
+
+    beobachtung = [e for e in lade_beobachtung() if e.get("instrument_id")]
+
+    if beobachtung:
+        # Tabs statt Untereinander: der beobachtete Wert soll gleichrangig
+        # umschaltbar sein, aber nicht die Depotansicht in die Länge ziehen.
+        kurs_tabs = st.tabs(
+            [f"Hauptindizes Global"[:18]] + [e.get("name", e.get("wkn", "?"))[:18] for e in beobachtung]
+        )
+        with kurs_tabs[0]:
+            st.markdown(kurs_karte, unsafe_allow_html=True)
+        for tab, eintrag in zip(kurs_tabs[1:], beobachtung):
+            with tab:
+                try:
+                    st.markdown(beobachtungs_karte(eintrag), unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"⚠️ Beobachtungswert konnte nicht geladen werden: {e}")
+                    notify_app_error(f"Beobachtung-{eintrag.get('wkn', '?')}", e)
+    else:
+        st.markdown(kurs_karte, unsafe_allow_html=True)
 
     # ---------- HERO: Depotwert ----------
     sparplan_zusatz = (
@@ -2451,6 +2542,134 @@ def render_dashboard():
                             st.rerun()
                         else:
                             st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
+
+    # ---------- BEOBACHTUNGSLISTE VERWALTEN ----------
+    with st.expander("👁️ Beobachtungsliste verwalten", expanded=False):
+        st.caption(
+            "Werte hier werden nur als Kurskachel angezeigt (umschaltbar über die "
+            "Tabs oben) und fließen **nicht** in Depotwert, Gewinn oder Gesamtsumme ein."
+        )
+
+        # Vergleichswerte aus config.BENCHMARKS als Ein-Klick-Vorlage anbieten -
+        # deren Instrument-IDs sind bereits gepflegt, doppeltes Suchen entfaellt.
+        _bereits = {e.get("instrument_id") for e in lade_beobachtung()}
+        _vorschlaege = {
+            label: iid for label, iid in (getattr(config, "BENCHMARKS", {}) or {}).items()
+            if iid not in _bereits
+        }
+        if _vorschlaege:
+            v_col, v_btn = st.columns([3, 1])
+            v_wahl = v_col.selectbox(
+                "Aus vorhandenen Vergleichswerten übernehmen",
+                list(_vorschlaege.keys()), key="beob_vorlage",
+                help="Diese Werte sind in config.BENCHMARKS bereits mit ihrer "
+                     "Instrument-ID hinterlegt - kein Suchen nötig.",
+            )
+            if v_btn.button("Übernehmen", width="stretch", key="beob_vorlage_btn"):
+                _liste = lade_beobachtung()
+                _liste.append({
+                    "id": f"beob-{int(datetime.datetime.now().timestamp())}",
+                    "name": v_wahl, "wkn": "",
+                    "instrument_id": _vorschlaege[v_wahl],
+                })
+                if speichere_beobachtung(_liste, "beobachtung aus benchmark [skip ci]"):
+                    st.success(f"„{v_wahl}“ zur Beobachtung hinzugefügt.")
+                    st.rerun()
+                else:
+                    st.error("Hinzufügen fehlgeschlagen (kein persistenter State?).")
+
+        beob_liste = lade_beobachtung()
+
+        for b_idx, eintrag in enumerate(beob_liste):
+            st.markdown("---")
+            st.markdown(f"**{eintrag.get('name', '')} · {eintrag.get('wkn', '')}**")
+            b_treffer = instrument_suchblock(
+                f"beob_edit_{b_idx}", label="Anderes Wertpapier suchen (optional)")
+
+            with st.form(f"beob_form_{eintrag.get('id', b_idx)}"):
+                bv_name = b_treffer["name"] if b_treffer else eintrag.get("name", "")
+                bv_wkn = ((b_treffer["wkn"] or b_treffer["isin"]) if b_treffer
+                          else eintrag.get("wkn", ""))
+                bv_inst = (int(b_treffer["instrument_id"]) if b_treffer
+                           else int(eintrag.get("instrument_id") or 0))
+                b_suffix = f"{b_idx}_{bv_inst}"
+
+                nb_name = st.text_input("Name", value=bv_name, key=f"bn_{b_suffix}")
+                nb_wkn = st.text_input("WKN / ISIN", value=bv_wkn, key=f"bw_{b_suffix}")
+                nb_inst = st.number_input("Instrument-ID (ls-tc.de)", min_value=0, step=1,
+                                          value=bv_inst, key=f"bi_{b_suffix}")
+
+                bc_save, bc_del = st.columns(2)
+                b_gespeichert = bc_save.form_submit_button("💾 Speichern", width="stretch")
+                b_geloescht = bc_del.form_submit_button("🗑️ Entfernen", width="stretch")
+
+                if b_gespeichert:
+                    beob_liste[b_idx] = {
+                        "id": eintrag.get("id") or f"beob-{int(datetime.datetime.now().timestamp())}",
+                        "name": nb_name, "wkn": nb_wkn,
+                        "instrument_id": int(nb_inst) if nb_inst else None,
+                    }
+                    if speichere_beobachtung(beob_liste, "beobachtung geaendert [skip ci]"):
+                        for k in (f"beob_edit_{b_idx}_suche", f"beob_edit_{b_idx}_letzter",
+                                  f"beob_edit_{b_idx}_treffer", f"beob_edit_{b_idx}_wahl"):
+                            st.session_state.pop(k, None)
+                        st.success("Gespeichert.")
+                        st.rerun()
+                    else:
+                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
+
+                if b_geloescht:
+                    beob_liste.pop(b_idx)
+                    if speichere_beobachtung(beob_liste, "beobachtung entfernt [skip ci]"):
+                        st.success("Entfernt.")
+                        st.rerun()
+                    else:
+                        st.error("Entfernen fehlgeschlagen (kein persistenter State?).")
+
+        st.markdown("---")
+        st.markdown("**Wert zur Beobachtung hinzufügen**")
+        b_gewaehlt = instrument_suchblock("beob_neu")
+
+        with st.form("beob_form_neu", clear_on_submit=True):
+            bneu_name = st.text_input(
+                "Name", value=(b_gewaehlt["name"] if b_gewaehlt else ""),
+                placeholder="z. B. FF Inlinetrading")
+            bneu_wkn = st.text_input(
+                "WKN / ISIN",
+                value=(b_gewaehlt["wkn"] or b_gewaehlt["isin"]) if b_gewaehlt else "",
+                placeholder="z. B. LS9VSU")
+            bneu_inst = st.number_input(
+                "Instrument-ID (ls-tc.de)", min_value=0, step=1,
+                value=int(b_gewaehlt["instrument_id"]) if b_gewaehlt else 0,
+                help="Wird durch die Suche oben automatisch gefüllt. Ohne ID kann "
+                     "kein Kurs angezeigt werden - hier also Pflicht.",
+            )
+
+            if st.form_submit_button("👁️ Zur Beobachtung hinzufügen", width="stretch"):
+                if not bneu_name or not bneu_inst:
+                    st.error("Bitte Name und Instrument-ID angeben.")
+                else:
+                    b_test, _, _ = get_live_kurs(int(bneu_inst))
+                    if b_test is None:
+                        st.error(
+                            f"Für Instrument-ID {int(bneu_inst)} liefert ls-tc.de keine "
+                            "Kursdaten. Bitte die ID prüfen."
+                        )
+                    else:
+                        beob_liste.append({
+                            "id": f"beob-{int(datetime.datetime.now().timestamp())}",
+                            "name": bneu_name, "wkn": bneu_wkn,
+                            "instrument_id": int(bneu_inst),
+                        })
+                        if speichere_beobachtung(beob_liste, "beobachtung angelegt [skip ci]"):
+                            for k in ("beob_neu_suche", "beob_neu_letzter",
+                                      "beob_neu_treffer", "beob_neu_wahl"):
+                                st.session_state.pop(k, None)
+                            st.success(f"„{bneu_name}“ hinzugefügt "
+                                       f"(aktueller Kurs {de_zahl(b_test)} €).")
+                            st.rerun()
+                        else:
+                            st.error("Hinzufügen fehlgeschlagen (kein persistenter State?).")
 
     # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
     # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
