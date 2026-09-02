@@ -362,7 +362,15 @@ def gh_read_cached(path, default):
 def gh_write(path, obj, message="update state [skip ci]"):
     if not GH_STATE_READY:
         return False
-    return github_store.put_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, obj, GITHUB_TOKEN, message=message)
+    erfolg = github_store.put_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, obj, GITHUB_TOKEN, message=message)
+    if erfolg:
+        # WICHTIG: den Lese-Cache leeren. Sonst liefert gh_read_cached() bis zu
+        # 60s lang noch den ALTEN Zustand - bei mehreren Reruns innerhalb dieser
+        # Zeit (jede Widget-Interaktion loest einen aus) wuerde ein bereits
+        # gesetzter Alarm-Cooldown nicht gesehen und dieselbe Discord-Meldung
+        # mehrfach verschickt.
+        gh_read_cached.clear()
+    return erfolg
 
 
 # --- APP-FEHLER AN DISCORD MELDEN (Punkt 10) ---
@@ -772,13 +780,17 @@ def check_and_alert_fetch_failure(is_live_data, is_live_history):
     now = datetime.datetime.now(BERLIN_TZ)
     is_down = (not is_live_data) or (not is_live_history)
 
+    war_down = bool(state.get("war_down", False))
+    last_alert_str = state.get("last_alert")
     last_alert = None
-    if state.get("last_alert"):
+    if last_alert_str:
         try:
-            last_alert = datetime.datetime.fromisoformat(state["last_alert"])
+            last_alert = datetime.datetime.fromisoformat(last_alert_str)
         except Exception:
             pass
     cooldown_ok = (last_alert is None) or ((now - last_alert).total_seconds() > 30 * 60)
+
+    neuer_last_alert = last_alert_str
 
     if is_down and cooldown_ok:
         msg = (f"⚠️ **Datenquelle down ({config.WKN})**\n"
@@ -787,18 +799,25 @@ def check_and_alert_fetch_failure(is_live_data, is_live_history):
                f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}")
         try:
             requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-            state["last_alert"] = now.isoformat()
+            neuer_last_alert = now.isoformat()
         except Exception as e:
             logging.error(f"Discord Fetch-Fail-Alarm Fehler: {e}")
-    elif not is_down and state.get("war_down"):
+    elif not is_down and war_down:
         msg = f"✅ **Datenquelle wieder OK ({config.WKN})** — ls-tc.de liefert wieder Live-Daten."
         try:
             requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
         except Exception as e:
             logging.error(f"Discord Fetch-Recover Fehler: {e}")
 
-    state["war_down"] = is_down
-    gh_write(config.STATE_PATH_FETCH_FAIL_ALARM, state, message="update fetch fail alarm state [skip ci]")
+    # NUR schreiben, wenn sich der Zustand tatsaechlich geaendert hat. Vorher
+    # erzeugte jeder Durchlauf einen GitHub-Commit - bei haeufigen Reruns (jede
+    # Widget-Interaktion loest einen aus) unnoetige API-Last und Rauschen.
+    if war_down != is_down or neuer_last_alert != last_alert_str:
+        gh_write(
+            config.STATE_PATH_FETCH_FAIL_ALARM,
+            {"last_alert": neuer_last_alert, "war_down": is_down},
+            message="update fetch fail alarm state [skip ci]",
+        )
 
 
 # --- GESAMTE RENDER-LOGIK ALS FRAGMENT ---
@@ -1160,7 +1179,10 @@ def render_dashboard():
                 logging.error(f"Discord Entwarnung Fehler: {e}")
             state["unter_schwelle"] = False
 
-        gh_write(config.STATE_PATH_PRICE_ALERT, state, message="update price alert state [skip ci]")
+        # Nur bei echtem Zustandswechsel schreiben (siehe Kommentar oben bei
+        # check_and_alert_fetch_failure) - spart GitHub-Commits bei jedem Rerun.
+        if state.get("unter_schwelle") != war_unter_schwelle:
+            gh_write(config.STATE_PATH_PRICE_ALERT, state, message="update price alert state [skip ci]")
 
 
     check_and_send_price_updates(tages_verenderung_pct, aktueller_kurs)
