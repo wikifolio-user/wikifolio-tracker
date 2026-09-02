@@ -37,8 +37,75 @@ GITHUB_TOKEN = os.environ.get("GH_STATE_TOKEN", "")  # secrets.GITHUB_TOKEN
 # Entwarnung und Allzeithoch-Meldung.
 ROUTINE_MELDESCHWELLE_PCT = 0.50
 
+# --- UEBERWACHTE INSTRUMENTE ---
+# Erster Eintrag ist die Hauptposition aus config.py (unveraendertes Verhalten,
+# nutzt die bestehenden State-Pfade). Jeder weitere Eintrag bekommt EIGENE
+# State-Dateien, damit Cooldowns, Allzeithoch und Kurshistorie sauber getrennt
+# bleiben - sonst wuerden sich die Instrumente gegenseitig ueberschreiben.
+#
+# onvista_url: optionale Zweitquelle fuer den Plausibilitaets-Check. Fehlt sie,
+# wird bei einem unplausiblen Sprung ohne Gegenprobe uebersprungen (sicherer
+# als ein moeglicher Fehlalarm).
+INSTRUMENTE = [
+    {
+        "wkn": config.WKN,
+        "name": "Hauptindizes Global",
+        "instrument_id": config.LS_INSTRUMENT_ID,
+        "onvista_url": "https://www.onvista.de/derivate/Index-Zertifikate/302671598-LS9VFS-DE000LS9VFS2",
+    },
+    {
+        "wkn": "LS9VSU",
+        "name": "FF Inlinetrading",
+        # Wird unten automatisch aus config.BENCHMARKS aufgeloest - der Wert
+        # ist dort als Vergleichswert bereits mit seiner Instrument-ID
+        # hinterlegt. Faellt die Aufloesung aus, hier manuell eintragen.
+        "instrument_id": None,
+        "onvista_url": None,
+    },
+]
 
-def get_live_market_data():
+
+def _ergaenze_ids_aus_benchmarks():
+    """Fuellt fehlende instrument_id-Werte aus config.BENCHMARKS auf. Dort sind
+    die Vergleichswerte als {Label: instrument_id} hinterlegt - der Abgleich
+    laeuft ueber WKN oder Namensbestandteil im Label, damit dieselbe ID nicht
+    an zwei Stellen gepflegt werden muss."""
+    benchmarks = getattr(config, "BENCHMARKS", {}) or {}
+    for inst in INSTRUMENTE:
+        if inst.get("instrument_id"):
+            continue
+        wkn = (inst.get("wkn") or "").upper()
+        name = (inst.get("name") or "").upper()
+        for label, inst_id in benchmarks.items():
+            label_gross = str(label).upper()
+            if (wkn and wkn in label_gross) or (name and name in label_gross):
+                inst["instrument_id"] = inst_id
+                logging.info(
+                    f"{inst['wkn']}: Instrument-ID {inst_id} aus config.BENCHMARKS "
+                    f"(Eintrag '{label}') uebernommen."
+                )
+                break
+        else:
+            logging.warning(
+                f"{inst['wkn']}: keine Instrument-ID gefunden - weder direkt gesetzt "
+                f"noch in config.BENCHMARKS. Wird uebersprungen."
+            )
+
+
+_ergaenze_ids_aus_benchmarks()
+
+
+def state_pfad(basis_pfad, inst):
+    """State-Pfad je Instrument. Die Hauptposition behaelt ihre bestehenden
+    Pfade (kein Datenverlust beim Update), alle weiteren bekommen die WKN
+    ans Ende gehaengt."""
+    if inst["wkn"] == config.WKN:
+        return basis_pfad
+    stamm, punkt, endung = basis_pfad.rpartition(".")
+    return f"{stamm}_{inst['wkn']}.{endung}" if punkt else f"{basis_pfad}_{inst['wkn']}"
+
+
+def get_live_market_data(instrument_id=None):
     """
     Holt den aktuellen Mid-Kurs von ls-tc.de. Vortageskurs: aus
     info.plotlines[id="previousDay"].value (siehe config.extract_previous_close
@@ -48,7 +115,7 @@ def get_live_market_data():
     """
     params = {
         "container": "chart1",
-        "instrumentId": config.LS_INSTRUMENT_ID,
+        "instrumentId": instrument_id or config.LS_INSTRUMENT_ID,
         "marketId": "1",
         "quotetype": "mid",
         "series": "intraday,history,flags",
@@ -88,16 +155,18 @@ def get_live_market_data():
     return akt, vor
 
 
-def hole_onvista_kontrollkurs():
+def hole_onvista_kontrollkurs(url):
     """Best-effort Kontrollkurs von onvista.de - unabhaengige Zweitquelle
     (Lang & Schwarz Notierung, gleicher Handelsplatz wie ls-tc.de), fuer den
     Plausibilitaets-Check bei verdaechtigen Kurssprüngen. Der Preis steht im
     normal ausgelieferten Seiteninhalt (kein Login, kein JS noetig).
     Gibt None zurueck, wenn's nicht klappt - dann greift nur die feste
     Prozent-Schwelle allein, kein Absturz."""
+    if not url:
+        return None
     try:
         r = requests.get(
-            "https://www.onvista.de/derivate/Index-Zertifikate/302671598-LS9VFS-DE000LS9VFS2",
+            url,
             headers={"User-Agent": config.LS_TC_HEADERS["User-Agent"]},
             timeout=8,
         )
@@ -139,14 +208,14 @@ def ping_healthcheck():
         logging.error(f"Healthcheck-Ping fehlgeschlagen: {e}")
 
 
-def log_price_history(akt, now):
+def log_price_history(akt, now, inst):
     """Haengt jeden abgerufenen Kurs an eine eigene, monatlich rotierende
     CSV-Datei an - baut so ueber die Zeit eine eigene, von ls-tc.de
     unabhaengige Preis-Zeitreihe auf (Basis fuer spaeteres eigenes
     Backtesting / echte Intraday-Charts)."""
     if not (GITHUB_REPO and GITHUB_TOKEN):
         return
-    path = config.price_history_csv_path(now.date())
+    path = state_pfad(config.price_history_csv_path(now.date()), inst)
     line = f"{now.isoformat()},{akt:.4f}"
     github_store.append_csv_line(
         GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, line, GITHUB_TOKEN,
@@ -154,7 +223,7 @@ def log_price_history(akt, now):
     )
 
 
-def check_high_watermark(akt, now):
+def check_high_watermark(akt, now, inst):
     """Ersetzt das nicht funktionierende 'Last Login'-Signal: eigene,
     zuverlaessige Berechnung des Allzeithochs aus den selbst gesammelten
     Kursdaten. Neues Hoch = finanziell relevanter als ein Login-Zeitstempel,
@@ -162,35 +231,152 @@ def check_high_watermark(akt, now):
     faellig wird."""
     if not (GITHUB_REPO and GITHUB_TOKEN):
         return
+    hw_pfad = state_pfad(config.STATE_PATH_HIGH_WATERMARK, inst)
     state, _ = github_store.get_json(
-        GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_HIGH_WATERMARK,
-        GITHUB_TOKEN, default=None
+        GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad, GITHUB_TOKEN, default=None
     )
     if state is None or "high_watermark" not in state:
         # Erste Initialisierung: nur speichern, kein Alarm (kein echter
         # Vergleichswert vorhanden - App korrigiert das ggf. noch auf den
         # echten historischen Höchststand, siehe app.py).
         github_store.put_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_HIGH_WATERMARK,
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad,
             {"high_watermark": akt, "erreicht_am": now.isoformat()}, GITHUB_TOKEN,
-            message="init high watermark [skip ci]"
+            message=f"init high watermark {inst['wkn']} [skip ci]"
         )
         return
 
     bisheriges_hoch = float(state.get("high_watermark", 0))
     if akt > bisheriges_hoch:
         send_discord(
-            f"🏆 **Neues Allzeithoch ({config.WKN})** 🏆\n"
+            f"🏆 **Neues Allzeithoch ({inst['wkn']})** 🏆\n"
             f"Aktueller Kurs: **{akt:.3f}€** (bisher: {bisheriges_hoch:.3f}€)\n"
             f"Hinweis: Ab neuen Höchstständen wird bei weiteren Gewinnen "
             f"i.d.R. Performance Fee ({config.PERFORMANCE_FEE_PCT:.1f}%) fällig.\n"
             f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
         )
         github_store.put_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_HIGH_WATERMARK,
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad,
             {"high_watermark": akt, "erreicht_am": now.isoformat()}, GITHUB_TOKEN,
-            message="update high watermark [skip ci]"
+            message=f"update high watermark {inst['wkn']} [skip ci]"
         )
+
+
+def verarbeite_instrument(inst, now):
+    """Kompletter Ablauf fuer EIN Instrument. Gibt True zurueck, wenn der Lauf
+    technisch erfolgreich war (auch wenn bewusst keine Nachricht rausging),
+    False bei einem echten Fehler.
+
+    Bewusst so gekapselt, dass ein Fehler bei einem Instrument die anderen
+    NICHT verhindert - sonst wuerde ein einzelner Ausfall die gesamte
+    Ueberwachung lahmlegen."""
+    kennung = f"{inst['name']} ({inst['wkn']})"
+
+    if not inst.get("instrument_id"):
+        logging.warning(
+            f"{kennung}: keine instrument_id hinterlegt - uebersprungen. "
+            f"Die ID steht in der ls-tc.de-URL des Produkts."
+        )
+        return True  # Konfigurationsluecke, kein technischer Fehler
+
+    try:
+        akt, vor = get_live_market_data(inst["instrument_id"])
+    except Exception as e:
+        logging.error(f"{kennung}: Kursabruf fehlgeschlagen: {e}")
+        return False
+
+    pct_change = ((akt - vor) / vor) * 100
+
+    # --- PLAUSIBILITAETS-CHECK: unrealistische Kurssprünge verwerfen ---
+    # Werte jenseits der Schwelle sind mit hoher Wahrscheinlichkeit ein
+    # Uebertragungsfehler von ls-tc.de, keine echte Marktbewegung.
+    if abs(pct_change) > config.PLAUSIBILITAETS_SCHWELLE_PCT:
+        kontrollkurs = hole_onvista_kontrollkurs(inst.get("onvista_url"))
+        onvista_bestaetigt = (
+            kontrollkurs is not None and akt > 0
+            and abs(kontrollkurs - akt) / akt * 100 <= 5.0
+        )
+        if onvista_bestaetigt:
+            logging.info(
+                f"{kennung}: Sprung wirkte unplausibel ({pct_change:+.2f}%), aber onvista.de "
+                f"bestaetigt einen aehnlichen Kurs ({kontrollkurs:.3f}€ vs. {akt:.3f}€) - "
+                f"scheint echt zu sein, wird normal weiterverarbeitet."
+            )
+        else:
+            logging.error(
+                f"{kennung}: Unplausibler Kurssprung verworfen: {vor:.3f}€ -> {akt:.3f}€ "
+                f"({pct_change:+.2f}%, Schwelle: ±{config.PLAUSIBILITAETS_SCHWELLE_PCT:.0f}%). "
+                f"Kontrollkurs: {kontrollkurs if kontrollkurs else 'nicht verfuegbar'}. "
+                f"Ueberspringe dieses Instrument ohne Discord-Nachricht."
+            )
+            return True  # technisch sauber gelaufen, nur der Wert war unbrauchbar
+
+    log_price_history(akt, now, inst)
+    check_high_watermark(akt, now, inst)
+
+    alarm_pfad = state_pfad(config.STATE_PATH_PRICE_ALERT, inst)
+    if GITHUB_REPO and GITHUB_TOKEN:
+        state, _ = github_store.get_json(
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, alarm_pfad,
+            GITHUB_TOKEN, default={"unter_schwelle": False}
+        )
+    else:
+        state = {"unter_schwelle": False}
+
+    # --- ROUTINE-KURS-UPDATE: nur bei nennenswerter Bewegung ---
+    # Filtert ausschliesslich diese eine Nachricht. Die Alarm-Logik darunter
+    # laeuft in jedem Fall - ein Schwellen-Alarm darf nie an dieser
+    # Meldeschwelle scheitern.
+    if abs(pct_change) >= ROUTINE_MELDESCHWELLE_PCT:
+        routine_msg = (
+            f"📊 **Kurs-Update ({inst['wkn']})**\n"
+            f"{inst['name']}\n"
+            f"Aktueller Kurs: **{akt:.3f}€**\n"
+            f"Tagesveränderung: **{pct_change:+.2f}%**\n"
+            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
+        )
+        if not send_discord(routine_msg):
+            logging.error(f"{kennung}: Routine-Update konnte NICHT gesendet werden.")
+    else:
+        logging.info(
+            f"{kennung}: Routine-Update uebersprungen ({pct_change:+.2f}% unter "
+            f"±{ROUTINE_MELDESCHWELLE_PCT:.2f}%). Alarme bleiben unberuehrt."
+        )
+
+    aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
+    war_unter_schwelle = state.get("unter_schwelle", False)
+
+    if aktuell_unter_schwelle and not war_unter_schwelle:
+        send_discord(
+            f"🚨 **SCHWELLE UNTERSCHRITTEN ({inst['wkn']})** 🚨\n"
+            f"{inst['name']}\n"
+            f"Tagesveränderung: **{pct_change:+.2f}%** "
+            f"(Schwelle: {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%)\n"
+            f"Aktueller Kurs: **{akt:.3f}€**"
+        )
+        state["unter_schwelle"] = True
+    elif not aktuell_unter_schwelle and war_unter_schwelle:
+        send_discord(
+            f"✅ **Entwarnung ({inst['wkn']})**\n"
+            f"{inst['name']}\n"
+            f"Tagesveränderung wieder über {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%: "
+            f"**{pct_change:+.2f}%**\n"
+            f"Aktueller Kurs: **{akt:.3f}€**"
+        )
+        state["unter_schwelle"] = False
+
+    # Nur bei echtem Zustandswechsel schreiben - spart unnoetige Commits.
+    if GITHUB_REPO and GITHUB_TOKEN and state.get("unter_schwelle") != war_unter_schwelle:
+        github_store.put_json(
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, alarm_pfad,
+            state, GITHUB_TOKEN, message=f"update price alert state {inst['wkn']} [skip ci]"
+        )
+
+    logging.info(
+        f"OK {kennung}: Kurs={akt:.3f} Veraenderung={pct_change:+.2f}% "
+        f"unter_schwelle={state['unter_schwelle']}"
+    )
+    return True
 
 
 def main():
@@ -204,106 +390,25 @@ def main():
         ping_healthcheck()  # Dead-Man's-Switch bleibt auch außerhalb der Handelszeiten "gruen"
         return
 
-    try:
-        akt, vor = get_live_market_data()
-    except Exception as e:
-        logging.error(f"Kursabruf fehlgeschlagen: {e}")
-        # Bewusst kein Discord-Spam bei jedem einzelnen Fehler; der
-        # Healthcheck-Ping bleibt in diesem Fall ebenfalls aus, sodass der
-        # Watchdog nach Ausbleiben mehrerer Pings selbst Alarm schlaegt.
-        sys.exit(1)
+    # Jedes Instrument einzeln und unabhaengig abarbeiten. Ein Fehler bei einem
+    # Wert darf die Ueberwachung der anderen nicht verhindern.
+    ergebnisse = []
+    for inst in INSTRUMENTE:
+        try:
+            ergebnisse.append(verarbeite_instrument(inst, now))
+        except Exception as e:
+            logging.exception(f"Unerwarteter Fehler bei {inst.get('wkn', '?')}: {e}")
+            ergebnisse.append(False)
 
-    pct_change = ((akt - vor) / vor) * 100
-
-    # --- PLAUSIBILITAETS-CHECK: unrealistische Kurssprünge verwerfen ---
-    # Ein Zertifikat wie dieses bewegt sich realistisch nie um mehrere Dutzend
-    # Prozent innerhalb von 5 Minuten. Werte jenseits dieser Schwelle sind mit
-    # sehr hoher Wahrscheinlichkeit ein Uebertragungsfehler von ls-tc.de (z.B.
-    # ein versehentlich halbierter Wert), keine echte Marktbewegung - dann
-    # lieber den Lauf ueberspringen als einen Fehlalarm mit einem falschen
-    # Kurs zu verschicken.
-    if abs(pct_change) > config.PLAUSIBILITAETS_SCHWELLE_PCT:
-        kontrollkurs = hole_onvista_kontrollkurs()
-        onvista_bestaetigt = (
-            kontrollkurs is not None and akt > 0
-            and abs(kontrollkurs - akt) / akt * 100 <= 5.0
-        )
-        if onvista_bestaetigt:
-            logging.info(
-                f"ls-tc.de-Sprung wirkte unplausibel ({pct_change:+.2f}%), aber onvista.de "
-                f"bestätigt einen ähnlichen Kurs ({kontrollkurs:.3f}€ vs. {akt:.3f}€) - "
-                f"scheint doch echt zu sein, Alarm wird normal weiterverarbeitet."
-            )
-        else:
-            logging.error(
-                f"Unplausibler Kurssprung verworfen: {vor:.3f}€ -> {akt:.3f}€ "
-                f"({pct_change:+.2f}%, Schwelle: ±{config.PLAUSIBILITAETS_SCHWELLE_PCT:.0f}%). "
-                f"onvista-Kontrollkurs: {kontrollkurs if kontrollkurs else 'nicht abrufbar'} - "
-                f"kein Beleg für einen echten Kurssprung, vermutlich Datenfehler von ls-tc.de. "
-                f"Überspringe diesen Lauf ohne Discord-Nachricht."
-            )
-            ping_healthcheck()  # Lauf war technisch erfolgreich (kein Crash), nur der Kurswert unplausibel
-            return
-
-    log_price_history(akt, now)
-    check_high_watermark(akt, now)
-
-    if GITHUB_REPO and GITHUB_TOKEN:
-        state, _ = github_store.get_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_PRICE_ALERT,
-            GITHUB_TOKEN, default={"unter_schwelle": False}
-        )
-    else:
-        state = {"unter_schwelle": False}
-
-    # --- ROUTINE-KURS-UPDATE: nur bei nennenswerter Bewegung ---
-    # Filtert ausschliesslich diese eine Nachricht. Die Alarm-Logik weiter
-    # unten laeuft in jedem Fall weiter - ein Schwellen-Alarm darf nie an
-    # dieser Meldeschwelle scheitern.
-    if abs(pct_change) >= ROUTINE_MELDESCHWELLE_PCT:
-        routine_msg = (
-            f"📊 **Kurs-Update ({config.WKN})**\n"
-            f"Aktueller Kurs: **{akt:.3f}€**\n"
-            f"Tagesveränderung: **{pct_change:+.2f}%**\n"
-            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
-        )
-        if not send_discord(routine_msg):
-            logging.error("Routine-Update konnte NICHT an Discord gesendet werden (siehe Fehler oben).")
-    else:
-        logging.info(
-            f"Routine-Update übersprungen: Tagesveränderung {pct_change:+.2f}% liegt unter "
-            f"der Meldeschwelle von ±{ROUTINE_MELDESCHWELLE_PCT:.2f}%. "
-            f"Alarme bleiben davon unberührt."
-        )
-
-    aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
-    war_unter_schwelle = state.get("unter_schwelle", False)
-
-    if aktuell_unter_schwelle and not war_unter_schwelle:
-        send_discord(
-            f"🚨 **SCHWELLE UNTERSCHRITTEN ({config.WKN})** 🚨\n"
-            f"Tagesveränderung: **{pct_change:+.2f}%** "
-            f"(Schwelle: {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%)\n"
-            f"Aktueller Kurs: **{akt:.3f}€**"
-        )
-        state["unter_schwelle"] = True
-    elif not aktuell_unter_schwelle and war_unter_schwelle:
-        send_discord(
-            f"✅ **Entwarnung ({config.WKN})**\n"
-            f"Tagesveränderung wieder über {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%: "
-            f"**{pct_change:+.2f}%**\n"
-            f"Aktueller Kurs: **{akt:.3f}€**"
-        )
-        state["unter_schwelle"] = False
-
-    if GITHUB_REPO and GITHUB_TOKEN:
-        github_store.put_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, config.STATE_PATH_PRICE_ALERT,
-            state, GITHUB_TOKEN, message="update price alert state [skip ci]"
-        )
-
-    ping_healthcheck()
-    logging.info(f"OK: Kurs={akt:.3f} Veraenderung={pct_change:+.2f}% unter_schwelle={state['unter_schwelle']}")
+    # Healthcheck nur pingen, wenn MINDESTENS ein Instrument sauber lief -
+    # sonst soll der Watchdog anschlagen. Schlaegt alles fehl, mit Exit-Code 1
+    # enden, damit der Actions-Lauf sichtbar rot wird.
+    if any(ergebnisse):
+        ping_healthcheck()
+    if not all(ergebnisse):
+        logging.error("Mindestens ein Instrument konnte nicht verarbeitet werden.")
+        if not any(ergebnisse):
+            sys.exit(1)
 
 
 if __name__ == "__main__":
