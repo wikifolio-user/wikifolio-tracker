@@ -294,7 +294,16 @@ st.markdown("""
     }
     /* Der Header selbst darf bleiben (er haelt den Abstand oben frei),
        nur sein Inhalt wird unsichtbar. */
-    [data-testid="stHeader"] { background: transparent !important; }
+    /* Der (ohnehin leere) Streamlit-Header belegt sonst ~3rem Hoehe und
+       schiebt den gesamten Inhalt nach unten. Auf Hoehe 0 zusammenfallen
+       lassen - dadurch kann der Innenabstand oben deutlich kleiner sein,
+       ohne dass etwas unter dem Header verschwindet. */
+    [data-testid="stHeader"] {
+        background: transparent !important;
+        height: 0 !important;
+        min-height: 0 !important;
+    }
+    [data-testid="stAppViewContainer"] > .main { padding-top: 0 !important; }
 
     /* ---------- KURSANSICHT-UMSCHALTER ----------
        Kompakt gehalten: der Umschalter ist Navigation, nicht Inhalt - er darf
@@ -333,7 +342,7 @@ st.markdown("""
     .loading-text {
         font-size: 0.85rem; color: var(--muted); font-weight: 500;
     }
-    .block-container { padding-top: 1.8rem; padding-bottom: 4rem; max-width: 780px; }
+    .block-container { padding-top: 0.8rem; padding-bottom: 4rem; max-width: 780px; }
 
     [data-testid="stNumberInput"] input {
         font-family: 'IBM Plex Mono', monospace !important;
