@@ -1756,6 +1756,281 @@ def render_dashboard():
             ek_kwargs["value"] = entnommen_aktiv
         st.number_input("Monatliche Entnahme (€)", **ek_kwargs)
 
+    # ---------- BEOBACHTUNGSLISTE VERWALTEN ----------
+    with st.expander("👁️ Beobachtungsliste verwalten", expanded=False):
+        st.caption(
+            "Werte hier werden nur als Kurskachel angezeigt (umschaltbar über die "
+            "Tabs oben) und fließen **nicht** in Depotwert, Gewinn oder Gesamtsumme ein."
+        )
+
+        # Vergleichswerte aus config.BENCHMARKS als Ein-Klick-Vorlage anbieten -
+        # deren Instrument-IDs sind bereits gepflegt, doppeltes Suchen entfaellt.
+        _bereits = {e.get("instrument_id") for e in lade_beobachtung()}
+        _vorschlaege = {
+            label: iid for label, iid in (getattr(config, "BENCHMARKS", {}) or {}).items()
+            if iid not in _bereits
+        }
+        if _vorschlaege:
+            v_col, v_btn = st.columns([3, 1])
+            v_wahl = v_col.selectbox(
+                "Aus vorhandenen Vergleichswerten übernehmen",
+                list(_vorschlaege.keys()), key="beob_vorlage",
+                help="Diese Werte sind in config.BENCHMARKS bereits mit ihrer "
+                     "Instrument-ID hinterlegt - kein Suchen nötig.",
+            )
+            if v_btn.button("Übernehmen", width="stretch", key="beob_vorlage_btn"):
+                _liste = lade_beobachtung()
+                _liste.append({
+                    "id": f"beob-{int(datetime.datetime.now().timestamp())}",
+                    "name": v_wahl, "wkn": "",
+                    "instrument_id": _vorschlaege[v_wahl],
+                })
+                if speichere_beobachtung(_liste, "beobachtung aus benchmark [skip ci]"):
+                    st.success(f"„{v_wahl}“ zur Beobachtung hinzugefügt.")
+                    st.rerun()
+                else:
+                    st.error("Hinzufügen fehlgeschlagen (kein persistenter State?).")
+
+        beob_liste = lade_beobachtung()
+
+        for b_idx, eintrag in enumerate(beob_liste):
+            st.markdown("---")
+            st.markdown(f"**{eintrag.get('name', '')} · {eintrag.get('wkn', '')}**")
+            b_treffer = instrument_suchblock(
+                f"beob_edit_{b_idx}", label="Anderes Wertpapier suchen (optional)")
+
+            with st.form(f"beob_form_{eintrag.get('id', b_idx)}"):
+                bv_name = b_treffer["name"] if b_treffer else eintrag.get("name", "")
+                bv_wkn = ((b_treffer["wkn"] or b_treffer["isin"]) if b_treffer
+                          else eintrag.get("wkn", ""))
+                bv_inst = (int(b_treffer["instrument_id"]) if b_treffer
+                           else int(eintrag.get("instrument_id") or 0))
+                b_suffix = f"{b_idx}_{bv_inst}"
+
+                nb_name = st.text_input("Name", value=bv_name, key=f"bn_{b_suffix}")
+                nb_wkn = st.text_input("WKN / ISIN", value=bv_wkn, key=f"bw_{b_suffix}")
+                nb_inst = st.number_input("Instrument-ID (ls-tc.de)", min_value=0, step=1,
+                                          value=bv_inst, key=f"bi_{b_suffix}")
+
+                bc_save, bc_del = st.columns(2)
+                b_gespeichert = bc_save.form_submit_button("💾 Speichern", width="stretch")
+                b_geloescht = bc_del.form_submit_button("🗑️ Entfernen", width="stretch")
+
+                if b_gespeichert:
+                    beob_liste[b_idx] = {
+                        "id": eintrag.get("id") or f"beob-{int(datetime.datetime.now().timestamp())}",
+                        "name": nb_name, "wkn": nb_wkn,
+                        "instrument_id": int(nb_inst) if nb_inst else None,
+                    }
+                    if speichere_beobachtung(beob_liste, "beobachtung geaendert [skip ci]"):
+                        for k in (f"beob_edit_{b_idx}_suche", f"beob_edit_{b_idx}_letzter",
+                                  f"beob_edit_{b_idx}_treffer", f"beob_edit_{b_idx}_wahl"):
+                            st.session_state.pop(k, None)
+                        st.success("Gespeichert.")
+                        st.rerun()
+                    else:
+                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
+
+                if b_geloescht:
+                    beob_liste.pop(b_idx)
+                    if speichere_beobachtung(beob_liste, "beobachtung entfernt [skip ci]"):
+                        st.success("Entfernt.")
+                        st.rerun()
+                    else:
+                        st.error("Entfernen fehlgeschlagen (kein persistenter State?).")
+
+        st.markdown("---")
+        st.markdown("**Wert zur Beobachtung hinzufügen**")
+        b_gewaehlt = instrument_suchblock("beob_neu")
+
+        with st.form("beob_form_neu", clear_on_submit=True):
+            bneu_name = st.text_input(
+                "Name", value=(b_gewaehlt["name"] if b_gewaehlt else ""),
+                placeholder="z. B. FF Inlinetrading")
+            bneu_wkn = st.text_input(
+                "WKN / ISIN",
+                value=(b_gewaehlt["wkn"] or b_gewaehlt["isin"]) if b_gewaehlt else "",
+                placeholder="z. B. LS9VSU")
+            bneu_inst = st.number_input(
+                "Instrument-ID (ls-tc.de)", min_value=0, step=1,
+                value=int(b_gewaehlt["instrument_id"]) if b_gewaehlt else 0,
+                help="Wird durch die Suche oben automatisch gefüllt. Ohne ID kann "
+                     "kein Kurs angezeigt werden - hier also Pflicht.",
+            )
+
+            if st.form_submit_button("👁️ Zur Beobachtung hinzufügen", width="stretch"):
+                if not bneu_name or not bneu_inst:
+                    st.error("Bitte Name und Instrument-ID angeben.")
+                else:
+                    b_test, _, _ = get_live_kurs(int(bneu_inst))
+                    if b_test is None:
+                        st.error(
+                            f"Für Instrument-ID {int(bneu_inst)} liefert ls-tc.de keine "
+                            "Kursdaten. Bitte die ID prüfen."
+                        )
+                    else:
+                        beob_liste.append({
+                            "id": f"beob-{int(datetime.datetime.now().timestamp())}",
+                            "name": bneu_name, "wkn": bneu_wkn,
+                            "instrument_id": int(bneu_inst),
+                        })
+                        if speichere_beobachtung(beob_liste, "beobachtung angelegt [skip ci]"):
+                            for k in ("beob_neu_suche", "beob_neu_letzter",
+                                      "beob_neu_treffer", "beob_neu_wahl"):
+                                st.session_state.pop(k, None)
+                            st.success(f"„{bneu_name}“ hinzugefügt "
+                                       f"(aktueller Kurs {de_zahl(b_test)} €).")
+                            st.rerun()
+                        else:
+                            st.error("Hinzufügen fehlgeschlagen (kein persistenter State?).")
+
+    # ---------- POSITIONEN VERWALTEN (anlegen / aendern / loeschen) ----------
+    with st.expander("➕ Positionen verwalten", expanded=False):
+        if not GH_STATE_READY:
+            st.warning(
+                "Ohne persistenten State (GITHUB_REPO/GITHUB_TOKEN) gehen angelegte "
+                "Positionen beim nächsten Neustart verloren."
+            )
+        st.caption(
+            "WKN oder ISIN ins Suchfeld eingeben – Name und Instrument-ID werden "
+            "automatisch übernommen. Die erste Position ist die Hauptposition, "
+            "sie speist zusätzlich alle Charts und Prognose-Tabs."
+        )
+
+        # --- Bestehende Positionen bearbeiten/loeschen ---
+        for idx, pos in enumerate(alle_positionen):
+            rolle = "Hauptposition" if idx == 0 else f"Position {idx + 1}"
+            st.markdown("---")
+            st.markdown(f"**{rolle}: {pos.get('name', '')}**")
+
+            # Suchblock ausserhalb des Formulars - erlaubt, jederzeit ein
+            # anderes Wertpapier fuer diese Position zu suchen und zu uebernehmen.
+            treffer_edit = instrument_suchblock(
+                f"edit_{idx}", label="Anderes Wertpapier suchen (optional)")
+
+            with st.form(f"pos_form_{pos.get('id', idx)}"):
+                # Wurde oben ein Treffer gewaehlt, ueberschreibt der die
+                # gespeicherten Werte als Vorbelegung - so laesst sich eine
+                # Position per Suche auf ein anderes Papier umstellen.
+                v_name = treffer_edit["name"] if treffer_edit else pos.get("name", "")
+                v_wkn = ((treffer_edit["wkn"] or treffer_edit["isin"]) if treffer_edit
+                         else pos.get("wkn", ""))
+                v_inst = (int(treffer_edit["instrument_id"]) if treffer_edit
+                          else int(pos.get("instrument_id") or 0))
+                # key vom Treffer abhaengig machen, damit Streamlit das Widget
+                # neu aufbaut und die Vorbelegung wirklich uebernimmt.
+                suffix = f"{idx}_{v_inst}"
+
+                n_name = st.text_input("Name", value=v_name, key=f"n_{suffix}")
+                n_wkn = st.text_input("WKN / ISIN", value=v_wkn, key=f"w_{suffix}")
+                n_inst = st.number_input(
+                    "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                    value=v_inst, key=f"i_{suffix}",
+                    help="0 = keine Kursquelle. Die Position wird dann ohne Kurse "
+                         "angezeigt und nicht in die Depot-Summe eingerechnet.",
+                )
+                n_kaufdatum = st.date_input(
+                    "Kaufdatum", value=datetime.date.fromisoformat(pos["kaufdatum"]), key=f"d_{idx}")
+                n_kaufkurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f",
+                                             value=float(pos.get("kaufkurs") or 0), key=f"k_{idx}")
+                n_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0,
+                                            value=float(pos.get("startkapital") or 0), key=f"s_{idx}")
+                if n_kaufkurs > 0:
+                    st.caption(f"Ergibt {n_kapital / n_kaufkurs:.4f} Anteile")
+
+                c_save, c_del = st.columns(2)
+                gespeichert = c_save.form_submit_button("💾 Speichern", width="stretch")
+                geloescht = c_del.form_submit_button("🗑️ Löschen", width="stretch")
+
+                if gespeichert:
+                    alle_positionen[idx] = {
+                        "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
+                        "name": n_name, "wkn": n_wkn,
+                        "instrument_id": int(n_inst) if n_inst else None,
+                        "kaufdatum": n_kaufdatum.isoformat(), "kaufkurs": float(n_kaufkurs),
+                        "startkapital": float(n_kapital),
+                    }
+                    if speichere_positionen(alle_positionen, "position geaendert [skip ci]"):
+                        for k in (f"edit_{idx}_suche", f"edit_{idx}_letzter",
+                                  f"edit_{idx}_treffer", f"edit_{idx}_wahl"):
+                            st.session_state.pop(k, None)
+                        st.success("Gespeichert.")
+                        st.rerun()
+                    else:
+                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
+
+                if geloescht:
+                    if len(alle_positionen) <= 1:
+                        st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
+                    else:
+                        alle_positionen.pop(idx)
+                        if speichere_positionen(alle_positionen, "position geloescht [skip ci]"):
+                            st.success("Gelöscht.")
+                            st.rerun()
+                        else:
+                            st.error("Löschen fehlgeschlagen (kein persistenter State?).")
+
+        # --- Neue Position anlegen ---
+        st.markdown("---")
+        st.markdown("**Neue Position hinzufügen**")
+
+        gewaehlt = instrument_suchblock("neu")
+
+        with st.form("pos_form_neu", clear_on_submit=True):
+            neu_name = st.text_input(
+                "Name", value=(gewaehlt["name"] if gewaehlt else ""),
+                placeholder="z. B. MSCI World ETF")
+            neu_wkn = st.text_input(
+                "WKN / ISIN",
+                value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
+                placeholder="z. B. A0RPWH")
+            neu_inst = st.number_input(
+                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
+                help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
+                     "(0) bleiben - dann werden für diese Position keine Kurse geladen "
+                     "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
+            )
+            neu_datum = st.date_input("Kaufdatum", value=heute_date)
+            neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0)
+            neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0)
+
+            if st.form_submit_button("➕ Position anlegen", width="stretch"):
+                if not neu_name or neu_kurs <= 0 or neu_kapital <= 0:
+                    st.error("Bitte Name, Kaufkurs und Kapital ausfüllen.")
+                else:
+                    # Instrument-ID, falls angegeben, vor dem Speichern pruefen -
+                    # verhindert stumme Fehlkonfiguration. Ohne ID wird die
+                    # Position angelegt und spaeter als "keine Kursquelle" markiert.
+                    test_kurs = None
+                    if neu_inst:
+                        test_kurs, _, _ = get_live_kurs(int(neu_inst))
+
+                    if neu_inst and test_kurs is None:
+                        st.error(
+                            f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
+                            "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
+                        )
+                    else:
+                        alle_positionen.append({
+                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
+                            "name": neu_name, "wkn": neu_wkn,
+                            "instrument_id": int(neu_inst) if neu_inst else None,
+                            "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
+                            "startkapital": float(neu_kapital),
+                        })
+                        if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
+                            for k in ("neu_suche", "neu_letzter", "neu_treffer", "neu_wahl"):
+                                st.session_state.pop(k, None)
+                            if test_kurs is not None:
+                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
+                            else:
+                                st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
+                                           "Instrument-ID kann oben jederzeit ergänzt werden.")
+                            st.rerun()
+                        else:
+                            st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
+
     # ---------- DATENZEILEN: Sekundaerwerte, eingeklappt ----------
     # Meilenstein und Anfangskapital sind Kontext, keine taeglich relevanten
     # Kennzahlen - eingeklappt konkurrieren sie nicht mit Kurs und Depotwert.
@@ -2440,280 +2715,6 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Szenarien", e)
     _render_scenarios()
-
-    with st.expander("➕ Positionen verwalten", expanded=False):
-        if not GH_STATE_READY:
-            st.warning(
-                "Ohne persistenten State (GITHUB_REPO/GITHUB_TOKEN) gehen angelegte "
-                "Positionen beim nächsten Neustart verloren."
-            )
-        st.caption(
-            "WKN oder ISIN ins Suchfeld eingeben – Name und Instrument-ID werden "
-            "automatisch übernommen. Die erste Position ist die Hauptposition, "
-            "sie speist zusätzlich alle Charts und Prognose-Tabs."
-        )
-
-        # --- Bestehende Positionen bearbeiten/loeschen ---
-        for idx, pos in enumerate(alle_positionen):
-            rolle = "Hauptposition" if idx == 0 else f"Position {idx + 1}"
-            st.markdown("---")
-            st.markdown(f"**{rolle}: {pos.get('name', '')}**")
-
-            # Suchblock ausserhalb des Formulars - erlaubt, jederzeit ein
-            # anderes Wertpapier fuer diese Position zu suchen und zu uebernehmen.
-            treffer_edit = instrument_suchblock(
-                f"edit_{idx}", label="Anderes Wertpapier suchen (optional)")
-
-            with st.form(f"pos_form_{pos.get('id', idx)}"):
-                # Wurde oben ein Treffer gewaehlt, ueberschreibt der die
-                # gespeicherten Werte als Vorbelegung - so laesst sich eine
-                # Position per Suche auf ein anderes Papier umstellen.
-                v_name = treffer_edit["name"] if treffer_edit else pos.get("name", "")
-                v_wkn = ((treffer_edit["wkn"] or treffer_edit["isin"]) if treffer_edit
-                         else pos.get("wkn", ""))
-                v_inst = (int(treffer_edit["instrument_id"]) if treffer_edit
-                          else int(pos.get("instrument_id") or 0))
-                # key vom Treffer abhaengig machen, damit Streamlit das Widget
-                # neu aufbaut und die Vorbelegung wirklich uebernimmt.
-                suffix = f"{idx}_{v_inst}"
-
-                n_name = st.text_input("Name", value=v_name, key=f"n_{suffix}")
-                n_wkn = st.text_input("WKN / ISIN", value=v_wkn, key=f"w_{suffix}")
-                n_inst = st.number_input(
-                    "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
-                    value=v_inst, key=f"i_{suffix}",
-                    help="0 = keine Kursquelle. Die Position wird dann ohne Kurse "
-                         "angezeigt und nicht in die Depot-Summe eingerechnet.",
-                )
-                n_kaufdatum = st.date_input(
-                    "Kaufdatum", value=datetime.date.fromisoformat(pos["kaufdatum"]), key=f"d_{idx}")
-                n_kaufkurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f",
-                                             value=float(pos.get("kaufkurs") or 0), key=f"k_{idx}")
-                n_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0,
-                                            value=float(pos.get("startkapital") or 0), key=f"s_{idx}")
-                if n_kaufkurs > 0:
-                    st.caption(f"Ergibt {n_kapital / n_kaufkurs:.4f} Anteile")
-
-                c_save, c_del = st.columns(2)
-                gespeichert = c_save.form_submit_button("💾 Speichern", width="stretch")
-                geloescht = c_del.form_submit_button("🗑️ Löschen", width="stretch")
-
-                if gespeichert:
-                    alle_positionen[idx] = {
-                        "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
-                        "name": n_name, "wkn": n_wkn,
-                        "instrument_id": int(n_inst) if n_inst else None,
-                        "kaufdatum": n_kaufdatum.isoformat(), "kaufkurs": float(n_kaufkurs),
-                        "startkapital": float(n_kapital),
-                    }
-                    if speichere_positionen(alle_positionen, "position geaendert [skip ci]"):
-                        for k in (f"edit_{idx}_suche", f"edit_{idx}_letzter",
-                                  f"edit_{idx}_treffer", f"edit_{idx}_wahl"):
-                            st.session_state.pop(k, None)
-                        st.success("Gespeichert.")
-                        st.rerun()
-                    else:
-                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
-
-                if geloescht:
-                    if len(alle_positionen) <= 1:
-                        st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
-                    else:
-                        alle_positionen.pop(idx)
-                        if speichere_positionen(alle_positionen, "position geloescht [skip ci]"):
-                            st.success("Gelöscht.")
-                            st.rerun()
-                        else:
-                            st.error("Löschen fehlgeschlagen (kein persistenter State?).")
-
-        # --- Neue Position anlegen ---
-        st.markdown("---")
-        st.markdown("**Neue Position hinzufügen**")
-
-        gewaehlt = instrument_suchblock("neu")
-
-        with st.form("pos_form_neu", clear_on_submit=True):
-            neu_name = st.text_input(
-                "Name", value=(gewaehlt["name"] if gewaehlt else ""),
-                placeholder="z. B. MSCI World ETF")
-            neu_wkn = st.text_input(
-                "WKN / ISIN",
-                value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
-                placeholder="z. B. A0RPWH")
-            neu_inst = st.number_input(
-                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
-                value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
-                help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
-                     "(0) bleiben - dann werden für diese Position keine Kurse geladen "
-                     "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
-            )
-            neu_datum = st.date_input("Kaufdatum", value=heute_date)
-            neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0)
-            neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0)
-
-            if st.form_submit_button("➕ Position anlegen", width="stretch"):
-                if not neu_name or neu_kurs <= 0 or neu_kapital <= 0:
-                    st.error("Bitte Name, Kaufkurs und Kapital ausfüllen.")
-                else:
-                    # Instrument-ID, falls angegeben, vor dem Speichern pruefen -
-                    # verhindert stumme Fehlkonfiguration. Ohne ID wird die
-                    # Position angelegt und spaeter als "keine Kursquelle" markiert.
-                    test_kurs = None
-                    if neu_inst:
-                        test_kurs, _, _ = get_live_kurs(int(neu_inst))
-
-                    if neu_inst and test_kurs is None:
-                        st.error(
-                            f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
-                            "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
-                        )
-                    else:
-                        alle_positionen.append({
-                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
-                            "name": neu_name, "wkn": neu_wkn,
-                            "instrument_id": int(neu_inst) if neu_inst else None,
-                            "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
-                            "startkapital": float(neu_kapital),
-                        })
-                        if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
-                            for k in ("neu_suche", "neu_letzter", "neu_treffer", "neu_wahl"):
-                                st.session_state.pop(k, None)
-                            if test_kurs is not None:
-                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
-                            else:
-                                st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
-                                           "Instrument-ID kann oben jederzeit ergänzt werden.")
-                            st.rerun()
-                        else:
-                            st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
-
-    # ---------- BEOBACHTUNGSLISTE VERWALTEN ----------
-    with st.expander("👁️ Beobachtungsliste verwalten", expanded=False):
-        st.caption(
-            "Werte hier werden nur als Kurskachel angezeigt (umschaltbar über die "
-            "Tabs oben) und fließen **nicht** in Depotwert, Gewinn oder Gesamtsumme ein."
-        )
-
-        # Vergleichswerte aus config.BENCHMARKS als Ein-Klick-Vorlage anbieten -
-        # deren Instrument-IDs sind bereits gepflegt, doppeltes Suchen entfaellt.
-        _bereits = {e.get("instrument_id") for e in lade_beobachtung()}
-        _vorschlaege = {
-            label: iid for label, iid in (getattr(config, "BENCHMARKS", {}) or {}).items()
-            if iid not in _bereits
-        }
-        if _vorschlaege:
-            v_col, v_btn = st.columns([3, 1])
-            v_wahl = v_col.selectbox(
-                "Aus vorhandenen Vergleichswerten übernehmen",
-                list(_vorschlaege.keys()), key="beob_vorlage",
-                help="Diese Werte sind in config.BENCHMARKS bereits mit ihrer "
-                     "Instrument-ID hinterlegt - kein Suchen nötig.",
-            )
-            if v_btn.button("Übernehmen", width="stretch", key="beob_vorlage_btn"):
-                _liste = lade_beobachtung()
-                _liste.append({
-                    "id": f"beob-{int(datetime.datetime.now().timestamp())}",
-                    "name": v_wahl, "wkn": "",
-                    "instrument_id": _vorschlaege[v_wahl],
-                })
-                if speichere_beobachtung(_liste, "beobachtung aus benchmark [skip ci]"):
-                    st.success(f"„{v_wahl}“ zur Beobachtung hinzugefügt.")
-                    st.rerun()
-                else:
-                    st.error("Hinzufügen fehlgeschlagen (kein persistenter State?).")
-
-        beob_liste = lade_beobachtung()
-
-        for b_idx, eintrag in enumerate(beob_liste):
-            st.markdown("---")
-            st.markdown(f"**{eintrag.get('name', '')} · {eintrag.get('wkn', '')}**")
-            b_treffer = instrument_suchblock(
-                f"beob_edit_{b_idx}", label="Anderes Wertpapier suchen (optional)")
-
-            with st.form(f"beob_form_{eintrag.get('id', b_idx)}"):
-                bv_name = b_treffer["name"] if b_treffer else eintrag.get("name", "")
-                bv_wkn = ((b_treffer["wkn"] or b_treffer["isin"]) if b_treffer
-                          else eintrag.get("wkn", ""))
-                bv_inst = (int(b_treffer["instrument_id"]) if b_treffer
-                           else int(eintrag.get("instrument_id") or 0))
-                b_suffix = f"{b_idx}_{bv_inst}"
-
-                nb_name = st.text_input("Name", value=bv_name, key=f"bn_{b_suffix}")
-                nb_wkn = st.text_input("WKN / ISIN", value=bv_wkn, key=f"bw_{b_suffix}")
-                nb_inst = st.number_input("Instrument-ID (ls-tc.de)", min_value=0, step=1,
-                                          value=bv_inst, key=f"bi_{b_suffix}")
-
-                bc_save, bc_del = st.columns(2)
-                b_gespeichert = bc_save.form_submit_button("💾 Speichern", width="stretch")
-                b_geloescht = bc_del.form_submit_button("🗑️ Entfernen", width="stretch")
-
-                if b_gespeichert:
-                    beob_liste[b_idx] = {
-                        "id": eintrag.get("id") or f"beob-{int(datetime.datetime.now().timestamp())}",
-                        "name": nb_name, "wkn": nb_wkn,
-                        "instrument_id": int(nb_inst) if nb_inst else None,
-                    }
-                    if speichere_beobachtung(beob_liste, "beobachtung geaendert [skip ci]"):
-                        for k in (f"beob_edit_{b_idx}_suche", f"beob_edit_{b_idx}_letzter",
-                                  f"beob_edit_{b_idx}_treffer", f"beob_edit_{b_idx}_wahl"):
-                            st.session_state.pop(k, None)
-                        st.success("Gespeichert.")
-                        st.rerun()
-                    else:
-                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
-
-                if b_geloescht:
-                    beob_liste.pop(b_idx)
-                    if speichere_beobachtung(beob_liste, "beobachtung entfernt [skip ci]"):
-                        st.success("Entfernt.")
-                        st.rerun()
-                    else:
-                        st.error("Entfernen fehlgeschlagen (kein persistenter State?).")
-
-        st.markdown("---")
-        st.markdown("**Wert zur Beobachtung hinzufügen**")
-        b_gewaehlt = instrument_suchblock("beob_neu")
-
-        with st.form("beob_form_neu", clear_on_submit=True):
-            bneu_name = st.text_input(
-                "Name", value=(b_gewaehlt["name"] if b_gewaehlt else ""),
-                placeholder="z. B. FF Inlinetrading")
-            bneu_wkn = st.text_input(
-                "WKN / ISIN",
-                value=(b_gewaehlt["wkn"] or b_gewaehlt["isin"]) if b_gewaehlt else "",
-                placeholder="z. B. LS9VSU")
-            bneu_inst = st.number_input(
-                "Instrument-ID (ls-tc.de)", min_value=0, step=1,
-                value=int(b_gewaehlt["instrument_id"]) if b_gewaehlt else 0,
-                help="Wird durch die Suche oben automatisch gefüllt. Ohne ID kann "
-                     "kein Kurs angezeigt werden - hier also Pflicht.",
-            )
-
-            if st.form_submit_button("👁️ Zur Beobachtung hinzufügen", width="stretch"):
-                if not bneu_name or not bneu_inst:
-                    st.error("Bitte Name und Instrument-ID angeben.")
-                else:
-                    b_test, _, _ = get_live_kurs(int(bneu_inst))
-                    if b_test is None:
-                        st.error(
-                            f"Für Instrument-ID {int(bneu_inst)} liefert ls-tc.de keine "
-                            "Kursdaten. Bitte die ID prüfen."
-                        )
-                    else:
-                        beob_liste.append({
-                            "id": f"beob-{int(datetime.datetime.now().timestamp())}",
-                            "name": bneu_name, "wkn": bneu_wkn,
-                            "instrument_id": int(bneu_inst),
-                        })
-                        if speichere_beobachtung(beob_liste, "beobachtung angelegt [skip ci]"):
-                            for k in ("beob_neu_suche", "beob_neu_letzter",
-                                      "beob_neu_treffer", "beob_neu_wahl"):
-                                st.session_state.pop(k, None)
-                            st.success(f"„{bneu_name}“ hinzugefügt "
-                                       f"(aktueller Kurs {de_zahl(b_test)} €).")
-                            st.rerun()
-                        else:
-                            st.error("Hinzufügen fehlgeschlagen (kein persistenter State?).")
 
     # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
     # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
