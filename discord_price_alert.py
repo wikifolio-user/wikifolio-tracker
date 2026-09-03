@@ -37,6 +37,11 @@ GITHUB_TOKEN = os.environ.get("GH_STATE_TOKEN", "")  # secrets.GITHUB_TOKEN
 # Entwarnung und Allzeithoch-Meldung.
 ROUTINE_MELDESCHWELLE_PCT = 0.50
 
+# Ein neues Allzeithoch wird erst gemeldet, wenn es mindestens so viel Prozent
+# ueber dem zuletzt GEMELDETEN Hoch liegt. Der Hoechststand selbst wird immer
+# still mitgefuehrt - nur die Benachrichtigung wird gebuendelt.
+ATH_MELDESCHWELLE_PCT = 0.50
+
 # --- UEBERWACHTE INSTRUMENTE ---
 # Erster Eintrag ist die Hauptposition aus config.py (unveraendertes Verhalten,
 # nutzt die bestehenden State-Pfade). Jeder weitere Eintrag bekommt EIGENE
@@ -224,11 +229,15 @@ def log_price_history(akt, now, inst):
 
 
 def check_high_watermark(akt, now, inst):
-    """Ersetzt das nicht funktionierende 'Last Login'-Signal: eigene,
-    zuverlaessige Berechnung des Allzeithochs aus den selbst gesammelten
-    Kursdaten. Neues Hoch = finanziell relevanter als ein Login-Zeitstempel,
-    da ab hier bei weiteren Gewinnen Performance Fee (config.PERFORMANCE_FEE_PCT)
-    faellig wird."""
+    """Verfolgt das Allzeithoch aus den selbst gesammelten Kursdaten. Ab einem
+    neuen Hoch wird bei weiteren Gewinnen Performance Fee
+    (config.PERFORMANCE_FEE_PCT) faellig - deshalb ist das meldenswert.
+
+    WICHTIG: Der gespeicherte Hoechststand wird bei JEDEM neuen Hoch still
+    aktualisiert, eine Discord-Nachricht gibt es aber erst, wenn das Hoch
+    mindestens ATH_MELDESCHWELLE_PCT ueber dem zuletzt GEMELDETEN Hoch liegt.
+    Ohne diese Bremse kaeme in einem steigenden Markt alle 5 Minuten eine
+    Meldung - schon ein Zehntelcent mehr ist formal ein neues Allzeithoch."""
     if not (GITHUB_REPO and GITHUB_TOKEN):
         return
     hw_pfad = state_pfad(config.STATE_PATH_HIGH_WATERMARK, inst)
@@ -241,25 +250,51 @@ def check_high_watermark(akt, now, inst):
         # echten historischen Höchststand, siehe app.py).
         github_store.put_json(
             GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad,
-            {"high_watermark": akt, "erreicht_am": now.isoformat()}, GITHUB_TOKEN,
+            {"high_watermark": akt, "erreicht_am": now.isoformat(),
+             "zuletzt_gemeldet": akt}, GITHUB_TOKEN,
             message=f"init high watermark {inst['wkn']} [skip ci]"
         )
         return
 
     bisheriges_hoch = float(state.get("high_watermark", 0))
-    if akt > bisheriges_hoch:
+    if akt <= bisheriges_hoch:
+        return
+
+    # Basis fuer die Meldeschwelle ist das zuletzt gemeldete Hoch. Fehlt es
+    # (Altbestand vor diesem Update), dient das bisherige Hoch als Basis.
+    zuletzt_gemeldet = float(state.get("zuletzt_gemeldet") or bisheriges_hoch)
+    anstieg_pct = ((akt - zuletzt_gemeldet) / zuletzt_gemeldet * 100) if zuletzt_gemeldet else 0.0
+    melden = anstieg_pct >= ATH_MELDESCHWELLE_PCT
+
+    if melden:
         send_discord(
             f"🏆 **Neues Allzeithoch ({inst['wkn']})** 🏆\n"
-            f"Aktueller Kurs: **{akt:.3f}€** (bisher: {bisheriges_hoch:.3f}€)\n"
+            f"{inst['name']}\n"
+            f"Aktueller Kurs: **{akt:.3f}€** (zuletzt gemeldet: {zuletzt_gemeldet:.3f}€, "
+            f"{anstieg_pct:+.2f}%)\n"
             f"Hinweis: Ab neuen Höchstständen wird bei weiteren Gewinnen "
             f"i.d.R. Performance Fee ({config.PERFORMANCE_FEE_PCT:.1f}%) fällig.\n"
             f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
         )
-        github_store.put_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad,
-            {"high_watermark": akt, "erreicht_am": now.isoformat()}, GITHUB_TOKEN,
-            message=f"update high watermark {inst['wkn']} [skip ci]"
+    else:
+        logging.info(
+            f"{inst['wkn']}: neues Hoch {akt:.3f}€ still gespeichert "
+            f"({anstieg_pct:+.2f}% über zuletzt gemeldetem {zuletzt_gemeldet:.3f}€, "
+            f"Meldeschwelle {ATH_MELDESCHWELLE_PCT:.2f}%)."
         )
+
+    github_store.put_json(
+        GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad,
+        {
+            "high_watermark": akt,
+            "erreicht_am": now.isoformat(),
+            # Nur fortschreiben, wenn wirklich gemeldet wurde - sonst wuerde die
+            # Schwelle bei jedem Mini-Hoch neu ansetzen und nie ausloesen.
+            "zuletzt_gemeldet": akt if melden else zuletzt_gemeldet,
+        },
+        GITHUB_TOKEN,
+        message=f"update high watermark {inst['wkn']} [skip ci]"
+    )
 
 
 def verarbeite_instrument(inst, now):
@@ -323,11 +358,24 @@ def verarbeite_instrument(inst, now):
     else:
         state = {"unter_schwelle": False}
 
-    # --- ROUTINE-KURS-UPDATE: nur bei nennenswerter Bewegung ---
-    # Filtert ausschliesslich diese eine Nachricht. Die Alarm-Logik darunter
-    # laeuft in jedem Fall - ein Schwellen-Alarm darf nie an dieser
-    # Meldeschwelle scheitern.
-    if abs(pct_change) >= ROUTINE_MELDESCHWELLE_PCT:
+    # --- ROUTINE-KURS-UPDATE: nur bei nennenswerter NEUER Bewegung ---
+    # Zwei Bedingungen muessen zusammenkommen:
+    #   1. Die Tagesveraenderung liegt bei mindestens ROUTINE_MELDESCHWELLE_PCT
+    #   2. Sie hat sich seit der letzten Meldung um mindestens denselben Betrag
+    #      weiterbewegt
+    # Ohne (2) wuerde ab dem Ueberschreiten der Schwelle JEDER Lauf melden -
+    # bei 5-Minuten-Takt also den ganzen Tag lang. Der Schwellen-Alarm unten
+    # ist davon nicht betroffen und feuert unveraendert.
+    zuletzt_gemeldet_pct = state.get("zuletzt_gemeldet_pct")
+    ueber_schwelle = abs(pct_change) >= ROUTINE_MELDESCHWELLE_PCT
+    if zuletzt_gemeldet_pct is None:
+        genug_neue_bewegung = True
+    else:
+        genug_neue_bewegung = (
+            abs(pct_change - float(zuletzt_gemeldet_pct)) >= ROUTINE_MELDESCHWELLE_PCT
+        )
+
+    if ueber_schwelle and genug_neue_bewegung:
         routine_msg = (
             f"📊 **Kurs-Update ({inst['wkn']})**\n"
             f"{inst['name']}\n"
@@ -335,12 +383,24 @@ def verarbeite_instrument(inst, now):
             f"Tagesveränderung: **{pct_change:+.2f}%**\n"
             f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
         )
-        if not send_discord(routine_msg):
+        if send_discord(routine_msg):
+            state["zuletzt_gemeldet_pct"] = round(pct_change, 2)
+        else:
             logging.error(f"{kennung}: Routine-Update konnte NICHT gesendet werden.")
-    else:
+    elif not ueber_schwelle:
+        # Zurueck unter die Schwelle: Merker loeschen, damit beim naechsten
+        # echten Ausbruch wieder gemeldet wird.
+        if zuletzt_gemeldet_pct is not None:
+            state["zuletzt_gemeldet_pct"] = None
         logging.info(
             f"{kennung}: Routine-Update uebersprungen ({pct_change:+.2f}% unter "
             f"±{ROUTINE_MELDESCHWELLE_PCT:.2f}%). Alarme bleiben unberuehrt."
+        )
+    else:
+        logging.info(
+            f"{kennung}: Routine-Update uebersprungen - {pct_change:+.2f}% liegt zwar "
+            f"ueber der Schwelle, aber zu nah an der letzten Meldung "
+            f"({zuletzt_gemeldet_pct:+.2f}%)."
         )
 
     aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
@@ -366,7 +426,11 @@ def verarbeite_instrument(inst, now):
         state["unter_schwelle"] = False
 
     # Nur bei echtem Zustandswechsel schreiben - spart unnoetige Commits.
-    if GITHUB_REPO and GITHUB_TOKEN and state.get("unter_schwelle") != war_unter_schwelle:
+    state_veraendert = (
+        state.get("unter_schwelle") != war_unter_schwelle
+        or state.get("zuletzt_gemeldet_pct") != zuletzt_gemeldet_pct
+    )
+    if GITHUB_REPO and GITHUB_TOKEN and state_veraendert:
         github_store.put_json(
             GITHUB_REPO, config.GITHUB_STATE_BRANCH, alarm_pfad,
             state, GITHUB_TOKEN, message=f"update price alert state {inst['wkn']} [skip ci]"
