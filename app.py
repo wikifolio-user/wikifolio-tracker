@@ -645,8 +645,12 @@ def _position_aus_config():
 def lade_positionen():
     """Liest die Positionsliste aus dem GitHub-State. Ist noch keine
     gespeichert, wird die config-Position als Startbestand zurueckgegeben
-    (ohne zu schreiben - erst eine echte Nutzeraenderung legt die Datei an)."""
-    positionen = gh_read(STATE_PATH_POSITIONEN, None)
+    (ohne zu schreiben - erst eine echte Nutzeraenderung legt die Datei an).
+
+    Nutzt den 60s-Cache: die Liste wird bei jedem Rerun mehrfach gebraucht,
+    ein ungecachter GitHub-API-Call pro Aufruf hat das Umschalten spuerbar
+    ausgebremst. gh_write() leert den Cache, Aenderungen sind also sofort da."""
+    positionen = gh_read_cached(STATE_PATH_POSITIONEN, None)
     if not positionen:
         return [_position_aus_config()]
     return positionen
@@ -659,7 +663,7 @@ def speichere_positionen(positionen, message="update positionen [skip ci]"):
 def lade_beobachtung():
     """Beobachtete Werte (reine Kursanzeige, NICHT im Depot). Standard ist eine
     leere Liste - ohne Eintraege verhaelt sich die App exakt wie vorher."""
-    return gh_read(STATE_PATH_BEOBACHTUNG, []) or []
+    return gh_read_cached(STATE_PATH_BEOBACHTUNG, []) or []
 
 
 def speichere_beobachtung(eintraege, message="update beobachtung [skip ci]"):
@@ -1452,11 +1456,13 @@ def render_dashboard():
         + '</div>'
     )
     # ---------- BEOBACHTETE WERTE: reine Kursanzeige, NICHT im Depot ----------
-    def beobachtungs_karte(eintrag):
+    def beobachtungs_karte(eintrag, fortschritt=None):
         """Baut eine Kurskachel im selben Aufbau wie die Hauptkachel, aber fuer
         einen reinen Beobachtungswert. Höchststand wird hier aus der geladenen
         Historie bestimmt (kein persistenter State noetig) - fuer einen Wert,
         den man nicht besitzt, ist die Performance Fee ohnehin irrelevant."""
+        if fortschritt:
+            fortschritt(35, "Rufe Live-Kurs ab …")
         b_kurs, b_vortag, _ = get_live_kurs(eintrag["instrument_id"])
         if b_kurs is None:
             return (
@@ -1471,9 +1477,13 @@ def render_dashboard():
                 '</div>'
             )
 
+        if fortschritt:
+            fortschritt(65, "Lade Kurshistorie …")
         b_hist = get_kurshistorie(
             eintrag["instrument_id"], heute_date - datetime.timedelta(days=420), heute_date
         )
+        if fortschritt:
+            fortschritt(90, "Berechne Zeiträume …")
         b_perioden = berechne_zeitraeume(b_kurs, b_vortag, b_hist, heute_date)
 
         b_hw_zeile = ""
@@ -1512,54 +1522,81 @@ def render_dashboard():
     beobachtung = [e for e in lade_beobachtung() if e.get("instrument_id")]
 
     if beobachtung:
-        # Umschalter zwischen den Kursansichten. Bewusst adaptiv:
-        #   bis 3 Werte -> Pills (ein Tap, alles sichtbar)
-        #   ab 4 Werten -> Dropdown (Pills brauechten sonst 3+ Zeilen und
-        #                  draengen die eigentliche Kachel aus dem Bild)
-        # Die WKN wird aus den Beschriftungen entfernt - sie steht ohnehin in
-        # der Kachel darunter und macht die Buttons nur unnoetig breit.
-        def _kurzname(text, fallback=""):
-            ohne_wkn = re.sub(r"\s*\([^)]*\)\s*$", "", (text or "").strip())
-            return ohne_wkn or fallback or "Wert"
+        # EIGENES FRAGMENT: beim Umschalten wird NUR dieser Bereich neu
+        # gezeichnet, nicht das komplette Dashboard. Vorher lief bei jedem
+        # Wechsel der gesamte Aufbau erneut - inkl. Positionsliste, Benchmarks
+        # und aller Kacheln, was die spuerbare Wartezeit verursacht hat.
+        @st.fragment
+        def _render_kursansicht():
+            # Umschalter bewusst adaptiv:
+            #   bis 3 Werte -> Pills (ein Tap, alles sichtbar)
+            #   ab 4 Werten -> Dropdown (Pills braeuchten sonst 3+ Zeilen)
+            # Die WKN wird aus den Beschriftungen entfernt - sie steht ohnehin
+            # in der Kachel darunter und macht die Buttons nur breiter.
+            def _kurzname(text, fallback=""):
+                ohne_wkn = re.sub(r"\s*\([^)]*\)\s*$", "", (text or "").strip())
+                return ohne_wkn or fallback or "Wert"
 
-        kurs_optionen = ["Hauptindizes Global"] + [
-            _kurzname(e.get("name"), e.get("wkn")) for e in beobachtung
-        ]
-        # Doppelte Namen eindeutig machen, sonst laesst sich die Auswahl nicht
-        # zuordnen (beide Widgets arbeiten mit der Beschriftung als Schluessel).
-        gesehen = {}
-        for i, opt in enumerate(kurs_optionen):
-            if opt in gesehen:
-                gesehen[opt] += 1
-                kurs_optionen[i] = f"{opt} ({gesehen[opt]})"
+            kurs_optionen = ["Hauptindizes Global"] + [
+                _kurzname(e.get("name"), e.get("wkn")) for e in beobachtung
+            ]
+            # Doppelte Namen eindeutig machen, sonst laesst sich die Auswahl
+            # nicht zuordnen (beide Widgets nutzen die Beschriftung als Schluessel).
+            gesehen = {}
+            for i, opt in enumerate(kurs_optionen):
+                if opt in gesehen:
+                    gesehen[opt] += 1
+                    kurs_optionen[i] = f"{opt} ({gesehen[opt]})"
+                else:
+                    gesehen[opt] = 1
+
+            if len(kurs_optionen) <= 3:
+                auswahl = st.pills(
+                    "Kursansicht", kurs_optionen, default=kurs_optionen[0],
+                    key="kurs_ansicht_wahl", label_visibility="collapsed",
+                )
             else:
-                gesehen[opt] = 1
+                auswahl = st.selectbox(
+                    "Kursansicht", kurs_optionen,
+                    key="kurs_ansicht_wahl_select", label_visibility="collapsed",
+                )
 
-        if len(kurs_optionen) <= 3:
-            auswahl = st.pills(
-                "Kursansicht", kurs_optionen, default=kurs_optionen[0],
-                key="kurs_ansicht_wahl", label_visibility="collapsed",
-            )
-        else:
-            auswahl = st.selectbox(
-                "Kursansicht", kurs_optionen,
-                key="kurs_ansicht_wahl_select", label_visibility="collapsed",
-            )
+            # Abwaehlen ist bei st.pills moeglich - dann auf den ersten Wert
+            # zurueckfallen, damit nie eine leere Ansicht entsteht.
+            if auswahl not in kurs_optionen:
+                auswahl = kurs_optionen[0]
 
-        # Abwaehlen ist bei st.pills moeglich - dann auf den ersten Wert
-        # zurueckfallen, damit nie eine leere Ansicht entsteht.
-        if auswahl not in kurs_optionen:
-            auswahl = kurs_optionen[0]
+            if auswahl == kurs_optionen[0]:
+                st.markdown(kurs_karte, unsafe_allow_html=True)
+                return
 
-        if auswahl == kurs_optionen[0]:
-            st.markdown(kurs_karte, unsafe_allow_html=True)
-        else:
             eintrag = beobachtung[kurs_optionen.index(auswahl) - 1]
+            platz = st.empty()
+
+            def fortschritt(pct, text):
+                platz.markdown(
+                    f'<div class="loading-overlay">'
+                    f'<div class="loading-pct">{pct} %</div>'
+                    f'<div class="loading-bar"><div class="loading-bar-fill" '
+                    f'style="width:{pct}%"></div></div>'
+                    f'<div class="loading-text">{text}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
             try:
-                st.markdown(beobachtungs_karte(eintrag), unsafe_allow_html=True)
+                # Beide Schritte sind eigene Netzabrufe (bzw. Cache-Treffer) -
+                # der Fortschritt bildet echte Arbeitsschritte ab, nicht bloss
+                # eine Animation.
+                fortschritt(15, f"Lade Kurs für {auswahl} …")
+                karte = beobachtungs_karte(eintrag, fortschritt=fortschritt)
+                platz.empty()
+                st.markdown(karte, unsafe_allow_html=True)
             except Exception as e:
+                platz.empty()
                 st.error(f"⚠️ Beobachtungswert konnte nicht geladen werden: {e}")
                 notify_app_error(f"Beobachtung-{eintrag.get('wkn', '?')}", e)
+
+        _render_kursansicht()
     else:
         st.markdown(kurs_karte, unsafe_allow_html=True)
 
