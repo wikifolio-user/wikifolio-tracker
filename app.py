@@ -317,7 +317,48 @@ st.markdown("""
         border-radius: 999px !important;
     }
     /* Dropdown-Variante (ab 4 Werten) ebenfalls schlanker */
-    [data-testid="stSelectbox"] { margin-bottom: 8px; }
+    /* ---------- DROPDOWNS DEUTLICH ALS BEDIENELEMENT KENNZEICHNEN ----------
+       Streamlits Standard-Selectbox sieht im dunklen Theme fast wie eine
+       Ueberschrift aus - man erkennt nicht, dass man tippen kann. Deshalb:
+       gruener Rahmen in der Akzentfarbe, hervorgehobener Pfeil und ein
+       sichtbarer Fokus-/Hover-Zustand. */
+    [data-testid="stSelectbox"] { margin-bottom: 10px; }
+    /* Label dezent halten - es soll orientieren, nicht mit den Kachel-
+       Ueberschriften konkurrieren. */
+    [data-testid="stSelectbox"] label {
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+        color: var(--muted) !important;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+    }
+    [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        background-color: var(--surface) !important;
+        border: 1.5px solid rgba(22, 199, 132, 0.55) !important;
+        border-radius: 10px !important;
+        min-height: 46px !important;
+        transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    [data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover {
+        border-color: var(--up) !important;
+        background-color: #171A1F !important;
+    }
+    /* Auswahltext kraeftiger als normaler Fliesstext */
+    [data-testid="stSelectbox"] div[data-baseweb="select"] div[value],
+    [data-testid="stSelectbox"] div[data-baseweb="select"] span {
+        font-weight: 600 !important;
+    }
+    /* Pfeil in Akzentfarbe und groesser - das eigentliche "hier tippen"-Signal */
+    [data-testid="stSelectbox"] svg {
+        fill: var(--up) !important;
+        color: var(--up) !important;
+        width: 22px !important; height: 22px !important;
+    }
+    /* Aufgeklappte Liste passend zum Rest gestalten */
+    div[data-baseweb="popover"] li {
+        font-size: 0.9rem !important;
+        min-height: 42px !important;
+    }
 
     /* ---------- ZENTRIERTER LADEFORTSCHRITT ---------- */
     .loading-overlay {
@@ -1642,8 +1683,8 @@ def render_dashboard():
                 )
             else:
                 auswahl = st.selectbox(
-                    "Kursansicht", kurs_optionen,
-                    key="kurs_ansicht_wahl_select", label_visibility="collapsed",
+                    "Kurs wählen", kurs_optionen,
+                    key="kurs_ansicht_wahl_select",
                 )
 
             # Abwaehlen ist bei st.pills moeglich - dann auf den ersten Wert
@@ -2280,8 +2321,10 @@ def render_dashboard():
         "📊 Szenario-Simulator (5 Jahre)",
         "📝 Trader-Log (Trades & Kommentare)",
     ]
+    # Label sichtbar lassen: ohne Beschriftung wirkt das Dropdown wie eine
+    # Ueberschrift, und man kommt gar nicht auf die Idee, darauf zu tippen.
     gewaehlte_ansicht = st.selectbox(
-        "Ansicht", ANSICHTEN, key="ansicht_wahl", label_visibility="collapsed",
+        "Ansicht wählen", ANSICHTEN, key="ansicht_wahl",
     )
 
     # Ladeanzeige fuer die gewaehlte Ansicht (Charts brauchen teils mehrere
