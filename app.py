@@ -615,6 +615,23 @@ def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end
     s = get_benchmark_history(instrument_id, start_date, end_date)
     if s is None or s.empty:
         return None, None
+
+    # LIVE-KURS EINSETZEN: die History-Endpunkte liefern Tages-Schlusskurse,
+    # der letzte Punkt haengt also bis zu einen Handelstag hinterher. Fuer eine
+    # ehrliche Momentaufnahme wird der aktuellste Punkt durch den Live-Kurs
+    # ersetzt - sonst vergliche man einen tagesaktuellen eigenen Depotwert mit
+    # veralteten Benchmarks. Faellt der Live-Abruf aus, bleibt der Schlusskurs
+    # stehen (kein Grund, die ganze Linie zu verwerfen).
+    live_kurs, _, _ = get_live_kurs(instrument_id)
+    if live_kurs and live_kurs > 0:
+        heute_ts = pd.Timestamp(end_date)
+        s = s.copy()
+        if not s.empty and s.index[-1].normalize() == heute_ts.normalize():
+            s.iloc[-1] = live_kurs          # heutiger Punkt: aktualisieren
+        else:
+            s.loc[heute_ts] = live_kurs     # heute fehlt noch: anhaengen
+            s = s.sort_index()
+
     erstes_echtes_datum = s.index.min()
     s_reindexed = s.reindex(df_index).ffill()
     gueltige = s_reindexed.dropna()
@@ -710,7 +727,7 @@ def get_live_kurs(instrument_id):
     return None, None, "Fehler – keine Live-Daten"
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_kurshistorie(instrument_id, start_date, end_date):
     """Tages-Schlusskurse einer beliebigen Instrument-ID als Series
     (Index=Datum). Basis fuer die Zeitraum-Kennzahlen - ersetzt das
@@ -740,6 +757,8 @@ def get_kurshistorie(instrument_id, start_date, end_date):
 
 
 def referenzkurs_vor_tagen(historie, tage, heute):
+    # Hinweis: der AKTUELLE Wert kommt immer live von get_live_kurs() herein,
+    # hier wird ausschliesslich der historische Referenzpunkt gesucht.
     """Letzter Schlusskurs am oder vor dem Stichtag (heute - tage). Nimmt
     bewusst den naechstfrueheren Handelstag, wenn der Stichtag auf ein
     Wochenende/Feiertag faellt. None, wenn die Historie nicht weit genug
@@ -771,11 +790,23 @@ def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
         d = aktueller_kurs - vortag_kurs
         zeilen.append(("Tag", d, d / vortag_kurs * 100))
 
-    for label, tage in [("Woche", 7), ("Monat", 30)]:
+    for label, tage in [("Woche", 7), ("Monat", 30),
+                        ("3 Monate", 91), ("6 Monate", 182)]:
         ref = referenzkurs_vor_tagen(historie, tage, heute)
         if ref:
             d = aktueller_kurs - ref
             zeilen.append((label, d, d / ref * 100))
+
+    # Laufendes Jahr (YTD) - bewusst nach den festen Zeitraeumen, da es je nach
+    # Kalenderlage kuerzer oder laenger als 6 Monate sein kann.
+    jahresanfang = datetime.date(heute.year, 1, 1)
+    if historie is not None and not historie.empty:
+        vor_jahresstart = historie[historie.index <= pd.Timestamp(jahresanfang)]
+        if not vor_jahresstart.empty:
+            ytd_ref = float(vor_jahresstart.iloc[-1])
+            if ytd_ref:
+                d = aktueller_kurs - ytd_ref
+                zeilen.append(("Lfd. Jahr", d, d / ytd_ref * 100))
 
     jahr_ref = referenzkurs_vor_tagen(historie, 365, heute)
     if jahr_ref:
@@ -786,7 +817,7 @@ def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
         # beschriften. Nur sinnvoll, wenn dieser Zeitraum laenger ist als der
         # bereits gezeigte Monat, sonst waere es eine Dopplung.
         aeltester_ts = historie.index[0]
-        if (pd.Timestamp(heute) - aeltester_ts).days > 31:
+        if (pd.Timestamp(heute) - aeltester_ts).days > 182:
             ref = float(historie.iloc[0])
             if ref:
                 d = aktueller_kurs - ref
@@ -905,6 +936,30 @@ def tab_label(name, wkn="", max_len=16):
     return gekuerzt + "…"
 
 
+def fortschritt_anzeige(platzhalter):
+    """Gibt eine Funktion zurueck, die einen zentrierten Ladebalken mit
+    Prozentangabe in den uebergebenen Platzhalter zeichnet. Der Prozentwert
+    bildet echte Arbeitsschritte ab (Netzabrufe), nicht bloss eine Animation.
+
+    Verwendung:
+        platz = st.empty()
+        schritt = fortschritt_anzeige(platz)
+        schritt(30, "Lade Kursdaten ...")
+        ...
+        platz.empty()
+    """
+    def zeichne(pct, text):
+        platzhalter.markdown(
+            f'<div class="loading-overlay">'
+            f'<div class="loading-pct">{int(pct)} %</div>'
+            f'<div class="loading-bar"><div class="loading-bar-fill" '
+            f'style="width:{int(pct)}%"></div></div>'
+            f'<div class="loading-text">{text}</div></div>',
+            unsafe_allow_html=True,
+        )
+    return zeichne
+
+
 # --- GESAMTE RENDER-LOGIK ALS FRAGMENT ---
 # Vermeidet den harten Full-Page-Rerun von st_autorefresh (sichtbares
 # Aufhellen/Neuzeichnen alle 30s). Ein Fragment aktualisiert sich selbst
@@ -914,6 +969,13 @@ def render_dashboard():
     now_berlin = datetime.datetime.now(BERLIN_TZ)
     heute_date = now_berlin.date()
 
+    # Ladeanzeige fuer den Seitenaufbau. Die Schritte darunter sind echte
+    # Netzabrufe - bei gefuelltem Cache laufen sie so schnell durch, dass die
+    # Anzeige kaum sichtbar ist; beim Kaltstart erklaert sie die Wartezeit.
+    _aufbau_platz = st.empty()
+    _aufbau = fortschritt_anzeige(_aufbau_platz)
+
+    _aufbau(10, "Rufe Live-Kurs ab …")
     aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
 
     is_live_data = "Fehler" not in fetched_source
@@ -936,6 +998,7 @@ def render_dashboard():
     kaufkurs_auto = st.session_state.get("haupt_kaufkurs_auto", True)
     kaufkurs_ermittelt = None
     if kaufkurs_auto:
+        _aufbau(25, "Ermittle Kaufkurs …")
         _hist_kauf = get_kurshistorie(
             config.LS_INSTRUMENT_ID,
             kaufdatum_aktiv - datetime.timedelta(days=30), kaufdatum_aktiv
@@ -952,6 +1015,7 @@ def render_dashboard():
 
     stueckzahl_aktiv = startkapital_aktiv / kaufkurs_aktiv
 
+    _aufbau(40, "Lade Kurshistorie …")
     df_chart, hist_source_name = get_historical_market_data(kaufdatum_aktiv, heute_date, aktueller_kurs)
     is_live_history = "SYNTHETISCH" not in hist_source_name
 
@@ -1056,15 +1120,10 @@ def render_dashboard():
         items = list(config.BENCHMARKS.items())
         gesamt = len(items)
         box = st.empty()
+        schritt = fortschritt_anzeige(box)
         for i, (label, inst_id) in enumerate(items):
             pct = int(i / gesamt * 100) if gesamt else 100
-            box.markdown(f"""
-            <div class="loading-overlay">
-                <div class="loading-pct">{pct} %</div>
-                <div class="loading-bar"><div class="loading-bar-fill" style="width:{pct}%"></div></div>
-                <div class="loading-text">{hinweis} … ({i + 1}/{gesamt})</div>
-            </div>
-            """, unsafe_allow_html=True)
+            schritt(pct, f"{hinweis} … ({i + 1}/{gesamt}) · {label}")
             s, erstes_datum = benchmark_normiert_auf_startkapital(
                 df_index, inst_id, start_datum, heute_date, kapital
             )
@@ -1073,6 +1132,9 @@ def render_dashboard():
                 startdaten[label] = erstes_datum
         box.empty()
         return series, startdaten
+
+    # Grundlast fertig - ab hier uebernimmt die Benchmark-Anzeige den Balken.
+    _aufbau_platz.empty()
 
     benchmark_series, benchmark_start_daten = lade_benchmarks_mit_fortschritt(
         df_chart.index, kaufdatum_aktiv, startkapital_aktiv
@@ -1573,15 +1635,7 @@ def render_dashboard():
             eintrag = beobachtung[kurs_optionen.index(auswahl) - 1]
             platz = st.empty()
 
-            def fortschritt(pct, text):
-                platz.markdown(
-                    f'<div class="loading-overlay">'
-                    f'<div class="loading-pct">{pct} %</div>'
-                    f'<div class="loading-bar"><div class="loading-bar-fill" '
-                    f'style="width:{pct}%"></div></div>'
-                    f'<div class="loading-text">{text}</div></div>',
-                    unsafe_allow_html=True,
-                )
+            fortschritt = fortschritt_anzeige(platz)
 
             try:
                 # Beide Schritte sind eigene Netzabrufe (bzw. Cache-Treffer) -
@@ -1639,9 +1693,18 @@ def render_dashboard():
     gesamt_zeitraeume = {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"}
     positionen_ok = True
 
-    for pos in weitere_positionen:
+    _pos_platz = st.empty()
+    _pos_schritt = fortschritt_anzeige(_pos_platz)
+    _pos_gesamt = len(weitere_positionen)
+
+    for _pos_i, pos in enumerate(weitere_positionen):
         try:
             p_name = pos.get("name", pos.get("wkn", "Position"))
+            if _pos_gesamt:
+                _pos_schritt(
+                    int(_pos_i / _pos_gesamt * 100),
+                    f"Lade Position {_pos_i + 1}/{_pos_gesamt} · {p_name} …",
+                )
 
             # --- Position ohne Kursquelle: eigene, ruhige Kachel statt Fehler ---
             # Sie zeigt nur den Einstand und laesst sich per Instrument-ID
@@ -1716,6 +1779,8 @@ def render_dashboard():
             positionen_ok = False
             st.error(f"⚠️ Position **{pos.get('name', '?')}** konnte nicht berechnet werden: {e}")
             notify_app_error(f"Position-{pos.get('id', '?')}", e)
+
+    _pos_platz.empty()
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if weitere_positionen:
