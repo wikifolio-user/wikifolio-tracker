@@ -2240,15 +2240,37 @@ def render_dashboard():
         """, unsafe_allow_html=True)
 
     # TABS
-    tab_wealth, tab_ytd, tab_2021, tab_candle, tab_forecast, tab_scenarios, tab_trades = st.tabs([
-        "📈 VERMÖGENS- & SUBSTANZAUFBAU",
-        "🔍 SEIT 01.01.2026",
-        "🔎 SEIT 01.01.2021",
-        "🕯️ TAGES-CANDLESTICK",
-        "🔮 ZUKUNFTS-PROGNOSE",
-        "📊 SZENARIO-SIMULATOR (5 JAHRE)",
-        "📝 TRADER-LOG (TRADES & KOMMENTARE)",
-    ])
+    # ---------- ANSICHTSWAHL: Dropdown statt Tab-Leiste ----------
+    # Sieben Tabs passen auf keinem Smartphone nebeneinander - man musste sich
+    # mit winzigen Pfeilen durchscrollen und sah nie, was es ueberhaupt gibt.
+    # Das Dropdown zeigt alle Ansichten auf einen Blick und braucht eine Zeile.
+    #
+    # Zweiter, wichtigerer Vorteil: Streamlit rendert bei st.tabs IMMER ALLE
+    # Inhalte, auch die unsichtbaren - also sieben Charts inkl. aller Abrufe
+    # bei jedem Rerun. Hier wird nur die gewaehlte Ansicht berechnet.
+    ANSICHTEN = [
+        "📈 Vermögens- & Substanzaufbau",
+        "🔍 Seit 01.01.2026",
+        "🔎 Seit 01.01.2021",
+        "🕯️ Tages-Candlestick",
+        "🔮 Zukunfts-Prognose",
+        "📊 Szenario-Simulator (5 Jahre)",
+        "📝 Trader-Log (Trades & Kommentare)",
+    ]
+    gewaehlte_ansicht = st.selectbox(
+        "Ansicht", ANSICHTEN, key="ansicht_wahl", label_visibility="collapsed",
+    )
+
+    # Ladeanzeige fuer die gewaehlte Ansicht (Charts brauchen teils mehrere
+    # Netzabrufe). Wird direkt nach dem Aufbau wieder entfernt.
+    _ansicht_platz = st.empty()
+    _ansicht_schritt = fortschritt_anzeige(_ansicht_platz)
+
+    # Die Render-Funktionen unten arbeiten mit "with tab_x:" - dafuer reicht
+    # ein gemeinsamer Container, da ohnehin nur eine Ansicht gezeichnet wird.
+    _ansicht_container = st.container()
+    tab_wealth = tab_ytd = tab_2021 = tab_candle = _ansicht_container
+    tab_forecast = tab_scenarios = tab_trades = _ansicht_container
 
     @st.fragment
     def _render_wealth():
@@ -2369,7 +2391,10 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Vermoegensaufbau", e)
-    _render_wealth()
+    if gewaehlte_ansicht == "📈 Vermögens- & Substanzaufbau":
+        _ansicht_schritt(35, "Baue Vermögensaufbau auf …")
+        _render_wealth()
+        _ansicht_platz.empty()
 
     @st.fragment
     def _render_ytd():
@@ -2491,7 +2516,10 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Seit-2026", e)
-    _render_ytd()
+    if gewaehlte_ansicht == "🔍 Seit 01.01.2026":
+        _ansicht_schritt(35, "Lade Vergleich seit 2026 …")
+        _render_ytd()
+        _ansicht_platz.empty()
 
     @st.fragment
     def _render_2021():
@@ -2634,7 +2662,10 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Seit-2021", e)
-    _render_2021()
+    if gewaehlte_ansicht == "🔎 Seit 01.01.2021":
+        _ansicht_schritt(35, "Lade Vergleich seit 2021 …")
+        _render_2021()
+        _ansicht_platz.empty()
 
     @st.fragment
     def _render_trades():
@@ -2675,7 +2706,10 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Trader-Log", e)
-    _render_trades()
+    if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
+        _ansicht_schritt(35, "Lade Trader-Log …")
+        _render_trades()
+        _ansicht_platz.empty()
 
     @st.fragment
     def _render_candle():
@@ -2694,7 +2728,10 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Candlestick", e)
-    _render_candle()
+    if gewaehlte_ansicht == "🕯️ Tages-Candlestick":
+        _ansicht_schritt(35, "Baue Candlestick-Chart …")
+        _render_candle()
+        _ansicht_platz.empty()
 
     @st.fragment
     def _render_forecast():
@@ -2742,7 +2779,10 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Prognose", e)
-    _render_forecast()
+    if gewaehlte_ansicht == "🔮 Zukunfts-Prognose":
+        _ansicht_schritt(35, "Berechne Prognose …")
+        _render_forecast()
+        _ansicht_platz.empty()
 
     @st.fragment
     def _render_scenarios():
@@ -2872,7 +2912,10 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Szenarien", e)
-    _render_scenarios()
+    if gewaehlte_ansicht == "📊 Szenario-Simulator (5 Jahre)":
+        _ansicht_schritt(35, "Berechne Szenarien …")
+        _render_scenarios()
+        _ansicht_platz.empty()
 
     # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
     # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
