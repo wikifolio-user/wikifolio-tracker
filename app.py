@@ -319,10 +319,12 @@ st.markdown("""
     /* Dropdown-Variante (ab 4 Werten) ebenfalls schlanker */
     /* ---------- DROPDOWNS DEUTLICH ALS BEDIENELEMENT KENNZEICHNEN ----------
        Streamlits Standard-Selectbox sieht im dunklen Theme fast wie eine
-       Ueberschrift aus - man erkennt nicht, dass man tippen kann. Deshalb:
-       gruener Rahmen in der Akzentfarbe, hervorgehobener Pfeil und ein
-       sichtbarer Fokus-/Hover-Zustand. */
-    [data-testid="stSelectbox"] { margin-bottom: 10px; }
+       Ueberschrift aus. Loesung: leuchtender weisser Rahmen plus dezenter
+       Schein. Bewusst MEHRERE Selektoren - Streamlit verschachtelt die
+       BaseWeb-Selectbox je nach Version unterschiedlich tief, ein einzelner
+       Selektor griff hier nicht zuverlaessig. */
+    [data-testid="stSelectbox"] { margin-bottom: 12px; }
+
     /* Label dezent halten - es soll orientieren, nicht mit den Kachel-
        Ueberschriften konkurrieren. */
     [data-testid="stSelectbox"] label {
@@ -332,32 +334,53 @@ st.markdown("""
         letter-spacing: 0.6px;
         text-transform: uppercase;
     }
-    [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+
+    [data-testid="stSelectbox"] [data-baseweb="select"],
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div > div,
+    [data-testid="stSelectbox"] div[role="combobox"],
+    [data-testid="stSelectbox"] [data-baseweb="input"] {
         background-color: var(--surface) !important;
-        border: 1.5px solid rgba(22, 199, 132, 0.55) !important;
-        border-radius: 10px !important;
+        border-radius: 12px !important;
+    }
+
+    /* Der eigentliche Rahmen samt Leuchten - auf dem aeusseren Element, damit
+       er unabhaengig von der inneren Verschachtelung sichtbar ist. */
+    [data-testid="stSelectbox"] [data-baseweb="select"] {
+        border: 2px solid #FFFFFF !important;
+        border-radius: 12px !important;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.25),
+                    0 0 12px rgba(255,255,255,0.35) !important;
+        transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    [data-testid="stSelectbox"] [data-baseweb="select"]:hover,
+    [data-testid="stSelectbox"] [data-baseweb="select"]:focus-within {
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.45),
+                    0 0 18px rgba(255,255,255,0.55) !important;
+    }
+    /* Innere Elemente duerfen keinen zweiten, konkurrierenden Rahmen zeichnen */
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div > div {
+        border: none !important;
+        box-shadow: none !important;
         min-height: 46px !important;
-        transition: border-color 0.15s ease, background-color 0.15s ease;
     }
-    [data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover {
-        border-color: var(--up) !important;
-        background-color: #171A1F !important;
-    }
+
     /* Auswahltext kraeftiger als normaler Fliesstext */
-    [data-testid="stSelectbox"] div[data-baseweb="select"] div[value],
-    [data-testid="stSelectbox"] div[data-baseweb="select"] span {
+    [data-testid="stSelectbox"] [data-baseweb="select"] div[value],
+    [data-testid="stSelectbox"] [data-baseweb="select"] span {
         font-weight: 600 !important;
     }
-    /* Pfeil in Akzentfarbe und groesser - das eigentliche "hier tippen"-Signal */
+    /* Pfeil weiss und groesser - zusammen mit dem Rahmen das "hier tippen"-Signal */
     [data-testid="stSelectbox"] svg {
-        fill: var(--up) !important;
-        color: var(--up) !important;
-        width: 22px !important; height: 22px !important;
+        fill: #FFFFFF !important;
+        color: #FFFFFF !important;
+        width: 24px !important; height: 24px !important;
     }
     /* Aufgeklappte Liste passend zum Rest gestalten */
     div[data-baseweb="popover"] li {
         font-size: 0.9rem !important;
-        min-height: 42px !important;
+        min-height: 44px !important;
     }
 
     /* ---------- ZENTRIERTER LADEFORTSCHRITT ---------- */
