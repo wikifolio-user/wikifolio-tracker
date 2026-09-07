@@ -790,8 +790,8 @@ def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
         d = aktueller_kurs - vortag_kurs
         zeilen.append(("Tag", d, d / vortag_kurs * 100))
 
-    for label, tage in [("Woche", 7), ("Monat", 30),
-                        ("3 Monate", 91), ("6 Monate", 182)]:
+    for label, tage in [("Woche", 7), ("Monat", 30), ("3 Monate", 91),
+                        ("6 Monate", 182), ("9 Monate", 273)]:
         ref = referenzkurs_vor_tagen(historie, tage, heute)
         if ref:
             d = aktueller_kurs - ref
@@ -2320,6 +2320,8 @@ def render_dashboard():
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                         "_q": pct_ueber_tage(brutto_reihe, 91),
                         "_h": pct_ueber_tage(brutto_reihe, 182),
+                        "_n": pct_ueber_tage(brutto_reihe, 273),
+                        "_z": pct_ueber_tage(brutto_reihe, 365),
                         "_gelistet_seit": kaufdatum_aktiv,
                     })
                 for label, s in benchmark_series.items():
@@ -2334,6 +2336,8 @@ def render_dashboard():
                             "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                             "_q": pct_ueber_tage(s_gueltig, 91),
                             "_h": pct_ueber_tage(s_gueltig, 182),
+                            "_n": pct_ueber_tage(s_gueltig, 273),
+                            "_z": pct_ueber_tage(s_gueltig, 365),
                             "_gelistet_seit": start_dieser_wert,
                         })
 
@@ -2355,19 +2359,25 @@ def render_dashboard():
                         farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
                         # Quartal/Halbjahr: leere Zelle, wenn die Reihe nicht
                         # weit genug zurueckreicht (junges Produkt).
-                        _q, _h = eintrag.get("_q"), eintrag.get("_h")
-                        _q_txt = f"{_q:+.2f}%" if _q is not None else "–"
-                        _h_txt = f"{_h:+.2f}%" if _h is not None else "–"
-                        _q_farbe = ("#71717A" if _q is None else
-                                    ("#00C853" if _q >= 0 else "#FF3D00"))
-                        _h_farbe = ("#71717A" if _h is None else
-                                    ("#00C853" if _h >= 0 else "#FF3D00"))
+                        def _zt(wert):
+                            """(Text, Farbe) fuer eine Zeitraum-Zelle. Fehlt der
+                            Wert (Historie zu kurz), bleibt sie grau und leer."""
+                            if wert is None:
+                                return "–", "#71717A"
+                            return f"{wert:+.2f}%", ("#00C853" if wert >= 0 else "#FF3D00")
+
+                        _q_txt, _q_farbe = _zt(eintrag.get("_q"))
+                        _h_txt, _h_farbe = _zt(eintrag.get("_h"))
+                        _n_txt, _n_farbe = _zt(eintrag.get("_n"))
+                        _z_txt, _z_farbe = _zt(eintrag.get("_z"))
                         zeilen_html_haupt += f"""
                         <tr style="border-bottom: 1px solid #1A1A1A;">
                             <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
                             <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {_q_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_q_txt}</td>
                             <td style="padding: 8px 6px; color: {_h_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_h_txt}</td>
+                            <td style="padding: 8px 6px; color: {_n_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_n_txt}</td>
+                            <td style="padding: 8px 6px; color: {_z_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_z_txt}</td>
                             <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
@@ -2381,6 +2391,8 @@ def render_dashboard():
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">3 Mon.</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">6 Mon.</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">9 Mon.</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">12 Mon.</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
@@ -2496,6 +2508,8 @@ def render_dashboard():
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                         "_q": pct_ueber_tage(eigene_reihe_v2, 91),
                         "_h": pct_ueber_tage(eigene_reihe_v2, 182),
+                        "_n": pct_ueber_tage(eigene_reihe_v2, 273),
+                        "_z": pct_ueber_tage(eigene_reihe_v2, 365),
                         "_gelistet_seit": config.VERGLEICH2_START_DATUM,
                     })
                 for label, s in benchmark_series_v2.items():
@@ -2510,6 +2524,8 @@ def render_dashboard():
                             "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                             "_q": pct_ueber_tage(s_gueltig, 91),
                             "_h": pct_ueber_tage(s_gueltig, 182),
+                            "_n": pct_ueber_tage(s_gueltig, 273),
+                            "_z": pct_ueber_tage(s_gueltig, 365),
                             "_gelistet_seit": start_dieser_wert,
                         })
 
@@ -2521,19 +2537,25 @@ def render_dashboard():
                         farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
                         # Quartal/Halbjahr: leere Zelle, wenn die Reihe nicht
                         # weit genug zurueckreicht (junges Produkt).
-                        _q, _h = eintrag.get("_q"), eintrag.get("_h")
-                        _q_txt = f"{_q:+.2f}%" if _q is not None else "–"
-                        _h_txt = f"{_h:+.2f}%" if _h is not None else "–"
-                        _q_farbe = ("#71717A" if _q is None else
-                                    ("#00C853" if _q >= 0 else "#FF3D00"))
-                        _h_farbe = ("#71717A" if _h is None else
-                                    ("#00C853" if _h >= 0 else "#FF3D00"))
+                        def _zt(wert):
+                            """(Text, Farbe) fuer eine Zeitraum-Zelle. Fehlt der
+                            Wert (Historie zu kurz), bleibt sie grau und leer."""
+                            if wert is None:
+                                return "–", "#71717A"
+                            return f"{wert:+.2f}%", ("#00C853" if wert >= 0 else "#FF3D00")
+
+                        _q_txt, _q_farbe = _zt(eintrag.get("_q"))
+                        _h_txt, _h_farbe = _zt(eintrag.get("_h"))
+                        _n_txt, _n_farbe = _zt(eintrag.get("_n"))
+                        _z_txt, _z_farbe = _zt(eintrag.get("_z"))
                         zeilen_html += f"""
                         <tr style="border-bottom: 1px solid #1A1A1A;">
                             <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
                             <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {_q_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_q_txt}</td>
                             <td style="padding: 8px 6px; color: {_h_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_h_txt}</td>
+                            <td style="padding: 8px 6px; color: {_n_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_n_txt}</td>
+                            <td style="padding: 8px 6px; color: {_z_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_z_txt}</td>
                             <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
@@ -2547,6 +2569,8 @@ def render_dashboard():
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">3 Mon.</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">6 Mon.</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">9 Mon.</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">12 Mon.</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
@@ -2652,6 +2676,8 @@ def render_dashboard():
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                         "_q": pct_ueber_tage(roh_eigen_v3, 91),
                         "_h": pct_ueber_tage(roh_eigen_v3, 182),
+                        "_n": pct_ueber_tage(roh_eigen_v3, 273),
+                        "_z": pct_ueber_tage(roh_eigen_v3, 365),
                         "_gelistet_seit": start_datum_eigen_v3,
                     })
                 for label, s in benchmark_series_v3.items():
@@ -2666,6 +2692,8 @@ def render_dashboard():
                             "Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                             "_q": pct_ueber_tage(s_gueltig, 91),
                             "_h": pct_ueber_tage(s_gueltig, 182),
+                            "_n": pct_ueber_tage(s_gueltig, 273),
+                            "_z": pct_ueber_tage(s_gueltig, 365),
                             "_gelistet_seit": start_dieser_wert,
                         })
 
@@ -2677,19 +2705,25 @@ def render_dashboard():
                         farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
                         # Quartal/Halbjahr: leere Zelle, wenn die Reihe nicht
                         # weit genug zurueckreicht (junges Produkt).
-                        _q, _h = eintrag.get("_q"), eintrag.get("_h")
-                        _q_txt = f"{_q:+.2f}%" if _q is not None else "–"
-                        _h_txt = f"{_h:+.2f}%" if _h is not None else "–"
-                        _q_farbe = ("#71717A" if _q is None else
-                                    ("#00C853" if _q >= 0 else "#FF3D00"))
-                        _h_farbe = ("#71717A" if _h is None else
-                                    ("#00C853" if _h >= 0 else "#FF3D00"))
+                        def _zt(wert):
+                            """(Text, Farbe) fuer eine Zeitraum-Zelle. Fehlt der
+                            Wert (Historie zu kurz), bleibt sie grau und leer."""
+                            if wert is None:
+                                return "–", "#71717A"
+                            return f"{wert:+.2f}%", ("#00C853" if wert >= 0 else "#FF3D00")
+
+                        _q_txt, _q_farbe = _zt(eintrag.get("_q"))
+                        _h_txt, _h_farbe = _zt(eintrag.get("_h"))
+                        _n_txt, _n_farbe = _zt(eintrag.get("_n"))
+                        _z_txt, _z_farbe = _zt(eintrag.get("_z"))
                         zeilen_html_v3 += f"""
                         <tr style="border-bottom: 1px solid #1A1A1A;">
                             <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
                             <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {_q_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_q_txt}</td>
                             <td style="padding: 8px 6px; color: {_h_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_h_txt}</td>
+                            <td style="padding: 8px 6px; color: {_n_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_n_txt}</td>
+                            <td style="padding: 8px 6px; color: {_z_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_z_txt}</td>
                             <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
                             <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
@@ -2703,6 +2737,8 @@ def render_dashboard():
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">3 Mon.</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">6 Mon.</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">9 Mon.</th>
+                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">12 Mon.</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
                                 <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
