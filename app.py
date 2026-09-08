@@ -316,6 +316,13 @@ st.markdown("""
         font-size: 0.8rem !important;
         border-radius: 999px !important;
     }
+    /* Aktive Pille weiss hervorheben - gleiche Bildsprache wie beim Dropdown,
+       und Gruen/Rot bleiben den Kursveraenderungen vorbehalten. */
+    [data-testid="stButtonGroup"] button[aria-checked="true"],
+    [data-testid="stButtonGroup"] button[aria-pressed="true"] {
+        border-color: #FFFFFF !important;
+        box-shadow: 0 0 10px rgba(255,255,255,0.35) !important;
+    }
     /* Dropdown-Variante (ab 4 Werten) ebenfalls schlanker */
     /* ---------- DROPDOWNS DEUTLICH ALS BEDIENELEMENT KENNZEICHNEN ----------
        Streamlits Standard-Selectbox sieht im dunklen Theme fast wie eine
@@ -335,35 +342,37 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    [data-testid="stSelectbox"] [data-baseweb="select"],
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div > div,
-    [data-testid="stSelectbox"] div[role="combobox"],
-    [data-testid="stSelectbox"] [data-baseweb="input"] {
+    /* WICHTIG: Der sichtbare Rahmen liegt bei Streamlit auf dem INNEREN
+       Container ([data-baseweb="select"] > div), nicht auf dem aeusseren.
+       Genau dort muss er gesetzt werden - ein "border: none" an dieser Stelle
+       loescht ihn wieder (das war der Fehler zuvor). */
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div {
         background-color: var(--surface) !important;
-        border-radius: 12px !important;
-    }
-
-    /* Der eigentliche Rahmen samt Leuchten - auf dem aeusseren Element, damit
-       er unabhaengig von der inneren Verschachtelung sichtbar ist. */
-    [data-testid="stSelectbox"] [data-baseweb="select"] {
         border: 2px solid #FFFFFF !important;
         border-radius: 12px !important;
-        box-shadow: 0 0 0 1px rgba(255,255,255,0.25),
-                    0 0 12px rgba(255,255,255,0.35) !important;
-        transition: box-shadow 0.15s ease, border-color 0.15s ease;
+        min-height: 46px !important;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.30),
+                    0 0 14px rgba(255,255,255,0.40) !important;
+        transition: box-shadow 0.15s ease;
     }
-    [data-testid="stSelectbox"] [data-baseweb="select"]:hover,
-    [data-testid="stSelectbox"] [data-baseweb="select"]:focus-within {
-        box-shadow: 0 0 0 1px rgba(255,255,255,0.45),
-                    0 0 18px rgba(255,255,255,0.55) !important;
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {
+        border-color: #FFFFFF !important;
+        box-shadow: 0 0 0 2px rgba(255,255,255,0.55),
+                    0 0 22px rgba(255,255,255,0.65) !important;
     }
-    /* Innere Elemente duerfen keinen zweiten, konkurrierenden Rahmen zeichnen */
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div > div {
+    /* Der aeussere Container bleibt rahmenlos, sonst entsteht eine Doppellinie */
+    [data-testid="stSelectbox"] [data-baseweb="select"] {
         border: none !important;
         box-shadow: none !important;
-        min-height: 46px !important;
+        background: transparent !important;
+    }
+    /* Streamlits Fokus-Einfaerbung nutzt primaryColor (gruen). Hier bewusst
+       ueberschrieben, damit der Rahmen in JEDEM Zustand weiss bleibt. */
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div[aria-expanded="true"],
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div[data-focusvisible],
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div:active {
+        border-color: #FFFFFF !important;
     }
 
     /* Auswahltext kraeftiger als normaler Fliesstext */
