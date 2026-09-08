@@ -544,6 +544,71 @@ st.markdown("""
         color: #FFFFFF !important;
     }
 
+    /* ---------- VERGLEICHSTABELLE ----------
+       Kernprobleme der alten Fassung: umbrechende Namen, komplett leere
+       Zeitraum-Spalten, keine Zeilenfuehrung ueber die volle Breite. */
+    .pt-wrap {
+        overflow-x: auto; -webkit-overflow-scrolling: touch;
+        border: 1px solid var(--line); border-radius: 10px;
+        margin-bottom: 12px;
+    }
+    .pt { width: 100%; border-collapse: collapse; background: #0B0C0F; }
+
+    .pt thead th {
+        position: sticky; top: 0; z-index: 2;
+        background: #14161B;
+        padding: 9px 10px;
+        font-size: 0.64rem; font-weight: 700; color: var(--label);
+        letter-spacing: 0.7px; text-transform: uppercase;
+        text-align: right; white-space: nowrap;
+        border-bottom: 1px solid var(--line);
+    }
+    .pt thead th.pt-wert { text-align: left; }
+
+    /* Zebra-Streifen: machen lange Zeilen ueber die ganze Breite verfolgbar */
+    .pt tbody tr.pt-zebra { background: rgba(255, 255, 255, 0.022); }
+    .pt tbody tr:hover { background: rgba(255, 255, 255, 0.06); }
+
+    /* Die EIGENE Position ist der Bezugspunkt - alles andere ist Vergleich.
+       Deshalb farblich abgesetzt statt in der Masse unterzugehen. */
+    .pt tbody tr.pt-eigene {
+        background: rgba(22, 199, 132, 0.09);
+        box-shadow: inset 3px 0 0 var(--up);
+    }
+
+    .pt td {
+        padding: 9px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        white-space: nowrap;
+    }
+    .pt tbody tr:last-child td { border-bottom: none; }
+
+    /* Name und WKN untereinander statt nebeneinander - spart Breite und
+       verhindert den Umbruch mitten im Namen. */
+    .pt-wert { text-align: left; min-width: 130px; }
+    .pt-name {
+        display: block; font-size: 0.82rem; font-weight: 600; color: var(--text);
+        white-space: normal; line-height: 1.25;
+    }
+    .pt-wkn {
+        display: block; font-size: 0.66rem; color: var(--muted);
+        letter-spacing: 0.4px; margin-top: 1px;
+    }
+
+    /* Zahlen in Tabellenziffern, damit Nachkommastellen untereinander stehen */
+    .pt-num {
+        text-align: right;
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+        font-size: 0.78rem;
+    }
+    .pt-stark { font-weight: 700; font-size: 0.83rem; }
+    .pt-klein { font-size: 0.74rem; opacity: 0.92; }
+    .pt-up { color: #16C784; }
+    .pt-down { color: #EA3943; }
+    .pt-leer { color: #4B5058; }
+    .pt-seit { color: var(--muted); font-size: 0.7rem; }
+
     /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
        Bewusst position:fixed statt im normalen Seitenfluss. Vorher wanderte
        der Balken mit, sobald darueber/darunter Inhalte erschienen - und das
@@ -1496,6 +1561,83 @@ def render_dashboard():
         if not basis:
             return None
         return (float(gueltig.iloc[-1]) / basis - 1) * 100
+
+    def performance_tabelle_html(eintraege, eigene_kennung=None):
+        """Baut die Vergleichstabelle. Bewusst eine gemeinsame Funktion fuer
+        alle drei Ansichten - vorher stand derselbe HTML-Block dreimal fast
+        identisch im Code.
+
+        Verbesserungen gegenueber der frueheren Fassung:
+        - Zeitraum-Spalten ohne einen einzigen Wert werden WEGGELASSEN. Bei
+          jungen Produkten waren "9 Mon." und "12 Mon." komplett leer und
+          haben nur Breite gekostet.
+        - Zebra-Streifen und Trennlinien zwischen den Spaltengruppen machen
+          lange Zeilen ueber die ganze Breite verfolgbar.
+        - Die eigene Position ist farblich hervorgehoben - sie ist der
+          Bezugspunkt, alles andere ist Vergleich.
+        - Name und WKN uebereinander statt nebeneinander: spart Breite und
+          verhindert den unruhigen Zeilenumbruch mitten im Namen.
+        - Zahlen in Tabellenziffern (Monospace), damit die Nachkommastellen
+          untereinander stehen.
+        """
+        if not eintraege:
+            return ""
+
+        # Nur Zeitraum-Spalten zeigen, die mindestens einen Wert haben.
+        zeitraeume = [("_q", "3 Mon."), ("_h", "6 Mon."),
+                      ("_n", "9 Mon."), ("_z", "12 Mon.")]
+        aktive_zeitraeume = [
+            (key, titel) for key, titel in zeitraeume
+            if any(e.get(key) is not None for e in eintraege)
+        ]
+
+        def zelle(wert, fett=False, klein=False):
+            if wert is None:
+                return '<td class="pt-num pt-leer">–</td>'
+            farbe = "pt-up" if wert >= 0 else "pt-down"
+            klassen = f"pt-num {farbe}" + (" pt-stark" if fett else "") + (" pt-klein" if klein else "")
+            return f'<td class="{klassen}">{wert:+.2f}%</td>'
+
+        zeilen = ""
+        for i, e in enumerate(eintraege):
+            ist_eigene = eigene_kennung and eigene_kennung in str(e.get("Wert", ""))
+            zeilen_klasse = "pt-eigene" if ist_eigene else ("pt-zebra" if i % 2 else "")
+
+            # Name und WKN trennen: "MSCI World (A0RPWH)" -> zwei Zeilen
+            roh = str(e.get("Wert", ""))
+            m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", roh)
+            name, kuerzel = (m.group(1), m.group(2)) if m else (roh, "")
+
+            euro = e.get("_euro")
+            euro_klasse = "pt-up" if (euro or 0) >= 0 else "pt-down"
+            seit = e.get("_gelistet_seit")
+            seit_txt = seit.strftime("%d.%m.%y") if seit else "–"
+
+            zeilen += (
+                f'<tr class="{zeilen_klasse}">'
+                f'<td class="pt-wert"><span class="pt-name">{name}</span>'
+                + (f'<span class="pt-wkn">{kuerzel}</span>' if kuerzel else "")
+                + '</td>'
+                + zelle(e.get("_perf"), fett=True)
+                + "".join(zelle(e.get(k), klein=True) for k, _ in aktive_zeitraeume)
+                + zelle(e.get("_monatlich"), klein=True)
+                + zelle(e.get("_jaehrlich"), fett=True)
+                + f'<td class="pt-num pt-klein {euro_klasse}">{fmt(euro or 0, 0)}</td>'
+                + f'<td class="pt-num pt-seit">{seit_txt}</td>'
+                '</tr>'
+            )
+
+        kopf = (
+            '<th class="pt-wert">Wert</th>'
+            '<th class="pt-num">Gesamt</th>'
+            + "".join(f'<th class="pt-num">{t}</th>' for _, t in aktive_zeitraeume)
+            + '<th class="pt-num">Ø/Mon.</th>'
+              '<th class="pt-num">Ø/Jahr</th>'
+              '<th class="pt-num">+/- €</th>'
+              '<th class="pt-num">seit</th>'
+        )
+        return (f'<div class="pt-wrap"><table class="pt">'
+                f'<thead><tr>{kopf}</tr></thead><tbody>{zeilen}</tbody></table></div>')
 
     def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_datum):
         """Gesamt-%, Ø-monatliche % und Ø-jährliche % (beide CAGR-Stil,
@@ -2652,55 +2794,10 @@ def render_dashboard():
                         f"(Kaufdatum, gegen eingesetztes Kapital){_start_hinweis}"
                     )
                     performance_liste_haupt.sort(key=lambda x: x["_jaehrlich"], reverse=True)
-                    zeilen_html_haupt = ""
-                    for eintrag in performance_liste_haupt:
-                        farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
-                        # Quartal/Halbjahr: leere Zelle, wenn die Reihe nicht
-                        # weit genug zurueckreicht (junges Produkt).
-                        def _zt(wert):
-                            """(Text, Farbe) fuer eine Zeitraum-Zelle. Fehlt der
-                            Wert (Historie zu kurz), bleibt sie grau und leer."""
-                            if wert is None:
-                                return "–", "#71717A"
-                            return f"{wert:+.2f}%", ("#00C853" if wert >= 0 else "#FF3D00")
-
-                        _q_txt, _q_farbe = _zt(eintrag.get("_q"))
-                        _h_txt, _h_farbe = _zt(eintrag.get("_h"))
-                        _n_txt, _n_farbe = _zt(eintrag.get("_n"))
-                        _z_txt, _z_farbe = _zt(eintrag.get("_z"))
-                        zeilen_html_haupt += f"""
-                        <tr style="border-bottom: 1px solid #1A1A1A;">
-                            <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
-                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {_q_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_q_txt}</td>
-                            <td style="padding: 8px 6px; color: {_h_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_h_txt}</td>
-                            <td style="padding: 8px 6px; color: {_n_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_n_txt}</td>
-                            <td style="padding: 8px 6px; color: {_z_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_z_txt}</td>
-                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
-                            <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
-                        </tr>"""
-                    st.markdown(f"""
-                    <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden; margin-bottom: 12px;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid #27272A;">
-                                <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">3 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">6 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">9 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">12 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
-                            </tr>
-                        </thead>
-                        <tbody>{zeilen_html_haupt}
-                        </tbody>
-                    </table>
-                    """, unsafe_allow_html=True)
+                    st.markdown(
+                        performance_tabelle_html(performance_liste_haupt, eigene_kennung=config.WKN),
+                        unsafe_allow_html=True,
+                    )
 
                 with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
                     st.caption(
@@ -2832,55 +2929,10 @@ def render_dashboard():
                 if performance_liste_v2:
                     st.caption(f"📅 Berechnet seit {config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}")
                     performance_liste_v2.sort(key=lambda x: x["_jaehrlich"], reverse=True)
-                    zeilen_html = ""
-                    for eintrag in performance_liste_v2:
-                        farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
-                        # Quartal/Halbjahr: leere Zelle, wenn die Reihe nicht
-                        # weit genug zurueckreicht (junges Produkt).
-                        def _zt(wert):
-                            """(Text, Farbe) fuer eine Zeitraum-Zelle. Fehlt der
-                            Wert (Historie zu kurz), bleibt sie grau und leer."""
-                            if wert is None:
-                                return "–", "#71717A"
-                            return f"{wert:+.2f}%", ("#00C853" if wert >= 0 else "#FF3D00")
-
-                        _q_txt, _q_farbe = _zt(eintrag.get("_q"))
-                        _h_txt, _h_farbe = _zt(eintrag.get("_h"))
-                        _n_txt, _n_farbe = _zt(eintrag.get("_n"))
-                        _z_txt, _z_farbe = _zt(eintrag.get("_z"))
-                        zeilen_html += f"""
-                        <tr style="border-bottom: 1px solid #1A1A1A;">
-                            <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
-                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {_q_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_q_txt}</td>
-                            <td style="padding: 8px 6px; color: {_h_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_h_txt}</td>
-                            <td style="padding: 8px 6px; color: {_n_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_n_txt}</td>
-                            <td style="padding: 8px 6px; color: {_z_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_z_txt}</td>
-                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
-                            <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
-                        </tr>"""
-                    st.markdown(f"""
-                    <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid #27272A;">
-                                <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">3 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">6 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">9 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">12 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
-                            </tr>
-                        </thead>
-                        <tbody>{zeilen_html}
-                        </tbody>
-                    </table>
-                    """, unsafe_allow_html=True)
+                    st.markdown(
+                        performance_tabelle_html(performance_liste_v2, eigene_kennung=config.WKN),
+                        unsafe_allow_html=True,
+                    )
 
                 with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
                     st.caption(
@@ -3002,55 +3054,10 @@ def render_dashboard():
                 if performance_liste_v3:
                     st.caption(f"📅 Berechnet seit {config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')} (bzw. erstem verfügbaren Kurs)")
                     performance_liste_v3.sort(key=lambda x: x["_jaehrlich"], reverse=True)
-                    zeilen_html_v3 = ""
-                    for eintrag in performance_liste_v3:
-                        farbe = "#00C853" if eintrag["_perf"] >= 0 else "#FF3D00"
-                        # Quartal/Halbjahr: leere Zelle, wenn die Reihe nicht
-                        # weit genug zurueckreicht (junges Produkt).
-                        def _zt(wert):
-                            """(Text, Farbe) fuer eine Zeitraum-Zelle. Fehlt der
-                            Wert (Historie zu kurz), bleibt sie grau und leer."""
-                            if wert is None:
-                                return "–", "#71717A"
-                            return f"{wert:+.2f}%", ("#00C853" if wert >= 0 else "#FF3D00")
-
-                        _q_txt, _q_farbe = _zt(eintrag.get("_q"))
-                        _h_txt, _h_farbe = _zt(eintrag.get("_h"))
-                        _n_txt, _n_farbe = _zt(eintrag.get("_n"))
-                        _z_txt, _z_farbe = _zt(eintrag.get("_z"))
-                        zeilen_html_v3 += f"""
-                        <tr style="border-bottom: 1px solid #1A1A1A;">
-                            <td style="padding: 8px 6px; color: #E5E7EB; font-size: 0.85rem;">{eintrag['Wert']}</td>
-                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_perf']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {_q_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_q_txt}</td>
-                            <td style="padding: 8px 6px; color: {_h_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_h_txt}</td>
-                            <td style="padding: 8px 6px; color: {_n_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_n_txt}</td>
-                            <td style="padding: 8px 6px; color: {_z_farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{_z_txt}</td>
-                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{eintrag['_monatlich']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {farbe}; font-weight: 700; text-align: right; white-space: nowrap; font-size: 0.85rem;">{eintrag['_jaehrlich']:+.2f}%</td>
-                            <td style="padding: 8px 6px; color: {farbe}; text-align: right; white-space: nowrap; font-size: 0.8rem;">{fmt(eintrag['_euro'], 0)}</td>
-                            <td style="padding: 8px 6px; color: #71717A; text-align: right; white-space: nowrap; font-size: 0.75rem;">{eintrag['_gelistet_seit'].strftime('%d.%m.%Y') if eintrag.get('_gelistet_seit') else '-'}</td>
-                        </tr>"""
-                    st.markdown(f"""
-                    <table style="width: 100%; border-collapse: collapse; background: #09090B; border: 1px solid #27272A; border-radius: 6px; overflow: hidden;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid #27272A;">
-                                <th style="padding: 8px 6px; text-align: left; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Wert</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gesamt</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">3 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">6 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">9 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">12 Mon.</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Monat</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Ø/Jahr (p.a.)</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">+/- €</th>
-                                <th style="padding: 8px 6px; text-align: right; color: #A1A1AA; font-size: 0.7rem; text-transform: uppercase;">Gelistet seit</th>
-                            </tr>
-                        </thead>
-                        <tbody>{zeilen_html_v3}
-                        </tbody>
-                    </table>
-                    """, unsafe_allow_html=True)
+                    st.markdown(
+                        performance_tabelle_html(performance_liste_v3, eigene_kennung=config.WKN),
+                        unsafe_allow_html=True,
+                    )
 
                 with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
                     st.caption(
