@@ -556,15 +556,17 @@ st.markdown("""
 
     .pt thead th {
         position: sticky; top: 0; z-index: 2;
-        background: #14161B;
+        /* Harmonischer Grauton, deutlich abgesetzt von den Zeilen darunter
+           (#0B0C0F) - die Kopfzeile soll klar als eigene Ebene erkennbar
+           sein, nicht nur eine Nuance dunkler. */
+        background: #1C1F26;
         padding: 9px 10px;
         font-size: 0.64rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 0.7px; text-transform: uppercase;
-        text-align: right; white-space: nowrap;
+        text-align: center; white-space: nowrap;
         border-bottom: 1px solid var(--line);
         text-shadow: 0 0 8px rgba(255, 255, 255, 0.30);
     }
-    .pt thead th.pt-wert { text-align: left; }
 
     /* Zebra-Streifen: machen lange Zeilen ueber die ganze Breite verfolgbar */
     .pt tbody tr.pt-zebra { background: rgba(255, 255, 255, 0.022); }
@@ -586,14 +588,14 @@ st.markdown("""
 
     /* Name und WKN untereinander statt nebeneinander - spart Breite und
        verhindert den Umbruch mitten im Namen. */
-    .pt-wert { text-align: left; min-width: 130px; }
+    .pt-wert { text-align: left; min-width: 110px; }
     .pt-name {
         display: block; font-size: 0.83rem; font-weight: 700; color: #FFFFFF;
         white-space: normal; line-height: 1.25;
     }
-    .pt-wkn {
-        display: block; font-size: 0.66rem; color: var(--muted);
-        letter-spacing: 0.4px; margin-top: 1px;
+    .pt-wknval {
+        color: var(--label); font-weight: 600; font-size: 0.72rem;
+        letter-spacing: 0.3px;
     }
 
     /* Zahlen in Tabellenziffern, damit Nachkommastellen untereinander stehen */
@@ -1616,14 +1618,13 @@ def render_dashboard():
 
             zeilen += (
                 f'<tr class="{zeilen_klasse}">'
-                f'<td class="pt-wert"><span class="pt-name">{name}</span>'
-                + (f'<span class="pt-wkn">{kuerzel}</span>' if kuerzel else "")
-                + '</td>'
+                f'<td class="pt-wert"><span class="pt-name">{name}</span></td>'
                 + zelle(e.get("_monatlich"), fett=True)
                 + zelle(e.get("_jaehrlich"), fett=True)
                 + zelle(e.get("_perf"), fett=True)
                 + "".join(zelle(e.get(k), fett=True) for k, _ in aktive_zeitraeume)
                 + f'<td class="pt-num pt-stark {euro_klasse}">{fmt(euro or 0, 0)}</td>'
+                + f'<td class="pt-num pt-wknval">{kuerzel or "–"}</td>'
                 + f'<td class="pt-num pt-seit">{seit_txt}</td>'
                 '</tr>'
             )
@@ -1635,6 +1636,7 @@ def render_dashboard():
               '<th class="pt-num">Gesamt</th>'
             + "".join(f'<th class="pt-num">{t}</th>' for _, t in aktive_zeitraeume)
             + '<th class="pt-num">+/- €</th>'
+              '<th class="pt-num">WKN</th>'
               '<th class="pt-num">seit</th>'
         )
         return (f'<div class="pt-wrap"><table class="pt">'
