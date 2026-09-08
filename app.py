@@ -335,12 +335,16 @@ st.markdown("""
 
     /* Label dezent halten - es soll orientieren, nicht mit den Kachel-
        Ueberschriften konkurrieren. */
-    [data-testid="stSelectbox"] label {
-        font-size: 0.72rem !important;
-        font-weight: 600 !important;
-        color: var(--muted) !important;
-        letter-spacing: 0.6px;
+    /* Identisch zu .abschnitt, damit alle Ueberschriften gleich aussehen. */
+    [data-testid="stSelectbox"] label,
+    [data-testid="stSelectbox"] label p {
+        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
+        font-size: 0.74rem !important;
+        font-weight: 700 !important;
+        color: #FFFFFF !important;
+        letter-spacing: 1.3px !important;
         text-transform: uppercase;
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
     }
 
     /* Rahmen per OUTLINE statt border: outline wird von BaseWebs eigenen
@@ -426,7 +430,7 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.55) !important;
         border-radius: 12px !important;
         background: var(--surface) !important;
-        margin-bottom: 10px !important;
+        margin-bottom: 0 !important;
         overflow: hidden;
         box-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
         transition: box-shadow 0.15s ease, border-color 0.15s ease;
@@ -451,6 +455,21 @@ st.markdown("""
         font-weight: 600 !important;
         line-height: 1.35 !important;
         color: var(--text) !important;
+    }
+
+    /* Der Abstand kommt bei Streamlit vom umgebenden Block, nicht vom
+       Expander selbst - deshalb dort verringern. Sonst stehen die Kacheln
+       trotz margin-bottom:0 weit auseinander. */
+    div[data-testid="stElementContainer"]:has([data-testid="stExpander"]) {
+        margin-bottom: 6px !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div > [data-testid="stExpander"]) {
+        gap: 6px !important;
+    }
+    /* Fallback fuer Browser ohne :has()-Unterstuetzung: der Expander zieht
+       sich selbst nach oben an den vorherigen Block heran. */
+    @supports not selector(:has(*)) {
+        [data-testid="stExpander"] { margin-top: -12px !important; }
     }
 
     /* Aufklapp-Pfeil: eigene Icon-Schrift erzwingen und deutlich vergroessern,
