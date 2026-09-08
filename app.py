@@ -392,28 +392,40 @@ st.markdown("""
         min-height: 44px !important;
     }
 
-    /* ---------- ZENTRIERTER LADEFORTSCHRITT ---------- */
+    /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
+       Bewusst position:fixed statt im normalen Seitenfluss. Vorher wanderte
+       der Balken mit, sobald darueber/darunter Inhalte erschienen - und das
+       Fragment der Kursansicht zeichnete ihn an einer voellig anderen Stelle.
+       Ergebnis war ein sichtbares Hin- und Herspringen.
+       Fixiert belegt er ausserdem keinen Platz im Layout, es gibt also auch
+       keinen Versatz mehr, wenn er wieder verschwindet. */
     .loading-overlay {
-        display: flex; flex-direction: column; align-items: center;
-        justify-content: center; gap: 12px;
-        padding: 48px 20px; text-align: center;
+        position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+        display: flex; align-items: center; gap: 12px;
+        padding: 10px 16px;
+        background: rgba(10, 11, 13, 0.96);
+        border-bottom: 1px solid var(--line);
+        box-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(6px);
     }
     .loading-pct {
         font-family: 'IBM Plex Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums;
-        font-size: 2.2rem; font-weight: 700; color: var(--text);
-        letter-spacing: -1px; line-height: 1;
+        font-size: 1rem; font-weight: 700; color: var(--text);
+        line-height: 1; min-width: 48px; flex-shrink: 0;
     }
     .loading-bar {
-        width: min(280px, 80vw); height: 6px; border-radius: 999px;
-        background: var(--line); overflow: hidden;
+        flex: 1 1 auto; height: 5px; border-radius: 999px;
+        background: var(--line); overflow: hidden; min-width: 60px;
     }
     .loading-bar-fill {
         height: 100%; background: var(--up); border-radius: 999px;
-        transition: width 0.3s ease;
+        transition: width 0.25s ease;
     }
     .loading-text {
-        font-size: 0.85rem; color: var(--muted); font-weight: 500;
+        font-size: 0.75rem; color: var(--muted); font-weight: 500;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        max-width: 45%; flex-shrink: 1;
     }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; max-width: 780px; }
 
@@ -1030,10 +1042,16 @@ def erstelle_ladeanzeige(platzhalter, phasen):
         versatz[schluessel] = (laufend, gewicht)
         laufend += gewicht
 
+    hoechster = {"pct": 0}
+
     def melde(schluessel, anteil=0.0, text=""):
         start, gewicht = versatz.get(schluessel, (0, gesamt_gewicht))
         anteil = max(0.0, min(1.0, anteil))
         pct = int((start + gewicht * anteil) / gesamt_gewicht * 100)
+        # Nie rueckwaerts laufen: ein zurueckspringender Balken wirkt wie ein
+        # Fehler, auch wenn nur eine Phase uebersprungen wurde.
+        pct = max(pct, hoechster["pct"])
+        hoechster["pct"] = pct
         platzhalter.markdown(
             f'<div class="loading-overlay">'
             f'<div class="loading-pct">{pct} %</div>'
