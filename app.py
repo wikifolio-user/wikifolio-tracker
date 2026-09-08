@@ -361,9 +361,14 @@ st.markdown("""
     [data-testid="stSelectbox"] label {
         display: block !important;
         width: 100% !important;
-        margin: 16px 0 13px 2px !important;
-        padding-bottom: 7px !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.45) !important;
+        /* KEINE Trennlinie hier: das Dropdown darunter hat bereits einen
+           kraeftigen weissen Rahmen - eine zusaetzliche Linie direkt darueber
+           wirkt wie eine doppelte Begrenzung. Der Abstand entspricht dem der
+           .abschnitt-Ueberschriften (dort 7px padding + 2px margin + 11px
+           Grundabstand = 20px, hier direkt als margin gesetzt). */
+        margin: 16px 0 20px 2px !important;
+        padding-bottom: 0 !important;
+        border-bottom: none !important;
     }
     /* Das innere <p> bringt eigene Abstaende mit - hier entfernen. */
     [data-testid="stSelectbox"] label p {
