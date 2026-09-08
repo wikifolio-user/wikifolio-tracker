@@ -414,18 +414,23 @@ st.markdown("""
         font-size: 1rem; font-weight: 700; color: var(--text);
         line-height: 1; min-width: 48px; flex-shrink: 0;
     }
+    /* FESTE Breite: mit "flex: 1 1 auto" wuchs und schrumpfte der Balken je
+       nach Laenge des Statustextes - er wirkte dadurch, als liefe er vor und
+       zurueck. Jetzt bleibt seine Breite konstant, nur die Fuellung bewegt sich. */
     .loading-bar {
-        flex: 1 1 auto; height: 5px; border-radius: 999px;
-        background: var(--line); overflow: hidden; min-width: 60px;
+        flex: 0 0 140px; width: 140px; height: 5px; border-radius: 999px;
+        background: var(--line); overflow: hidden;
     }
     .loading-bar-fill {
         height: 100%; background: var(--up); border-radius: 999px;
         transition: width 0.25s ease;
     }
+    /* Der Text fuellt den Rest und wird bei Bedarf abgeschnitten - er darf
+       die Position von Prozentzahl und Balken nicht mehr beeinflussen. */
     .loading-text {
+        flex: 1 1 auto; min-width: 0;
         font-size: 0.75rem; color: var(--muted); font-weight: 500;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        max-width: 45%; flex-shrink: 1;
     }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; max-width: 780px; }
 
