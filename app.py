@@ -1009,6 +1009,46 @@ def tab_label(name, wkn="", max_len=16):
     return gekuerzt + "…"
 
 
+def erstelle_ladeanzeige(platzhalter, phasen):
+    """Eine EINZIGE, durchlaufende Ladeanzeige fuer den gesamten Seitenaufbau.
+
+    Statt mehrerer nacheinander auftauchender Balken (die jeweils wieder bei
+    0 % begannen und dadurch wie Stillstand wirkten) zaehlt hier ein einziger
+    Wert von 0 auf 100. Jede Phase bekommt ein Gewicht entsprechend ihrem
+    ungefaehren Zeitanteil; innerhalb einer Phase kann feiner gemeldet werden.
+
+    phasen: [(schluessel, gewicht), ...] in Ausfuehrungsreihenfolge
+
+    Rueckgabe: (melde, fertig)
+        melde(schluessel, anteil=0.0, text="")  anteil = 0..1 innerhalb der Phase
+        fertig()                                entfernt die Anzeige
+    """
+    gesamt_gewicht = sum(g for _, g in phasen) or 1
+    versatz = {}
+    laufend = 0
+    for schluessel, gewicht in phasen:
+        versatz[schluessel] = (laufend, gewicht)
+        laufend += gewicht
+
+    def melde(schluessel, anteil=0.0, text=""):
+        start, gewicht = versatz.get(schluessel, (0, gesamt_gewicht))
+        anteil = max(0.0, min(1.0, anteil))
+        pct = int((start + gewicht * anteil) / gesamt_gewicht * 100)
+        platzhalter.markdown(
+            f'<div class="loading-overlay">'
+            f'<div class="loading-pct">{pct} %</div>'
+            f'<div class="loading-bar"><div class="loading-bar-fill" '
+            f'style="width:{pct}%"></div></div>'
+            f'<div class="loading-text">{text}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    def fertig():
+        platzhalter.empty()
+
+    return melde, fertig
+
+
 def fortschritt_anzeige(platzhalter):
     """Gibt eine Funktion zurueck, die einen zentrierten Ladebalken mit
     Prozentangabe in den uebergebenen Platzhalter zeichnet. Der Prozentwert
@@ -1042,13 +1082,21 @@ def render_dashboard():
     now_berlin = datetime.datetime.now(BERLIN_TZ)
     heute_date = now_berlin.date()
 
-    # Ladeanzeige fuer den Seitenaufbau. Die Schritte darunter sind echte
-    # Netzabrufe - bei gefuelltem Cache laufen sie so schnell durch, dass die
-    # Anzeige kaum sichtbar ist; beim Kaltstart erklaert sie die Wartezeit.
-    _aufbau_platz = st.empty()
-    _aufbau = fortschritt_anzeige(_aufbau_platz)
+    # EINE gemeinsame Ladeanzeige fuer den kompletten Seitenaufbau. Die
+    # Gewichte entsprechen grob dem Zeitanteil der jeweiligen Phase - dadurch
+    # laeuft ein einziger Prozentwert von 0 auf 100, statt dass mehrere Balken
+    # nacheinander jeweils wieder bei 0 % beginnen.
+    _lade_platz = st.empty()
+    melde, lade_fertig = erstelle_ladeanzeige(_lade_platz, [
+        ("live",        8),    # ein Abruf
+        ("kaufkurs",    5),    # ein Abruf, meist aus dem Cache
+        ("historie",   12),    # ein groesserer Abruf
+        ("benchmarks", 45),    # ein Abruf je Vergleichswert - der Loewenanteil
+        ("positionen", 20),    # je weiterer Position zwei Abrufe
+        ("ansicht",    10),    # gewaehlter Chart
+    ])
 
-    _aufbau(10, "Rufe Live-Kurs ab …")
+    melde("live", 0.0, "Rufe Live-Kurs ab …")
     aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
 
     is_live_data = "Fehler" not in fetched_source
@@ -1071,7 +1119,7 @@ def render_dashboard():
     kaufkurs_auto = st.session_state.get("haupt_kaufkurs_auto", True)
     kaufkurs_ermittelt = None
     if kaufkurs_auto:
-        _aufbau(25, "Ermittle Kaufkurs …")
+        melde("kaufkurs", 0.0, "Ermittle Kaufkurs …")
         _hist_kauf = get_kurshistorie(
             config.LS_INSTRUMENT_ID,
             kaufdatum_aktiv - datetime.timedelta(days=30), kaufdatum_aktiv
@@ -1088,7 +1136,7 @@ def render_dashboard():
 
     stueckzahl_aktiv = startkapital_aktiv / kaufkurs_aktiv
 
-    _aufbau(40, "Lade Kurshistorie …")
+    melde("historie", 0.0, "Lade Kurshistorie …")
     df_chart, hist_source_name = get_historical_market_data(kaufdatum_aktiv, heute_date, aktueller_kurs)
     is_live_history = "SYNTHETISCH" not in hist_source_name
 
@@ -1192,22 +1240,16 @@ def render_dashboard():
         series, startdaten = {}, {}
         items = list(config.BENCHMARKS.items())
         gesamt = len(items)
-        box = st.empty()
-        schritt = fortschritt_anzeige(box)
         for i, (label, inst_id) in enumerate(items):
-            pct = int(i / gesamt * 100) if gesamt else 100
-            schritt(pct, f"{hinweis} … ({i + 1}/{gesamt}) · {label}")
+            melde("benchmarks", i / gesamt if gesamt else 1.0,
+                  f"{hinweis} … ({i + 1}/{gesamt}) · {label}")
             s, erstes_datum = benchmark_normiert_auf_startkapital(
                 df_index, inst_id, start_datum, heute_date, kapital
             )
             if s is not None:
                 series[label] = s
                 startdaten[label] = erstes_datum
-        box.empty()
         return series, startdaten
-
-    # Grundlast fertig - ab hier uebernimmt die Benchmark-Anzeige den Balken.
-    _aufbau_platz.empty()
 
     benchmark_series, benchmark_start_daten = lade_benchmarks_mit_fortschritt(
         df_chart.index, kaufdatum_aktiv, startkapital_aktiv
@@ -1789,18 +1831,14 @@ def render_dashboard():
     gesamt_zeitraeume = {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"}
     positionen_ok = True
 
-    _pos_platz = st.empty()
-    _pos_schritt = fortschritt_anzeige(_pos_platz)
     _pos_gesamt = len(weitere_positionen)
 
     for _pos_i, pos in enumerate(weitere_positionen):
         try:
             p_name = pos.get("name", pos.get("wkn", "Position"))
             if _pos_gesamt:
-                _pos_schritt(
-                    int(_pos_i / _pos_gesamt * 100),
-                    f"Lade Position {_pos_i + 1}/{_pos_gesamt} · {p_name} …",
-                )
+                melde("positionen", _pos_i / _pos_gesamt,
+                      f"Lade Position {_pos_i + 1}/{_pos_gesamt} · {p_name} …")
 
             # --- Position ohne Kursquelle: eigene, ruhige Kachel statt Fehler ---
             # Sie zeigt nur den Einstand und laesst sich per Instrument-ID
@@ -1875,8 +1913,6 @@ def render_dashboard():
             positionen_ok = False
             st.error(f"⚠️ Position **{pos.get('name', '?')}** konnte nicht berechnet werden: {e}")
             notify_app_error(f"Position-{pos.get('id', '?')}", e)
-
-    _pos_platz.empty()
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if weitere_positionen:
@@ -2009,6 +2045,10 @@ def render_dashboard():
         if "haupt_entnommen_input" not in st.session_state:
             ek_kwargs["value"] = entnommen_aktiv
         st.number_input("Monatliche Entnahme (€)", **ek_kwargs)
+
+    # Sicherheitsnetz: falls keine Ansicht gegriffen hat (z.B. unbekannter
+    # gespeicherter Wert in der Auswahl), darf die Anzeige nicht stehenbleiben.
+    lade_fertig()
 
     # ---------- BEOBACHTUNGSLISTE VERWALTEN ----------
     with st.expander("👁️ Beobachtungsliste verwalten", expanded=False):
@@ -2359,11 +2399,6 @@ def render_dashboard():
         "Ansicht wählen", ANSICHTEN, key="ansicht_wahl",
     )
 
-    # Ladeanzeige fuer die gewaehlte Ansicht (Charts brauchen teils mehrere
-    # Netzabrufe). Wird direkt nach dem Aufbau wieder entfernt.
-    _ansicht_platz = st.empty()
-    _ansicht_schritt = fortschritt_anzeige(_ansicht_platz)
-
     # Die Render-Funktionen unten arbeiten mit "with tab_x:" - dafuer reicht
     # ein gemeinsamer Container, da ohnehin nur eine Ansicht gezeichnet wird.
     _ansicht_container = st.container()
@@ -2519,9 +2554,9 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Vermoegensaufbau", e)
     if gewaehlte_ansicht == "📈 Vermögens- & Substanzaufbau":
-        _ansicht_schritt(35, "Baue Vermögensaufbau auf …")
+        melde("ansicht", 0.3, "Baue Vermögensaufbau auf …")
         _render_wealth()
-        _ansicht_platz.empty()
+        lade_fertig()
 
     @st.fragment
     def _render_ytd():
@@ -2673,9 +2708,9 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Seit-2026", e)
     if gewaehlte_ansicht == "🔍 Seit 01.01.2026":
-        _ansicht_schritt(35, "Lade Vergleich seit 2026 …")
+        melde("ansicht", 0.3, "Lade Vergleich seit 2026 …")
         _render_ytd()
-        _ansicht_platz.empty()
+        lade_fertig()
 
     @st.fragment
     def _render_2021():
@@ -2848,9 +2883,9 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Seit-2021", e)
     if gewaehlte_ansicht == "🔎 Seit 01.01.2021":
-        _ansicht_schritt(35, "Lade Vergleich seit 2021 …")
+        melde("ansicht", 0.3, "Lade Vergleich seit 2021 …")
         _render_2021()
-        _ansicht_platz.empty()
+        lade_fertig()
 
     @st.fragment
     def _render_trades():
@@ -2892,9 +2927,9 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Trader-Log", e)
     if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
-        _ansicht_schritt(35, "Lade Trader-Log …")
+        melde("ansicht", 0.3, "Lade Trader-Log …")
         _render_trades()
-        _ansicht_platz.empty()
+        lade_fertig()
 
     @st.fragment
     def _render_candle():
@@ -2914,9 +2949,9 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Candlestick", e)
     if gewaehlte_ansicht == "🕯️ Tages-Candlestick":
-        _ansicht_schritt(35, "Baue Candlestick-Chart …")
+        melde("ansicht", 0.3, "Baue Candlestick-Chart …")
         _render_candle()
-        _ansicht_platz.empty()
+        lade_fertig()
 
     @st.fragment
     def _render_forecast():
@@ -2965,9 +3000,9 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Prognose", e)
     if gewaehlte_ansicht == "🔮 Zukunfts-Prognose":
-        _ansicht_schritt(35, "Berechne Prognose …")
+        melde("ansicht", 0.3, "Berechne Prognose …")
         _render_forecast()
-        _ansicht_platz.empty()
+        lade_fertig()
 
     @st.fragment
     def _render_scenarios():
@@ -3098,9 +3133,9 @@ def render_dashboard():
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Szenarien", e)
     if gewaehlte_ansicht == "📊 Szenario-Simulator (5 Jahre)":
-        _ansicht_schritt(35, "Berechne Szenarien …")
+        melde("ansicht", 0.3, "Berechne Szenarien …")
         _render_scenarios()
-        _ansicht_platz.empty()
+        lade_fertig()
 
     # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
     # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
