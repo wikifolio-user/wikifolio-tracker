@@ -10,4 +10,8 @@ base = "dark"
 backgroundColor = "#0A0B0D"
 secondaryBackgroundColor = "#131519"
 textColor = "#E9EBEF"
-primaryColor = "#16C784"
+# primaryColor faerbt in Streamlit u.a. Fokusrahmen von Eingabefeldern und
+# Dropdowns. Bewusst Weiss statt Gruen: Gruen/Rot sind in dieser App fuer
+# Kursveraenderungen reserviert - ein gruener Fokusrahmen wuerde dort faelschlich
+# nach "Gewinn" aussehen. Bedienelemente heben sich stattdessen ueber Weiss ab.
+primaryColor = "#FFFFFF"
