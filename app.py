@@ -340,7 +340,9 @@ st.markdown("""
 
     /* Label dezent halten - es soll orientieren, nicht mit den Kachel-
        Ueberschriften konkurrieren. */
-    /* Identisch zu .abschnitt, damit alle Ueberschriften gleich aussehen. */
+    /* Identisch zu .abschnitt, damit alle Ueberschriften gleich aussehen.
+       Typografie fuer beide Ebenen (Streamlit legt den Text je nach Version
+       direkt ins label oder in ein <p> darin). */
     [data-testid="stSelectbox"] label,
     [data-testid="stSelectbox"] label p {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
@@ -350,15 +352,25 @@ st.markdown("""
         letter-spacing: 1.3px !important;
         text-transform: uppercase;
         text-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
-        /* Vollstaendig wie .abschnitt: Trennlinie, gleicher Innen- und
-           Aussenabstand. Der Streamlit-Grundabstand greift innerhalb des
-           Widgets nicht, deshalb sind die 13px hier direkt gesetzt
-           (2px margin + 11px Grundabstand bei den Abschnitten). */
+    }
+    /* Trennlinie und Abstaende NUR auf dem label - liegen sie auch auf dem
+       <p> darin, zeichnen beide je einen Strich (das waren die zwei Linien).
+       Der Streamlit-Grundabstand greift innerhalb eines Widgets nicht,
+       deshalb sind die 13px hier direkt gesetzt (entspricht 2px margin +
+       11px Grundabstand bei den .abschnitt-Ueberschriften). */
+    [data-testid="stSelectbox"] label {
         display: block !important;
         width: 100% !important;
         margin: 16px 0 13px 2px !important;
         padding-bottom: 7px !important;
         border-bottom: 1px solid rgba(255, 255, 255, 0.45) !important;
+    }
+    /* Das innere <p> bringt eigene Abstaende mit - hier entfernen. */
+    [data-testid="stSelectbox"] label p {
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        line-height: 1.2 !important;
     }
 
     /* Rahmen per OUTLINE statt border: outline wird von BaseWebs eigenen
