@@ -1618,10 +1618,10 @@ def render_dashboard():
                 f'<td class="pt-wert"><span class="pt-name">{name}</span>'
                 + (f'<span class="pt-wkn">{kuerzel}</span>' if kuerzel else "")
                 + '</td>'
-                + zelle(e.get("_perf"), fett=True)
-                + "".join(zelle(e.get(k), klein=True) for k, _ in aktive_zeitraeume)
                 + zelle(e.get("_monatlich"), klein=True)
                 + zelle(e.get("_jaehrlich"), fett=True)
+                + zelle(e.get("_perf"), fett=True)
+                + "".join(zelle(e.get(k), klein=True) for k, _ in aktive_zeitraeume)
                 + f'<td class="pt-num pt-klein {euro_klasse}">{fmt(euro or 0, 0)}</td>'
                 + f'<td class="pt-num pt-seit">{seit_txt}</td>'
                 '</tr>'
@@ -1629,11 +1629,11 @@ def render_dashboard():
 
         kopf = (
             '<th class="pt-wert">Wert</th>'
-            '<th class="pt-num">Gesamt</th>'
-            + "".join(f'<th class="pt-num">{t}</th>' for _, t in aktive_zeitraeume)
-            + '<th class="pt-num">Ø/Mon.</th>'
+            '<th class="pt-num">Ø/Mon.</th>'
               '<th class="pt-num">Ø/Jahr</th>'
-              '<th class="pt-num">+/- €</th>'
+              '<th class="pt-num">Gesamt</th>'
+            + "".join(f'<th class="pt-num">{t}</th>' for _, t in aktive_zeitraeume)
+            + '<th class="pt-num">+/- €</th>'
               '<th class="pt-num">seit</th>'
         )
         return (f'<div class="pt-wrap"><table class="pt">'
