@@ -558,10 +558,11 @@ st.markdown("""
         position: sticky; top: 0; z-index: 2;
         background: #14161B;
         padding: 9px 10px;
-        font-size: 0.64rem; font-weight: 700; color: var(--label);
+        font-size: 0.64rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 0.7px; text-transform: uppercase;
         text-align: right; white-space: nowrap;
         border-bottom: 1px solid var(--line);
+        text-shadow: 0 0 8px rgba(255, 255, 255, 0.30);
     }
     .pt thead th.pt-wert { text-align: left; }
 
@@ -607,7 +608,7 @@ st.markdown("""
     .pt-up { color: #16C784; }
     .pt-down { color: #EA3943; }
     .pt-leer { color: #4B5058; }
-    .pt-seit { color: var(--muted); font-size: 0.7rem; }
+    .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.75rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
 
     /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
        Bewusst position:fixed statt im normalen Seitenfluss. Vorher wanderte
