@@ -345,6 +345,15 @@ st.markdown("""
         letter-spacing: 1.3px !important;
         text-transform: uppercase;
         text-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
+        /* Vollstaendig wie .abschnitt: Trennlinie, gleicher Innen- und
+           Aussenabstand. Der Streamlit-Grundabstand greift innerhalb des
+           Widgets nicht, deshalb sind die 13px hier direkt gesetzt
+           (2px margin + 11px Grundabstand bei den Abschnitten). */
+        display: block !important;
+        width: 100% !important;
+        margin: 16px 0 13px 2px !important;
+        padding-bottom: 7px !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.45) !important;
     }
 
     /* Rahmen per OUTLINE statt border: outline wird von BaseWebs eigenen
@@ -464,6 +473,13 @@ st.markdown("""
        Grundabstand - sie bilden optisch eine Gruppe. */
     div[data-testid="stElementContainer"]:has([data-testid="stExpander"]) {
         margin-top: -0.35rem !important;
+    }
+    /* AUSNAHME: der ERSTE Bereich direkt unter einer Abschnittsueberschrift
+       behaelt den vollen Abstand. Ohne das saehe der Abstand Ueberschrift ->
+       erste Kachel enger aus als bei "Ansicht waehlen" -> Dropdown. */
+    div[data-testid="stElementContainer"]:has(.abschnitt)
+    + div[data-testid="stElementContainer"] {
+        margin-top: 0 !important;
     }
     /* Fallback fuer Browser ohne :has()-Unterstuetzung: der Expander zieht
        sich selbst nach oben an den vorherigen Block heran. */
