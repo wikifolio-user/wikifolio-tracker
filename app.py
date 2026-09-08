@@ -439,15 +439,30 @@ st.markdown("""
     /* Titelzeile vereinheitlichen: gleiche Schrift, gleiches Gewicht, gleiche
        Groesse. Streamlit setzt hier je nach Version eigene Werte - dadurch
        wirkten die Titel unterschiedlich, obwohl es dieselbe Schrift war. */
+    /* ACHTUNG: Icon-Elemente hier ausnehmen! Wird ihnen eine Textschrift
+       aufgezwungen, rendert Streamlit statt des Pfeil-Glyphs den rohen
+       Icon-Namen als Text ("_arrow_right"). */
     [data-testid="stExpander"] summary,
     [data-testid="stExpander"] summary p,
-    [data-testid="stExpander"] summary span,
-    [data-testid="stExpander"] summary div {
+    [data-testid="stExpander"] summary span:not([data-testid="stIconMaterial"]):not(.material-icons):not([class*="material-symbols"]),
+    [data-testid="stExpander"] summary div:not([data-testid="stIconMaterial"]) {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
         font-size: 0.88rem !important;
         font-weight: 600 !important;
         line-height: 1.35 !important;
         color: var(--text) !important;
+    }
+
+    /* Aufklapp-Pfeil: eigene Icon-Schrift erzwingen und deutlich vergroessern,
+       damit klar erkennbar ist, dass sich der Bereich oeffnen laesst. */
+    [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {
+        font-family: 'Material Symbols Rounded', 'Material Symbols Outlined',
+                     'Material Icons' !important;
+        font-size: 1.7rem !important;
+        line-height: 1 !important;
+        color: #FFFFFF !important;
+        opacity: 1 !important;
+        flex-shrink: 0;
     }
     [data-testid="stExpander"] summary {
         padding: 13px 14px !important;
@@ -458,6 +473,8 @@ st.markdown("""
         background-color: #171A1F !important;
         color: #FFFFFF !important;
     }
+    /* Abstand zwischen Pfeil und Titel */
+    [data-testid="stExpander"] summary { gap: 10px !important; }
     [data-testid="stExpander"] summary svg {
         fill: #FFFFFF !important;
         color: #FFFFFF !important;
