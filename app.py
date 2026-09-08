@@ -587,7 +587,7 @@ st.markdown("""
        verhindert den Umbruch mitten im Namen. */
     .pt-wert { text-align: left; min-width: 130px; }
     .pt-name {
-        display: block; font-size: 0.82rem; font-weight: 600; color: var(--text);
+        display: block; font-size: 0.83rem; font-weight: 700; color: #FFFFFF;
         white-space: normal; line-height: 1.25;
     }
     .pt-wkn {
@@ -1618,11 +1618,11 @@ def render_dashboard():
                 f'<td class="pt-wert"><span class="pt-name">{name}</span>'
                 + (f'<span class="pt-wkn">{kuerzel}</span>' if kuerzel else "")
                 + '</td>'
-                + zelle(e.get("_monatlich"), klein=True)
+                + zelle(e.get("_monatlich"), fett=True)
                 + zelle(e.get("_jaehrlich"), fett=True)
                 + zelle(e.get("_perf"), fett=True)
-                + "".join(zelle(e.get(k), klein=True) for k, _ in aktive_zeitraeume)
-                + f'<td class="pt-num pt-klein {euro_klasse}">{fmt(euro or 0, 0)}</td>'
+                + "".join(zelle(e.get(k), fett=True) for k, _ in aktive_zeitraeume)
+                + f'<td class="pt-num pt-stark {euro_klasse}">{fmt(euro or 0, 0)}</td>'
                 + f'<td class="pt-num pt-seit">{seit_txt}</td>'
                 '</tr>'
             )
