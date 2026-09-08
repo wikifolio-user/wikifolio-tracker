@@ -113,7 +113,7 @@ st.markdown("""
     /* ---------- KURS-KOPF: die Zahl ist der Held der Seite ---------- */
     .quote {
         background: var(--surface); border: 1px solid var(--line);
-        border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+        border-radius: 12px; padding: 14px 16px; margin-bottom: 0;
     }
     /* Kachel-Ueberschriften identisch zu den Abschnittsueberschriften:
        gleiche Schrift, gleiches Gewicht, Neonweiss mit leichtem Schein. */
@@ -182,7 +182,7 @@ st.markdown("""
     /* ---------- HERO: eine einzige hervorgehobene Kennzahl ---------- */
     .hero {
         background: var(--surface); border: 1px solid var(--line);
-        border-radius: 12px; padding: 14px 16px; margin-bottom: 8px;
+        border-radius: 12px; padding: 14px 16px; margin-bottom: 0;
     }
 
     /* Gesamtsumme optisch abheben - gruener Akzentrand, damit sie sich
@@ -331,7 +331,7 @@ st.markdown("""
        Schein. Bewusst MEHRERE Selektoren - Streamlit verschachtelt die
        BaseWeb-Selectbox je nach Version unterschiedlich tief, ein einzelner
        Selektor griff hier nicht zuverlaessig. */
-    [data-testid="stSelectbox"] { margin-bottom: 12px; }
+    [data-testid="stSelectbox"] { margin-bottom: 0; }
 
     /* Label dezent halten - es soll orientieren, nicht mit den Kachel-
        Ueberschriften konkurrieren. */
@@ -416,7 +416,7 @@ st.markdown("""
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
         font-size: 0.74rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase;
-        margin: 24px 0 10px 2px;
+        margin: 16px 0 2px 2px;
         padding-bottom: 7px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.45);
         text-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
@@ -460,16 +460,15 @@ st.markdown("""
     /* Der Abstand kommt bei Streamlit vom umgebenden Block, nicht vom
        Expander selbst - deshalb dort verringern. Sonst stehen die Kacheln
        trotz margin-bottom:0 weit auseinander. */
+    /* Zusammengehoerige Aufklappbereiche ruecken enger zusammen als der
+       Grundabstand - sie bilden optisch eine Gruppe. */
     div[data-testid="stElementContainer"]:has([data-testid="stExpander"]) {
-        margin-bottom: 6px !important;
-    }
-    div[data-testid="stVerticalBlock"]:has(> div > [data-testid="stExpander"]) {
-        gap: 6px !important;
+        margin-top: -0.35rem !important;
     }
     /* Fallback fuer Browser ohne :has()-Unterstuetzung: der Expander zieht
        sich selbst nach oben an den vorherigen Block heran. */
     @supports not selector(:has(*)) {
-        [data-testid="stExpander"] { margin-top: -12px !important; }
+        [data-testid="stExpander"] { margin-top: -0.35rem !important; }
     }
 
     /* Aufklapp-Pfeil: eigene Icon-Schrift erzwingen und deutlich vergroessern,
@@ -540,6 +539,13 @@ st.markdown("""
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; max-width: 780px; }
+
+    /* ---------- EINHEITLICHES ABSTANDS-RASTER ----------
+       Streamlit setzt zwischen allen Bloecken 1rem. Zusammen mit den eigenen
+       margin-Werten der Kacheln ergaben sich dadurch ueberall andere Abstaende.
+       Deshalb: EIN Grundabstand hier, und die Elemente selbst bringen keinen
+       eigenen mehr mit. Alles im Fluss haelt damit denselben Rhythmus. */
+    div[data-testid="stVerticalBlock"] { gap: 0.7rem !important; }
 
     [data-testid="stNumberInput"] input {
         font-family: 'IBM Plex Mono', monospace !important;
