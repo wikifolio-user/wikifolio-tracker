@@ -342,37 +342,48 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* WICHTIG: Der sichtbare Rahmen liegt bei Streamlit auf dem INNEREN
-       Container ([data-baseweb="select"] > div), nicht auf dem aeusseren.
-       Genau dort muss er gesetzt werden - ein "border: none" an dieser Stelle
-       loescht ihn wieder (das war der Fehler zuvor). */
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-        background-color: var(--surface) !important;
-        border: 2px solid #FFFFFF !important;
-        border-radius: 12px !important;
-        min-height: 46px !important;
-        box-shadow: 0 0 0 1px rgba(255,255,255,0.30),
-                    0 0 14px rgba(255,255,255,0.40) !important;
-        transition: box-shadow 0.15s ease;
-    }
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {
-        border-color: #FFFFFF !important;
-        box-shadow: 0 0 0 2px rgba(255,255,255,0.55),
-                    0 0 22px rgba(255,255,255,0.65) !important;
-    }
-    /* Der aeussere Container bleibt rahmenlos, sonst entsteht eine Doppellinie */
+    /* Rahmen per OUTLINE statt border: outline wird von BaseWebs eigenen
+       Border-Regeln nicht ueberschrieben und liegt garantiert aussen an.
+       Zusaetzlich auf mehreren Ebenen gesetzt, da Streamlit die Selectbox je
+       nach Version unterschiedlich tief verschachtelt. */
+    [data-testid="stSelectbox"] > div,
     [data-testid="stSelectbox"] [data-baseweb="select"] {
-        border: none !important;
-        box-shadow: none !important;
-        background: transparent !important;
+        outline: 2px solid #FFFFFF !important;
+        outline-offset: 0 !important;
+        border-radius: 12px !important;
+        background-color: var(--surface) !important;
+        box-shadow: 0 0 14px rgba(255, 255, 255, 0.35) !important;
     }
-    /* Streamlits Fokus-Einfaerbung nutzt primaryColor (gruen). Hier bewusst
-       ueberschrieben, damit der Rahmen in JEDEM Zustand weiss bleibt. */
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div[aria-expanded="true"],
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div[data-focusvisible],
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div:active {
-        border-color: #FFFFFF !important;
+
+    /* Aufmerksamkeits-Puls: laeuft nur kurz nach dem Laden und kommt dann zur
+       Ruhe. Dauerhafte Animation wuerde dem Blick staendig Aufmerksamkeit
+       abziehen - in einer Kurs-App soll Bewegung "hier hat sich etwas
+       geaendert" bedeuten, nicht "hier ist ein Bedienelement". */
+    @keyframes hinweis_puls {
+        0%, 100% { box-shadow: 0 0 10px rgba(255,255,255,0.25); }
+        50%      { box-shadow: 0 0 26px rgba(255,255,255,0.85); }
+    }
+    [data-testid="stSelectbox"] > div {
+        animation: hinweis_puls 1.6s ease-in-out 3;
+    }
+    @media (prefers-reduced-motion: reduce) {
+        [data-testid="stSelectbox"] > div { animation: none; }
+    }
+
+    /* Innere Ebenen rahmenlos halten, damit keine Doppellinie entsteht */
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div > div {
+        border: none !important;
+        background-color: transparent !important;
+        min-height: 46px !important;
+    }
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {
+        box-shadow: none !important;
+    }
+    /* Beim Antippen kurz kraeftiger - reine Rueckmeldung, keine Dauerbewegung */
+    [data-testid="stSelectbox"] > div:hover,
+    [data-testid="stSelectbox"] > div:focus-within {
+        box-shadow: 0 0 22px rgba(255, 255, 255, 0.7) !important;
     }
 
     /* Auswahltext kraeftiger als normaler Fliesstext */
