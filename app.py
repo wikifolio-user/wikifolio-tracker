@@ -2076,12 +2076,12 @@ def render_dashboard():
 
             if len(kurs_optionen) <= 3:
                 auswahl = st.pills(
-                    "Kursansicht", kurs_optionen, default=kurs_optionen[0],
+                    "Wert wählen", kurs_optionen, default=kurs_optionen[0],
                     key="kurs_ansicht_wahl", label_visibility="collapsed",
                 )
             else:
                 auswahl = st.selectbox(
-                    "Kurs wählen", kurs_optionen,
+                    "Wert wählen", kurs_optionen,
                     key="kurs_ansicht_wahl_select",
                 )
 
