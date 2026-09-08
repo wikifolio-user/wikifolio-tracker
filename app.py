@@ -2583,7 +2583,9 @@ def render_dashboard():
     tab_wealth = tab_ytd = tab_2021 = tab_candle = _ansicht_container
     tab_forecast = tab_scenarios = tab_trades = _ansicht_container
 
-    @st.fragment
+    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
+    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
+    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _render_wealth():
         try:
             with tab_wealth:
@@ -2736,7 +2738,9 @@ def render_dashboard():
         _render_wealth()
         lade_fertig()
 
-    @st.fragment
+    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
+    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
+    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _render_ytd():
         try:
             with tab_ytd:
@@ -2890,7 +2894,9 @@ def render_dashboard():
         _render_ytd()
         lade_fertig()
 
-    @st.fragment
+    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
+    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
+    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _render_2021():
         try:
             with tab_2021:
@@ -3065,7 +3071,9 @@ def render_dashboard():
         _render_2021()
         lade_fertig()
 
-    @st.fragment
+    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
+    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
+    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _render_trades():
         try:
             def load_db():
@@ -3099,7 +3107,7 @@ def render_dashboard():
                     if st.form_submit_button("Speichern") and eti:
                         db_events.insert(0, {"id": len(db_events) + 1, "typ": et, "datum": ed.strftime("%Y-%m-%d"), "titel": eti, "inhalt": ei})
                         save_db(db_events)
-                        st.rerun(scope="fragment")
+                        st.rerun()
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -3109,7 +3117,9 @@ def render_dashboard():
         _render_trades()
         lade_fertig()
 
-    @st.fragment
+    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
+    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
+    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _render_candle():
         try:
             with tab_candle:
@@ -3131,7 +3141,9 @@ def render_dashboard():
         _render_candle()
         lade_fertig()
 
-    @st.fragment
+    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
+    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
+    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _render_forecast():
         try:
             with tab_forecast:
@@ -3182,7 +3194,9 @@ def render_dashboard():
         _render_forecast()
         lade_fertig()
 
-    @st.fragment
+    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
+    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
+    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _render_scenarios():
         try:
             with tab_scenarios:
