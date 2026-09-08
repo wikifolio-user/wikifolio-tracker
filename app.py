@@ -115,9 +115,13 @@ st.markdown("""
         background: var(--surface); border: 1px solid var(--line);
         border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
     }
-    .q-name {
-        font-size: 0.72rem; font-weight: 700; color: var(--text);
-        letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 6px;
+    /* Kachel-Ueberschriften identisch zu den Abschnittsueberschriften:
+       gleiche Schrift, gleiches Gewicht, Neonweiss mit leichtem Schein. */
+    .q-name, .hero-label {
+        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
+        font-size: 0.74rem; font-weight: 700; color: #FFFFFF;
+        letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: 6px;
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.30);
     }
     .q-price {
         font-size: 1.6rem; font-weight: 700; color: var(--text);
@@ -180,10 +184,7 @@ st.markdown("""
         background: var(--surface); border: 1px solid var(--line);
         border-radius: 12px; padding: 14px 16px; margin-bottom: 8px;
     }
-    .hero-label {
-        font-size: 0.72rem; font-weight: 700; color: var(--text);
-        letter-spacing: 1.1px; text-transform: uppercase;
-    }
+
     /* Gesamtsumme optisch abheben - gruener Akzentrand, damit sie sich
        trotz gleicher Struktur klar von den Einzelpositionen unterscheidet. */
     .hero.gesamt {
@@ -405,40 +406,61 @@ st.markdown("""
 
     /* ---------- ABSCHNITTE & AUFKLAPPBEREICHE ----------
        Die Aufklappbereiche taten bisher zweierlei (etwas einstellen vs. etwas
-       nachschlagen), sahen aber identisch aus. Kleine Abschnittsueberschrift
-       plus klarerer Rahmen macht die Gliederung auf einen Blick lesbar - ohne
-       den Kacheln oben die Aufmerksamkeit zu nehmen. */
+       nachschlagen), sahen aber identisch aus. Abschnittsueberschrift plus
+       weisser Rahmen macht die Gliederung auf einen Blick lesbar. */
     .abschnitt {
-        font-size: 0.7rem; font-weight: 700; color: var(--muted);
-        letter-spacing: 1.2px; text-transform: uppercase;
-        margin: 22px 0 8px 2px;
-        padding-bottom: 6px; border-bottom: 1px solid var(--line);
+        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
+        font-size: 0.74rem; font-weight: 700; color: #FFFFFF;
+        letter-spacing: 1.3px; text-transform: uppercase;
+        margin: 24px 0 10px 2px;
+        padding-bottom: 7px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.45);
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
     }
 
-    /* Aufklappbereiche als klar abgegrenzte, ruhige Flaechen */
+    /* Jeder Aufklappbereich als eigener Block mit weissem Rand. Bewusst
+       schwaecher als das Ansichts-Dropdown (1px statt 2px outline, dezenteres
+       Leuchten) - das Dropdown ist die Hauptnavigation und soll das
+       auffaelligste Element auf der Seite bleiben. */
     [data-testid="stExpander"] {
-        border: 1px solid var(--line) !important;
+        border: 1px solid rgba(255, 255, 255, 0.55) !important;
         border-radius: 12px !important;
         background: var(--surface) !important;
-        margin-bottom: 8px !important;
+        margin-bottom: 10px !important;
         overflow: hidden;
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
+        transition: box-shadow 0.15s ease, border-color 0.15s ease;
     }
-    [data-testid="stExpander"] summary {
+    [data-testid="stExpander"]:hover {
+        border-color: rgba(255, 255, 255, 0.9) !important;
+        box-shadow: 0 0 16px rgba(255, 255, 255, 0.30);
+    }
+
+    /* Titelzeile vereinheitlichen: gleiche Schrift, gleiches Gewicht, gleiche
+       Groesse. Streamlit setzt hier je nach Version eigene Werte - dadurch
+       wirkten die Titel unterschiedlich, obwohl es dieselbe Schrift war. */
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary p,
+    [data-testid="stExpander"] summary span,
+    [data-testid="stExpander"] summary div {
+        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
         font-size: 0.88rem !important;
         font-weight: 600 !important;
+        line-height: 1.35 !important;
         color: var(--text) !important;
-        padding: 12px 14px !important;
+    }
+    [data-testid="stExpander"] summary {
+        padding: 13px 14px !important;
         transition: background-color 0.15s ease;
     }
-    [data-testid="stExpander"] summary:hover {
+    [data-testid="stExpander"] summary:hover,
+    [data-testid="stExpander"] summary:hover p {
         background-color: #171A1F !important;
         color: #FFFFFF !important;
     }
-    /* Pfeil dezent weiss - erkennbar, aber leiser als beim Dropdown, das die
-       primaere Navigation ist. */
     [data-testid="stExpander"] summary svg {
-        fill: var(--label) !important;
-        color: var(--label) !important;
+        fill: #FFFFFF !important;
+        color: #FFFFFF !important;
     }
 
     /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
