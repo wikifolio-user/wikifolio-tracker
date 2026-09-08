@@ -403,6 +403,44 @@ st.markdown("""
         min-height: 44px !important;
     }
 
+    /* ---------- ABSCHNITTE & AUFKLAPPBEREICHE ----------
+       Die Aufklappbereiche taten bisher zweierlei (etwas einstellen vs. etwas
+       nachschlagen), sahen aber identisch aus. Kleine Abschnittsueberschrift
+       plus klarerer Rahmen macht die Gliederung auf einen Blick lesbar - ohne
+       den Kacheln oben die Aufmerksamkeit zu nehmen. */
+    .abschnitt {
+        font-size: 0.7rem; font-weight: 700; color: var(--muted);
+        letter-spacing: 1.2px; text-transform: uppercase;
+        margin: 22px 0 8px 2px;
+        padding-bottom: 6px; border-bottom: 1px solid var(--line);
+    }
+
+    /* Aufklappbereiche als klar abgegrenzte, ruhige Flaechen */
+    [data-testid="stExpander"] {
+        border: 1px solid var(--line) !important;
+        border-radius: 12px !important;
+        background: var(--surface) !important;
+        margin-bottom: 8px !important;
+        overflow: hidden;
+    }
+    [data-testid="stExpander"] summary {
+        font-size: 0.88rem !important;
+        font-weight: 600 !important;
+        color: var(--text) !important;
+        padding: 12px 14px !important;
+        transition: background-color 0.15s ease;
+    }
+    [data-testid="stExpander"] summary:hover {
+        background-color: #171A1F !important;
+        color: #FFFFFF !important;
+    }
+    /* Pfeil dezent weiss - erkennbar, aber leiser als beim Dropdown, das die
+       primaere Navigation ist. */
+    [data-testid="stExpander"] summary svg {
+        fill: var(--label) !important;
+        color: var(--label) !important;
+    }
+
     /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
        Bewusst position:fixed statt im normalen Seitenfluss. Vorher wanderte
        der Balken mit, sobald darueber/darunter Inhalte erschienen - und das
@@ -2011,7 +2049,9 @@ def render_dashboard():
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
-    with st.expander("Kauf, Kapital, Sparrate und Entnahme anpassen", expanded=False):
+    st.markdown('<div class="abschnitt">⚙️ Einstellungen</div>', unsafe_allow_html=True)
+
+    with st.expander("🛠️ Kauf, Kapital, Sparrate und Entnahme anpassen", expanded=False):
         # Felder bewusst untereinander (keine Spalten) - auf dem Smartphone
         # sind nebeneinanderliegende Zahlenfelder samt Steppern sehr fummelig.
         kd_kwargs = dict(
@@ -2362,7 +2402,9 @@ def render_dashboard():
     # ---------- DATENZEILEN: Sekundaerwerte, eingeklappt ----------
     # Meilenstein und Anfangskapital sind Kontext, keine taeglich relevanten
     # Kennzahlen - eingeklappt konkurrieren sie nicht mit Kurs und Depotwert.
-    with st.expander("Meilenstein und Anfangskapital", expanded=False):
+    st.markdown('<div class="abschnitt">📄 Weitere Informationen</div>', unsafe_allow_html=True)
+
+    with st.expander("🎯 Meilenstein und Anfangskapital", expanded=False):
         st.markdown(f"""
     <div class="rows">
         <div class="row">
@@ -2385,7 +2427,7 @@ def render_dashboard():
         f" · inkl. {zusaetzliche_stueckzahl_sparplan:.4f} Sparplan-Anteile ({fmt(kumulierte_sparrate_marktwert, 2)})"
         if zusaetzliche_stueckzahl_sparplan > 0 else ""
     )
-    with st.expander("Netto-Werte und laufende Kosten", expanded=False):
+    with st.expander("💶 Netto-Werte und laufende Kosten", expanded=False):
         st.markdown(f"""
         <div class="rows">
             <div class="row">
@@ -3175,7 +3217,9 @@ def render_dashboard():
     # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
     # Systemstatus wird nur im Fehlerfall gebraucht. Faellt der persistente
     # State aus, klappt der Expander weiterhin automatisch auf.
-    with st.expander("🔧 System-Status / Diagnose", expanded=not GH_STATE_READY):
+    st.markdown('<div class="abschnitt">🔧 System</div>', unsafe_allow_html=True)
+
+    with st.expander("System-Status / Diagnose", expanded=not GH_STATE_READY):
         st.write(f"**Live-Daten aktiv:** {'✅ Ja' if is_live_data else '❌ Nein'} ({fetched_source})")
         st.write(f"**Chart-Historie live:** {'✅ Ja' if is_live_history else '❌ Nein'} ({hist_source_name})")
         st.write(f"**Discord-Webhook geladen:** {'✅ Ja' if DISCORD_WEBHOOK_URL else '❌ Nein'}")
