@@ -113,7 +113,12 @@ st.markdown("""
     /* ---------- KURS-KOPF: die Zahl ist der Held der Seite ---------- */
     .quote {
         background: var(--surface); border: 1px solid var(--line);
-        border-radius: 12px; padding: 14px 16px; margin-bottom: 0;
+        border-radius: 12px; padding: 14px 16px;
+        /* Diese Kachel wird in einem eigenen Fragment-Container gezeichnet -
+           dort greift der Grundabstand aus stVerticalBlock nicht. Deshalb hier
+           derselbe Wert (0.7rem) direkt gesetzt, damit der Abstand zur
+           Depotwert-Kachel genauso gross ist wie ueberall sonst. */
+        margin-bottom: 0.7rem;
     }
     /* Kachel-Ueberschriften identisch zu den Abschnittsueberschriften:
        gleiche Schrift, gleiches Gewicht, Neonweiss mit leichtem Schein. */
