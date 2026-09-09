@@ -185,12 +185,16 @@ def hole_onvista_kontrollkurs(url):
         return None
 
 
-def send_discord(msg):
+def send_discord(msg=None, embed=None):
+    """Sendet entweder reinen Text (msg) oder ein Discord-Embed (embed) - ein
+    Embed rendert als sauber formatierte Karte mit farbiger Randleiste,
+    Titel und ausgerichteten Feldern statt als Fliesstext-Block."""
     if not DISCORD_WEBHOOK_URL:
         logging.warning("Kein DISCORD_WEBHOOK_URL gesetzt, ueberspringe Versand.")
         return False
+    payload = {"embeds": [embed]} if embed else {"content": msg}
     try:
-        r = requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=10)
+        r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         if r.status_code not in (200, 204):
             logging.error(f"Discord antwortete mit Status {r.status_code}: {r.text[:300]}")
             return False
@@ -198,6 +202,31 @@ def send_discord(msg):
     except Exception as e:
         logging.error(f"Discord-Versand fehlgeschlagen: {e}")
         return False
+
+
+# Farbcodes als Dezimalwerte, wie Discord-Embeds sie erwarten (kein Hex-String)
+FARBE_AUF = 0x16C784      # gruen - passend zur App-Akzentfarbe
+FARBE_AB = 0xEA3943       # rot
+FARBE_ALARM = 0xEA3943    # rot, kraeftiger Fall
+FARBE_ATH = 0xF5B700      # gold - Allzeithoch
+FARBE_NEUTRAL = 0x7C8493  # grau - Entwarnung/Info
+
+
+def baue_embed(titel, farbe, felder, fusszeile, now, emoji=""):
+    """Baut ein einheitlich gestaltetes Embed fuer alle vier Meldungstypen.
+
+    felder: Liste von (name, wert, inline) Tupeln - erscheinen als
+    ausgerichtete Spalten statt als durchlaufender Text.
+    """
+    return {
+        "title": f"{emoji} {titel}".strip(),
+        "color": farbe,
+        "fields": [
+            {"name": n, "value": v, "inline": inline} for n, v, inline in felder
+        ],
+        "footer": {"text": fusszeile},
+        "timestamp": now.astimezone(datetime.timezone.utc).isoformat(),
+    }
 
 
 def ping_healthcheck():
@@ -267,15 +296,16 @@ def check_high_watermark(akt, now, inst):
     melden = anstieg_pct >= ATH_MELDESCHWELLE_PCT
 
     if melden:
-        send_discord(
-            f"🏆 **Neues Allzeithoch ({inst['wkn']})** 🏆\n"
-            f"{inst['name']}\n"
-            f"Aktueller Kurs: **{akt:.3f}€** (zuletzt gemeldet: {zuletzt_gemeldet:.3f}€, "
-            f"{anstieg_pct:+.2f}%)\n"
-            f"Hinweis: Ab neuen Höchstständen wird bei weiteren Gewinnen "
-            f"i.d.R. Performance Fee ({config.PERFORMANCE_FEE_PCT:.1f}%) fällig.\n"
-            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
-        )
+        send_discord(embed=baue_embed(
+            titel=f"Neues Allzeithoch ({inst['wkn']})",
+            farbe=FARBE_ATH, emoji="🏆", now=now,
+            felder=[
+                ("Aktueller Kurs", f"**{akt:.3f} €**", True),
+                ("Zuletzt gemeldet", f"{zuletzt_gemeldet:.3f} € ({anstieg_pct:+.2f} %)", True),
+                ("Performance Fee", f"Ab hier {config.PERFORMANCE_FEE_PCT:.1f} % auf weitere Gewinne", False),
+            ],
+            fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
+        ))
     else:
         logging.info(
             f"{inst['wkn']}: neues Hoch {akt:.3f}€ still gespeichert "
@@ -376,14 +406,18 @@ def verarbeite_instrument(inst, now):
         )
 
     if ueber_schwelle and genug_neue_bewegung:
-        routine_msg = (
-            f"📊 **Kurs-Update ({inst['wkn']})**\n"
-            f"{inst['name']}\n"
-            f"Aktueller Kurs: **{akt:.3f}€**\n"
-            f"Tagesveränderung: **{pct_change:+.2f}%**\n"
-            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}"
-        )
-        if send_discord(routine_msg):
+        pfeil_farbe = FARBE_AUF if pct_change >= 0 else FARBE_AB
+        pfeil = "📈" if pct_change >= 0 else "📉"
+        erfolg = send_discord(embed=baue_embed(
+            titel=f"Kurs-Update ({inst['wkn']})",
+            farbe=pfeil_farbe, emoji=pfeil, now=now,
+            felder=[
+                ("Aktueller Kurs", f"**{akt:.3f} €**", True),
+                ("Tagesveränderung", f"**{pct_change:+.2f} %**", True),
+            ],
+            fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
+        ))
+        if erfolg:
             state["zuletzt_gemeldet_pct"] = round(pct_change, 2)
         else:
             logging.error(f"{kennung}: Routine-Update konnte NICHT gesendet werden.")
@@ -407,22 +441,28 @@ def verarbeite_instrument(inst, now):
     war_unter_schwelle = state.get("unter_schwelle", False)
 
     if aktuell_unter_schwelle and not war_unter_schwelle:
-        send_discord(
-            f"🚨 **SCHWELLE UNTERSCHRITTEN ({inst['wkn']})** 🚨\n"
-            f"{inst['name']}\n"
-            f"Tagesveränderung: **{pct_change:+.2f}%** "
-            f"(Schwelle: {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%)\n"
-            f"Aktueller Kurs: **{akt:.3f}€**"
-        )
+        send_discord(embed=baue_embed(
+            titel=f"SCHWELLE UNTERSCHRITTEN ({inst['wkn']})",
+            farbe=FARBE_ALARM, emoji="🚨", now=now,
+            felder=[
+                ("Aktueller Kurs", f"**{akt:.3f} €**", True),
+                ("Tagesveränderung", f"**{pct_change:+.2f} %**", True),
+                ("Schwelle", f"{config.TAGESVERLUST_SCHWELLE_PCT:+.1f} %", True),
+            ],
+            fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
+        ))
         state["unter_schwelle"] = True
     elif not aktuell_unter_schwelle and war_unter_schwelle:
-        send_discord(
-            f"✅ **Entwarnung ({inst['wkn']})**\n"
-            f"{inst['name']}\n"
-            f"Tagesveränderung wieder über {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%: "
-            f"**{pct_change:+.2f}%**\n"
-            f"Aktueller Kurs: **{akt:.3f}€**"
-        )
+        send_discord(embed=baue_embed(
+            titel=f"Entwarnung ({inst['wkn']})",
+            farbe=FARBE_NEUTRAL, emoji="✅", now=now,
+            felder=[
+                ("Aktueller Kurs", f"**{akt:.3f} €**", True),
+                ("Tagesveränderung", f"**{pct_change:+.2f} %**", True),
+                ("Wieder über", f"{config.TAGESVERLUST_SCHWELLE_PCT:+.1f} %", True),
+            ],
+            fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
+        ))
         state["unter_schwelle"] = False
 
     # Nur bei echtem Zustandswechsel schreiben - spart unnoetige Commits.
