@@ -67,6 +67,12 @@ INSTRUMENTE = [
         "instrument_id": None,
         "onvista_url": None,
     },
+    {
+        "wkn": "LS9VVK",
+        "name": "Interesting_Leverage",
+        "instrument_id": None,   # wird ebenfalls aus config.BENCHMARKS aufgeloest
+        "onvista_url": None,
+    },
 ]
 
 
