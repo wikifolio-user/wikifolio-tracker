@@ -263,6 +263,48 @@ def log_price_history(akt, now, inst):
     )
 
 
+def hole_historischen_hoechststand(instrument_id, tage=1825):
+    """Ermittelt den hoechsten Schlusskurs der letzten `tage` Tage direkt von
+    ls-tc.de - dient dazu, das Allzeithoch bei der ERSTEN Initialisierung eines
+    Instruments korrekt zu setzen, statt blind den gerade aktuellen Kurs als
+    Hoch zu nehmen (das fuehrte sonst zu falschen "Neues Allzeithoch"-Meldungen,
+    obwohl der Kurs vorher schon hoeher stand - die App korrigiert das fuer die
+    Hauptposition bereits so, hier die gleiche Logik fuer Zusatzwerte).
+
+    Gibt (hoechststand, datum_iso) zurueck, oder (None, None) bei Fehler/leerer
+    Historie - der Aufrufer faellt dann auf den aktuellen Kurs zurueck."""
+    params = {
+        "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
+        "quotetype": "mid", "series": "history", "type": "", "localeId": "2",
+    }
+    try:
+        r = requests.get(config.LS_TC_BASE_URL, params=params,
+                         headers=config.LS_TC_HEADERS, timeout=10)
+        r.raise_for_status()
+        raw = r.json()
+        history = (raw.get("series", {}).get("history", {}).get("data")
+                   or raw.get("history", {}).get("data") or [])
+        if not history:
+            return None, None
+        grenze = datetime.datetime.now(ZoneInfo("Europe/Berlin")) - datetime.timedelta(days=tage)
+        beste_ts, bester_wert = None, 0.0
+        for ts_ms, close in history:
+            close = float(close)
+            if close <= 0:
+                continue
+            ts = datetime.datetime.fromtimestamp(ts_ms / 1000, tz=ZoneInfo("Europe/Berlin"))
+            if ts < grenze:
+                continue
+            if close > bester_wert:
+                bester_wert, beste_ts = close, ts
+        if beste_ts is None:
+            return None, None
+        return bester_wert, beste_ts.isoformat()
+    except Exception as e:
+        logging.warning(f"Historischer Höchststand für Instrument {instrument_id} nicht ladbar: {e}")
+        return None, None
+
+
 def check_high_watermark(akt, now, inst):
     """Verfolgt das Allzeithoch aus den selbst gesammelten Kursdaten. Ab einem
     neuen Hoch wird bei weiteren Gewinnen Performance Fee
@@ -280,16 +322,55 @@ def check_high_watermark(akt, now, inst):
         GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad, GITHUB_TOKEN, default=None
     )
     if state is None or "high_watermark" not in state:
-        # Erste Initialisierung: nur speichern, kein Alarm (kein echter
-        # Vergleichswert vorhanden - App korrigiert das ggf. noch auf den
-        # echten historischen Höchststand, siehe app.py).
+        # ERSTE Initialisierung: NICHT blind den aktuellen Kurs als Hoch nehmen -
+        # stattdessen die Kurshistorie pruefen. Reicht sie weiter zurueck und
+        # zeigt einen hoeheren Wert, gilt DIESER als Startbasis. So wird kein
+        # falsches "Allzeithoch" gemeldet, nur weil die Ueberwachung spaeter
+        # gestartet wurde als der Wert tatsaechlich existiert.
+        hist_hoch, hist_datum = hole_historischen_hoechststand(inst["instrument_id"])
+        if hist_hoch and hist_hoch > akt:
+            start_hoch, start_datum = hist_hoch, hist_datum
+            logging.info(
+                f"{inst['wkn']}: Initialisiere Allzeithoch aus Historie: "
+                f"{start_hoch:.3f}€ (statt aktuellem Kurs {akt:.3f}€)."
+            )
+        else:
+            start_hoch, start_datum = akt, now.isoformat()
         github_store.put_json(
             GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad,
-            {"high_watermark": akt, "erreicht_am": now.isoformat(),
-             "zuletzt_gemeldet": akt}, GITHUB_TOKEN,
+            {"high_watermark": start_hoch, "erreicht_am": start_datum,
+             "zuletzt_gemeldet": start_hoch}, GITHUB_TOKEN,
             message=f"init high watermark {inst['wkn']} [skip ci]"
         )
         return
+
+    # SELBSTHEILUNG fuer bereits bestehende States: wurde ein Instrument VOR
+    # diesem Fix hinzugefuegt, steckt dort ggf. noch ein falscher Startwert
+    # (Kurs zum Zeitpunkt der Ersteinrichtung statt echtem historischen Hoch).
+    # Einmalig nachpruefen und still korrigieren (kein Alarm - das ist eine
+    # Korrektur der Vergangenheit, keine neue Kursbewegung). "historie_geprueft"
+    # verhindert, dass dieser (teurere) Historien-Abruf bei jedem 5-Minuten-Lauf
+    # erneut passiert.
+    if not state.get("historie_geprueft"):
+        hist_hoch, hist_datum = hole_historischen_hoechststand(inst["instrument_id"])
+        aktuelles_hoch_vor_korrektur = float(state.get("high_watermark", 0))
+        if hist_hoch and hist_hoch > aktuelles_hoch_vor_korrektur:
+            logging.info(
+                f"{inst['wkn']}: Selbstheilung - korrigiere Allzeithoch von "
+                f"{aktuelles_hoch_vor_korrektur:.3f}€ auf historisch echtes "
+                f"Hoch {hist_hoch:.3f}€."
+            )
+            state["high_watermark"] = hist_hoch
+            state["erreicht_am"] = hist_datum
+            # zuletzt_gemeldet ebenfalls anheben: dieses Niveau wurde in der
+            # Vergangenheit bereits erreicht, ein erneutes Erreichen jetzt ist
+            # kein NEUES Hoch und soll keinen Alarm ausloesen.
+            state["zuletzt_gemeldet"] = hist_hoch
+        state["historie_geprueft"] = True
+        github_store.put_json(
+            GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad, state, GITHUB_TOKEN,
+            message=f"selbstheilung high watermark {inst['wkn']} [skip ci]"
+        )
 
     bisheriges_hoch = float(state.get("high_watermark", 0))
     if akt <= bisheriges_hoch:
