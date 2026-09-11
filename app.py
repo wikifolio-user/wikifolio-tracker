@@ -3247,7 +3247,7 @@ def render_dashboard():
                 if len(prognose_optionen) > 1:
                     namen = [o["name"] for o in prognose_optionen]
                     gewaehlter_name = st.selectbox(
-                        "Prognose-Basis", namen, key="prognose_wert_wahl",
+                        "Prognose Basis auswählen:", namen, key="prognose_wert_wahl",
                         help="Für welche Position soll die Zukunfts-Prognose gelten?",
                     )
                     opt = next(o for o in prognose_optionen if o["name"] == gewaehlter_name)
