@@ -3245,6 +3245,13 @@ def render_dashboard():
                 # Position (Standardfall) waere ein Dropdown mit einem einzigen
                 # Eintrag nur ueberfluessiger Klick.
                 if len(prognose_optionen) > 1:
+                    # Fehlender Grundabstand nachholen: dieses Dropdown ist das
+                    # erste Element in seinem Container (direkt nach dem
+                    # st.info()-Kasten), bekommt also nicht den 0.7rem-Abstand,
+                    # den Geschwister-Elemente sonst automatisch bekommen -
+                    # sonst wirkt der Abstand kleiner als beim "Ansicht wählen"-
+                    # Dropdown oben.
+                    st.markdown('<div style="height: 0.7rem;"></div>', unsafe_allow_html=True)
                     namen = [o["name"] for o in prognose_optionen]
                     gewaehlter_name = st.selectbox(
                         "Prognose Basis auswählen:", namen, key="prognose_wert_wahl",
