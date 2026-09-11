@@ -517,6 +517,24 @@ st.markdown("""
         [data-testid="stExpander"] { margin-top: -0.35rem !important; }
     }
 
+    /* "Ansicht wählen:" und "Prognose Basis auswählen:" bekommen eine eigene
+       .abschnitt-Ueberschrift (siehe oben, gleiche Optik wie "WEITERE
+       INFORMATIONEN"). Das native Selectbox-Label direkt danach wird hier
+       gezielt ausgeblendet - WICHTIG: nicht ueber Streamlits eigenes
+       label_visibility="collapsed", sondern ausschliesslich per CSS. Ein
+       frueherer Versuch mit "collapsed" hat zu doppeltem Text gefuehrt:
+       unsere Label-Regel nutzt "display: block !important", und !important
+       in einer Stylesheet-Regel gewinnt IMMER gegen ein simples Inline-
+       "style=display:none" (das Streamlit fuer "collapsed" setzt) - das
+       eigentlich versteckte Label wurde dadurch wieder sichtbar. Hier
+       versteckt ausschliesslich UNSERE eigene Regel, kein Widerspruch. */
+    div[data-testid="stElementContainer"]:has(.abschnitt-marker-ansicht)
+    + div[data-testid="stElementContainer"] [data-testid="stSelectbox"] label,
+    div[data-testid="stElementContainer"]:has(.abschnitt-marker-prognose)
+    + div[data-testid="stElementContainer"] [data-testid="stSelectbox"] label {
+        display: none !important;
+    }
+
     /* Aufklapp-Pfeil: eigene Icon-Schrift erzwingen und deutlich vergroessern,
        damit klar erkennbar ist, dass sich der Bereich oeffnen laesst. */
     [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {
@@ -2800,16 +2818,18 @@ def render_dashboard():
         "📊 Szenario-Simulator (5 Jahre)",
         "📝 Trader-Log (Trades & Kommentare)",
     ]
-    # Natives Label (sichtbar) statt eigener Ueberschrift + "collapsed": ein
-    # frueherer Versuch, das Label per label_visibility="collapsed" zu
-    # verstecken und stattdessen eine eigene .abschnitt-Ueberschrift zu
-    # zeigen, hat zu doppeltem Text gefuehrt - die allgemeine CSS-Regel fuer
-    # Selectbox-Label nutzt "display: block !important", und ein !important
-    # in einer Stylesheet-Regel gewinnt IMMER gegen ein einfaches Inline-
-    # "style=display:none" (das Streamlit fuer "collapsed" setzt). Dadurch
-    # wurde das eigentlich versteckte Label wieder sichtbar - Dopplung.
-    # Zurueck zur einfachen, zuverlaessigen Variante: natives Label, das
-    # ueber dieselbe generische CSS-Regel ohnehin schon wie .abschnitt aussieht.
+    # Eigene .abschnitt-Ueberschrift (identisch zu "WEITERE INFORMATIONEN":
+    # gleiche Groesse, gleicher Abstand, gleiche Trennlinie). Diesmal OHNE
+    # Streamlits label_visibility="collapsed" - das hatte mit unserer
+    # !important-Regel kollidiert (!important schlaegt IMMER ein einfaches
+    # Inline-style=display:none, das Streamlit fuer "collapsed" setzt - daher
+    # die Dopplung zuvor). Stattdessen blenden WIR das native Label selbst
+    # per CSS aus, gezielt nur nach diesem Marker (".abschnitt-marker-ansicht")
+    # - kein Konflikt mit Streamlit, da Streamlit hier gar nichts versteckt.
+    st.markdown(
+        '<div class="abschnitt abschnitt-marker-ansicht">Ansicht wählen:</div>',
+        unsafe_allow_html=True,
+    )
     gewaehlte_ansicht = st.selectbox(
         "Ansicht wählen:", ANSICHTEN, key="ansicht_wahl",
     )
@@ -3253,15 +3273,18 @@ def render_dashboard():
                 # Position (Standardfall) waere ein Dropdown mit einem einzigen
                 # Eintrag nur ueberfluessiger Klick.
                 if len(prognose_optionen) > 1:
-                    # Natives Label statt eigener .abschnitt-Ueberschrift +
-                    # "collapsed" - dieser Ansatz hat andernorts zu doppeltem
-                    # Text gefuehrt (siehe Kommentar bei "Ansicht wählen" oben):
-                    # !important in unserer CSS-Regel ueberschreibt Streamlits
-                    # eigenes Inline-"display:none" fuer versteckte Labels.
+                    # Gleiches Muster wie bei "Ansicht wählen": eigene
+                    # .abschnitt-Ueberschrift, natives Label per CSS (nicht
+                    # per Streamlit-"collapsed") ausgeblendet - siehe
+                    # Kommentar dort. "help" bewusst entfernt: der kleine
+                    # weisse Kreis daneben wirkte wie ein Darstellungsfehler.
+                    st.markdown(
+                        '<div class="abschnitt abschnitt-marker-prognose">Prognose Basis auswählen:</div>',
+                        unsafe_allow_html=True,
+                    )
                     namen = [o["name"] for o in prognose_optionen]
                     gewaehlter_name = st.selectbox(
                         "Prognose Basis auswählen:", namen, key="prognose_wert_wahl",
-                        help="Für welche Position soll die Zukunfts-Prognose gelten?",
                     )
                     opt = next(o for o in prognose_optionen if o["name"] == gewaehlter_name)
                 else:
