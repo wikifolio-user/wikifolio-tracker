@@ -1341,9 +1341,10 @@ def render_dashboard():
         ("live",        8),    # ein Abruf
         ("kaufkurs",    5),    # ein Abruf, meist aus dem Cache
         ("historie",   12),    # ein groesserer Abruf
-        ("benchmarks", 45),    # ein Abruf je Vergleichswert - der Loewenanteil
-        ("positionen", 20),    # je weiterer Position zwei Abrufe
-        ("ansicht",    10),    # gewaehlter Chart
+        ("benchmarks", 40),    # ein Abruf je Vergleichswert - der Loewenanteil
+        ("positionen", 18),    # je weiterer Position zwei Abrufe
+        ("beob_prognose", 10), # je Beobachtungswert ein Abruf fuer die Prognose-Basis
+        ("ansicht",    7),     # gewaehlter Chart
     ])
 
     melde("live", 0.0, "Rufe Live-Kurs ab …")
@@ -2048,6 +2049,51 @@ def render_dashboard():
 
     beobachtung = [e for e in lade_beobachtung() if e.get("instrument_id")]
 
+    # ---------- PROGNOSE-BASIS FUER BEOBACHTUNGSWERTE ----------
+    # Beobachtungswerte haben KEIN investiertes Kapital (reine Kursanzeige) -
+    # trotzdem soll sich die Zukunfts-Prognose auch fuer sie nutzen lassen.
+    # Basis: die eigene historische CAGR des Werts (aeltester verfuegbarer
+    # Kurs vs. aktueller Kurs), hochgerechnet auf ein SYMBOLISCHES Startkapital
+    # (10.000 € - dieselbe Konvention wie bei den Vergleichswerten in den
+    # anderen Tabs). Das ist ausdruecklich eine "was-waere-wenn"-Rechnung,
+    # kein echtes Investment - wird im Dropdown-Namen und im Infotext
+    # entsprechend gekennzeichnet.
+    SYMBOLISCHES_PROGNOSE_KAPITAL = 10000.0
+    prognose_beobachtung_optionen = []
+    _beob_gesamt = len(beobachtung)
+    for _beob_i, _eintrag in enumerate(beobachtung):
+        _beob_name = _eintrag.get("name") or _eintrag.get("wkn") or "Beobachtungswert"
+        if _beob_gesamt:
+            melde("beob_prognose", _beob_i / _beob_gesamt,
+                  f"Lade Prognose-Basis {_beob_i + 1}/{_beob_gesamt} · {_beob_name} …")
+        try:
+            _b_kurs, _b_vortag, _ = get_live_kurs(_eintrag["instrument_id"])
+            if not _b_kurs:
+                continue
+            _b_hist = get_kurshistorie(
+                _eintrag["instrument_id"], heute_date - datetime.timedelta(days=1825), heute_date
+            )
+            if _b_hist.empty:
+                continue
+            _b_start_datum = _b_hist.index.min()
+            _b_start_kurs = float(_b_hist.iloc[0])
+            if _b_start_kurs <= 0:
+                continue
+            _b_tage = max(1, (heute_date - _b_start_datum.date()).days)
+            _b_cagr = (((_b_kurs / _b_start_kurs) ** (365.25 / _b_tage)) - 1) * 100
+            prognose_beobachtung_optionen.append({
+                "name": f"{_beob_name} (symbolisch)",
+                "startkapital": SYMBOLISCHES_PROGNOSE_KAPITAL,
+                "aktueller_wert": SYMBOLISCHES_PROGNOSE_KAPITAL * (_b_kurs / _b_start_kurs),
+                "cagr_pa": _b_cagr,
+                "kaufdatum": _b_start_datum.date(),
+                "sparrate": 0.0,
+                "entnahme": 0.0,
+                "symbolisch": True,
+            })
+        except Exception as e:
+            logging.warning(f"Prognose-Basis für Beobachtungswert '{_beob_name}' fehlgeschlagen: {e}")
+
     if beobachtung:
         # EIGENES FRAGMENT: beim Umschalten wird NUR dieser Bereich neu
         # gezeichnet, nicht das komplette Dashboard. Vorher lief bei jedem
@@ -2266,6 +2312,10 @@ def render_dashboard():
             positionen_ok = False
             st.error(f"⚠️ Position **{pos.get('name', '?')}** konnte nicht berechnet werden: {e}")
             notify_app_error(f"Position-{pos.get('id', '?')}", e)
+
+    # Beobachtungswerte (symbolische Prognose-Basis) hinten anfuegen - erst
+    # die echten Positionen (reales Kapital), dann die hypothetischen.
+    prognose_optionen.extend(prognose_beobachtung_optionen)
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if weitere_positionen:
@@ -3216,6 +3266,13 @@ def render_dashboard():
 
                 sparrate_hinweis = f" Zusätzlich wird eine monatliche Sparrate von **{fmt(opt_sparrate, 2)}** eingerechnet." if opt_sparrate > 0 else ""
                 st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{opt_cagr_pa:.2f}% p.a.** weiter.{sparrate_hinweis}")
+                if opt.get("symbolisch"):
+                    st.caption(
+                        f"⚠️ Dieser Wert ist nur eine Beobachtung, kein echtes Investment. "
+                        f"Die Rechnung unterstellt ein **symbolisches** Startkapital von "
+                        f"{fmt(opt_startkapital, 0)} zum {opt_kaufdatum.strftime('%d.%m.%Y')} "
+                        f"(dem ersten verfügbaren Kurs) - keine reale Position."
+                    )
     
                 forecast_data = [
                     {"Index": 0, "Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_startkapital, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
