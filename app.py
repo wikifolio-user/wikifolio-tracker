@@ -2158,6 +2158,20 @@ def render_dashboard():
     gesamt_zeitraeume = {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"}
     positionen_ok = True
 
+    # Sammelt fuer jede Position mit echten Kursdaten die Basis-Kennzahlen
+    # (Kapital, aktueller Wert, CAGR, Kaufdatum) - Grundlage fuer die Auswahl
+    # in der Zukunfts-Prognose weiter unten. Beobachtungswerte fehlen hier
+    # bewusst: ohne investiertes Kapital ergibt eine Kapitalprognose keinen Sinn.
+    prognose_optionen = [{
+        "name": alle_positionen[0].get("name", "Depotwert"),
+        "startkapital": startkapital_aktiv,
+        "aktueller_wert": brutto_ist,
+        "cagr_pa": erwartete_rendite_pa,
+        "kaufdatum": kaufdatum_aktiv,
+        "sparrate": sparrate_aktiv,
+        "entnahme": entnommen_aktiv,
+    }]
+
     _pos_gesamt = len(weitere_positionen)
 
     for _pos_i, pos in enumerate(weitere_positionen):
@@ -2219,6 +2233,18 @@ def render_dashboard():
 
             p_tage = max(1, (heute_date - p_kaufdatum).days)
             p_cagr = (((p_wert / p_einstand) ** (365.25 / p_tage)) - 1) * 100 if p_einstand > 0 and p_wert > 0 else 0.0
+
+            # Sparrate/Entnahme sind bislang nur fuer die Hauptposition
+            # konfigurierbar - fuer weitere Positionen daher 0.
+            prognose_optionen.append({
+                "name": p_name,
+                "startkapital": p_einstand,
+                "aktueller_wert": p_wert,
+                "cagr_pa": p_cagr,
+                "kaufdatum": p_kaufdatum,
+                "sparrate": 0.0,
+                "entnahme": 0.0,
+            })
 
             karte = (
                 '<div class="hero">'
@@ -3165,20 +3191,43 @@ def render_dashboard():
     def _render_forecast():
         try:
             with tab_forecast:
-                sparrate_hinweis = f" Zusätzlich wird eine monatliche Sparrate von **{fmt(sparrate_aktiv, 2)}** eingerechnet." if sparrate_aktiv > 0 else ""
-                st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.{sparrate_hinweis}")
+                # Ab der zweiten Position eine Auswahl anbieten - bei nur einer
+                # Position (Standardfall) waere ein Dropdown mit einem einzigen
+                # Eintrag nur ueberfluessiger Klick.
+                if len(prognose_optionen) > 1:
+                    namen = [o["name"] for o in prognose_optionen]
+                    gewaehlter_name = st.selectbox(
+                        "Prognose-Basis", namen, key="prognose_wert_wahl",
+                        help="Für welche Position soll die Zukunfts-Prognose gelten?",
+                    )
+                    opt = next(o for o in prognose_optionen if o["name"] == gewaehlter_name)
+                else:
+                    opt = prognose_optionen[0]
+
+                opt_startkapital = opt["startkapital"]
+                opt_aktueller_wert = opt["aktueller_wert"]
+                opt_cagr_pa = opt["cagr_pa"]
+                opt_kaufdatum = opt["kaufdatum"]
+                opt_sparrate = opt["sparrate"]
+                opt_entnahme = opt["entnahme"]
+                opt_gewinn = opt_aktueller_wert - opt_startkapital
+                opt_netto = opt_aktueller_wert - opt_entnahme
+                opt_zins_mo = (1 + (opt_cagr_pa / 100.0)) ** (1 / 12) - 1
+
+                sparrate_hinweis = f" Zusätzlich wird eine monatliche Sparrate von **{fmt(opt_sparrate, 2)}** eingerechnet." if opt_sparrate > 0 else ""
+                st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{opt_cagr_pa:.2f}% p.a.** weiter.{sparrate_hinweis}")
     
                 forecast_data = [
-                    {"Index": 0, "Jahr": "Start", "Datum": kaufdatum_aktiv.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(startkapital_aktiv, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(startkapital_aktiv, 2), "Kumulierte Entnahme": "0,00€"},
-                    {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
+                    {"Index": 0, "Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_startkapital, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
+                    {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_aktueller_wert, 2), "Gesamter Gewinn": f"+{fmt(opt_gewinn, 2)}", "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnahme, 2)}
                 ]
     
-                sim_b_prog, sim_n_prog, sim_e_prog = brutto_ist, netto_ist, gesamt_entnommen
-                milestone_added = brutto_ist >= 100000.0
+                sim_b_prog, sim_n_prog, sim_e_prog = opt_aktueller_wert, opt_netto, opt_entnahme
+                milestone_added = opt_aktueller_wert >= 100000.0
 
                 for m_idx in range(1, 121):
-                    sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo)) + sparrate_aktiv
-                    sim_e_prog += entnommen_aktiv
+                    sim_b_prog = (sim_b_prog * (1 + opt_zins_mo)) + opt_sparrate
+                    sim_e_prog += opt_entnahme
                     sim_n_prog = sim_b_prog - sim_e_prog
         
                     current_date = now_berlin.replace(tzinfo=None) + pd.DateOffset(months=m_idx)
@@ -3187,7 +3236,7 @@ def render_dashboard():
                         forecast_data.append({
                             "Index": "🎯", "Jahr": "100k Meilenstein",
                             "Datum": current_date.strftime("%d.%m.%Y"),
-                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - startkapital_aktiv, 2)}",
+                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                         })
                         milestone_added = True
@@ -3196,7 +3245,7 @@ def render_dashboard():
                         forecast_data.append({
                             "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
                             "Datum": current_date.strftime("%d.%m.%Y"),
-                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - startkapital_aktiv, 2)}",
+                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                         })
             
