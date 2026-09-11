@@ -2800,10 +2800,14 @@ def render_dashboard():
         "📊 Szenario-Simulator (5 Jahre)",
         "📝 Trader-Log (Trades & Kommentare)",
     ]
-    # Label sichtbar lassen: ohne Beschriftung wirkt das Dropdown wie eine
-    # Ueberschrift, und man kommt gar nicht auf die Idee, darauf zu tippen.
+    # Eigene Ueberschrift statt Streamlits nativem Label: exakt dieselbe
+    # .abschnitt-Klasse wie bei "WEITERE INFORMATIONEN" - dadurch garantiert
+    # pixelgleicher Abstand (gleiche CSS-Regel, gleiche Position im normalen
+    # Element-Fluss). Das native Label wird ausgeblendet (label_visibility=
+    # "collapsed"), damit es keinen eigenen, abweichenden Abstand mehr beitraegt.
+    st.markdown('<div class="abschnitt">Ansicht wählen:</div>', unsafe_allow_html=True)
     gewaehlte_ansicht = st.selectbox(
-        "Ansicht wählen", ANSICHTEN, key="ansicht_wahl",
+        "Ansicht wählen:", ANSICHTEN, key="ansicht_wahl", label_visibility="collapsed",
     )
 
     # Die Render-Funktionen unten arbeiten mit "with tab_x:" - dafuer reicht
@@ -3245,16 +3249,17 @@ def render_dashboard():
                 # Position (Standardfall) waere ein Dropdown mit einem einzigen
                 # Eintrag nur ueberfluessiger Klick.
                 if len(prognose_optionen) > 1:
-                    # Fehlender Grundabstand nachholen: dieses Dropdown ist das
-                    # erste Element in seinem Container (direkt nach dem
-                    # st.info()-Kasten), bekommt also nicht den 0.7rem-Abstand,
-                    # den Geschwister-Elemente sonst automatisch bekommen -
-                    # sonst wirkt der Abstand kleiner als beim "Ansicht wählen"-
-                    # Dropdown oben.
-                    st.markdown('<div style="height: 0.7rem;"></div>', unsafe_allow_html=True)
+                    # Gleiches Muster wie bei "Ansicht wählen": eigene
+                    # .abschnitt-Ueberschrift statt natives Label, dadurch
+                    # garantiert derselbe Abstand wie bei "WEITERE
+                    # INFORMATIONEN" - keine manuelle Abstands-Korrektur
+                    # noetig, da es dieselbe CSS-Regel im selben normalen
+                    # Element-Fluss ist.
+                    st.markdown('<div class="abschnitt">Prognose Basis auswählen:</div>', unsafe_allow_html=True)
                     namen = [o["name"] for o in prognose_optionen]
                     gewaehlter_name = st.selectbox(
                         "Prognose Basis auswählen:", namen, key="prognose_wert_wahl",
+                        label_visibility="collapsed",
                         help="Für welche Position soll die Zukunfts-Prognose gelten?",
                     )
                     opt = next(o for o in prognose_optionen if o["name"] == gewaehlter_name)
