@@ -2102,9 +2102,18 @@ def render_dashboard():
             prognose_beobachtung_optionen.append({
                 "name": f"{_beob_name} (symbolisch)",
                 "startkapital": SYMBOLISCHES_PROGNOSE_KAPITAL,
-                "aktueller_wert": SYMBOLISCHES_PROGNOSE_KAPITAL * (_b_kurs / _b_start_kurs),
+                # WICHTIG: NICHT die historisch bereits gewachsene Summe -
+                # die Zukunfts-Prognose soll HEUTE starten (wie bei allen
+                # anderen Positionen auch), nicht rueckwirkend ab dem
+                # historischen Ursprung. Sonst zeigt die "Start"-Zeile ein
+                # Datum von vor mehreren Jahren, obwohl es um die Zukunft
+                # geht - genau das hat zur Nachfrage gefuehrt, warum die
+                # Prognose "ab 2021" statt "ab heute" startet.
+                "aktueller_wert": SYMBOLISCHES_PROGNOSE_KAPITAL,
                 "cagr_pa": _b_cagr,
-                "kaufdatum": _b_start_datum.date(),
+                "kaufdatum": heute_date,
+                # Nur fuer den Hinweistext: seit wann die CAGR berechnet wurde.
+                "cagr_seit": _b_start_datum.date(),
                 "sparrate": 0.0,
                 "entnahme": 0.0,
                 "symbolisch": True,
@@ -3303,11 +3312,17 @@ def render_dashboard():
                 sparrate_hinweis = f" Zusätzlich wird eine monatliche Sparrate von **{fmt(opt_sparrate, 2)}** eingerechnet." if opt_sparrate > 0 else ""
                 st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{opt_cagr_pa:.2f}% p.a.** weiter.{sparrate_hinweis}")
                 if opt.get("symbolisch"):
+                    _cagr_seit = opt.get("cagr_seit")
+                    _seit_hinweis = (
+                        f" Die zugrunde gelegte Rendite ({opt_cagr_pa:.2f}% p.a.) stammt aus der "
+                        f"tatsächlichen Kursentwicklung seit {_cagr_seit.strftime('%d.%m.%Y')}."
+                        if _cagr_seit else ""
+                    )
                     st.caption(
                         f"⚠️ Dieser Wert ist nur eine Beobachtung, kein echtes Investment. "
                         f"Die Rechnung unterstellt ein **symbolisches** Startkapital von "
-                        f"{fmt(opt_startkapital, 0)} zum {opt_kaufdatum.strftime('%d.%m.%Y')} "
-                        f"(dem ersten verfügbaren Kurs) - keine reale Position."
+                        f"{fmt(opt_startkapital, 0)}, das **heute** ({opt_kaufdatum.strftime('%d.%m.%Y')}) "
+                        f"angelegt würde - keine reale Position.{_seit_hinweis}"
                     )
     
                 forecast_data = [
