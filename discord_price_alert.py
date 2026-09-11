@@ -123,6 +123,14 @@ def get_live_market_data(instrument_id=None):
     - DAS ist der Ort, wo ls-tc.de den echten Vortageswert mitliefert, kein
     top-level 'previousClose'-Feld). Die History-Suche dient nur noch als
     Rueckfalloption.
+
+    Gibt zusaetzlich tageshoch zurueck: den hoechsten Wert der GESAMTEN
+    Intraday-Tickserie (nicht nur den letzten Tick). Wichtig fuer die
+    Allzeithoch-Erkennung: bei 5-Minuten-Takt kann ein kurzer Spike auf ein
+    neues Hoch laengst wieder abgeklungen sein, bis der naechste Lauf
+    stattfindet - der letzte Tick allein wuerde diesen Spike verpassen. Die
+    Intraday-Serie enthaelt aber alle Ticks des Tages, der Spike bleibt also
+    sichtbar, auch wenn der Kurs beim Abruf schon wieder gefallen ist.
     """
     params = {
         "container": "chart1",
@@ -147,6 +155,7 @@ def get_live_market_data(instrument_id=None):
         raise ValueError("Keine Intraday-Daten in der ls-tc.de Antwort gefunden.")
 
     akt = float(intraday[-1][1])
+    tageshoch = max(float(punkt[1]) for punkt in intraday if float(punkt[1]) > 0)
 
     vor = config.extract_previous_close(data)
 
@@ -163,7 +172,7 @@ def get_live_market_data(instrument_id=None):
 
     if akt <= 0 or vor <= 0:
         raise ValueError("Ungueltige Kurswerte von ls-tc.de erhalten.")
-    return akt, vor
+    return akt, vor, tageshoch
 
 
 def hole_onvista_kontrollkurs(url):
@@ -305,16 +314,24 @@ def hole_historischen_hoechststand(instrument_id, tage=1825):
         return None, None
 
 
-def check_high_watermark(akt, now, inst):
+def check_high_watermark(now, inst, live_kurs, tageshoch):
     """Verfolgt das Allzeithoch aus den selbst gesammelten Kursdaten. Ab einem
     neuen Hoch wird bei weiteren Gewinnen Performance Fee
     (config.PERFORMANCE_FEE_PCT) faellig - deshalb ist das meldenswert.
+
+    tageshoch (hoechster Wert der komplette Intraday-Tickserie) entscheidet
+    ueber ein neues Hoch, NICHT nur live_kurs (der letzte Tick) - ein kurzer
+    Spike kann bis zum naechsten 5-Minuten-Lauf schon wieder abgeklungen sein.
+    live_kurs dient nur der Anzeige in der Meldung, damit klar ist: der
+    gemeldete Hoechststand und der GERADE aktuelle Kurs koennen auseinander-
+    fallen (Spike bereits vorbei).
 
     WICHTIG: Der gespeicherte Hoechststand wird bei JEDEM neuen Hoch still
     aktualisiert, eine Discord-Nachricht gibt es aber erst, wenn das Hoch
     mindestens ATH_MELDESCHWELLE_PCT ueber dem zuletzt GEMELDETEN Hoch liegt.
     Ohne diese Bremse kaeme in einem steigenden Markt alle 5 Minuten eine
     Meldung - schon ein Zehntelcent mehr ist formal ein neues Allzeithoch."""
+    akt = tageshoch  # fuer die Vergleichslogik unten (bisheriger Variablenname)
     if not (GITHUB_REPO and GITHUB_TOKEN):
         return
     hw_pfad = state_pfad(config.STATE_PATH_HIGH_WATERMARK, inst)
@@ -383,14 +400,24 @@ def check_high_watermark(akt, now, inst):
     melden = anstieg_pct >= ATH_MELDESCHWELLE_PCT
 
     if melden:
+        # Weicht der Live-Kurs vom gemeldeten Hoch ab (Spike bereits abgeklungen),
+        # wird das transparent mit ausgewiesen statt den veralteten Eindruck zu
+        # erwecken, der Kurs stuende JETZT auf dem Hoch.
+        spike_vorbei = abs(live_kurs - akt) > 0.0005
+        felder = [
+            ("Neues Hoch (Tagesverlauf)" if spike_vorbei else "Aktueller Kurs",
+             f"**{akt:.3f} €**", True),
+            ("Zuletzt gemeldet", f"{zuletzt_gemeldet:.3f} € ({anstieg_pct:+.2f} %)", True),
+        ]
+        if spike_vorbei:
+            felder.append(("Kurs jetzt", f"{live_kurs:.3f} €", True))
+        felder.append(
+            ("Performance Fee", f"Ab hier {config.PERFORMANCE_FEE_PCT:.1f} % auf weitere Gewinne", False)
+        )
         send_discord(embed=baue_embed(
             titel=f"Neues Allzeithoch ({inst['wkn']})",
             farbe=FARBE_ATH, emoji="🏆", now=now,
-            felder=[
-                ("Aktueller Kurs", f"**{akt:.3f} €**", True),
-                ("Zuletzt gemeldet", f"{zuletzt_gemeldet:.3f} € ({anstieg_pct:+.2f} %)", True),
-                ("Performance Fee", f"Ab hier {config.PERFORMANCE_FEE_PCT:.1f} % auf weitere Gewinne", False),
-            ],
+            felder=felder,
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
     else:
@@ -432,7 +459,7 @@ def verarbeite_instrument(inst, now):
         return True  # Konfigurationsluecke, kein technischer Fehler
 
     try:
-        akt, vor = get_live_market_data(inst["instrument_id"])
+        akt, vor, tageshoch = get_live_market_data(inst["instrument_id"])
     except Exception as e:
         logging.error(f"{kennung}: Kursabruf fehlgeschlagen: {e}")
         return False
@@ -464,7 +491,9 @@ def verarbeite_instrument(inst, now):
             return True  # technisch sauber gelaufen, nur der Wert war unbrauchbar
 
     log_price_history(akt, now, inst)
-    check_high_watermark(akt, now, inst)
+    # tageshoch statt akt fuer die ATH-Pruefung: erfasst auch kurze Spikes,
+    # die bis zum Abrufzeitpunkt schon wieder abgeklungen sind.
+    check_high_watermark(now, inst, live_kurs=akt, tageshoch=tageshoch)
 
     alarm_pfad = state_pfad(config.STATE_PATH_PRICE_ALERT, inst)
     if GITHUB_REPO and GITHUB_TOKEN:
