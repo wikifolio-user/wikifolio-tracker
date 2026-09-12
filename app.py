@@ -1160,6 +1160,51 @@ def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
     return zeilen
 
 
+def berechne_robuste_cagr(aktueller_kurs, historie, heute):
+    """Schaetzt eine annualisierte Wachstumsrate (CAGR) robuster als der
+    naive Zwei-Punkte-Vergleich "aeltester Kurs vs. heute". Problem dabei:
+    faellt der aelteste verfuegbare Kurs zufaellig auf ein Tief (oder Hoch),
+    verzerrt das die gesamte Prognose - bei einer 5 Jahre alten Historie
+    reicht ein einziger ungluecklicher Tag am Anfang, um die Rate um viele
+    Prozentpunkte zu verschieben.
+
+    Stattdessen: die annualisierte Rendite ueber mehrere unabhaengige
+    Zeitfenster (1/3/6/9 Monate, 1 Jahr, gesamte Historie) berechnen und den
+    MEDIAN nehmen. Ein einzelner Ausreisser (z.B. "gesamte Historie" durch
+    einen gluecklichen/ungluecklichen Starttag) kippt den Median nicht so
+    leicht wie er einen einfachen Durchschnitt oder erst recht den nackten
+    Zwei-Punkte-Wert kippen wuerde.
+
+    Gibt (median_cagr, details) zurueck. details ist eine Liste von
+    (Label, annualisierte_Rate) - fuer die Transparenz-Anzeige, damit
+    nachvollziehbar bleibt, woraus sich der Wert zusammensetzt. Reicht die
+    Historie fuer kein einziges Fenster, ist median_cagr None."""
+    fenster = [("1 Monat", 30), ("3 Monate", 91), ("6 Monate", 182), ("9 Monate", 273), ("1 Jahr", 365)]
+    details = []
+    for label, tage in fenster:
+        ref = referenzkurs_vor_tagen(historie, tage, heute)
+        if ref and ref > 0:
+            ann = ((aktueller_kurs / ref) ** (365.25 / tage) - 1) * 100
+            details.append((label, ann))
+
+    if historie is not None and not historie.empty:
+        aeltester_ts = historie.index[0]
+        aeltester_kurs = float(historie.iloc[0])
+        tage_gesamt = max(1, (pd.Timestamp(heute) - aeltester_ts).days)
+        # Nur aufnehmen, wenn deutlich laenger als das laengste Fenster oben -
+        # sonst waere es nur eine Dopplung von "1 Jahr" ohne zusaetzlichen Wert.
+        if aeltester_kurs > 0 and tage_gesamt > 400:
+            ann = ((aktueller_kurs / aeltester_kurs) ** (365.25 / tage_gesamt) - 1) * 100
+            details.append((f"Gesamte Historie (seit {aeltester_ts.strftime('%d.%m.%Y')})", ann))
+
+    if not details:
+        return None, []
+    werte = sorted(d[1] for d in details)
+    n = len(werte)
+    median = werte[n // 2] if n % 2 else (werte[n // 2 - 1] + werte[n // 2]) / 2
+    return median, details
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def suche_instrument(suchbegriff):
     """Sucht auf ls-tc.de nach WKN, ISIN oder Name und gibt eine Liste von
@@ -2094,11 +2139,11 @@ def render_dashboard():
             if _b_hist.empty:
                 continue
             _b_start_datum = _b_hist.index.min()
-            _b_start_kurs = float(_b_hist.iloc[0])
-            if _b_start_kurs <= 0:
+            # Robuste CAGR (Median mehrerer Zeitfenster) statt naivem
+            # Zwei-Punkte-Vergleich - siehe Docstring von berechne_robuste_cagr().
+            _b_cagr, _b_cagr_details = berechne_robuste_cagr(_b_kurs, _b_hist, heute_date)
+            if _b_cagr is None:
                 continue
-            _b_tage = max(1, (heute_date - _b_start_datum.date()).days)
-            _b_cagr = (((_b_kurs / _b_start_kurs) ** (365.25 / _b_tage)) - 1) * 100
             prognose_beobachtung_optionen.append({
                 "name": f"{_beob_name} (symbolisch)",
                 "startkapital": SYMBOLISCHES_PROGNOSE_KAPITAL,
@@ -2111,8 +2156,9 @@ def render_dashboard():
                 # Prognose "ab 2021" statt "ab heute" startet.
                 "aktueller_wert": SYMBOLISCHES_PROGNOSE_KAPITAL,
                 "cagr_pa": _b_cagr,
+                "cagr_details": _b_cagr_details,
                 "kaufdatum": heute_date,
-                # Nur fuer den Hinweistext: seit wann die CAGR berechnet wurde.
+                # Nur fuer den Hinweistext: seit wann Kursdaten vorliegen.
                 "cagr_seit": _b_start_datum.date(),
                 "sparrate": 0.0,
                 "entnahme": 0.0,
@@ -3301,29 +3347,63 @@ def render_dashboard():
 
                 opt_startkapital = opt["startkapital"]
                 opt_aktueller_wert = opt["aktueller_wert"]
-                opt_cagr_pa = opt["cagr_pa"]
                 opt_kaufdatum = opt["kaufdatum"]
                 opt_sparrate = opt["sparrate"]
                 opt_entnahme = opt["entnahme"]
                 opt_gewinn = opt_aktueller_wert - opt_startkapital
                 opt_netto = opt_aktueller_wert - opt_entnahme
+
+                # Geschaerfter Hinweis: das ist eine FORTSCHREIBUNG der
+                # Vergangenheit, keine Vorhersage - und die Rate ist bewusst
+                # editierbar, damit sich auch konservativere Annahmen
+                # durchrechnen lassen (z.B. die Haelfte des historischen Werts).
+                st.info(
+                    "⚠️ **Keine Vorhersage, sondern eine Fortschreibung der Vergangenheit.** "
+                    "Diese Tabelle rechnet mit einer konstanten jährlichen Rendite weiter - "
+                    "in der Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer oder "
+                    "einem einzelnen, zufällig günstigen/ungünstigen Startzeitpunkt kann die "
+                    "historische Rate stark von der künftigen abweichen. Passe den Wert unten "
+                    "gerne an, um eigene (z. B. konservativere) Annahmen zu testen."
+                )
+
+                _default_key = f"prognose_rate_{opt['name']}"
+                opt_cagr_pa = st.number_input(
+                    "Angenommene Rendite p.a. (%) für diese Prognose",
+                    min_value=-99.0, max_value=500.0, step=0.5,
+                    value=round(opt["cagr_pa"], 2), key=_default_key,
+                    help="Vorbelegt mit der aus der Kurshistorie ermittelten Rate. "
+                         "Frei überschreibbar, um andere Annahmen durchzurechnen.",
+                )
                 opt_zins_mo = (1 + (opt_cagr_pa / 100.0)) ** (1 / 12) - 1
 
+                if opt.get("cagr_details"):
+                    with st.expander("Wie wurde die vorbelegte Rate ermittelt?", expanded=False):
+                        st.caption(
+                            "Statt eines einzelnen Zwei-Punkte-Vergleichs (ältester verfügbarer "
+                            "Kurs vs. heute - anfällig für einen zufällig besonders günstigen "
+                            "oder ungünstigen Starttag) wird hier der **Median** mehrerer "
+                            "unabhängiger Zeitfenster verwendet. Ein einzelner Ausreißer kippt "
+                            "den Median nicht so leicht wie einen einfachen Durchschnitt."
+                        )
+                        for _label, _wert in opt["cagr_details"]:
+                            st.write(f"- {_label}: **{_wert:+.2f}% p.a.**")
+                        st.write(f"→ Median (vorbelegter Wert): **{opt['cagr_pa']:+.2f}% p.a.**")
+
                 sparrate_hinweis = f" Zusätzlich wird eine monatliche Sparrate von **{fmt(opt_sparrate, 2)}** eingerechnet." if opt_sparrate > 0 else ""
-                st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{opt_cagr_pa:.2f}% p.a.** weiter.{sparrate_hinweis}")
                 if opt.get("symbolisch"):
                     _cagr_seit = opt.get("cagr_seit")
                     _seit_hinweis = (
-                        f" Die zugrunde gelegte Rendite ({opt_cagr_pa:.2f}% p.a.) stammt aus der "
-                        f"tatsächlichen Kursentwicklung seit {_cagr_seit.strftime('%d.%m.%Y')}."
+                        f" Kursdaten liegen seit {_cagr_seit.strftime('%d.%m.%Y')} vor."
                         if _cagr_seit else ""
                     )
                     st.caption(
-                        f"⚠️ Dieser Wert ist nur eine Beobachtung, kein echtes Investment. "
+                        f"Dieser Wert ist nur eine Beobachtung, kein echtes Investment. "
                         f"Die Rechnung unterstellt ein **symbolisches** Startkapital von "
                         f"{fmt(opt_startkapital, 0)}, das **heute** ({opt_kaufdatum.strftime('%d.%m.%Y')}) "
-                        f"angelegt würde - keine reale Position.{_seit_hinweis}"
+                        f"angelegt würde - keine reale Position.{_seit_hinweis}{sparrate_hinweis}"
                     )
+                elif sparrate_hinweis:
+                    st.caption(sparrate_hinweis.strip())
     
                 forecast_data = [
                     {"Index": 0, "Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_startkapital, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
