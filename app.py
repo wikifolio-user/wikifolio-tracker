@@ -3356,7 +3356,7 @@ def render_dashboard():
                 _default_key = f"prognose_rate_{opt['name']}"
                 opt_cagr_pa = st.number_input(
                     "Angenommene Rendite p.a. (%) für diese Prognose",
-                    min_value=-99.0, max_value=500.0, step=0.5,
+                    min_value=-99.0, max_value=100000.0, step=0.5,
                     value=round(opt["cagr_pa"], 2), key=_default_key,
                     help="Vorbelegt mit der aus der Kurshistorie ermittelten Rate. "
                          "Frei überschreibbar, um andere Annahmen durchzurechnen.",
