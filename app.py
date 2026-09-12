@@ -3353,19 +3353,6 @@ def render_dashboard():
                 opt_gewinn = opt_aktueller_wert - opt_startkapital
                 opt_netto = opt_aktueller_wert - opt_entnahme
 
-                # Geschaerfter Hinweis: das ist eine FORTSCHREIBUNG der
-                # Vergangenheit, keine Vorhersage - und die Rate ist bewusst
-                # editierbar, damit sich auch konservativere Annahmen
-                # durchrechnen lassen (z.B. die Haelfte des historischen Werts).
-                st.info(
-                    "⚠️ **Keine Vorhersage, sondern eine Fortschreibung der Vergangenheit.** "
-                    "Diese Tabelle rechnet mit einer konstanten jährlichen Rendite weiter - "
-                    "in der Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer oder "
-                    "einem einzelnen, zufällig günstigen/ungünstigen Startzeitpunkt kann die "
-                    "historische Rate stark von der künftigen abweichen. Passe den Wert unten "
-                    "gerne an, um eigene (z. B. konservativere) Annahmen zu testen."
-                )
-
                 _default_key = f"prognose_rate_{opt['name']}"
                 opt_cagr_pa = st.number_input(
                     "Angenommene Rendite p.a. (%) für diese Prognose",
@@ -3375,6 +3362,19 @@ def render_dashboard():
                          "Frei überschreibbar, um andere Annahmen durchzurechnen.",
                 )
                 opt_zins_mo = (1 + (opt_cagr_pa / 100.0)) ** (1 / 12) - 1
+
+                # Geschaerfter Hinweis: das ist eine FORTSCHREIBUNG der
+                # Vergangenheit, keine Vorhersage - bewusst NACH der Eingabe
+                # platziert, damit zuerst der editierbare Wert im Blick ist
+                # und der Hinweis direkt daran anschliesst.
+                st.info(
+                    "⚠️ **Keine Vorhersage, sondern eine Fortschreibung der Vergangenheit.** "
+                    "Diese Tabelle rechnet mit einer konstanten jährlichen Rendite weiter - "
+                    "in der Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer oder "
+                    "einem einzelnen, zufällig günstigen/ungünstigen Startzeitpunkt kann die "
+                    "historische Rate stark von der künftigen abweichen. Passe den Wert oben "
+                    "gerne an, um eigene (z. B. konservativere) Annahmen zu testen."
+                )
 
                 if opt.get("cagr_details"):
                     with st.expander("Wie wurde die vorbelegte Rate ermittelt?", expanded=False):
