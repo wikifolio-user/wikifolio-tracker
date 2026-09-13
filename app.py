@@ -3487,8 +3487,8 @@ def render_dashboard():
                     st.caption(sparrate_hinweis.strip())
     
                 forecast_data = [
-                    {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_startkapital, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
-                    {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_aktueller_wert, 2), "Gesamter Gewinn": f"+{fmt(opt_gewinn, 2)}", "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnahme, 2)}
+                    {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
+                    {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Gesamter Gewinn": f"+{fmt(opt_gewinn, 2)}", "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnahme, 2)}
                 ]
     
                 sim_b_prog, sim_n_prog, sim_e_prog = opt_aktueller_wert, opt_netto, opt_entnahme
@@ -3505,7 +3505,7 @@ def render_dashboard():
                         forecast_data.append({
                             "Jahr": "100k",
                             "Datum": current_date.strftime("%d.%m.%Y"),
-                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
+                            "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                         })
                         milestone_added = True
@@ -3514,7 +3514,7 @@ def render_dashboard():
                         forecast_data.append({
                             "Jahr": f"Jahr +{m_idx // 12}",
                             "Datum": current_date.strftime("%d.%m.%Y"),
-                            "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
+                            "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                         })
             
