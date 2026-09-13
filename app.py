@@ -3529,10 +3529,19 @@ def render_dashboard():
                         columns=["Netto Depotwert", "Kumulierte Entnahme"], errors="ignore"
                     )
 
+                # Hoehe an die tatsaechliche Zeilenzahl anpassen: st.dataframe
+                # begrenzt sonst auf ~10 Zeilen und scrollt INNERHALB der
+                # Tabelle - auf dem Smartphone unangenehm, weil man dann zwei
+                # verschachtelte Scrollbereiche hat und das Ende nicht sieht.
+                # 35px je Zeile + 38px Kopfzeile entspricht Streamlits Raster.
+                _tabellen_hoehe = 38 + 35 * len(df_forecast)
                 st.dataframe(
                     df_forecast, width="stretch", hide_index=True, key="df_forecast",
+                    height=_tabellen_hoehe,
                     column_config={
-                        "Jahr": st.column_config.TextColumn("Jahr", width="small"),
+                        # "small" schnitt "🎯 100k Meilenstein" ab ("100k Me…") -
+                        # medium laesst den laengsten Eintrag vollstaendig zu.
+                        "Jahr": st.column_config.TextColumn("Jahr", width="medium"),
                         "Datum": st.column_config.TextColumn("Datum", width="small"),
                     },
                 )
