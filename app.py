@@ -1160,7 +1160,96 @@ def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
     return zeilen
 
 
-def berechne_robuste_cagr(aktueller_kurs, historie, heute):
+def simuliere_bandbreite(startwert, kursreihe, jahre, sparrate_monat=0.0,
+                         entnahme_monat=0.0, shrinkage=True, pfade=4000):
+    """Monte-Carlo-Simulation moeglicher Wertentwicklungen statt einer
+    einzelnen Punktprognose.
+
+    Warum ueberhaupt: Eine einzelne Zahl ("in 5 Jahren sind es X €")
+    suggeriert eine Praezision, die es nicht gibt. Bei kurzer Historie ist
+    der Standardfehler einer annualisierten Rendite riesig - bei ~7 Monaten
+    Daten und hoher Volatilitaet liegt er schnell bei +/- 60 Prozentpunkten.
+    Eine Bandbreite ist ehrlicher als eine Kommastelle.
+
+    Methode: Aus den taeglichen Log-Renditen der echten Kursreihe werden
+    Drift (mu) und Volatilitaet (sigma) geschaetzt, dann werden `pfade`
+    moegliche Verlaeufe gewuerfelt (geometrische Brownsche Bewegung).
+
+    shrinkage: Bei kurzer Historie ist der geschaetzte Drift extrem
+    unzuverlaessig - ein siebenmonatiger Boom wuerde sonst ungebremst ueber
+    Jahre fortgeschrieben (die naive Rechnung ergab dann z.B. 0% Verlust-
+    wahrscheinlichkeit, was offensichtlich unrealistisch ist). Deshalb wird
+    der Drift Richtung eines konservativen Ankers (8% p.a., grobe langfristige
+    Aktienmarktrendite) zusammengezogen. Das Gewicht haengt an der Datenmenge:
+    wenig Historie -> mehr Anker, viel Historie -> mehr eigene Daten.
+
+    Gibt (perzentile_dict, kennzahlen_dict) zurueck oder (None, None), wenn
+    die Kursreihe zu duenn fuer eine sinnvolle Schaetzung ist.
+    """
+    import numpy as np
+
+    if kursreihe is None or len(kursreihe) < 30:
+        return None, None
+
+    reihe = kursreihe.dropna()
+    reihe = reihe[reihe > 0]
+    if len(reihe) < 30:
+        return None, None
+
+    log_renditen = np.diff(np.log(reihe.values))
+    if len(log_renditen) < 20:
+        return None, None
+
+    mu_tag = float(np.mean(log_renditen))
+    sigma_tag = float(np.std(log_renditen, ddof=1))
+    if sigma_tag <= 0:
+        return None, None
+
+    jahre_historie = len(log_renditen) / 252.0
+    mu_roh_pa = (np.exp(mu_tag * 252) - 1) * 100
+
+    if shrinkage:
+        ANKER_PA = 0.08          # grobe langfristige Marktrendite als Rueckfallanker
+        HALBES_VERTRAUEN = 3.0   # ab 3 Jahren Historie: 50% Gewicht auf eigene Daten
+        mu_anker_tag = np.log(1 + ANKER_PA) / 252
+        gewicht = jahre_historie / (jahre_historie + HALBES_VERTRAUEN)
+        mu_verwendet = gewicht * mu_tag + (1 - gewicht) * mu_anker_tag
+    else:
+        gewicht = 1.0
+        mu_verwendet = mu_tag
+
+    tage = max(1, int(jahre * 252))
+    rng = np.random.default_rng(12345)   # fester Seed: gleiche Eingabe -> gleiches Bild
+    z = rng.standard_normal((pfade, tage))
+    schritte = (mu_verwendet - 0.5 * sigma_tag ** 2) + sigma_tag * z
+
+    # Sparrate/Entnahme monatlich einrechnen: Pfade schrittweise aufbauen,
+    # damit Ein-/Auszahlungen zum jeweils simulierten Kurs wirken.
+    if sparrate_monat or entnahme_monat:
+        werte = np.full(pfade, float(startwert))
+        netto_monat = sparrate_monat - entnahme_monat
+        for t in range(tage):
+            werte = werte * np.exp(schritte[:, t])
+            if (t + 1) % 21 == 0:          # ~1 Handelsmonat
+                werte = np.maximum(0.0, werte + netto_monat)
+        endwerte = werte
+    else:
+        endwerte = startwert * np.exp(schritte.sum(axis=1))
+
+    perzentile = {p: float(np.percentile(endwerte, p)) for p in (5, 25, 50, 75, 95)}
+    kennzahlen = {
+        "verlust_wahrscheinlichkeit": float((endwerte < startwert).mean() * 100),
+        "vola_pa": float(sigma_tag * np.sqrt(252) * 100),
+        "mu_roh_pa": float(mu_roh_pa),
+        "mu_verwendet_pa": float((np.exp(mu_verwendet * 252) - 1) * 100),
+        "jahre_historie": float(jahre_historie),
+        "gewicht_eigene_daten": float(gewicht * 100),
+        "pfade": pfade,
+    }
+    return perzentile, kennzahlen
+
+
+
     """Schaetzt eine annualisierte Wachstumsrate (CAGR) robuster als der
     naive Zwei-Punkte-Vergleich "aeltester Kurs vs. heute". Problem dabei:
     faellt der aelteste verfuegbare Kurs zufaellig auf ein Tief (oder Hoch),
@@ -2163,6 +2252,7 @@ def render_dashboard():
                 "sparrate": 0.0,
                 "entnahme": 0.0,
                 "symbolisch": True,
+                "kursreihe": _b_hist,
             })
         except Exception as e:
             logging.warning(f"Prognose-Basis für Beobachtungswert '{_beob_name}' fehlgeschlagen: {e}")
@@ -2289,6 +2379,9 @@ def render_dashboard():
         "kaufdatum": kaufdatum_aktiv,
         "sparrate": sparrate_aktiv,
         "entnahme": entnommen_aktiv,
+        # Kursreihe fuer die Bandbreiten-Simulation weiter unten (Volatilitaet
+        # und Drift werden daraus geschaetzt, nicht nur die Endpunkte).
+        "kursreihe": df_chart["Close"] if not df_chart.empty else None,
     }]
 
     _pos_gesamt = len(weitere_positionen)
@@ -2363,6 +2456,7 @@ def render_dashboard():
                 "kaufdatum": p_kaufdatum,
                 "sparrate": 0.0,
                 "entnahme": 0.0,
+                "kursreihe": p_hist if p_hist is not None and not p_hist.empty else None,
             })
 
             karte = (
@@ -3427,6 +3521,92 @@ def render_dashboard():
                 df_forecast = pd.DataFrame(forecast_data)
                 df_forecast["Index"] = df_forecast["Index"].astype(str)
                 st.dataframe(df_forecast, width="stretch", hide_index=True, key="df_forecast")
+
+                # ---------- BANDBREITE STATT EINER EINZELNEN ZAHL ----------
+                # Die Tabelle oben rechnet mit EINER konstanten Rendite. Das
+                # ist leicht lesbar, verschweigt aber die Unsicherheit. Hier
+                # daher zusaetzlich eine Monte-Carlo-Simulation: tausende
+                # moegliche Verlaeufe auf Basis der tatsaechlichen
+                # Volatilitaet der Kursreihe.
+                st.markdown('<div class="abschnitt">📉 Bandbreite möglicher Verläufe</div>',
+                            unsafe_allow_html=True)
+
+                mc_jahre = st.slider("Zeitraum der Simulation (Jahre)", 1, 15, 5,
+                                     key="mc_jahre")
+                mc_shrinkage = st.toggle(
+                    "Dämpfung bei kurzer Historie", value=True, key="mc_shrinkage",
+                    help="Zieht den geschätzten Trend Richtung einer konservativen "
+                         "Marktrendite (8 % p.a.) - je weniger Historie vorliegt, "
+                         "desto stärker. Ohne Dämpfung wird ein kurzer Boom "
+                         "ungebremst über Jahre fortgeschrieben.",
+                )
+
+                mc_perzentile, mc_kennzahlen = simuliere_bandbreite(
+                    startwert=opt_aktueller_wert,
+                    kursreihe=opt.get("kursreihe"),
+                    jahre=mc_jahre,
+                    sparrate_monat=opt_sparrate,
+                    entnahme_monat=opt_entnahme,
+                    shrinkage=mc_shrinkage,
+                )
+
+                if mc_perzentile is None:
+                    st.caption("Für diesen Wert liegen zu wenige Kursdaten für eine "
+                               "Bandbreiten-Simulation vor (mindestens ~30 Handelstage nötig).")
+                else:
+                    st.caption(
+                        f"{mc_kennzahlen['pfade']:,} simulierte Verläufe über {mc_jahre} Jahre, "
+                        f"basierend auf der tatsächlichen Schwankungsbreite dieses Wertes "
+                        f"({mc_kennzahlen['vola_pa']:.0f} % Volatilität p.a.)."
+                        .replace(",", ".")
+                    )
+
+                    b1, b2 = st.columns(2)
+                    b1.metric("Mittleres Ergebnis (Median)", fmt(mc_perzentile[50], 0))
+                    b2.metric("Wahrscheinlichkeit eines Verlusts",
+                              f"{mc_kennzahlen['verlust_wahrscheinlichkeit']:.0f} %")
+
+                    st.markdown(
+                        '<div class="rows">'
+                        '<div class="row"><span class="row-label">Sehr schlecht (5 %)</span>'
+                        f'<span class="row-val">{fmt(mc_perzentile[5], 0)}'
+                        '<span class="row-note">Nur 5 % der Verläufe endeten darunter</span></span></div>'
+                        '<div class="row"><span class="row-label">Schlechtes Viertel (25 %)</span>'
+                        f'<span class="row-val">{fmt(mc_perzentile[25], 0)}</span></div>'
+                        '<div class="row"><span class="row-label">Mitte (50 %)</span>'
+                        f'<span class="row-val">{fmt(mc_perzentile[50], 0)}'
+                        '<span class="row-note">Hälfte darüber, Hälfte darunter</span></span></div>'
+                        '<div class="row"><span class="row-label">Gutes Viertel (75 %)</span>'
+                        f'<span class="row-val">{fmt(mc_perzentile[75], 0)}</span></div>'
+                        '<div class="row"><span class="row-label">Sehr gut (95 %)</span>'
+                        f'<span class="row-val">{fmt(mc_perzentile[95], 0)}'
+                        '<span class="row-note">Nur 5 % der Verläufe endeten darüber</span></span></div>'
+                        '</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    with st.expander("Wie kommt diese Bandbreite zustande?", expanded=False):
+                        st.write(
+                            f"- Kursdaten vorhanden für: **{mc_kennzahlen['jahre_historie']:.1f} Jahre**"
+                        )
+                        st.write(
+                            f"- Trend aus den Rohdaten: **{mc_kennzahlen['mu_roh_pa']:+.0f} % p.a.**"
+                        )
+                        if mc_shrinkage:
+                            st.write(
+                                f"- Nach Dämpfung verwendet: **{mc_kennzahlen['mu_verwendet_pa']:+.0f} % p.a.** "
+                                f"(Gewicht auf eigene Daten: {mc_kennzahlen['gewicht_eigene_daten']:.0f} %, "
+                                f"Rest Richtung 8 % Marktrendite)"
+                            )
+                        else:
+                            st.write("- Dämpfung ist **aus**: der rohe Trend wird ungebremst fortgeschrieben.")
+                        st.write(f"- Schwankungsbreite: **{mc_kennzahlen['vola_pa']:.0f} % p.a.**")
+                        st.caption(
+                            "Auch das bleibt ein Modell: Es unterstellt, dass sich Schwankungen "
+                            "künftig ähnlich verhalten wie bisher, und kennt weder Marktcrashs "
+                            "noch Produktschließungen. Es zeigt aber ehrlicher als eine einzelne "
+                            "Zahl, wie breit die möglichen Ausgänge auseinanderliegen."
+                        )
 
                 # Geschaerfter Hinweis: bewusst UNTER der Tabelle, damit
                 # zuerst die Zahlen im Blick sind und die Einordnung direkt
