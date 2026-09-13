@@ -3503,7 +3503,7 @@ def render_dashboard():
         
                     if not milestone_added and sim_b_prog >= 100000.0:
                         forecast_data.append({
-                            "Jahr": "🎯 100k Meilenstein",
+                            "Jahr": "100k",
                             "Datum": current_date.strftime("%d.%m.%Y"),
                             "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
@@ -3539,14 +3539,16 @@ def render_dashboard():
                     df_forecast, width="stretch", hide_index=True, key="df_forecast",
                     height=_tabellen_hoehe,
                     column_config={
-                        # "small" schnitt "🎯 100k Meilenstein" ab ("100k Me…") -
-                        # medium laesst den laengsten Eintrag vollstaendig zu.
-                        "Jahr": st.column_config.TextColumn("Jahr", width="medium"),
+                        # Jetzt wieder "small": "Jahr +10" ist der laengste
+                        # Eintrag, seit "🎯 100k Meilenstein" zu "100k" gekuerzt
+                        # wurde - spart Breite fuer die Betrags-Spalten.
+                        "Jahr": st.column_config.TextColumn("Jahr", width="small"),
                         "Datum": st.column_config.TextColumn("Datum", width="small"),
                     },
                 )
-                st.caption("Tipp: Ein Tippen auf einen Spaltenkopf sortiert die Tabelle - "
-                           "erneutes Tippen stellt die ursprüngliche Reihenfolge wieder her.")
+                with st.expander("ℹ️ Tipp zur Tabelle", expanded=False):
+                    st.caption("Ein Tippen auf einen Spaltenkopf sortiert die Tabelle - "
+                               "erneutes Tippen stellt die ursprüngliche Reihenfolge wieder her.")
 
                 # ---------- BANDBREITE STATT EINER EINZELNEN ZAHL ----------
                 # Die Tabelle oben rechnet mit EINER konstanten Rendite. Das
@@ -3634,17 +3636,21 @@ def render_dashboard():
                             "Zahl, wie breit die möglichen Ausgänge auseinanderliegen."
                         )
 
-                # Geschaerfter Hinweis: bewusst UNTER der Tabelle, damit
-                # zuerst die Zahlen im Blick sind und die Einordnung direkt
-                # danach folgt.
-                st.info(
-                    "⚠️ **Keine Vorhersage, sondern eine Fortschreibung der Vergangenheit.** "
-                    "Diese Tabelle rechnet mit einer konstanten jährlichen Rendite weiter - "
-                    "in der Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer oder "
-                    "einem einzelnen, zufällig günstigen/ungünstigen Startzeitpunkt kann die "
-                    "historische Rate stark von der künftigen abweichen. Passe den Wert oben "
-                    "gerne an, um eigene (z. B. konservativere) Annahmen zu testen."
-                )
+                # Kurzer, immer sichtbarer Hinweis statt eines langen
+                # Dauertextes - die ausfuehrliche Begruendung steht bei
+                # Bedarf im Expander darunter (gleiches Muster wie
+                # "Wie kommt diese Bandbreite zustande?" darueber).
+                st.caption("⚠️ Fortschreibung der Vergangenheit, keine Vorhersage - "
+                           "die künftige Rendite kann stark abweichen.")
+                with st.expander("Warum ist das keine Vorhersage?", expanded=False):
+                    st.write(
+                        "Diese Tabelle rechnet mit einer konstanten jährlichen Rendite "
+                        "weiter - in der Realität schwankt jede Anlage. Besonders bei "
+                        "kurzer Haltedauer oder einem einzelnen, zufällig günstigen/"
+                        "ungünstigen Startzeitpunkt kann die historische Rate stark von "
+                        "der künftigen abweichen. Passe den Wert oben gerne an, um eigene "
+                        "(z. B. konservativere) Annahmen zu testen."
+                    )
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
