@@ -3487,8 +3487,8 @@ def render_dashboard():
                     st.caption(sparrate_hinweis.strip())
     
                 forecast_data = [
-                    {"Index": 0, "Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_startkapital, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
-                    {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_aktueller_wert, 2), "Gesamter Gewinn": f"+{fmt(opt_gewinn, 2)}", "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnahme, 2)}
+                    {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_startkapital, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
+                    {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(opt_aktueller_wert, 2), "Gesamter Gewinn": f"+{fmt(opt_gewinn, 2)}", "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnahme, 2)}
                 ]
     
                 sim_b_prog, sim_n_prog, sim_e_prog = opt_aktueller_wert, opt_netto, opt_entnahme
@@ -3503,7 +3503,7 @@ def render_dashboard():
         
                     if not milestone_added and sim_b_prog >= 100000.0:
                         forecast_data.append({
-                            "Index": "🎯", "Jahr": "100k Meilenstein",
+                            "Jahr": "🎯 100k Meilenstein",
                             "Datum": current_date.strftime("%d.%m.%Y"),
                             "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
@@ -3512,15 +3512,32 @@ def render_dashboard():
 
                     if m_idx % 12 == 0:
                         forecast_data.append({
-                            "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
+                            "Jahr": f"Jahr +{m_idx // 12}",
                             "Datum": current_date.strftime("%d.%m.%Y"),
                             "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
                             "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                         })
             
                 df_forecast = pd.DataFrame(forecast_data)
-                df_forecast["Index"] = df_forecast["Index"].astype(str)
-                st.dataframe(df_forecast, width="stretch", hide_index=True, key="df_forecast")
+
+                # Spalten, die nur Nullen enthalten, gar nicht erst zeigen -
+                # ohne Entnahme sind "Netto Depotwert" und "Kumulierte
+                # Entnahme" identisch zum Bruttowert bzw. durchgehend 0 und
+                # kosten auf dem Smartphone nur seitliche Scrollbreite.
+                if not opt_entnahme:
+                    df_forecast = df_forecast.drop(
+                        columns=["Netto Depotwert", "Kumulierte Entnahme"], errors="ignore"
+                    )
+
+                st.dataframe(
+                    df_forecast, width="stretch", hide_index=True, key="df_forecast",
+                    column_config={
+                        "Jahr": st.column_config.TextColumn("Jahr", width="small"),
+                        "Datum": st.column_config.TextColumn("Datum", width="small"),
+                    },
+                )
+                st.caption("Tipp: Ein Tippen auf einen Spaltenkopf sortiert die Tabelle - "
+                           "erneutes Tippen stellt die ursprüngliche Reihenfolge wieder her.")
 
                 # ---------- BANDBREITE STATT EINER EINZELNEN ZAHL ----------
                 # Die Tabelle oben rechnet mit EINER konstanten Rendite. Das
