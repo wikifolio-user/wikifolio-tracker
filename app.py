@@ -3363,19 +3363,6 @@ def render_dashboard():
                 )
                 opt_zins_mo = (1 + (opt_cagr_pa / 100.0)) ** (1 / 12) - 1
 
-                # Geschaerfter Hinweis: das ist eine FORTSCHREIBUNG der
-                # Vergangenheit, keine Vorhersage - bewusst NACH der Eingabe
-                # platziert, damit zuerst der editierbare Wert im Blick ist
-                # und der Hinweis direkt daran anschliesst.
-                st.info(
-                    "⚠️ **Keine Vorhersage, sondern eine Fortschreibung der Vergangenheit.** "
-                    "Diese Tabelle rechnet mit einer konstanten jährlichen Rendite weiter - "
-                    "in der Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer oder "
-                    "einem einzelnen, zufällig günstigen/ungünstigen Startzeitpunkt kann die "
-                    "historische Rate stark von der künftigen abweichen. Passe den Wert oben "
-                    "gerne an, um eigene (z. B. konservativere) Annahmen zu testen."
-                )
-
                 if opt.get("cagr_details"):
                     with st.expander("Wie wurde die vorbelegte Rate ermittelt?", expanded=False):
                         st.caption(
@@ -3440,6 +3427,18 @@ def render_dashboard():
                 df_forecast = pd.DataFrame(forecast_data)
                 df_forecast["Index"] = df_forecast["Index"].astype(str)
                 st.dataframe(df_forecast, width="stretch", hide_index=True, key="df_forecast")
+
+                # Geschaerfter Hinweis: bewusst UNTER der Tabelle, damit
+                # zuerst die Zahlen im Blick sind und die Einordnung direkt
+                # danach folgt.
+                st.info(
+                    "⚠️ **Keine Vorhersage, sondern eine Fortschreibung der Vergangenheit.** "
+                    "Diese Tabelle rechnet mit einer konstanten jährlichen Rendite weiter - "
+                    "in der Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer oder "
+                    "einem einzelnen, zufällig günstigen/ungünstigen Startzeitpunkt kann die "
+                    "historische Rate stark von der künftigen abweichen. Passe den Wert oben "
+                    "gerne an, um eigene (z. B. konservativere) Annahmen zu testen."
+                )
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
