@@ -3644,11 +3644,12 @@ def render_dashboard():
                            "die künftige Rendite kann stark abweichen.")
                 with st.expander("Warum ist das keine Vorhersage?", expanded=False):
                     st.write(
-                        "Diese Tabelle rechnet mit einer konstanten jährlichen Rendite "
-                        "weiter - in der Realität schwankt jede Anlage. Besonders bei "
-                        "kurzer Haltedauer oder einem einzelnen, zufällig günstigen/"
-                        "ungünstigen Startzeitpunkt kann die historische Rate stark von "
-                        "der künftigen abweichen. Passe den Wert oben gerne an, um eigene "
+                        "Diese Tabelle schreibt lediglich die Vergangenheit fort - sie "
+                        "rechnet mit einer konstanten jährlichen Rendite weiter, in der "
+                        "Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer "
+                        "oder einem einzelnen, zufällig günstigen/ungünstigen "
+                        "Startzeitpunkt kann die historische Rate stark von der "
+                        "künftigen abweichen. Passe den Wert oben gerne an, um eigene "
                         "(z. B. konservativere) Annahmen zu testen."
                     )
 
