@@ -630,58 +630,42 @@ st.markdown("""
     .pt-leer { color: #4B5058; }
     .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.75rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
 
-    /* ---------- MOBILE: KARTEN STATT BREITER TABELLE ----------
-       Die Tabelle braucht ~980px Breite, ein Smartphone bietet ~360px -
-       es waren also nur rund 37% gleichzeitig sichtbar, der Rest nur per
-       seitlichem Scrollen erreichbar (und leicht zu uebersehen).
-       Unter 700px Breite wird die Tabelle deshalb zu gestapelten Karten:
-       je Wert eine Karte, darin Label + Zahl nebeneinander. Alles ist ohne
-       horizontales Scrollen lesbar. Am Desktop bleibt die kompakte
-       Tabellenansicht unveraendert. */
+    /* ---------- MOBILE: FOKUS AUF EINE KENNZAHL ----------
+       Die volle Tabelle braucht ~980px, ein Smartphone bietet ~360px.
+       Ein Karten-Layout (jeder Wert eine eigene Karte) waere zwar lesbar,
+       zerstoert aber genau den Zweck einer VERGLEICHStabelle: das schnelle
+       Nebeneinander. Deshalb stattdessen: Tabelle bleibt Tabelle, aber es
+       wird nur EINE Kennzahl-Spalte gezeigt - dafuer alle Werte untereinander
+       direkt vergleichbar, ohne horizontales Scrollen. Welche Kennzahl das
+       ist, waehlt der Nutzer per Umschalter darueber.
+       Am Desktop (>700px) bleibt die volle Tabelle unveraendert. */
     @media (max-width: 700px) {
-        .pt-wrap { border: none; overflow-x: visible; }
-        .pt, .pt tbody, .pt tr, .pt td { display: block; width: 100%; }
-        /* Kopfzeile entfaellt - die Beschriftung steht jetzt in jeder Zeile */
-        .pt thead { display: none; }
+        /* Alle Kennzahl-Spalten ausblenden ... */
+        .pt td[data-spalte], .pt th[data-spalte] { display: none; }
+        /* ... und nur die aktive wieder einblenden. Die Klasse am Tabellen-
+           Container steuert, welche das ist. */
+        .pt-fokus-monatlich  td[data-spalte="monatlich"],
+        .pt-fokus-monatlich  th[data-spalte="monatlich"],
+        .pt-fokus-jaehrlich  td[data-spalte="jaehrlich"],
+        .pt-fokus-jaehrlich  th[data-spalte="jaehrlich"],
+        .pt-fokus-perf       td[data-spalte="perf"],
+        .pt-fokus-perf       th[data-spalte="perf"],
+        .pt-fokus-euro       td[data-spalte="euro"],
+        .pt-fokus-euro       th[data-spalte="euro"],
+        .pt-fokus-_q td[data-spalte="_q"], .pt-fokus-_q th[data-spalte="_q"],
+        .pt-fokus-_h td[data-spalte="_h"], .pt-fokus-_h th[data-spalte="_h"],
+        .pt-fokus-_n td[data-spalte="_n"], .pt-fokus-_n th[data-spalte="_n"],
+        .pt-fokus-_z td[data-spalte="_z"], .pt-fokus-_z th[data-spalte="_z"] {
+            display: table-cell;
+        }
 
-        .pt tbody tr {
-            background: var(--surface) !important;
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            margin-bottom: 10px;
-            padding: 4px 12px 8px;
-            box-shadow: none !important;
-        }
-        .pt tbody tr.pt-eigene {
-            border-color: rgba(22, 199, 132, 0.55);
-            background: linear-gradient(rgba(22, 199, 132, 0.07),
-                                        rgba(22, 199, 132, 0.07)), var(--surface) !important;
-        }
-
-        /* Name als Kartenueberschrift ueber die volle Breite */
-        .pt td.pt-wert {
-            text-align: left; padding: 8px 0 6px;
-            border-bottom: 1px solid var(--line);
-            margin-bottom: 4px;
-        }
-        .pt-name { font-size: 0.95rem; }
-
-        /* Jede Kennzahl: Label links, Wert rechts - wie die perf-row-Zeilen
-           in den Kacheln oben, damit die App einheitlich wirkt. */
-        .pt td:not(.pt-wert) {
-            display: flex; justify-content: space-between; align-items: baseline;
-            padding: 5px 0; border-bottom: none; text-align: right;
-        }
-        .pt td:not(.pt-wert)::before {
-            content: attr(data-label);
-            font-family: 'Space Grotesk', -apple-system, sans-serif;
-            font-size: 0.78rem; font-weight: 500; color: var(--label);
-            letter-spacing: 0.2px; text-transform: none;
-            text-shadow: none;
-        }
-        /* Leere Zeitraeume in der Kartenansicht ausblenden statt "–" zu zeigen:
-           auf dem schmalen Bildschirm ist jede Zeile wertvoll. */
-        .pt td.pt-leer { display: none; }
+        /* Der Name bekommt den gewonnenen Platz, die Zahl bleibt gut lesbar */
+        .pt-wert { min-width: 0; width: 58%; }
+        .pt-name { font-size: 0.86rem; }
+        .pt-num  { font-size: 0.92rem; }
+        .pt-stark { font-size: 0.95rem; }
+        .pt td, .pt thead th { padding: 10px 8px; }
+        .pt-wrap { overflow-x: visible; }
     }
 
     /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
@@ -1772,7 +1756,28 @@ def render_dashboard():
             return None
         return (float(gueltig.iloc[-1]) / basis - 1) * 100
 
-    def performance_tabelle_html(eintraege, eigene_kennung=None):
+    def kennzahl_umschalter(key, eintraege):
+        """Waehlt, WELCHE Kennzahl auf schmalen Bildschirmen in der
+        Vergleichstabelle steht. Am Desktop sind ohnehin alle Spalten
+        sichtbar - dort dient der Umschalter nur der Hervorhebung.
+
+        Bewusst st.pills statt eines Dropdowns: die Auswahl ist dauerhaft
+        sichtbar, ein Tap genuegt, und man sieht sofort, welche
+        Vergleichsmoeglichkeiten es ueberhaupt gibt."""
+        moeglich = [("Ø/Jahr", "jaehrlich"), ("Ø/Mon.", "monatlich"), ("Gesamt", "perf")]
+        for k, titel in [("_q", "3 Mon."), ("_h", "6 Mon."),
+                         ("_n", "9 Mon."), ("_z", "12 Mon.")]:
+            if any(e.get(k) is not None for e in eintraege):
+                moeglich.append((titel, k))
+        moeglich.append(("+/- €", "euro"))
+
+        beschriftungen = [b for b, _ in moeglich]
+        wahl = st.pills("Vergleichen nach", beschriftungen,
+                        default=beschriftungen[0], key=key)
+        zuordnung = dict(moeglich)
+        return zuordnung.get(wahl or beschriftungen[0], "jaehrlich")
+
+    def performance_tabelle_html(eintraege, eigene_kennung=None, fokus="jaehrlich"):
         """Baut die Vergleichstabelle. Bewusst eine gemeinsame Funktion fuer
         alle drei Ansichten - vorher stand derselbe HTML-Block dreimal fast
         identisch im Code.
@@ -1801,15 +1806,17 @@ def render_dashboard():
             if any(e.get(key) is not None for e in eintraege)
         ]
 
-        def zelle(wert, fett=False, klein=False, label=""):
-            """label wird als data-label mitgegeben: auf schmalen Bildschirmen
-            blendet das CSS die Kopfzeile aus und stellt stattdessen dieses
-            Label VOR den Wert (Karten-Layout statt breiter Tabelle)."""
+        def zelle(wert, fett=False, klein=False, label="", spalte=""):
+            """spalte kennzeichnet die Kennzahl (z.B. "jaehrlich") - auf
+            schmalen Bildschirmen blendet das CSS alle bis auf die gewaehlte
+            aus, damit die Tabelle ohne seitliches Scrollen vergleichbar
+            bleibt."""
+            attr = f' data-label="{label}" data-spalte="{spalte}"'
             if wert is None:
-                return f'<td class="pt-num pt-leer" data-label="{label}">–</td>'
+                return f'<td class="pt-num pt-leer"{attr}>–</td>'
             farbe = "pt-up" if wert >= 0 else "pt-down"
             klassen = f"pt-num {farbe}" + (" pt-stark" if fett else "") + (" pt-klein" if klein else "")
-            return f'<td class="{klassen}" data-label="{label}">{wert:+.2f}%</td>'
+            return f'<td class="{klassen}"{attr}>{wert:+.2f}%</td>'
 
         zeilen = ""
         for i, e in enumerate(eintraege):
@@ -1829,28 +1836,31 @@ def render_dashboard():
             zeilen += (
                 f'<tr class="{zeilen_klasse}">'
                 f'<td class="pt-wert"><span class="pt-name">{name}</span></td>'
-                + zelle(e.get("_monatlich"), fett=True, label="Ø/Mon.")
-                + zelle(e.get("_jaehrlich"), fett=True, label="Ø/Jahr")
-                + zelle(e.get("_perf"), fett=True, label="Gesamt")
-                + "".join(zelle(e.get(k), fett=True, label=titel)
+                + zelle(e.get("_monatlich"), fett=True, label="Ø/Mon.", spalte="monatlich")
+                + zelle(e.get("_jaehrlich"), fett=True, label="Ø/Jahr", spalte="jaehrlich")
+                + zelle(e.get("_perf"), fett=True, label="Gesamt", spalte="perf")
+                + "".join(zelle(e.get(k), fett=True, label=titel, spalte=k)
                           for k, titel in aktive_zeitraeume)
-                + f'<td class="pt-num pt-stark {euro_klasse}" data-label="+/- €">{fmt(euro or 0, 0)}</td>'
-                + f'<td class="pt-num pt-wknval" data-label="WKN">{kuerzel or "–"}</td>'
-                + f'<td class="pt-num pt-seit" data-label="seit">{seit_txt}</td>'
+                + f'<td class="pt-num pt-stark {euro_klasse}" data-label="+/- €" data-spalte="euro">{fmt(euro or 0, 0)}</td>'
+                + f'<td class="pt-num pt-wknval" data-label="WKN" data-spalte="wkn">{kuerzel or "–"}</td>'
+                + f'<td class="pt-num pt-seit" data-label="seit" data-spalte="seit">{seit_txt}</td>'
                 '</tr>'
             )
 
         kopf = (
             '<th class="pt-wert">Wert</th>'
-            '<th class="pt-num">Ø/Mon.</th>'
-              '<th class="pt-num">Ø/Jahr</th>'
-              '<th class="pt-num">Gesamt</th>'
-            + "".join(f'<th class="pt-num">{t}</th>' for _, t in aktive_zeitraeume)
-            + '<th class="pt-num">+/- €</th>'
-              '<th class="pt-num">WKN</th>'
-              '<th class="pt-num">seit</th>'
+            '<th class="pt-num" data-spalte="monatlich">Ø/Mon.</th>'
+              '<th class="pt-num" data-spalte="jaehrlich">Ø/Jahr</th>'
+              '<th class="pt-num" data-spalte="perf">Gesamt</th>'
+            + "".join(f'<th class="pt-num" data-spalte="{k}">{t}</th>'
+                      for k, t in aktive_zeitraeume)
+            + '<th class="pt-num" data-spalte="euro">+/- €</th>'
+              '<th class="pt-num" data-spalte="wkn">WKN</th>'
+              '<th class="pt-num" data-spalte="seit">seit</th>'
         )
-        return (f'<div class="pt-wrap"><table class="pt">'
+        # Die Fokus-Klasse steuert per CSS, welche Kennzahl auf schmalen
+        # Bildschirmen sichtbar ist (am Desktop sind ohnehin alle zu sehen).
+        return (f'<div class="pt-wrap"><table class="pt pt-fokus-{fokus}">'
                 f'<thead><tr>{kopf}</tr></thead><tbody>{zeilen}</tbody></table></div>')
 
     def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_datum):
@@ -3108,8 +3118,10 @@ def render_dashboard():
                         f"(Kaufdatum, gegen eingesetztes Kapital){_start_hinweis}"
                     )
                     performance_liste_haupt.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    _fokus = kennzahl_umschalter("fokus_haupt", performance_liste_haupt)
                     st.markdown(
-                        performance_tabelle_html(performance_liste_haupt, eigene_kennung=config.WKN),
+                        performance_tabelle_html(performance_liste_haupt, eigene_kennung=config.WKN,
+                                                 fokus=_fokus),
                         unsafe_allow_html=True,
                     )
 
@@ -3243,8 +3255,10 @@ def render_dashboard():
                 if performance_liste_v2:
                     st.caption(f"📅 Berechnet seit {config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}")
                     performance_liste_v2.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    _fokus = kennzahl_umschalter("fokus_v2", performance_liste_v2)
                     st.markdown(
-                        performance_tabelle_html(performance_liste_v2, eigene_kennung=config.WKN),
+                        performance_tabelle_html(performance_liste_v2, eigene_kennung=config.WKN,
+                                                 fokus=_fokus),
                         unsafe_allow_html=True,
                     )
 
@@ -3368,8 +3382,10 @@ def render_dashboard():
                 if performance_liste_v3:
                     st.caption(f"📅 Berechnet seit {config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')} (bzw. erstem verfügbaren Kurs)")
                     performance_liste_v3.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    _fokus = kennzahl_umschalter("fokus_v3", performance_liste_v3)
                     st.markdown(
-                        performance_tabelle_html(performance_liste_v3, eigene_kennung=config.WKN),
+                        performance_tabelle_html(performance_liste_v3, eigene_kennung=config.WKN,
+                                                 fokus=_fokus),
                         unsafe_allow_html=True,
                     )
 
