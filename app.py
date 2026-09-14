@@ -630,6 +630,60 @@ st.markdown("""
     .pt-leer { color: #4B5058; }
     .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.75rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
 
+    /* ---------- MOBILE: KARTEN STATT BREITER TABELLE ----------
+       Die Tabelle braucht ~980px Breite, ein Smartphone bietet ~360px -
+       es waren also nur rund 37% gleichzeitig sichtbar, der Rest nur per
+       seitlichem Scrollen erreichbar (und leicht zu uebersehen).
+       Unter 700px Breite wird die Tabelle deshalb zu gestapelten Karten:
+       je Wert eine Karte, darin Label + Zahl nebeneinander. Alles ist ohne
+       horizontales Scrollen lesbar. Am Desktop bleibt die kompakte
+       Tabellenansicht unveraendert. */
+    @media (max-width: 700px) {
+        .pt-wrap { border: none; overflow-x: visible; }
+        .pt, .pt tbody, .pt tr, .pt td { display: block; width: 100%; }
+        /* Kopfzeile entfaellt - die Beschriftung steht jetzt in jeder Zeile */
+        .pt thead { display: none; }
+
+        .pt tbody tr {
+            background: var(--surface) !important;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            margin-bottom: 10px;
+            padding: 4px 12px 8px;
+            box-shadow: none !important;
+        }
+        .pt tbody tr.pt-eigene {
+            border-color: rgba(22, 199, 132, 0.55);
+            background: linear-gradient(rgba(22, 199, 132, 0.07),
+                                        rgba(22, 199, 132, 0.07)), var(--surface) !important;
+        }
+
+        /* Name als Kartenueberschrift ueber die volle Breite */
+        .pt td.pt-wert {
+            text-align: left; padding: 8px 0 6px;
+            border-bottom: 1px solid var(--line);
+            margin-bottom: 4px;
+        }
+        .pt-name { font-size: 0.95rem; }
+
+        /* Jede Kennzahl: Label links, Wert rechts - wie die perf-row-Zeilen
+           in den Kacheln oben, damit die App einheitlich wirkt. */
+        .pt td:not(.pt-wert) {
+            display: flex; justify-content: space-between; align-items: baseline;
+            padding: 5px 0; border-bottom: none; text-align: right;
+        }
+        .pt td:not(.pt-wert)::before {
+            content: attr(data-label);
+            font-family: 'Space Grotesk', -apple-system, sans-serif;
+            font-size: 0.78rem; font-weight: 500; color: var(--label);
+            letter-spacing: 0.2px; text-transform: none;
+            text-shadow: none;
+        }
+        /* Leere Zeitraeume in der Kartenansicht ausblenden statt "–" zu zeigen:
+           auf dem schmalen Bildschirm ist jede Zeile wertvoll. */
+        .pt td.pt-leer { display: none; }
+    }
+
     /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
        Bewusst position:fixed statt im normalen Seitenfluss. Vorher wanderte
        der Balken mit, sobald darueber/darunter Inhalte erschienen - und das
@@ -1747,12 +1801,15 @@ def render_dashboard():
             if any(e.get(key) is not None for e in eintraege)
         ]
 
-        def zelle(wert, fett=False, klein=False):
+        def zelle(wert, fett=False, klein=False, label=""):
+            """label wird als data-label mitgegeben: auf schmalen Bildschirmen
+            blendet das CSS die Kopfzeile aus und stellt stattdessen dieses
+            Label VOR den Wert (Karten-Layout statt breiter Tabelle)."""
             if wert is None:
-                return '<td class="pt-num pt-leer">–</td>'
+                return f'<td class="pt-num pt-leer" data-label="{label}">–</td>'
             farbe = "pt-up" if wert >= 0 else "pt-down"
             klassen = f"pt-num {farbe}" + (" pt-stark" if fett else "") + (" pt-klein" if klein else "")
-            return f'<td class="{klassen}">{wert:+.2f}%</td>'
+            return f'<td class="{klassen}" data-label="{label}">{wert:+.2f}%</td>'
 
         zeilen = ""
         for i, e in enumerate(eintraege):
@@ -1772,13 +1829,14 @@ def render_dashboard():
             zeilen += (
                 f'<tr class="{zeilen_klasse}">'
                 f'<td class="pt-wert"><span class="pt-name">{name}</span></td>'
-                + zelle(e.get("_monatlich"), fett=True)
-                + zelle(e.get("_jaehrlich"), fett=True)
-                + zelle(e.get("_perf"), fett=True)
-                + "".join(zelle(e.get(k), fett=True) for k, _ in aktive_zeitraeume)
-                + f'<td class="pt-num pt-stark {euro_klasse}">{fmt(euro or 0, 0)}</td>'
-                + f'<td class="pt-num pt-wknval">{kuerzel or "–"}</td>'
-                + f'<td class="pt-num pt-seit">{seit_txt}</td>'
+                + zelle(e.get("_monatlich"), fett=True, label="Ø/Mon.")
+                + zelle(e.get("_jaehrlich"), fett=True, label="Ø/Jahr")
+                + zelle(e.get("_perf"), fett=True, label="Gesamt")
+                + "".join(zelle(e.get(k), fett=True, label=titel)
+                          for k, titel in aktive_zeitraeume)
+                + f'<td class="pt-num pt-stark {euro_klasse}" data-label="+/- €">{fmt(euro or 0, 0)}</td>'
+                + f'<td class="pt-num pt-wknval" data-label="WKN">{kuerzel or "–"}</td>'
+                + f'<td class="pt-num pt-seit" data-label="seit">{seit_txt}</td>'
                 '</tr>'
             )
 
