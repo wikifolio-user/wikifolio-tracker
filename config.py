@@ -149,7 +149,7 @@ LS_TC_HEADERS = {
 }
 
 # --- STATE-SPEICHERUNG (GitHub Contents API, siehe github_store.py) ---
-GITHUB_STATE_BRANCH = "app-state"
+GITHUB_STATE_BRANCH = "app-state-v2"
 STATE_PATH_TRADES_DB = "state/trades_db.json"
 STATE_PATH_ALARM = "state/alarm_state.json"
 STATE_PATH_PRICE_ALERT = "state/price_alert_state.json"
