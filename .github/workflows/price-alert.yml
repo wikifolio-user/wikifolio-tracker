@@ -1,23 +1,6 @@
 name: LS9VFS Kurs-Alarm (5 Min)
 
 on:
-  # FALLBACK: laeuft weiter, falls der externe Pinger (siehe unten) mal
-  # ausfaellt - GitHub deprioritisiert schedule-Trigger aber generell
-  # gegenueber Event-Triggern, deshalb kommt repository_dispatch als
-  # PRIMAERER Ausloeser dazu. Intervall hier bewusst auf 15 Min gesenkt,
-  # da es ohnehin nur als Sicherheitsnetz dient - der Pinger deckt die
-  # eigentlichen 5-Minuten-Laeufe ab, doppeltes *-/5-Polling waere unnoetig.
-  schedule:
-    - cron: "*/15 * * * *"
-
-  # PRIMAERER Ausloeser: ein externer Cron-Dienst (z.B. cron-job.org) ruft
-  # alle 5 Minuten die GitHub-API auf und loest damit dieses Event aus.
-  # Event-getriggerte Workflows werden von GitHub NICHT deprioritisiert -
-  # das ist der eigentliche Fix fuer die unzuverlaessigen Lauf-Abstaende.
-  # "event_type" muss exakt zum Payload passen, den der externe Dienst sendet.
-  repository_dispatch:
-    types: [price-check]
-
   workflow_dispatch: {}
 
 permissions:
