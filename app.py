@@ -3743,7 +3743,7 @@ def render_dashboard():
             with tab_scenarios:
                 st.markdown(
                     '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
-                    '📊 Szenario-Analyse (1,0% – 10,0% p.M.)</div>',
+                    '📊 Szenario-Analyse (5 Jahre)</div>',
                     unsafe_allow_html=True,
                 )
                 # ---------- BASIS: hinterlegten Wert oder eigene Eingabe ----------
@@ -3812,17 +3812,30 @@ def render_dashboard():
                 entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
                 netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
 
-                szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
-
-                # Historische Rate des gewaehlten Werts als zusaetzliches,
-                # markiertes Szenario (p.a. -> p.M. umgerechnet). Bei sehr
-                # jungen Hebelprodukten kann das weit ueber 10 % p.M. liegen -
-                # dann steht es eben am Ende der Liste; die Zahl ist ehrlich
-                # das, was die Historie hergibt, keine Vorhersage.
+                # STANDARD: die 19 festen Raten (1,0-10,0 % p.M.) wie gehabt.
+                # HINTERLEGTER WERT: nur EIN Szenario - die Rate dieses Werts.
+                # Vorher liefen dort zusaetzlich alle 19 Standardraten mit, und
+                # die eigentlich relevante Rate ging in der Liste unter. Die Rate
+                # ist mit der historischen Rendite vorbelegt, aber editierbar,
+                # damit sich auch konservativere Annahmen durchrechnen lassen.
                 eigene_rate_mo = None
-                if basis is not None and basis.get("cagr_pa") is not None and basis["cagr_pa"] > -99:
-                    eigene_rate_mo = ((1 + basis["cagr_pa"] / 100.0) ** (1 / 12) - 1) * 100.0
-                    szenario_raten_mo = sorted(set(szenario_raten_mo + [round(eigene_rate_mo, 4)]))
+                if basis is None:
+                    szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0,
+                                         5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+                else:
+                    _hist_pa = float(basis.get("cagr_pa") or 0.0)
+                    rate_pa_szenario = st.number_input(
+                        "✏️ Angenommene Rendite p.a. (%)",
+                        min_value=-99.0, max_value=100000.0, step=0.5,
+                        value=round(max(_hist_pa, -99.0), 2), key=f"szenario_rate_{_k}",
+                        help="Vorbelegt mit der bisherigen Rendite dieses Werts. "
+                             "Frei überschreibbar, um andere Annahmen durchzurechnen.",
+                    )
+                    eigene_rate_mo = ((1 + rate_pa_szenario / 100.0) ** (1 / 12) - 1) * 100.0
+                    szenario_raten_mo = [round(eigene_rate_mo, 4)]
+                    st.caption(f"Bisherige Rendite dieses Werts: {_hist_pa:.2f} % p.a. "
+                               f"= {((1 + _hist_pa / 100.0) ** (1 / 12) - 1) * 100:.2f} % p.M. "
+                               "Fortschreibung der Vergangenheit, keine Vorhersage.")
 
                 summary_list = []
                 scenario_series = {}
@@ -3849,7 +3862,7 @@ def render_dashboard():
             
                     _serien_name = f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"
                     if ist_eigene_rate:
-                        _serien_name = f"⭐ {_serien_name} – historisch"
+                        _serien_name = f"⭐ {basis_name}: {_serien_name}"
                     scenario_series[_serien_name] = monthly_vals
 
                     if m_to_100k is not None:
@@ -3878,7 +3891,7 @@ def render_dashboard():
                     _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
                                if e["eigene"] else "1px solid #27272A")
                     _marke = (f'<div style="font-size: 0.72rem; font-weight: 700; color: #16C784; '
-                              f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ HISTORISCHE RATE · {basis_name.upper()}</div>'
+                              f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {basis_name.upper()}</div>'
                               if e["eigene"] else "")
                     # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
                     # In einem mehrzeiligen f-String entsteht bei leerem
