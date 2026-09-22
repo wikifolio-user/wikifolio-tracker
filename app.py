@@ -2518,8 +2518,12 @@ def render_dashboard():
         '<div class="hero-label">Depotwert</div>'
         '<div class="price-line">'
         f'<span class="hero-val">{fmt(brutto_ist, 2)}</span>'
+        # Ø p.a. bewusst als Rendite des PRODUKTS (Median ueber die volle
+        # Historie), nicht als eigene Kaufrendite: so steht ueberall im
+        # Dashboard dieselbe Zahl, mit der auch simuliert wird. Gewinn und
+        # Rendite in den Zeilen darunter bleiben die eigenen, realisierten Werte.
         '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
-        f'<span class="stat-chip-val">{erwartete_rendite_pa:.1f} %</span></span>'
+        f'<span class="stat-chip-val">{prognose_rendite_pa:.1f} %</span></span>'
         '</div>'
         f'{perf_zeilen_html(periods_depot, 2)}'
         f'<div class="card-footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} '
@@ -2657,7 +2661,7 @@ def render_dashboard():
                 '<div class="price-line">'
                 f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
                 '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
-                f'<span class="stat-chip-val">{p_cagr:.1f} %</span></span>'
+                f'<span class="stat-chip-val">{p_prognose_pa:.1f} %</span></span>'
                 f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
                 '</div>'
                 f'{perf_zeilen_html(p_perioden_depot, 2)}'
