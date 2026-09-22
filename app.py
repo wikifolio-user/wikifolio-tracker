@@ -3746,22 +3746,65 @@ def render_dashboard():
                     '📊 Szenario-Analyse (1,0% – 10,0% p.M.)</div>',
                     unsafe_allow_html=True,
                 )
-                st.caption("✏️ Beide Werte unten frei anpassbar, um eigene Annahmen durchzurechnen:")
+                # ---------- BASIS: hinterlegten Wert oder eigene Eingabe ----------
+                # Vorher rechnete der Simulator immer mit festen 10.000 € und
+                # hatte keinerlei Bezug zu den Werten der App. Jetzt laesst sich
+                # jeder Wert waehlen, der auch in der Zukunfts-Prognose steht
+                # (Hauptposition, weitere Positionen, Beobachtungswerte). Die
+                # Felder darunter werden damit vorbelegt, bleiben aber frei
+                # aenderbar. Zusaetzlich erscheint die historische Rate dieses
+                # Werts als eigenes, hervorgehobenes Szenario.
+                # "Standard" = das urspruengliche Verhalten: feste 10.000 €,
+                # nur die 19 Standard-Raten (1,0-10,0 % p.M.), ohne Bezug zu
+                # einem bestimmten Wert und ohne historisches ⭐-Szenario.
+                # Steht bewusst an erster Stelle und ist damit die Vorauswahl.
+                STANDARD = "📐 Standard (1,0–10,0 % p.M., 10.000 €)"
+                _basis_namen = [STANDARD] + [o["name"] for o in prognose_optionen]
+                basis_name = st.selectbox(
+                    "Wert auswählen:", _basis_namen, key="szenario_basis_wahl",
+                )
+                basis = next((o for o in prognose_optionen if o["name"] == basis_name), None)
+
+                if basis is not None:
+                    _vorbelegung = {
+                        "start": float(basis["aktueller_wert"]),
+                        "entnahme": float(basis.get("entnahme") or 0.0),
+                        "sparrate": float(basis.get("sparrate") or 0.0),
+                    }
+                    if basis.get("symbolisch"):
+                        st.caption(
+                            "Beobachtungswert ohne echtes Investment - gerechnet wird mit "
+                            f"einem symbolischen Startkapital von {fmt(_vorbelegung['start'], 0)}."
+                        )
+                    else:
+                        st.caption("Vorbelegt mit dem aktuellen Wert dieser Position - "
+                                   "unten frei anpassbar.")
+                else:
+                    _vorbelegung = {"start": 10000.0, "entnahme": 0.0, "sparrate": 0.0}
+                    st.caption("Standard-Szenarien ohne Bezug zu einem bestimmten Wert - "
+                               "alle Beträge unten frei anpassbar.")
+
+                # Eigener Widget-Key je Auswahl: Streamlit uebernimmt "value="
+                # nur beim ERSTEN Anlegen eines Widgets. Mit festem Key bliebe
+                # beim Wechsel der alte Betrag stehen - so bekommt jede Auswahl
+                # ihr eigenes Feld mit passender Vorbelegung, und eigene
+                # Aenderungen bleiben je Wert erhalten.
+                _k = re.sub(r"[^A-Za-z0-9]+", "_", basis_name)
 
                 col_sk, col_en = st.columns(2)
                 with col_sk:
                     startkapital_szenario = st.number_input(
-                        "✏️ Startkapital (€)", min_value=0.0, value=10000.0,
-                        step=100.0, key="szenario_startkapital",
+                        "✏️ Startkapital (€)", min_value=0.0, value=round(_vorbelegung["start"], 2),
+                        step=100.0, key=f"szenario_startkapital_{_k}",
                     )
                 with col_en:
                     entnahme_eingabe = st.number_input(
-                        "✏️ Monatliche Entnahme (€)", min_value=0.0, value=0.0,
-                        step=10.0, key="szenario_entnahme",
+                        "✏️ Monatliche Entnahme (€)", min_value=0.0, value=_vorbelegung["entnahme"],
+                        step=10.0, key=f"szenario_entnahme_{_k}",
                     )
                 sparrate_szenario = st.number_input(
-                    "✏️ Monatliche Sparrate (€)", min_value=0.0, value=0.0,
-                    step=10.0, key="szenario_sparrate",
+                    "✏️ Monatliche Sparrate (€)", min_value=0.0, value=_vorbelegung["sparrate"],
+                    step=10.0, key=f"szenario_sparrate_{_k}",
                     help="Zusätzliche monatliche Einzahlung - erhöht das Kapital jeden Monat, statt es zu verringern.",
                 )
 
@@ -3770,13 +3813,25 @@ def render_dashboard():
                 netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
 
                 szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
-    
+
+                # Historische Rate des gewaehlten Werts als zusaetzliches,
+                # markiertes Szenario (p.a. -> p.M. umgerechnet). Bei sehr
+                # jungen Hebelprodukten kann das weit ueber 10 % p.M. liegen -
+                # dann steht es eben am Ende der Liste; die Zahl ist ehrlich
+                # das, was die Historie hergibt, keine Vorhersage.
+                eigene_rate_mo = None
+                if basis is not None and basis.get("cagr_pa") is not None and basis["cagr_pa"] > -99:
+                    eigene_rate_mo = ((1 + basis["cagr_pa"] / 100.0) ** (1 / 12) - 1) * 100.0
+                    szenario_raten_mo = sorted(set(szenario_raten_mo + [round(eigene_rate_mo, 4)]))
+
                 summary_list = []
                 scenario_series = {}
 
                 for r_mo_pct in szenario_raten_mo:
                     r_mo = r_mo_pct / 100.0
                     r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
+                    ist_eigene_rate = (eigene_rate_mo is not None
+                                       and abs(r_mo_pct - round(eigene_rate_mo, 4)) < 1e-9)
         
                     cap_sim = startkapital_szenario
                     m_to_100k = None
@@ -3792,18 +3847,26 @@ def render_dashboard():
                         cap_5y = (cap_5y * (1 + r_mo)) + netto_cashflow_szenario
                         monthly_vals.append(max(0, cap_5y))
             
-                    scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
-        
+                    _serien_name = f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"
+                    if ist_eigene_rate:
+                        _serien_name = f"⭐ {_serien_name} – historisch"
+                    scenario_series[_serien_name] = monthly_vals
+
                     if m_to_100k is not None:
                         years_100k = m_to_100k // 12
                         rem_months = m_to_100k % 12
                         m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
-                        target_date = (pd.to_datetime(kaufdatum_aktiv) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+                        # Ab HEUTE rechnen, nicht ab dem Kaufdatum: die
+                        # Simulation startet mit dem heutigen Kapital und zeigt
+                        # in die Zukunft. Vorher lagen alle Zieldaten um die
+                        # bisherige Haltedauer zu frueh.
+                        target_date = (pd.Timestamp(heute_date) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
                     else:
                         m_str = "Nicht erreicht (>100J)"
                         target_date = "N/A"
-            
+
                     summary_list.append({
+                        "eigene": ist_eigene_rate,
                         "rate": r_mo_pct, "rate_pa": r_pa_pct, "ziel_100k": m_str, "ziel_datum": target_date,
                         "j1": monthly_vals[12], "j2": monthly_vals[24], "j3": monthly_vals[36],
                         "j4": monthly_vals[48], "j5": monthly_vals[60],
@@ -3811,8 +3874,15 @@ def render_dashboard():
 
                 karten_html = '<div style="display: flex; flex-direction: column; gap: 10px;">'
                 for e in summary_list:
+                    # Historische Rate des gewaehlten Werts sichtbar absetzen
+                    _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
+                               if e["eigene"] else "1px solid #27272A")
+                    _marke = (f'<div style="font-size: 0.72rem; font-weight: 700; color: #16C784; '
+                              f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ HISTORISCHE RATE · {basis_name.upper()}</div>'
+                              if e["eigene"] else "")
                     karten_html += f"""
-                    <div style="background: #09090B; border: 1px solid #27272A; border-radius: 6px; padding: 12px 14px;">
+                    <div style="background: #09090B; border: {_rahmen}; border-radius: 6px; padding: 12px 14px;">
+                        {_marke}
                         <div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">
                             {e['rate']:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e['rate_pa']:.2f}% p.a.)</span>
                         </div>
@@ -3833,7 +3903,16 @@ def render_dashboard():
                 months_x = list(range(61))
     
                 for label, vals in scenario_series.items():
-                    fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
+                    if label.startswith("⭐"):
+                        fig_scen.add_trace(go.Scatter(
+                            x=months_x, y=vals, mode="lines", name=label,
+                            line=dict(color="#16C784", width=4),
+                        ))
+                    else:
+                        fig_scen.add_trace(go.Scatter(
+                            x=months_x, y=vals, mode="lines", name=label,
+                            line=dict(width=1.5), opacity=0.75,
+                        ))
 
                 fig_scen.add_hline(
                     y=100000, 
@@ -3857,7 +3936,7 @@ def render_dashboard():
                         x=0.5, 
                         font=dict(color="#E5E7EB", size=11)
                     ),
-                    xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
+                    xaxis=dict(title="Monate ab heute", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
                     yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
                     hovermode="x unified",
                 )
