@@ -53,6 +53,15 @@ STATE_PATH_POSITIONEN = "state/positionen.json"
 # sind - sie fliessen bewusst nicht in Depotwert, Gewinn oder Gesamtsumme ein.
 STATE_PATH_BEOBACHTUNG = "state/beobachtung.json"
 
+# --- AUFLEGUNGSDATEN ---
+# wikifolio-Zertifikate starten IMMER bei 100 €. ls-tc.de liefert die Historie
+# aber erst ab Listing (LS9VFS z.B. erst ab 09.07.2025 bei 128,80 €) - der
+# Abschnitt davor fehlt in den Daten komplett. Das Auflegungsdatum wird deshalb
+# hier je Instrument dauerhaft hinterlegt und fliesst ueberall dort ein, wo mit
+# der Produkt-Rendite gerechnet wird (Prognose, Meilenstein, Simulator).
+STATE_PATH_AUFLEGUNG = "state/auflegung.json"
+WIKIFOLIO_STARTKURS = 100.0
+
 # --- TERMINAL STYLING ---
 # Bewusst AUSSERHALB des periodisch aktualisierenden Fragments (siehe unten) -
 # wird dadurch nur EINMAL pro echtem Seitenaufbau injiziert, nicht alle 5 Min.
@@ -1060,6 +1069,48 @@ def speichere_beobachtung(eintraege, message="update beobachtung [skip ci]"):
     return gh_write(STATE_PATH_BEOBACHTUNG, eintraege, message=message)
 
 
+def ist_wikifolio(wkn="", name=""):
+    """True nur fuer wikifolio-Zertifikate. Die starten bei Auflegung immer bei
+    100 € - ETFs (MSCI, Gold, Nasdaq ...) dagegen NICHT, dort waere ein
+    100-€-Startpunkt schlicht falsch. Erkennung ueber die WKN: wikifolio-
+    Zertifikate von Lang & Schwarz beginnen mit "LS9" (LS9VFS, LS9VSU,
+    LS9VVK ...). Ersatzweise wird der Name geprueft, falls keine WKN
+    hinterlegt ist (z.B. bei aus den Vergleichswerten uebernommenen Eintraegen).
+    """
+    text = f"{wkn or ''} {name or ''}".upper()
+    return bool(re.search(r"\bLS9[A-Z0-9]{3}\b", text)) or "WIKIFOLIO" in text
+
+
+def lade_auflegungen():
+    """{instrument_id (str): {"datum": "YYYY-MM-DD", "kurs": 100.0}}"""
+    return gh_read_cached(STATE_PATH_AUFLEGUNG, {}) or {}
+
+
+def speichere_auflegung(instrument_id, datum, kurs=WIKIFOLIO_STARTKURS):
+    """Merkt sich Auflegungsdatum und -kurs dauerhaft. datum=None loescht."""
+    daten = dict(lade_auflegungen())
+    schluessel = str(instrument_id)
+    if datum is None:
+        daten.pop(schluessel, None)
+    else:
+        daten[schluessel] = {"datum": datum.isoformat(), "kurs": float(kurs)}
+    return gh_write(STATE_PATH_AUFLEGUNG, daten, message="update auflegung [skip ci]")
+
+
+def auflegung_fuer(instrument_id):
+    """(datum, kurs) des gespeicherten Auflegungspunkts, sonst (None, None)."""
+    roh = lade_auflegungen().get(str(instrument_id))
+    if not roh:
+        return None, None
+    try:
+        if isinstance(roh, str):          # Altformat: nur das Datum
+            return datetime.date.fromisoformat(roh), WIKIFOLIO_STARTKURS
+        return (datetime.date.fromisoformat(roh["datum"]),
+                float(roh.get("kurs", WIKIFOLIO_STARTKURS)))
+    except Exception:
+        return None, None
+
+
 def position_stueckzahl(pos):
     """Stueckzahl ergibt sich aus Startkapital / Kaufkurs - damit bleibt sie
     automatisch konsistent, wenn das Startkapital angepasst wird."""
@@ -1394,7 +1445,7 @@ def berechne_robuste_cagr(aktueller_kurs, historie, heute, daempfung=False,
 
 
 def produkt_rendite_pa(instrument_id, heute, daempfung=False,
-                       auflage_datum=None, auflage_kurs=None):
+                       auflage_datum=None, auflage_kurs=None, wkn="", name=""):
     """Robuste Renditeschaetzung fuer ein Instrument - EINE Stelle fuer alle
     Zukunfts-Hochrechnungen im Dashboard (100k-Meilenstein, Zukunfts-Prognose,
     Szenario-Simulator), damit dort ueberall dieselbe Zahl steht.
@@ -1414,6 +1465,19 @@ def produkt_rendite_pa(instrument_id, heute, daempfung=False,
         hist = get_kurshistorie(instrument_id, datetime.date(2000, 1, 1), heute)
         if hist is None or hist.empty:
             return None, []
+        # Ohne ausdrueckliche Angabe: gespeichertes Auflegungsdatum verwenden.
+        # Der Startkurs ist bei wikifolio-Zertifikaten immer 100 € - er muss
+        # also nirgends eingetippt werden.
+        # Gespeicherten Auflegungspunkt nur bei wikifolio-Zertifikaten
+        # anwenden (Start immer 100 €). Werden wkn/name nicht mitgegeben,
+        # greift der gespeicherte Eintrag - gespeichert wird er ohnehin nur
+        # dort, wo die Eingabe angeboten wird.
+        if auflage_datum is None:
+            wkn_bekannt = bool(wkn or name)
+            if not wkn_bekannt or ist_wikifolio(wkn, name):
+                auflage_datum, gespeicherter_kurs = auflegung_fuer(instrument_id)
+                if auflage_datum is not None and auflage_kurs is None:
+                    auflage_kurs = gespeicherter_kurs
         return berechne_robuste_cagr(
             float(hist.iloc[-1]), hist, heute, daempfung=daempfung,
             auflage_datum=auflage_datum, auflage_kurs=auflage_kurs,
@@ -2432,6 +2496,7 @@ def render_dashboard():
                 "symbolisch": True,
                 "kursreihe": _b_hist,
                 "instrument_id": _eintrag["instrument_id"],
+                "wkn": _eintrag.get("wkn", ""),
             })
         except Exception as e:
             logging.warning(f"Prognose-Basis für Beobachtungswert '{_beob_name}' fehlgeschlagen: {e}")
@@ -2571,6 +2636,7 @@ def render_dashboard():
         # Fuer den Szenario-Simulator: erlaubt, die Kurshistorie des
         # PRODUKTS zu laden (unabhaengig vom eigenen Kaufzeitpunkt).
         "instrument_id": config.LS_INSTRUMENT_ID,
+        "wkn": config.WKN,
     }]
 
     _pos_gesamt = len(weitere_positionen)
@@ -2653,6 +2719,7 @@ def render_dashboard():
                 "entnahme": 0.0,
                 "kursreihe": p_hist if p_hist is not None and not p_hist.empty else None,
                 "instrument_id": pos["instrument_id"],
+                "wkn": pos.get("wkn", ""),
             })
 
             karte = (
@@ -3977,20 +4044,42 @@ def render_dashboard():
                     # fehlt in den Daten - deshalb hier von Hand eintragbar.
                     _datenbeginn = (_p_hist.index[0].date() if not _p_hist.empty else heute_date)
                     _start_kurs_daten = (float(_p_hist.iloc[0]) if not _p_hist.empty else 100.0)
-                    with st.expander("Auflegung des Werts berücksichtigen", expanded=False):
-                        st.caption(
-                            f"Kursdaten liegen erst ab **{_datenbeginn.strftime('%d.%m.%Y')}** "
-                            f"({_start_kurs_daten:.2f} €) vor. Startete der Wert früher (z. B. "
-                            "bei 100 €), hier eintragen - der Zeitraum fließt dann mit in die "
-                            "Rendite-Ermittlung ein."
-                        )
-                        _auf_an = st.checkbox("Auflegung mitrechnen", value=False,
-                                              key=f"szenario_aufl_an_{_k}")
-                        _auf_datum = st.date_input("Auflegungsdatum", value=_datenbeginn,
-                                                   key=f"szenario_aufl_datum_{_k}")
-                        _auf_kurs = st.number_input("Kurs bei Auflegung (€)", min_value=0.0,
-                                                    value=100.0, step=1.0,
-                                                    key=f"szenario_aufl_kurs_{_k}")
+                    # NUR wikifolio-Zertifikate starten bei 100 € - bei ETFs
+                    # (MSCI, Gold, Nasdaq ...) waere dieser Ankerpunkt falsch,
+                    # deshalb gibt es die Eingabe dort gar nicht erst.
+                    if ist_wikifolio(basis.get("wkn"), basis.get("name")):
+                        with st.expander("Auflegung des Werts", expanded=False):
+                            _gespeichert, _ = auflegung_fuer(_inst_id)
+                            st.caption(
+                                f"Kursdaten liegen erst ab **{_datenbeginn.strftime('%d.%m.%Y')}** "
+                                f"({_start_kurs_daten:.2f} €) vor. wikifolio-Zertifikate starten "
+                                f"immer bei **{WIKIFOLIO_STARTKURS:.0f} €** - trag das "
+                                "Auflegungsdatum ein, dann zählt auch die Zeit davor mit. "
+                                "Die Angabe wird dauerhaft gespeichert und gilt für Prognose, "
+                                "Meilenstein und Simulator."
+                            )
+                            _auf_datum = st.date_input(
+                                "Auflegungsdatum", value=_gespeichert or _datenbeginn,
+                                key=f"szenario_aufl_datum_{_k}",
+                            )
+                            _b1, _b2 = st.columns(2)
+                            if _b1.button("Speichern", key=f"szenario_aufl_save_{_k}",
+                                          width="stretch"):
+                                if speichere_auflegung(_inst_id, _auf_datum):
+                                    st.success(f"Auflegung {_auf_datum.strftime('%d.%m.%Y')} "
+                                               f"zu {WIKIFOLIO_STARTKURS:.0f} € gespeichert.")
+                                    st.rerun(scope="fragment")
+                                else:
+                                    st.error("Speichern fehlgeschlagen (kein persistenter State?).")
+                            if _gespeichert and _b2.button("Entfernen",
+                                                           key=f"szenario_aufl_del_{_k}",
+                                                           width="stretch"):
+                                speichere_auflegung(_inst_id, None)
+                                st.rerun(scope="fragment")
+                            if _gespeichert:
+                                st.caption(f"Aktiv: Auflegung {_gespeichert.strftime('%d.%m.%Y')} "
+                                           f"zu {WIKIFOLIO_STARTKURS:.0f} €.")
+
                     _daempfen = st.toggle(
                         "Dämpfung bei kurzer Historie", value=False, key=f"szenario_daempf_{_k}",
                         help="Zieht das Ergebnis Richtung einer konservativen Marktrendite "
@@ -4002,8 +4091,6 @@ def render_dashboard():
                     # Zukunfts-Prognose - eine Quelle, ueberall dieselbe Zahl.
                     _robust, _details = produkt_rendite_pa(
                         _inst_id, heute_date, daempfung=_daempfen,
-                        auflage_datum=_auf_datum if _auf_an else None,
-                        auflage_kurs=_auf_kurs if _auf_an else None,
                     )
                     if _robust is not None:
                         _prod_pa = _robust
