@@ -1287,49 +1287,140 @@ def simuliere_bandbreite(startwert, kursreihe, jahre, sparrate_monat=0.0,
     return perzentile, kennzahlen
 
 
-def berechne_robuste_cagr(aktueller_kurs, historie, heute):
-    """Schaetzt eine annualisierte Wachstumsrate (CAGR) robuster als der
-    naive Zwei-Punkte-Vergleich "aeltester Kurs vs. heute". Problem dabei:
-    faellt der aelteste verfuegbare Kurs zufaellig auf ein Tief (oder Hoch),
-    verzerrt das die gesamte Prognose - bei einer 5 Jahre alten Historie
-    reicht ein einziger ungluecklicher Tag am Anfang, um die Rate um viele
-    Prozentpunkte zu verschieben.
+def berechne_robuste_cagr(aktueller_kurs, historie, heute, daempfung=False,
+                          auflage_datum=None, auflage_kurs=None):
+    """Schaetzt eine annualisierte Wachstumsrate (CAGR), die ueber den Tag
+    KONSTANT bleibt und nicht an einem einzelnen Kurspunkt haengt.
 
-    Stattdessen: die annualisierte Rendite ueber mehrere unabhaengige
-    Zeitfenster (1/3/6/9 Monate, 1 Jahr, gesamte Historie) berechnen und den
-    MEDIAN nehmen. Ein einzelner Ausreisser (z.B. "gesamte Historie" durch
-    einen gluecklichen/ungluecklichen Starttag) kippt den Median nicht so
-    leicht wie er einen einfachen Durchschnitt oder erst recht den nackten
-    Zwei-Punkte-Wert kippen wuerde.
+    Warum nicht einfach "aeltester Kurs vs. heute": beide Endpunkte sind
+    Zufallspunkte. Und Achtung - der Mittelwert der taeglichen Log-Renditen
+    ist KEINE Verbesserung: er teleskopiert sich exakt zu demselben
+    Zwei-Punkte-Vergleich. Deshalb hier:
 
-    Gibt (median_cagr, details) zurueck. details ist eine Liste von
-    (Label, annualisierte_Rate) - fuer die Transparenz-Anzeige, damit
-    nachvollziehbar bleibt, woraus sich der Wert zusammensetzt. Reicht die
-    Historie fuer kein einziges Fenster, ist median_cagr None."""
-    fenster = [("1 Monat", 30), ("3 Monate", 91), ("6 Monate", 182), ("9 Monate", 273), ("1 Jahr", 365)]
-    details = []
-    for label, tage in fenster:
-        ref = referenzkurs_vor_tagen(historie, tage, heute)
-        if ref and ref > 0:
-            ann = ((aktueller_kurs / ref) ** (365.25 / tage) - 1) * 100
-            details.append((label, ann))
+    1. TREND PER REGRESSION (Hauptwert): Kleinste-Quadrate-Gerade durch
+       ln(Kurs) ueber die Zeit. Nutzt JEDEN Kurspunkt der Historie, nicht nur
+       Anfang und Ende - ein einzelner Ausreisser am Rand verschiebt sie kaum.
+    2. LANGE ZEITFENSTER als Quervergleich (ab 6 Monaten). Fenster unter 6
+       Monaten werden bewusst NICHT verwendet: ein Monat hochgerechnet
+       multipliziert das Zufallsrauschen mit 12 und ergibt Fantasiewerte
+       (getestet: +1.480 % p.a. bei einem Produkt, das real ~150 % lief).
+    3. MEDIAN aus Regression + Fenstern - unempfindlich gegen einen einzelnen
+       Ausreisser darin.
+    4. DAEMPFUNG bei kurzer Historie: aus 7 Monaten laesst sich keine
+       Jahresrate ablesen (Standardfehler ueber 60 Prozentpunkte). Das
+       Ergebnis wird deshalb Richtung einer konservativen Marktrendite
+       (8 % p.a.) gezogen, gewichtet nach Datenmenge - dieselbe Regel wie in
+       der Bandbreiten-Simulation. Ueber `daempfung=False` abschaltbar.
 
-    if historie is not None and not historie.empty:
-        aeltester_ts = historie.index[0]
-        aeltester_kurs = float(historie.iloc[0])
-        tage_gesamt = max(1, (pd.Timestamp(heute) - aeltester_ts).days)
-        # Nur aufnehmen, wenn deutlich laenger als das laengste Fenster oben -
-        # sonst waere es nur eine Dopplung von "1 Jahr" ohne zusaetzlichen Wert.
-        if aeltester_kurs > 0 and tage_gesamt > 400:
-            ann = ((aktueller_kurs / aeltester_kurs) ** (365.25 / tage_gesamt) - 1) * 100
-            details.append((f"Gesamte Historie (seit {aeltester_ts.strftime('%d.%m.%Y')})", ann))
+    Als "heutiger" Kurs dient bewusst der letzte SCHLUSSKURS der Historie,
+    nicht der Live-Tick: sonst aenderte sich die Vorgabe mit jedem
+    Kurs-Update um mehrere Prozentpunkte (getestet: +-2 % Kursbewegung
+    verschob die Rate um +-5 Prozentpunkte).
 
-    if not details:
+    Gibt (cagr, details) zurueck; details ist eine Liste (Label, Wert) fuer
+    die Transparenz-Anzeige. Reicht die Historie nicht (unter ~90
+    Handelstagen), kommt (None, []) zurueck.
+    """
+    import numpy as np
+
+    if historie is None or len(historie) < 90:
         return None, []
-    werte = sorted(d[1] for d in details)
+    reihe = historie.dropna()
+    reihe = reihe[reihe > 0]
+    if len(reihe) < 90:
+        return None, []
+
+    schlusskurs = float(reihe.iloc[-1])
+    jahre_hist = max(1e-6, (reihe.index[-1] - reihe.index[0]).days / 365.25)
+
+    # 1) Trend per Regression auf ln(Kurs)
+    t = np.array([(ts - reihe.index[0]).days for ts in reihe.index], dtype=float) / 365.25
+    y = np.log(reihe.values.astype(float))
+    steigung = float(np.polyfit(t, y, 1)[0])          # ln-Einheiten pro Jahr
+    cagr_trend = (float(np.exp(steigung)) - 1) * 100
+    details = [(f"Trend über {jahre_hist:.1f} Jahre (Regression)", cagr_trend)]
+
+    # 2) Lange Zeitfenster als Quervergleich
+    for label, tage in [("6 Monate", 182), ("9 Monate", 273), ("1 Jahr", 365),
+                        ("2 Jahre", 730), ("3 Jahre", 1095), ("5 Jahre", 1826)]:
+        ref = referenzkurs_vor_tagen(reihe, tage, heute)
+        if ref and ref > 0:
+            details.append((label, ((schlusskurs / ref) ** (365.25 / tage) - 1) * 100))
+
+    # SEIT BEGINN DER DATEN: gesamte Entwicklung vom ersten verfuegbaren Kurs.
+    start_kurs = float(reihe.iloc[0])
+    if start_kurs > 0 and jahre_hist >= 0.5:
+        details.append((
+            f"Seit Datenbeginn {reihe.index[0].strftime('%d.%m.%Y')} "
+            f"({start_kurs:.2f} € → {schlusskurs:.2f} €)",
+            ((schlusskurs / start_kurs) ** (1 / jahre_hist) - 1) * 100,
+        ))
+
+    # SEIT AUFLEGUNG: ls-tc.de liefert die Historie erst ab Listing - bei
+    # LS9VFS z.B. erst ab 09.07.2025 bei 128,80 €, obwohl das Zertifikat am
+    # 24.06.2025 bei 100 € startete. Dieser Teil der Entwicklung fehlt in den
+    # Daten komplett. Deshalb laesst sich der Auflegungspunkt hier von Hand
+    # setzen; er geht dann als eigenes Fenster in den Median ein.
+    if auflage_datum is not None and auflage_kurs and auflage_kurs > 0:
+        jahre_auflage = (pd.Timestamp(heute) - pd.Timestamp(auflage_datum)).days / 365.25
+        if jahre_auflage >= 0.5:
+            details.append((
+                f"Seit Auflegung {pd.Timestamp(auflage_datum).strftime('%d.%m.%Y')} "
+                f"({auflage_kurs:.2f} € → {schlusskurs:.2f} €)",
+                ((schlusskurs / auflage_kurs) ** (1 / jahre_auflage) - 1) * 100,
+            ))
+
+    # 3) Median daraus
+    werte = sorted(w for _, w in details)
     n = len(werte)
-    median = werte[n // 2] if n % 2 else (werte[n // 2 - 1] + werte[n // 2]) / 2
-    return median, details
+    roh = werte[n // 2] if n % 2 else (werte[n // 2 - 1] + werte[n // 2]) / 2
+
+    # 4) Daempfung bei kurzer Historie (im Log-Raum, damit aus zwei
+    #    Wachstumsraten wieder eine saubere Wachstumsrate wird)
+    ergebnis = roh
+    if daempfung:
+        ANKER_PA = 8.0
+        HALBES_VERTRAUEN = 3.0
+        gewicht = jahre_hist / (jahre_hist + HALBES_VERTRAUEN)
+        log_roh = np.log(max(1 + roh / 100, 1e-6))
+        log_anker = np.log(1 + ANKER_PA / 100)
+        ergebnis = (float(np.exp(gewicht * log_roh + (1 - gewicht) * log_anker)) - 1) * 100
+        details.append((f"Median der Verfahren oben", roh))
+        details.append((f"Nach Dämpfung ({gewicht * 100:.0f} % eigene Daten, "
+                        f"Rest Richtung {ANKER_PA:.0f} % Marktrendite)", ergebnis))
+
+    return ergebnis, details
+
+
+
+def produkt_rendite_pa(instrument_id, heute, daempfung=False,
+                       auflage_datum=None, auflage_kurs=None):
+    """Robuste Renditeschaetzung fuer ein Instrument - EINE Stelle fuer alle
+    Zukunfts-Hochrechnungen im Dashboard (100k-Meilenstein, Zukunfts-Prognose,
+    Szenario-Simulator), damit dort ueberall dieselbe Zahl steht.
+
+    Bewusst NICHT fuer realisierte Kennzahlen verwenden (Ø p.a. auf der
+    Depotkachel, Vergleichstabellen, Zeitraum-Zeilen): die messen, was
+    TATSAECHLICH passiert ist, und muessen am eigenen Kaufkurs bzw. am
+    jeweiligen Zeitraum haengen.
+
+    Laedt die komplette verfuegbare Historie (ab Listing) und nutzt als
+    Bezugspunkt den letzten Schlusskurs, damit die Zahl ueber den Tag stabil
+    bleibt. Gibt (rendite_pa, details) zurueck, oder (None, []) wenn die
+    Historie zu duenn ist."""
+    if not instrument_id:
+        return None, []
+    try:
+        hist = get_kurshistorie(instrument_id, datetime.date(2000, 1, 1), heute)
+        if hist is None or hist.empty:
+            return None, []
+        return berechne_robuste_cagr(
+            float(hist.iloc[-1]), hist, heute, daempfung=daempfung,
+            auflage_datum=auflage_datum, auflage_kurs=auflage_kurs,
+        )
+    except Exception as e:
+        logging.warning(f"Produkt-Rendite für Instrument {instrument_id} nicht ermittelbar: {e}")
+        return None, []
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1926,10 +2017,24 @@ def render_dashboard():
             logging.error(f"Discord Alert Fehler: {e}")
         return False
 
-    # --- AUTOMATISCHE RENDITE-BERECHNUNG ---
+    # --- RENDITE-KENNZAHLEN: zwei verschiedene Fragen, zwei Verfahren ---
+    # 1) "Wie lief es fuer MICH bisher?" -> Kurs gegen den eigenen Kaufkurs.
+    #    Das ist die realisierte Rendite dieser Position und gehoert genau so
+    #    auf die Depotwert-Kachel und in die Vergleichstabellen.
     tage_gehalten = max(1, (heute_date - kaufdatum_aktiv).days)
     erwartete_rendite_pa = (((aktueller_kurs / kaufkurs_aktiv) ** (365.25 / tage_gehalten)) - 1) * 100
-    erwarteter_zins_mo = (1 + (erwartete_rendite_pa / 100.0)) ** (1/12) - 1
+
+    # 2) "Womit ist kuenftig zu rechnen?" -> robuste Schaetzung aus der
+    #    Kurshistorie des PRODUKTS (Trend-Regression + lange Zeitfenster,
+    #    Median daraus). Nur fuer Hochrechnungen in die Zukunft: 100k-
+    #    Meilenstein, Zukunfts-Prognose, Szenario-Simulator. Ein einzelner
+    #    guenstiger Einstiegszeitpunkt soll die Zukunft nicht vorzeichnen.
+    prognose_rendite_pa, prognose_rendite_details = produkt_rendite_pa(
+        config.LS_INSTRUMENT_ID, heute_date
+    )
+    if prognose_rendite_pa is None:          # zu wenig Historie -> eigener Kauf als Rueckfall
+        prognose_rendite_pa, prognose_rendite_details = erwartete_rendite_pa, []
+    erwarteter_zins_mo = (1 + (prognose_rendite_pa / 100.0)) ** (1 / 12) - 1
 
     # --- SIDEBAR & STEUERUNG ---
     st.sidebar.markdown("### ⚡ System Status")
@@ -1947,7 +2052,9 @@ def render_dashboard():
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🎯 Automatische Prognose-Basis")
-    st.sidebar.info(f"Ermittelte Performance (CAGR):\n**{erwartete_rendite_pa:.2f}% p.a.**\n\n(Dient als automatische Basis für die 100k-Simulation)")
+    st.sidebar.info(f"Realisiert seit Kauf: **{erwartete_rendite_pa:.2f}% p.a.**\n\n"
+                    f"Basis der 100k-Simulation (Produkt-Historie, Median): "
+                    f"**{prognose_rendite_pa:.2f}% p.a.**")
 
     if st.sidebar.button("🔔 Test-Alarm senden"):
         if send_discord_alert(-1.50, aktueller_kurs):
@@ -2291,12 +2398,15 @@ def render_dashboard():
             if not _b_kurs:
                 continue
             _b_hist = get_kurshistorie(
-                _eintrag["instrument_id"], heute_date - datetime.timedelta(days=1825), heute_date
+                # KOMPLETTE Historie seit Auflegung (Start bei 100 €), nicht
+                # nur die letzten 5 Jahre - so zaehlt die gesamte Entwicklung
+                # des Werts mit, nicht ein willkuerlich abgeschnittener Teil.
+                _eintrag["instrument_id"], datetime.date(2000, 1, 1), heute_date
             )
             if _b_hist.empty:
                 continue
             _b_start_datum = _b_hist.index.min()
-            # Robuste CAGR (Median mehrerer Zeitfenster) statt naivem
+            # Robuste CAGR (Trend-Regression + lange Fenster) statt naivem
             # Zwei-Punkte-Vergleich - siehe Docstring von berechne_robuste_cagr().
             _b_cagr, _b_cagr_details = berechne_robuste_cagr(_b_kurs, _b_hist, heute_date)
             if _b_cagr is None:
@@ -2321,6 +2431,7 @@ def render_dashboard():
                 "entnahme": 0.0,
                 "symbolisch": True,
                 "kursreihe": _b_hist,
+                "instrument_id": _eintrag["instrument_id"],
             })
         except Exception as e:
             logging.warning(f"Prognose-Basis für Beobachtungswert '{_beob_name}' fehlgeschlagen: {e}")
@@ -2443,13 +2554,19 @@ def render_dashboard():
         "name": alle_positionen[0].get("name", "Depotwert"),
         "startkapital": startkapital_aktiv,
         "aktueller_wert": brutto_ist,
-        "cagr_pa": erwartete_rendite_pa,
+        # Zukunftsrate (Produkt-Historie), NICHT die eigene Kaufrendite -
+        # siehe Kommentar bei prognose_rendite_pa weiter oben.
+        "cagr_pa": prognose_rendite_pa,
+        "cagr_details": prognose_rendite_details,
         "kaufdatum": kaufdatum_aktiv,
         "sparrate": sparrate_aktiv,
         "entnahme": entnommen_aktiv,
         # Kursreihe fuer die Bandbreiten-Simulation weiter unten (Volatilitaet
         # und Drift werden daraus geschaetzt, nicht nur die Endpunkte).
         "kursreihe": df_chart["Close"] if not df_chart.empty else None,
+        # Fuer den Szenario-Simulator: erlaubt, die Kurshistorie des
+        # PRODUKTS zu laden (unabhaengig vom eigenen Kaufzeitpunkt).
+        "instrument_id": config.LS_INSTRUMENT_ID,
     }]
 
     _pos_gesamt = len(weitere_positionen)
@@ -2513,6 +2630,11 @@ def render_dashboard():
 
             p_tage = max(1, (heute_date - p_kaufdatum).days)
             p_cagr = (((p_wert / p_einstand) ** (365.25 / p_tage)) - 1) * 100 if p_einstand > 0 and p_wert > 0 else 0.0
+            # Fuer die Prognose die Produkt-Rendite (Median), fuer die Kachel
+            # weiter unten die realisierte Rendite p_cagr - zwei Fragen, zwei Zahlen.
+            p_prognose_pa, p_prognose_details = produkt_rendite_pa(pos["instrument_id"], heute_date)
+            if p_prognose_pa is None:
+                p_prognose_pa, p_prognose_details = p_cagr, []
 
             # Sparrate/Entnahme sind bislang nur fuer die Hauptposition
             # konfigurierbar - fuer weitere Positionen daher 0.
@@ -2520,11 +2642,13 @@ def render_dashboard():
                 "name": p_name,
                 "startkapital": p_einstand,
                 "aktueller_wert": p_wert,
-                "cagr_pa": p_cagr,
+                "cagr_pa": p_prognose_pa,
+                "cagr_details": p_prognose_details,
                 "kaufdatum": p_kaufdatum,
                 "sparrate": 0.0,
                 "entnahme": 0.0,
                 "kursreihe": p_hist if p_hist is not None and not p_hist.empty else None,
+                "instrument_id": pos["instrument_id"],
             })
 
             karte = (
@@ -3486,246 +3610,244 @@ def render_dashboard():
         _render_candle()
         lade_fertig()
 
-    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
-    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
-    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
+    # @st.fragment: dadurch loest eine Auswahl INNERHALB dieser Ansicht
+    # nur diesen Bereich neu aus - vorher lief der komplette Seitenaufbau
+    # erneut (Live-Kurse, Benchmarks, alle Positionen und
+    # Beobachtungswerte), obwohl nur ein einziger Wert gefragt war.
+    # Voraussetzung: NICHT in einen ausserhalb erzeugten Container
+    # schreiben ("with tab_forecast:") - Streamlit verbietet das bei
+    # Fragment-Reruns. Die Ansicht zeichnet daher direkt an ihrer Stelle.
+    @st.fragment
     def _render_forecast():
         try:
-            with tab_forecast:
-                # Ab der zweiten Position eine Auswahl anbieten - bei nur einer
-                # Position (Standardfall) waere ein Dropdown mit einem einzigen
-                # Eintrag nur ueberfluessiger Klick.
-                if len(prognose_optionen) > 1:
-                    # Gleiches Muster wie bei "Ansicht wählen": eigene
-                    # .abschnitt-Ueberschrift, natives Label per CSS (nicht
-                    # per Streamlit-"collapsed") ausgeblendet - siehe
-                    # Kommentar dort. "help" bewusst entfernt: der kleine
-                    # weisse Kreis daneben wirkte wie ein Darstellungsfehler.
-                    st.markdown(
-                        '<div class="abschnitt abschnitt-marker-prognose">Prognose Basis auswählen:</div>',
-                        unsafe_allow_html=True,
-                    )
-                    namen = [o["name"] for o in prognose_optionen]
-                    gewaehlter_name = st.selectbox(
-                        "Prognose Basis auswählen:", namen, key="prognose_wert_wahl",
-                    )
-                    opt = next(o for o in prognose_optionen if o["name"] == gewaehlter_name)
-                else:
-                    opt = prognose_optionen[0]
-
-                opt_startkapital = opt["startkapital"]
-                opt_aktueller_wert = opt["aktueller_wert"]
-                opt_kaufdatum = opt["kaufdatum"]
-                opt_sparrate = opt["sparrate"]
-                opt_entnahme = opt["entnahme"]
-                opt_gewinn = opt_aktueller_wert - opt_startkapital
-                opt_netto = opt_aktueller_wert - opt_entnahme
-
-                _default_key = f"prognose_rate_{opt['name']}"
-                opt_cagr_pa = st.number_input(
-                    "Angenommene Rendite p.a. (%) für diese Prognose",
-                    min_value=-99.0, max_value=100000.0, step=0.5,
-                    value=round(opt["cagr_pa"], 2), key=_default_key,
-                    help="Vorbelegt mit der aus der Kurshistorie ermittelten Rate. "
-                         "Frei überschreibbar, um andere Annahmen durchzurechnen.",
+            # Ab der zweiten Position eine Auswahl anbieten - bei nur einer
+            # Position (Standardfall) waere ein Dropdown mit einem einzigen
+            # Eintrag nur ueberfluessiger Klick.
+            if len(prognose_optionen) > 1:
+                # Gleiches Muster wie bei "Ansicht wählen": eigene
+                # .abschnitt-Ueberschrift, natives Label per CSS (nicht
+                # per Streamlit-"collapsed") ausgeblendet - siehe
+                # Kommentar dort. "help" bewusst entfernt: der kleine
+                # weisse Kreis daneben wirkte wie ein Darstellungsfehler.
+                st.markdown(
+                    '<div class="abschnitt abschnitt-marker-prognose">Prognose Basis auswählen:</div>',
+                    unsafe_allow_html=True,
                 )
-                opt_zins_mo = (1 + (opt_cagr_pa / 100.0)) ** (1 / 12) - 1
+                namen = [o["name"] for o in prognose_optionen]
+                gewaehlter_name = st.selectbox(
+                    "Prognose Basis auswählen:", namen, key="prognose_wert_wahl",
+                )
+                opt = next(o for o in prognose_optionen if o["name"] == gewaehlter_name)
+            else:
+                opt = prognose_optionen[0]
 
-                if opt.get("cagr_details"):
-                    with st.expander("Wie wurde die vorbelegte Rate ermittelt?", expanded=False):
-                        st.caption(
-                            "Statt eines einzelnen Zwei-Punkte-Vergleichs (ältester verfügbarer "
-                            "Kurs vs. heute - anfällig für einen zufällig besonders günstigen "
-                            "oder ungünstigen Starttag) wird hier der **Median** mehrerer "
-                            "unabhängiger Zeitfenster verwendet. Ein einzelner Ausreißer kippt "
-                            "den Median nicht so leicht wie einen einfachen Durchschnitt."
-                        )
-                        for _label, _wert in opt["cagr_details"]:
-                            st.write(f"- {_label}: **{_wert:+.2f}% p.a.**")
-                        st.write(f"→ Median (vorbelegter Wert): **{opt['cagr_pa']:+.2f}% p.a.**")
+            opt_startkapital = opt["startkapital"]
+            opt_aktueller_wert = opt["aktueller_wert"]
+            opt_kaufdatum = opt["kaufdatum"]
+            opt_sparrate = opt["sparrate"]
+            opt_entnahme = opt["entnahme"]
+            opt_gewinn = opt_aktueller_wert - opt_startkapital
+            opt_netto = opt_aktueller_wert - opt_entnahme
 
-                sparrate_hinweis = f" Zusätzlich wird eine monatliche Sparrate von **{fmt(opt_sparrate, 2)}** eingerechnet." if opt_sparrate > 0 else ""
-                if opt.get("symbolisch"):
-                    _cagr_seit = opt.get("cagr_seit")
-                    _seit_hinweis = (
-                        f" Kursdaten liegen seit {_cagr_seit.strftime('%d.%m.%Y')} vor."
-                        if _cagr_seit else ""
-                    )
-                    st.caption(
-                        f"Dieser Wert ist nur eine Beobachtung, kein echtes Investment. "
-                        f"Die Rechnung unterstellt ein **symbolisches** Startkapital von "
-                        f"{fmt(opt_startkapital, 0)}, das **heute** ({opt_kaufdatum.strftime('%d.%m.%Y')}) "
-                        f"angelegt würde - keine reale Position.{_seit_hinweis}{sparrate_hinweis}"
-                    )
-                elif sparrate_hinweis:
-                    st.caption(sparrate_hinweis.strip())
+            _default_key = f"prognose_rate_{opt['name']}"
+            opt_cagr_pa = st.number_input(
+                "Angenommene Rendite p.a. (%) für diese Prognose",
+                min_value=-99.0, max_value=100000.0, step=0.5,
+                value=round(opt["cagr_pa"], 2), key=_default_key,
+                help="Vorbelegt mit der aus der Kurshistorie ermittelten Rate. "
+                     "Frei überschreibbar, um andere Annahmen durchzurechnen.",
+            )
+            opt_zins_mo = (1 + (opt_cagr_pa / 100.0)) ** (1 / 12) - 1
+
+            if opt.get("cagr_details"):
+                with st.expander("Wie wurde die vorbelegte Rate ermittelt?", expanded=False):
+                    st.caption("Grundlage ist ein **Trend über die gesamte Historie** (Regression durch alle Kurspunkte) plus Zeitfenster **ab 6 Monaten**, daraus der Median. Kürzere Fenster bleiben bewusst außen vor: ein Monat hochgerechnet multipliziert das Zufallsrauschen mit zwölf. Bei kurzer Historie wird das Ergebnis zusätzlich Richtung einer konservativen Marktrendite gedämpft, weil sich aus wenigen Monaten keine verlässliche Jahresrate ablesen lässt.")
+                    for _label, _wert in opt["cagr_details"]:
+                        st.write(f"- {_label}: **{_wert:+.2f}% p.a.**")
+                    st.write(f"→ Verwendet: **{opt['cagr_pa']:+.2f}% p.a.**")
+
+            sparrate_hinweis = f" Zusätzlich wird eine monatliche Sparrate von **{fmt(opt_sparrate, 2)}** eingerechnet." if opt_sparrate > 0 else ""
+            if opt.get("symbolisch"):
+                _cagr_seit = opt.get("cagr_seit")
+                _seit_hinweis = (
+                    f" Kursdaten liegen seit {_cagr_seit.strftime('%d.%m.%Y')} vor."
+                    if _cagr_seit else ""
+                )
+                st.caption(
+                    f"Dieser Wert ist nur eine Beobachtung, kein echtes Investment. "
+                    f"Die Rechnung unterstellt ein **symbolisches** Startkapital von "
+                    f"{fmt(opt_startkapital, 0)}, das **heute** ({opt_kaufdatum.strftime('%d.%m.%Y')}) "
+                    f"angelegt würde - keine reale Position.{_seit_hinweis}{sparrate_hinweis}"
+                )
+            elif sparrate_hinweis:
+                st.caption(sparrate_hinweis.strip())
+
+            forecast_data = [
+                {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
+                {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Gesamter Gewinn": f"+{fmt(opt_gewinn, 2)}", "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnahme, 2)}
+            ]
+
+            sim_b_prog, sim_n_prog, sim_e_prog = opt_aktueller_wert, opt_netto, opt_entnahme
+            milestone_added = opt_aktueller_wert >= 100000.0
+
+            for m_idx in range(1, 121):
+                sim_b_prog = (sim_b_prog * (1 + opt_zins_mo)) + opt_sparrate
+                sim_e_prog += opt_entnahme
+                sim_n_prog = sim_b_prog - sim_e_prog
     
-                forecast_data = [
-                    {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
-                    {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Gesamter Gewinn": f"+{fmt(opt_gewinn, 2)}", "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnahme, 2)}
-                ]
+                current_date = now_berlin.replace(tzinfo=None) + pd.DateOffset(months=m_idx)
     
-                sim_b_prog, sim_n_prog, sim_e_prog = opt_aktueller_wert, opt_netto, opt_entnahme
-                milestone_added = opt_aktueller_wert >= 100000.0
+                if not milestone_added and sim_b_prog >= 100000.0:
+                    forecast_data.append({
+                        "Jahr": "100k",
+                        "Datum": current_date.strftime("%d.%m.%Y"),
+                        "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
+                        "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+                    })
+                    milestone_added = True
 
-                for m_idx in range(1, 121):
-                    sim_b_prog = (sim_b_prog * (1 + opt_zins_mo)) + opt_sparrate
-                    sim_e_prog += opt_entnahme
-                    sim_n_prog = sim_b_prog - sim_e_prog
+                if m_idx % 12 == 0:
+                    forecast_data.append({
+                        "Jahr": f"Jahr +{m_idx // 12}",
+                        "Datum": current_date.strftime("%d.%m.%Y"),
+                        "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
+                        "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+                    })
         
-                    current_date = now_berlin.replace(tzinfo=None) + pd.DateOffset(months=m_idx)
-        
-                    if not milestone_added and sim_b_prog >= 100000.0:
-                        forecast_data.append({
-                            "Jahr": "100k",
-                            "Datum": current_date.strftime("%d.%m.%Y"),
-                            "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
-                            "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
-                        })
-                        milestone_added = True
+            df_forecast = pd.DataFrame(forecast_data)
 
-                    if m_idx % 12 == 0:
-                        forecast_data.append({
-                            "Jahr": f"Jahr +{m_idx // 12}",
-                            "Datum": current_date.strftime("%d.%m.%Y"),
-                            "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
-                            "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
-                        })
-            
-                df_forecast = pd.DataFrame(forecast_data)
-
-                # Spalten, die nur Nullen enthalten, gar nicht erst zeigen -
-                # ohne Entnahme sind "Netto Depotwert" und "Kumulierte
-                # Entnahme" identisch zum Bruttowert bzw. durchgehend 0 und
-                # kosten auf dem Smartphone nur seitliche Scrollbreite.
-                if not opt_entnahme:
-                    df_forecast = df_forecast.drop(
-                        columns=["Netto Depotwert", "Kumulierte Entnahme"], errors="ignore"
-                    )
-
-                # Hoehe an die tatsaechliche Zeilenzahl anpassen: st.dataframe
-                # begrenzt sonst auf ~10 Zeilen und scrollt INNERHALB der
-                # Tabelle - auf dem Smartphone unangenehm, weil man dann zwei
-                # verschachtelte Scrollbereiche hat und das Ende nicht sieht.
-                # 35px je Zeile + 38px Kopfzeile entspricht Streamlits Raster.
-                _tabellen_hoehe = 38 + 35 * len(df_forecast)
-                st.dataframe(
-                    df_forecast, width="stretch", hide_index=True, key="df_forecast",
-                    height=_tabellen_hoehe,
-                    column_config={
-                        # Jetzt wieder "small": "Jahr +10" ist der laengste
-                        # Eintrag, seit "🎯 100k Meilenstein" zu "100k" gekuerzt
-                        # wurde - spart Breite fuer die Betrags-Spalten.
-                        "Jahr": st.column_config.TextColumn("Jahr", width="small"),
-                        "Datum": st.column_config.TextColumn("Datum", width="small"),
-                    },
-                )
-                with st.expander("ℹ️ Tipp zur Tabelle", expanded=False):
-                    st.caption("Ein Tippen auf einen Spaltenkopf sortiert die Tabelle - "
-                               "erneutes Tippen stellt die ursprüngliche Reihenfolge wieder her.")
-
-                # ---------- BANDBREITE STATT EINER EINZELNEN ZAHL ----------
-                # Die Tabelle oben rechnet mit EINER konstanten Rendite. Das
-                # ist leicht lesbar, verschweigt aber die Unsicherheit. Hier
-                # daher zusaetzlich eine Monte-Carlo-Simulation: tausende
-                # moegliche Verlaeufe auf Basis der tatsaechlichen
-                # Volatilitaet der Kursreihe.
-                st.markdown('<div class="abschnitt">📉 Bandbreite möglicher Verläufe</div>',
-                            unsafe_allow_html=True)
-
-                mc_jahre = st.slider("Zeitraum der Simulation (Jahre)", 1, 15, 5,
-                                     key="mc_jahre")
-                mc_shrinkage = st.toggle(
-                    "Dämpfung bei kurzer Historie", value=True, key="mc_shrinkage",
-                    help="Zieht den geschätzten Trend Richtung einer konservativen "
-                         "Marktrendite (8 % p.a.) - je weniger Historie vorliegt, "
-                         "desto stärker. Ohne Dämpfung wird ein kurzer Boom "
-                         "ungebremst über Jahre fortgeschrieben.",
+            # Spalten, die nur Nullen enthalten, gar nicht erst zeigen -
+            # ohne Entnahme sind "Netto Depotwert" und "Kumulierte
+            # Entnahme" identisch zum Bruttowert bzw. durchgehend 0 und
+            # kosten auf dem Smartphone nur seitliche Scrollbreite.
+            if not opt_entnahme:
+                df_forecast = df_forecast.drop(
+                    columns=["Netto Depotwert", "Kumulierte Entnahme"], errors="ignore"
                 )
 
-                mc_perzentile, mc_kennzahlen = simuliere_bandbreite(
-                    startwert=opt_aktueller_wert,
-                    kursreihe=opt.get("kursreihe"),
-                    jahre=mc_jahre,
-                    sparrate_monat=opt_sparrate,
-                    entnahme_monat=opt_entnahme,
-                    shrinkage=mc_shrinkage,
+            # Hoehe an die tatsaechliche Zeilenzahl anpassen: st.dataframe
+            # begrenzt sonst auf ~10 Zeilen und scrollt INNERHALB der
+            # Tabelle - auf dem Smartphone unangenehm, weil man dann zwei
+            # verschachtelte Scrollbereiche hat und das Ende nicht sieht.
+            # 35px je Zeile + 38px Kopfzeile entspricht Streamlits Raster.
+            _tabellen_hoehe = 38 + 35 * len(df_forecast)
+            st.dataframe(
+                df_forecast, width="stretch", hide_index=True, key="df_forecast",
+                height=_tabellen_hoehe,
+                column_config={
+                    # Jetzt wieder "small": "Jahr +10" ist der laengste
+                    # Eintrag, seit "🎯 100k Meilenstein" zu "100k" gekuerzt
+                    # wurde - spart Breite fuer die Betrags-Spalten.
+                    "Jahr": st.column_config.TextColumn("Jahr", width="small"),
+                    "Datum": st.column_config.TextColumn("Datum", width="small"),
+                },
+            )
+            with st.expander("ℹ️ Tipp zur Tabelle", expanded=False):
+                st.caption("Ein Tippen auf einen Spaltenkopf sortiert die Tabelle - "
+                           "erneutes Tippen stellt die ursprüngliche Reihenfolge wieder her.")
+
+            # ---------- BANDBREITE STATT EINER EINZELNEN ZAHL ----------
+            # Die Tabelle oben rechnet mit EINER konstanten Rendite. Das
+            # ist leicht lesbar, verschweigt aber die Unsicherheit. Hier
+            # daher zusaetzlich eine Monte-Carlo-Simulation: tausende
+            # moegliche Verlaeufe auf Basis der tatsaechlichen
+            # Volatilitaet der Kursreihe.
+            st.markdown('<div class="abschnitt">📉 Bandbreite möglicher Verläufe</div>',
+                        unsafe_allow_html=True)
+
+            mc_jahre = st.slider("Zeitraum der Simulation (Jahre)", 1, 15, 5,
+                                 key="mc_jahre")
+            mc_shrinkage = st.toggle(
+                "Dämpfung bei kurzer Historie", value=True, key="mc_shrinkage",
+                help="Zieht den geschätzten Trend Richtung einer konservativen "
+                     "Marktrendite (8 % p.a.) - je weniger Historie vorliegt, "
+                     "desto stärker. Ohne Dämpfung wird ein kurzer Boom "
+                     "ungebremst über Jahre fortgeschrieben.",
+            )
+
+            mc_perzentile, mc_kennzahlen = simuliere_bandbreite(
+                startwert=opt_aktueller_wert,
+                kursreihe=opt.get("kursreihe"),
+                jahre=mc_jahre,
+                sparrate_monat=opt_sparrate,
+                entnahme_monat=opt_entnahme,
+                shrinkage=mc_shrinkage,
+            )
+
+            if mc_perzentile is None:
+                st.caption("Für diesen Wert liegen zu wenige Kursdaten für eine "
+                           "Bandbreiten-Simulation vor (mindestens ~30 Handelstage nötig).")
+            else:
+                st.caption(
+                    f"{mc_kennzahlen['pfade']:,} simulierte Verläufe über {mc_jahre} Jahre, "
+                    f"basierend auf der tatsächlichen Schwankungsbreite dieses Wertes "
+                    f"({mc_kennzahlen['vola_pa']:.0f} % Volatilität p.a.)."
+                    .replace(",", ".")
                 )
 
-                if mc_perzentile is None:
-                    st.caption("Für diesen Wert liegen zu wenige Kursdaten für eine "
-                               "Bandbreiten-Simulation vor (mindestens ~30 Handelstage nötig).")
-                else:
-                    st.caption(
-                        f"{mc_kennzahlen['pfade']:,} simulierte Verläufe über {mc_jahre} Jahre, "
-                        f"basierend auf der tatsächlichen Schwankungsbreite dieses Wertes "
-                        f"({mc_kennzahlen['vola_pa']:.0f} % Volatilität p.a.)."
-                        .replace(",", ".")
-                    )
+                b1, b2 = st.columns(2)
+                b1.metric("Mittleres Ergebnis (Median)", fmt(mc_perzentile[50], 0))
+                b2.metric("Wahrscheinlichkeit eines Verlusts",
+                          f"{mc_kennzahlen['verlust_wahrscheinlichkeit']:.0f} %")
 
-                    b1, b2 = st.columns(2)
-                    b1.metric("Mittleres Ergebnis (Median)", fmt(mc_perzentile[50], 0))
-                    b2.metric("Wahrscheinlichkeit eines Verlusts",
-                              f"{mc_kennzahlen['verlust_wahrscheinlichkeit']:.0f} %")
+                st.markdown(
+                    '<div class="rows">'
+                    '<div class="row"><span class="row-label">Sehr schlecht (5 %)</span>'
+                    f'<span class="row-val">{fmt(mc_perzentile[5], 0)}'
+                    '<span class="row-note">Nur 5 % der Verläufe endeten darunter</span></span></div>'
+                    '<div class="row"><span class="row-label">Schlechtes Viertel (25 %)</span>'
+                    f'<span class="row-val">{fmt(mc_perzentile[25], 0)}</span></div>'
+                    '<div class="row"><span class="row-label">Mitte (50 %)</span>'
+                    f'<span class="row-val">{fmt(mc_perzentile[50], 0)}'
+                    '<span class="row-note">Hälfte darüber, Hälfte darunter</span></span></div>'
+                    '<div class="row"><span class="row-label">Gutes Viertel (75 %)</span>'
+                    f'<span class="row-val">{fmt(mc_perzentile[75], 0)}</span></div>'
+                    '<div class="row"><span class="row-label">Sehr gut (95 %)</span>'
+                    f'<span class="row-val">{fmt(mc_perzentile[95], 0)}'
+                    '<span class="row-note">Nur 5 % der Verläufe endeten darüber</span></span></div>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
 
-                    st.markdown(
-                        '<div class="rows">'
-                        '<div class="row"><span class="row-label">Sehr schlecht (5 %)</span>'
-                        f'<span class="row-val">{fmt(mc_perzentile[5], 0)}'
-                        '<span class="row-note">Nur 5 % der Verläufe endeten darunter</span></span></div>'
-                        '<div class="row"><span class="row-label">Schlechtes Viertel (25 %)</span>'
-                        f'<span class="row-val">{fmt(mc_perzentile[25], 0)}</span></div>'
-                        '<div class="row"><span class="row-label">Mitte (50 %)</span>'
-                        f'<span class="row-val">{fmt(mc_perzentile[50], 0)}'
-                        '<span class="row-note">Hälfte darüber, Hälfte darunter</span></span></div>'
-                        '<div class="row"><span class="row-label">Gutes Viertel (75 %)</span>'
-                        f'<span class="row-val">{fmt(mc_perzentile[75], 0)}</span></div>'
-                        '<div class="row"><span class="row-label">Sehr gut (95 %)</span>'
-                        f'<span class="row-val">{fmt(mc_perzentile[95], 0)}'
-                        '<span class="row-note">Nur 5 % der Verläufe endeten darüber</span></span></div>'
-                        '</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                    with st.expander("Wie kommt diese Bandbreite zustande?", expanded=False):
-                        st.write(
-                            f"- Kursdaten vorhanden für: **{mc_kennzahlen['jahre_historie']:.1f} Jahre**"
-                        )
-                        st.write(
-                            f"- Trend aus den Rohdaten: **{mc_kennzahlen['mu_roh_pa']:+.0f} % p.a.**"
-                        )
-                        if mc_shrinkage:
-                            st.write(
-                                f"- Nach Dämpfung verwendet: **{mc_kennzahlen['mu_verwendet_pa']:+.0f} % p.a.** "
-                                f"(Gewicht auf eigene Daten: {mc_kennzahlen['gewicht_eigene_daten']:.0f} %, "
-                                f"Rest Richtung 8 % Marktrendite)"
-                            )
-                        else:
-                            st.write("- Dämpfung ist **aus**: der rohe Trend wird ungebremst fortgeschrieben.")
-                        st.write(f"- Schwankungsbreite: **{mc_kennzahlen['vola_pa']:.0f} % p.a.**")
-                        st.caption(
-                            "Auch das bleibt ein Modell: Es unterstellt, dass sich Schwankungen "
-                            "künftig ähnlich verhalten wie bisher, und kennt weder Marktcrashs "
-                            "noch Produktschließungen. Es zeigt aber ehrlicher als eine einzelne "
-                            "Zahl, wie breit die möglichen Ausgänge auseinanderliegen."
-                        )
-
-                # Kurzer, immer sichtbarer Hinweis statt eines langen
-                # Dauertextes - die ausfuehrliche Begruendung steht bei
-                # Bedarf im Expander darunter (gleiches Muster wie
-                # "Wie kommt diese Bandbreite zustande?" darueber).
-                st.caption("⚠️ Fortschreibung der Vergangenheit, keine Vorhersage - "
-                           "die künftige Rendite kann stark abweichen.")
-                with st.expander("Warum ist das keine Vorhersage?", expanded=False):
+                with st.expander("Wie kommt diese Bandbreite zustande?", expanded=False):
                     st.write(
-                        "Diese Tabelle schreibt lediglich die Vergangenheit fort - sie "
-                        "rechnet mit einer konstanten jährlichen Rendite weiter, in der "
-                        "Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer "
-                        "oder einem einzelnen, zufällig günstigen/ungünstigen "
-                        "Startzeitpunkt kann die historische Rate stark von der "
-                        "künftigen abweichen. Passe den Wert oben gerne an, um eigene "
-                        "(z. B. konservativere) Annahmen zu testen."
+                        f"- Kursdaten vorhanden für: **{mc_kennzahlen['jahre_historie']:.1f} Jahre**"
                     )
+                    st.write(
+                        f"- Trend aus den Rohdaten: **{mc_kennzahlen['mu_roh_pa']:+.0f} % p.a.**"
+                    )
+                    if mc_shrinkage:
+                        st.write(
+                            f"- Nach Dämpfung verwendet: **{mc_kennzahlen['mu_verwendet_pa']:+.0f} % p.a.** "
+                            f"(Gewicht auf eigene Daten: {mc_kennzahlen['gewicht_eigene_daten']:.0f} %, "
+                            f"Rest Richtung 8 % Marktrendite)"
+                        )
+                    else:
+                        st.write("- Dämpfung ist **aus**: der rohe Trend wird ungebremst fortgeschrieben.")
+                    st.write(f"- Schwankungsbreite: **{mc_kennzahlen['vola_pa']:.0f} % p.a.**")
+                    st.caption(
+                        "Auch das bleibt ein Modell: Es unterstellt, dass sich Schwankungen "
+                        "künftig ähnlich verhalten wie bisher, und kennt weder Marktcrashs "
+                        "noch Produktschließungen. Es zeigt aber ehrlicher als eine einzelne "
+                        "Zahl, wie breit die möglichen Ausgänge auseinanderliegen."
+                    )
+
+            # Kurzer, immer sichtbarer Hinweis statt eines langen
+            # Dauertextes - die ausfuehrliche Begruendung steht bei
+            # Bedarf im Expander darunter (gleiches Muster wie
+            # "Wie kommt diese Bandbreite zustande?" darueber).
+            st.caption("⚠️ Fortschreibung der Vergangenheit, keine Vorhersage - "
+                       "die künftige Rendite kann stark abweichen.")
+            with st.expander("Warum ist das keine Vorhersage?", expanded=False):
+                st.write(
+                    "Diese Tabelle schreibt lediglich die Vergangenheit fort - sie "
+                    "rechnet mit einer konstanten jährlichen Rendite weiter, in der "
+                    "Realität schwankt jede Anlage. Besonders bei kurzer Haltedauer "
+                    "oder einem einzelnen, zufällig günstigen/ungünstigen "
+                    "Startzeitpunkt kann die historische Rate stark von der "
+                    "künftigen abweichen. Passe den Wert oben gerne an, um eigene "
+                    "(z. B. konservativere) Annahmen zu testen."
+                )
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -3735,231 +3857,300 @@ def render_dashboard():
         _render_forecast()
         lade_fertig()
 
-    # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
-    # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
-    # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
+    # @st.fragment: dadurch loest eine Auswahl INNERHALB dieser Ansicht
+    # nur diesen Bereich neu aus - vorher lief der komplette Seitenaufbau
+    # erneut (Live-Kurse, Benchmarks, alle Positionen und
+    # Beobachtungswerte), obwohl nur ein einziger Wert gefragt war.
+    # Voraussetzung: NICHT in einen ausserhalb erzeugten Container
+    # schreiben ("with tab_scenarios:") - Streamlit verbietet das bei
+    # Fragment-Reruns. Die Ansicht zeichnet daher direkt an ihrer Stelle.
+    @st.fragment
     def _render_scenarios():
         try:
-            with tab_scenarios:
-                st.markdown(
-                    '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
-                    '📊 Szenario-Analyse (5 Jahre)</div>',
-                    unsafe_allow_html=True,
-                )
-                # ---------- BASIS: hinterlegten Wert oder eigene Eingabe ----------
-                # Vorher rechnete der Simulator immer mit festen 10.000 € und
-                # hatte keinerlei Bezug zu den Werten der App. Jetzt laesst sich
-                # jeder Wert waehlen, der auch in der Zukunfts-Prognose steht
-                # (Hauptposition, weitere Positionen, Beobachtungswerte). Die
-                # Felder darunter werden damit vorbelegt, bleiben aber frei
-                # aenderbar. Zusaetzlich erscheint die historische Rate dieses
-                # Werts als eigenes, hervorgehobenes Szenario.
-                # "Standard" = das urspruengliche Verhalten: feste 10.000 €,
-                # nur die 19 Standard-Raten (1,0-10,0 % p.M.), ohne Bezug zu
-                # einem bestimmten Wert und ohne historisches ⭐-Szenario.
-                # Steht bewusst an erster Stelle und ist damit die Vorauswahl.
-                STANDARD = "📐 Standard (1,0–10,0 % p.M., 10.000 €)"
-                _basis_namen = [STANDARD] + [o["name"] for o in prognose_optionen]
-                basis_name = st.selectbox(
-                    "Wert auswählen:", _basis_namen, key="szenario_basis_wahl",
-                )
-                basis = next((o for o in prognose_optionen if o["name"] == basis_name), None)
+            st.markdown(
+                '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
+                '📊 Szenario-Analyse (5 Jahre)</div>',
+                unsafe_allow_html=True,
+            )
+            # ---------- BASIS: hinterlegten Wert oder eigene Eingabe ----------
+            # Vorher rechnete der Simulator immer mit festen 10.000 € und
+            # hatte keinerlei Bezug zu den Werten der App. Jetzt laesst sich
+            # jeder Wert waehlen, der auch in der Zukunfts-Prognose steht
+            # (Hauptposition, weitere Positionen, Beobachtungswerte). Die
+            # Felder darunter werden damit vorbelegt, bleiben aber frei
+            # aenderbar. Zusaetzlich erscheint die historische Rate dieses
+            # Werts als eigenes, hervorgehobenes Szenario.
+            # "Standard" = das urspruengliche Verhalten: feste 10.000 €,
+            # nur die 19 Standard-Raten (1,0-10,0 % p.M.), ohne Bezug zu
+            # einem bestimmten Wert und ohne historisches ⭐-Szenario.
+            # Steht bewusst an erster Stelle und ist damit die Vorauswahl.
+            STANDARD = "📐 Standard (1,0–10,0 % p.M., 10.000 €)"
+            _basis_namen = [STANDARD] + [o["name"] for o in prognose_optionen]
+            basis_name = st.selectbox(
+                "Wert auswählen:", _basis_namen, key="szenario_basis_wahl",
+            )
+            basis = next((o for o in prognose_optionen if o["name"] == basis_name), None)
 
-                if basis is not None:
-                    _vorbelegung = {
-                        "start": float(basis["aktueller_wert"]),
-                        "entnahme": float(basis.get("entnahme") or 0.0),
-                        "sparrate": float(basis.get("sparrate") or 0.0),
-                    }
-                    if basis.get("symbolisch"):
+            if basis is not None:
+                _vorbelegung = {
+                    "start": float(basis["aktueller_wert"]),
+                    "entnahme": float(basis.get("entnahme") or 0.0),
+                    "sparrate": float(basis.get("sparrate") or 0.0),
+                }
+                if basis.get("symbolisch"):
+                    st.caption(
+                        "Beobachtungswert ohne echtes Investment - gerechnet wird mit "
+                        f"einem symbolischen Startkapital von {fmt(_vorbelegung['start'], 0)}."
+                    )
+                else:
+                    st.caption("Vorbelegt mit dem aktuellen Wert dieser Position - "
+                               "unten frei anpassbar.")
+            else:
+                _vorbelegung = {"start": 10000.0, "entnahme": 0.0, "sparrate": 0.0}
+                st.caption("Standard-Szenarien ohne Bezug zu einem bestimmten Wert - "
+                           "alle Beträge unten frei anpassbar.")
+
+            # Eigener Widget-Key je Auswahl: Streamlit uebernimmt "value="
+            # nur beim ERSTEN Anlegen eines Widgets. Mit festem Key bliebe
+            # beim Wechsel der alte Betrag stehen - so bekommt jede Auswahl
+            # ihr eigenes Feld mit passender Vorbelegung, und eigene
+            # Aenderungen bleiben je Wert erhalten.
+            _k = re.sub(r"[^A-Za-z0-9]+", "_", basis_name)
+
+            col_sk, col_en = st.columns(2)
+            with col_sk:
+                startkapital_szenario = st.number_input(
+                    "✏️ Startkapital (€)", min_value=0.0, value=round(_vorbelegung["start"], 2),
+                    step=100.0, key=f"szenario_startkapital_{_k}",
+                )
+            with col_en:
+                entnahme_eingabe = st.number_input(
+                    "✏️ Monatliche Entnahme (€)", min_value=0.0, value=_vorbelegung["entnahme"],
+                    step=10.0, key=f"szenario_entnahme_{_k}",
+                )
+            sparrate_szenario = st.number_input(
+                "✏️ Monatliche Sparrate (€)", min_value=0.0, value=_vorbelegung["sparrate"],
+                step=10.0, key=f"szenario_sparrate_{_k}",
+                help="Zusätzliche monatliche Einzahlung - erhöht das Kapital jeden Monat, statt es zu verringern.",
+            )
+
+            ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
+            entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
+            netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
+
+            # STANDARD: die 19 festen Raten (1,0-10,0 % p.M.) wie gehabt.
+            # HINTERLEGTER WERT: nur EIN Szenario - die Rate dieses Werts.
+            # Vorher liefen dort zusaetzlich alle 19 Standardraten mit, und
+            # die eigentlich relevante Rate ging in der Liste unter. Die Rate
+            # ist mit der historischen Rendite vorbelegt, aber editierbar,
+            # damit sich auch konservativere Annahmen durchrechnen lassen.
+            eigene_rate_mo = None
+            if basis is None:
+                szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0,
+                                     5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+            else:
+                # NEUEINSTIEG HEUTE: Die Rate kommt aus der Kurshistorie des
+                # PRODUKTS, nicht aus dem eigenen Kauf. Der bisherige Wert
+                # (basis["cagr_pa"]) misst bei eigenen Positionen Kurs gegen
+                # den eigenen KAUFKURS - er haengt also am Einstiegszeitpunkt
+                # und beantwortet die Frage "wie lief es fuer MICH bisher".
+                # Fuer "was waere, wenn ich heute neu einsteige" zaehlt aber
+                # die Entwicklung des Produkts selbst. Geladen wird dabei NUR
+                # der gewaehlte Wert (gecacht) - nicht alle anderen.
+                _inst_id = basis.get("instrument_id")
+                _rate_quelle = "eigener Kauf"
+                _prod_pa = float(basis.get("cagr_pa") or 0.0)
+                _details = []
+                if _inst_id:
+                    _p_hist = get_kurshistorie(
+                        # Komplette Historie seit Auflegung (Start bei 100 €)
+                        _inst_id, datetime.date(2000, 1, 1), heute_date
+                    )
+
+                    # AUFLEGUNG: ls-tc.de liefert die Historie erst ab Listing
+                    # (LS9VFS: ab 09.07.2025 bei 128,80 €), obwohl das
+                    # Zertifikat frueher bei 100 € startete. Dieser Abschnitt
+                    # fehlt in den Daten - deshalb hier von Hand eintragbar.
+                    _datenbeginn = (_p_hist.index[0].date() if not _p_hist.empty else heute_date)
+                    _start_kurs_daten = (float(_p_hist.iloc[0]) if not _p_hist.empty else 100.0)
+                    with st.expander("Auflegung des Werts berücksichtigen", expanded=False):
                         st.caption(
-                            "Beobachtungswert ohne echtes Investment - gerechnet wird mit "
-                            f"einem symbolischen Startkapital von {fmt(_vorbelegung['start'], 0)}."
+                            f"Kursdaten liegen erst ab **{_datenbeginn.strftime('%d.%m.%Y')}** "
+                            f"({_start_kurs_daten:.2f} €) vor. Startete der Wert früher (z. B. "
+                            "bei 100 €), hier eintragen - der Zeitraum fließt dann mit in die "
+                            "Rendite-Ermittlung ein."
                         )
-                    else:
-                        st.caption("Vorbelegt mit dem aktuellen Wert dieser Position - "
-                                   "unten frei anpassbar.")
-                else:
-                    _vorbelegung = {"start": 10000.0, "entnahme": 0.0, "sparrate": 0.0}
-                    st.caption("Standard-Szenarien ohne Bezug zu einem bestimmten Wert - "
-                               "alle Beträge unten frei anpassbar.")
-
-                # Eigener Widget-Key je Auswahl: Streamlit uebernimmt "value="
-                # nur beim ERSTEN Anlegen eines Widgets. Mit festem Key bliebe
-                # beim Wechsel der alte Betrag stehen - so bekommt jede Auswahl
-                # ihr eigenes Feld mit passender Vorbelegung, und eigene
-                # Aenderungen bleiben je Wert erhalten.
-                _k = re.sub(r"[^A-Za-z0-9]+", "_", basis_name)
-
-                col_sk, col_en = st.columns(2)
-                with col_sk:
-                    startkapital_szenario = st.number_input(
-                        "✏️ Startkapital (€)", min_value=0.0, value=round(_vorbelegung["start"], 2),
-                        step=100.0, key=f"szenario_startkapital_{_k}",
+                        _auf_an = st.checkbox("Auflegung mitrechnen", value=False,
+                                              key=f"szenario_aufl_an_{_k}")
+                        _auf_datum = st.date_input("Auflegungsdatum", value=_datenbeginn,
+                                                   key=f"szenario_aufl_datum_{_k}")
+                        _auf_kurs = st.number_input("Kurs bei Auflegung (€)", min_value=0.0,
+                                                    value=100.0, step=1.0,
+                                                    key=f"szenario_aufl_kurs_{_k}")
+                    _daempfen = st.toggle(
+                        "Dämpfung bei kurzer Historie", value=False, key=f"szenario_daempf_{_k}",
+                        help="Zieht das Ergebnis Richtung einer konservativen Marktrendite "
+                             "(8 % p.a.), je weniger Historie vorliegt. Aus = der ungefilterte "
+                             "Median über alle Zeiträume.",
                     )
-                with col_en:
-                    entnahme_eingabe = st.number_input(
-                        "✏️ Monatliche Entnahme (€)", min_value=0.0, value=_vorbelegung["entnahme"],
-                        step=10.0, key=f"szenario_entnahme_{_k}",
+
+                    # Dieselbe zentrale Funktion wie 100k-Meilenstein und
+                    # Zukunfts-Prognose - eine Quelle, ueberall dieselbe Zahl.
+                    _robust, _details = produkt_rendite_pa(
+                        _inst_id, heute_date, daempfung=_daempfen,
+                        auflage_datum=_auf_datum if _auf_an else None,
+                        auflage_kurs=_auf_kurs if _auf_an else None,
                     )
-                sparrate_szenario = st.number_input(
-                    "✏️ Monatliche Sparrate (€)", min_value=0.0, value=_vorbelegung["sparrate"],
-                    step=10.0, key=f"szenario_sparrate_{_k}",
-                    help="Zusätzliche monatliche Einzahlung - erhöht das Kapital jeden Monat, statt es zu verringern.",
+                    if _robust is not None:
+                        _prod_pa = _robust
+                        _rate_quelle = "Kursentwicklung des Produkts"
+
+                rate_pa_szenario = st.number_input(
+                    "✏️ Angenommene Rendite p.a. (%)",
+                    min_value=-99.0, max_value=100000.0, step=0.5,
+                    value=round(max(_prod_pa, -99.0), 2), key=f"szenario_rate_{_k}",
+                    help="Vorbelegt mit der bisherigen Entwicklung dieses Produkts - "
+                         "unabhängig davon, wann du selbst gekauft hast. "
+                         "Frei überschreibbar, um andere Annahmen durchzurechnen.",
                 )
+                eigene_rate_mo = ((1 + rate_pa_szenario / 100.0) ** (1 / 12) - 1) * 100.0
+                szenario_raten_mo = [round(eigene_rate_mo, 4)]
+                st.caption(
+                    f"Gerechnet als Neueinstieg heute: {fmt(startkapital_szenario, 2)} zum "
+                    f"{heute_date.strftime('%d.%m.%Y')}. Rendite-Vorgabe {_prod_pa:.2f} % p.a. "
+                    f"= {((1 + _prod_pa / 100.0) ** (1 / 12) - 1) * 100:.2f} % p.M. "
+                    f"(Quelle: {_rate_quelle}). Fortschreibung der Vergangenheit, keine Vorhersage."
+                )
+                if _details:
+                    with st.expander("Wie wurde die Rendite-Vorgabe ermittelt?", expanded=False):
+                        st.caption("Grundlage ist ein **Trend über die gesamte Historie** (Regression durch alle Kurspunkte) plus Zeitfenster **ab 6 Monaten**, daraus der Median. Kürzere Fenster bleiben bewusst außen vor: ein Monat hochgerechnet multipliziert das Zufallsrauschen mit zwölf. Bei kurzer Historie wird das Ergebnis zusätzlich Richtung einer konservativen Marktrendite gedämpft, weil sich aus wenigen Monaten keine verlässliche Jahresrate ablesen lässt.")
+                        for _label, _wert in _details:
+                            st.write(f"- {_label}: **{_wert:+.2f}% p.a.**")
+                        st.write(f"→ Verwendet: **{_prod_pa:+.2f}% p.a.**")
 
-                ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
-                entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
-                netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
+            summary_list = []
+            scenario_series = {}
 
-                # STANDARD: die 19 festen Raten (1,0-10,0 % p.M.) wie gehabt.
-                # HINTERLEGTER WERT: nur EIN Szenario - die Rate dieses Werts.
-                # Vorher liefen dort zusaetzlich alle 19 Standardraten mit, und
-                # die eigentlich relevante Rate ging in der Liste unter. Die Rate
-                # ist mit der historischen Rendite vorbelegt, aber editierbar,
-                # damit sich auch konservativere Annahmen durchrechnen lassen.
-                eigene_rate_mo = None
-                if basis is None:
-                    szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0,
-                                         5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
-                else:
-                    _hist_pa = float(basis.get("cagr_pa") or 0.0)
-                    rate_pa_szenario = st.number_input(
-                        "✏️ Angenommene Rendite p.a. (%)",
-                        min_value=-99.0, max_value=100000.0, step=0.5,
-                        value=round(max(_hist_pa, -99.0), 2), key=f"szenario_rate_{_k}",
-                        help="Vorbelegt mit der bisherigen Rendite dieses Werts. "
-                             "Frei überschreibbar, um andere Annahmen durchzurechnen.",
-                    )
-                    eigene_rate_mo = ((1 + rate_pa_szenario / 100.0) ** (1 / 12) - 1) * 100.0
-                    szenario_raten_mo = [round(eigene_rate_mo, 4)]
-                    st.caption(f"Bisherige Rendite dieses Werts: {_hist_pa:.2f} % p.a. "
-                               f"= {((1 + _hist_pa / 100.0) ** (1 / 12) - 1) * 100:.2f} % p.M. "
-                               "Fortschreibung der Vergangenheit, keine Vorhersage.")
-
-                summary_list = []
-                scenario_series = {}
-
-                for r_mo_pct in szenario_raten_mo:
-                    r_mo = r_mo_pct / 100.0
-                    r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
-                    ist_eigene_rate = (eigene_rate_mo is not None
-                                       and abs(r_mo_pct - round(eigene_rate_mo, 4)) < 1e-9)
-        
-                    cap_sim = startkapital_szenario
-                    m_to_100k = None
-                    for m in range(1, 1200):
-                        cap_sim = (cap_sim * (1 + r_mo)) + netto_cashflow_szenario
-                        if cap_sim >= 100000.0:
-                            m_to_100k = m
-                            break
-
-                    monthly_vals = [startkapital_szenario]
-                    cap_5y = startkapital_szenario
-                    for m in range(1, 61):
-                        cap_5y = (cap_5y * (1 + r_mo)) + netto_cashflow_szenario
-                        monthly_vals.append(max(0, cap_5y))
-            
-                    _serien_name = f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"
-                    if ist_eigene_rate:
-                        _serien_name = f"⭐ {basis_name}: {_serien_name}"
-                    scenario_series[_serien_name] = monthly_vals
-
-                    if m_to_100k is not None:
-                        years_100k = m_to_100k // 12
-                        rem_months = m_to_100k % 12
-                        m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
-                        # Ab HEUTE rechnen, nicht ab dem Kaufdatum: die
-                        # Simulation startet mit dem heutigen Kapital und zeigt
-                        # in die Zukunft. Vorher lagen alle Zieldaten um die
-                        # bisherige Haltedauer zu frueh.
-                        target_date = (pd.Timestamp(heute_date) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
-                    else:
-                        m_str = "Nicht erreicht (>100J)"
-                        target_date = "N/A"
-
-                    summary_list.append({
-                        "eigene": ist_eigene_rate,
-                        "rate": r_mo_pct, "rate_pa": r_pa_pct, "ziel_100k": m_str, "ziel_datum": target_date,
-                        "j1": monthly_vals[12], "j2": monthly_vals[24], "j3": monthly_vals[36],
-                        "j4": monthly_vals[48], "j5": monthly_vals[60],
-                    })
-
-                karten_html = '<div style="display: flex; flex-direction: column; gap: 10px;">'
-                for e in summary_list:
-                    # Historische Rate des gewaehlten Werts sichtbar absetzen
-                    _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
-                               if e["eigene"] else "1px solid #27272A")
-                    _marke = (f'<div style="font-size: 0.72rem; font-weight: 700; color: #16C784; '
-                              f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {basis_name.upper()}</div>'
-                              if e["eigene"] else "")
-                    # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
-                    # In einem mehrzeiligen f-String entsteht bei leerem
-                    # {_marke} eine Leerzeile - Markdown wertet alles danach mit
-                    # 4+ Leerzeichen Einrueckung als CODEBLOCK und zeigt den
-                    # HTML-Quelltext als Text an (genau dieser Fehler trat auf).
-                    _jahre = "".join(
-                        f'<div><div style="font-size: 0.65rem; color: #71717A;">{j}J</div>'
-                        f'<div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e[f"j{j}"], 0)}</div></div>'
-                        for j in range(1, 6)
-                    )
-                    karten_html += (
-                        f'<div style="background: #09090B; border: {_rahmen}; border-radius: 6px; padding: 12px 14px;">'
-                        f'{_marke}'
-                        f'<div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">'
-                        f'{e["rate"]:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e["rate_pa"]:.2f}% p.a.)</span>'
-                        f'</div>'
-                        f'<div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
-                        f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e["ziel_datum"]}</div>'
-                        f'<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; border-top: 1px solid #1A1A1A; padding-top: 8px;">'
-                        f'{_jahre}</div>'
-                        f'</div>'
-                    )
-                karten_html += "</div>"
-                st.markdown(karten_html, unsafe_allow_html=True)
-
-                fig_scen = go.Figure()
-                months_x = list(range(61))
+            for r_mo_pct in szenario_raten_mo:
+                r_mo = r_mo_pct / 100.0
+                r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
+                ist_eigene_rate = (eigene_rate_mo is not None
+                                   and abs(r_mo_pct - round(eigene_rate_mo, 4)) < 1e-9)
     
-                for label, vals in scenario_series.items():
-                    if label.startswith("⭐"):
-                        fig_scen.add_trace(go.Scatter(
-                            x=months_x, y=vals, mode="lines", name=label,
-                            line=dict(color="#16C784", width=4),
-                        ))
-                    else:
-                        fig_scen.add_trace(go.Scatter(
-                            x=months_x, y=vals, mode="lines", name=label,
-                            line=dict(width=1.5), opacity=0.75,
-                        ))
+                cap_sim = startkapital_szenario
+                m_to_100k = None
+                for m in range(1, 1200):
+                    cap_sim = (cap_sim * (1 + r_mo)) + netto_cashflow_szenario
+                    if cap_sim >= 100000.0:
+                        m_to_100k = m
+                        break
 
-                fig_scen.add_hline(
-                    y=100000, 
-                    line_dash="dot", 
-                    line_color="#00C853", 
-                    annotation_text="🎯 100k Zielwert", 
-                    annotation_position="top left",
-                    annotation_font=dict(color="#00C853", size=11)
-                )
+                monthly_vals = [startkapital_szenario]
+                cap_5y = startkapital_szenario
+                for m in range(1, 61):
+                    cap_5y = (cap_5y * (1 + r_mo)) + netto_cashflow_szenario
+                    monthly_vals.append(max(0, cap_5y))
+        
+                _serien_name = f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"
+                if ist_eigene_rate:
+                    _serien_name = f"⭐ {basis_name}: {_serien_name}"
+                scenario_series[_serien_name] = monthly_vals
 
-                fig_scen.update_layout(
-                    title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
-                    paper_bgcolor="#000000", plot_bgcolor="#000000",
-                    margin=dict(l=10, r=60, t=80, b=120), 
-                    height=580, 
-                    legend=dict(
-                        orientation="h", 
-                        yanchor="top", 
-                        y=-0.15,  
-                        xanchor="center", 
-                        x=0.5, 
-                        font=dict(color="#E5E7EB", size=11)
-                    ),
-                    xaxis=dict(title="Monate ab heute", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
-                    yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
-                    hovermode="x unified",
+                if m_to_100k is not None:
+                    years_100k = m_to_100k // 12
+                    rem_months = m_to_100k % 12
+                    m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
+                    # Ab HEUTE rechnen, nicht ab dem Kaufdatum: die
+                    # Simulation startet mit dem heutigen Kapital und zeigt
+                    # in die Zukunft. Vorher lagen alle Zieldaten um die
+                    # bisherige Haltedauer zu frueh.
+                    target_date = (pd.Timestamp(heute_date) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+                else:
+                    m_str = "Nicht erreicht (>100J)"
+                    target_date = "N/A"
+
+                summary_list.append({
+                    "eigene": ist_eigene_rate,
+                    "rate": r_mo_pct, "rate_pa": r_pa_pct, "ziel_100k": m_str, "ziel_datum": target_date,
+                    "j1": monthly_vals[12], "j2": monthly_vals[24], "j3": monthly_vals[36],
+                    "j4": monthly_vals[48], "j5": monthly_vals[60],
+                })
+
+            karten_html = '<div style="display: flex; flex-direction: column; gap: 10px;">'
+            for e in summary_list:
+                # Historische Rate des gewaehlten Werts sichtbar absetzen
+                _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
+                           if e["eigene"] else "1px solid #27272A")
+                _marke = (f'<div style="font-size: 0.72rem; font-weight: 700; color: #16C784; '
+                          f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {basis_name.upper()}</div>'
+                          if e["eigene"] else "")
+                # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
+                # In einem mehrzeiligen f-String entsteht bei leerem
+                # {_marke} eine Leerzeile - Markdown wertet alles danach mit
+                # 4+ Leerzeichen Einrueckung als CODEBLOCK und zeigt den
+                # HTML-Quelltext als Text an (genau dieser Fehler trat auf).
+                _jahre = "".join(
+                    f'<div><div style="font-size: 0.65rem; color: #71717A;">{j}J</div>'
+                    f'<div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e[f"j{j}"], 0)}</div></div>'
+                    for j in range(1, 6)
                 )
-                st.plotly_chart(fig_scen, width="stretch", key="chart_scenarios")
+                karten_html += (
+                    f'<div style="background: #09090B; border: {_rahmen}; border-radius: 6px; padding: 12px 14px;">'
+                    f'{_marke}'
+                    f'<div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">'
+                    f'{e["rate"]:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e["rate_pa"]:.2f}% p.a.)</span>'
+                    f'</div>'
+                    f'<div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
+                    f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e["ziel_datum"]}</div>'
+                    f'<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; border-top: 1px solid #1A1A1A; padding-top: 8px;">'
+                    f'{_jahre}</div>'
+                    f'</div>'
+                )
+            karten_html += "</div>"
+            st.markdown(karten_html, unsafe_allow_html=True)
+
+            fig_scen = go.Figure()
+            months_x = list(range(61))
+
+            for label, vals in scenario_series.items():
+                if label.startswith("⭐"):
+                    fig_scen.add_trace(go.Scatter(
+                        x=months_x, y=vals, mode="lines", name=label,
+                        line=dict(color="#16C784", width=4),
+                    ))
+                else:
+                    fig_scen.add_trace(go.Scatter(
+                        x=months_x, y=vals, mode="lines", name=label,
+                        line=dict(width=1.5), opacity=0.75,
+                    ))
+
+            fig_scen.add_hline(
+                y=100000, 
+                line_dash="dot", 
+                line_color="#00C853", 
+                annotation_text="🎯 100k Zielwert", 
+                annotation_position="top left",
+                annotation_font=dict(color="#00C853", size=11)
+            )
+
+            fig_scen.update_layout(
+                title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
+                paper_bgcolor="#000000", plot_bgcolor="#000000",
+                margin=dict(l=10, r=60, t=80, b=120), 
+                height=580, 
+                legend=dict(
+                    orientation="h", 
+                    yanchor="top", 
+                    y=-0.15,  
+                    xanchor="center", 
+                    x=0.5, 
+                    font=dict(color="#E5E7EB", size=11)
+                ),
+                xaxis=dict(title="Monate ab heute", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
+                yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig_scen, width="stretch", key="chart_scenarios")
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Szenarien", e)
