@@ -3880,22 +3880,28 @@ def render_dashboard():
                     _marke = (f'<div style="font-size: 0.72rem; font-weight: 700; color: #16C784; '
                               f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ HISTORISCHE RATE · {basis_name.upper()}</div>'
                               if e["eigene"] else "")
-                    karten_html += f"""
-                    <div style="background: #09090B; border: {_rahmen}; border-radius: 6px; padding: 12px 14px;">
-                        {_marke}
-                        <div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">
-                            {e['rate']:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e['rate_pa']:.2f}% p.a.)</span>
-                        </div>
-                        <div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e['ziel_100k']}</div>
-                        <div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e['ziel_datum']}</div>
-                        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; border-top: 1px solid #1A1A1A; padding-top: 8px;">
-                            <div><div style="font-size: 0.65rem; color: #71717A;">1J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j1'], 0)}</div></div>
-                            <div><div style="font-size: 0.65rem; color: #71717A;">2J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j2'], 0)}</div></div>
-                            <div><div style="font-size: 0.65rem; color: #71717A;">3J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j3'], 0)}</div></div>
-                            <div><div style="font-size: 0.65rem; color: #71717A;">4J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j4'], 0)}</div></div>
-                            <div><div style="font-size: 0.65rem; color: #71717A;">5J</div><div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e['j5'], 0)}</div></div>
-                        </div>
-                    </div>"""
+                    # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
+                    # In einem mehrzeiligen f-String entsteht bei leerem
+                    # {_marke} eine Leerzeile - Markdown wertet alles danach mit
+                    # 4+ Leerzeichen Einrueckung als CODEBLOCK und zeigt den
+                    # HTML-Quelltext als Text an (genau dieser Fehler trat auf).
+                    _jahre = "".join(
+                        f'<div><div style="font-size: 0.65rem; color: #71717A;">{j}J</div>'
+                        f'<div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e[f"j{j}"], 0)}</div></div>'
+                        for j in range(1, 6)
+                    )
+                    karten_html += (
+                        f'<div style="background: #09090B; border: {_rahmen}; border-radius: 6px; padding: 12px 14px;">'
+                        f'{_marke}'
+                        f'<div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">'
+                        f'{e["rate"]:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e["rate_pa"]:.2f}% p.a.)</span>'
+                        f'</div>'
+                        f'<div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
+                        f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e["ziel_datum"]}</div>'
+                        f'<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; border-top: 1px solid #1A1A1A; padding-top: 8px;">'
+                        f'{_jahre}</div>'
+                        f'</div>'
+                    )
                 karten_html += "</div>"
                 st.markdown(karten_html, unsafe_allow_html=True)
 
