@@ -1287,7 +1287,7 @@ def simuliere_bandbreite(startwert, kursreihe, jahre, sparrate_monat=0.0,
     return perzentile, kennzahlen
 
 
-
+def berechne_robuste_cagr(aktueller_kurs, historie, heute):
     """Schaetzt eine annualisierte Wachstumsrate (CAGR) robuster als der
     naive Zwei-Punkte-Vergleich "aeltester Kurs vs. heute". Problem dabei:
     faellt der aelteste verfuegbare Kurs zufaellig auf ein Tief (oder Hoch),
