@@ -1,0 +1,39 @@
+name: Watchlist Top 50 (täglich)
+
+on:
+  # Täglich 05:30 UTC = 07:30 Uhr deutscher Sommerzeit (06:30 im Winter) -
+  # vor Handelsbeginn, die Schlusskurse des Vortags liegen dann vollständig vor.
+  schedule:
+    - cron: "30 5 * * *"
+  # Manuell startbar: Actions -> "Watchlist Top 50 (täglich)" -> Run workflow
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: top50
+  cancel-in-progress: false
+
+jobs:
+  ranglisten:
+    runs-on: ubuntu-latest
+    # Großzügig bemessen: die wöchentliche wikifolio-Suche plus mehrere
+    # tausend Kursabrufe mit bewusst gedrosselter Rate dauern ihre Zeit.
+    timeout-minutes: 60
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests tzdata
+
+      - name: Ranglisten berechnen
+        env:
+          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python top50_agent.py
