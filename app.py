@@ -1,5 +1,6 @@
 import datetime
 import re
+import html
 import logging
 import traceback
 import pandas as pd
@@ -4275,56 +4276,106 @@ def render_dashboard():
             except Exception:
                 stand = daten.get("stand", "–")
 
-            kat_keys = [k for k in ("aktien", "dividenden", "etf", "wikifolios") if k in kategorien]
+            reihenfolge = daten.get("reihenfolge") or ["aktien", "dividenden", "etf", "wikifolios"]
+            kat_keys = [k for k in reihenfolge if k in kategorien] + \
+                       [k for k in kategorien if k not in reihenfolge]
             kat_titel = [kategorien[k]["titel"] for k in kat_keys]
             gewaehlt = st.pills("Kategorie", kat_titel, default=kat_titel[0], key="top50_kategorie")
             kat_key = kat_keys[kat_titel.index(gewaehlt)] if gewaehlt in kat_titel else kat_keys[0]
             kat = kategorien[kat_key]
 
-            zr_titel = [t for _, t in zeitraeume]
+            # Kategorien mit Dividende bekommen zusaetzlich die Rangliste nach
+            # laufender Dividendenrendite als eigene "Zeitraum"-Pille
+            zr_liste = [tuple(z) for z in zeitraeume]
+            div_zr = tuple(daten.get("dividenden_zeitraum") or ("DIV", "Div.-Rendite"))
+            mit_div = bool(kat.get("dividende"))
+            if mit_div and div_zr[0] in kat.get("top", {}):
+                zr_liste.append(div_zr)
+            zr_titel = [t for _, t in zr_liste]
             zr_wahl = st.pills("Zeitraum", zr_titel, default="1 Jahr" if "1 Jahr" in zr_titel else zr_titel[0],
                                key="top50_zeitraum")
-            zr_key = zeitraeume[zr_titel.index(zr_wahl)][0] if zr_wahl in zr_titel else zeitraeume[0][0]
+            zr_key = zr_liste[zr_titel.index(zr_wahl)][0] if zr_wahl in zr_titel else zr_liste[0][0]
+            nach_div = zr_key == div_zr[0]
 
             liste = kat.get("top", {}).get(zr_key, [])
             mit_daten = kat.get("mit_daten", {}).get(zr_key, 0)
             st.caption(
-                f"Stand {stand} · {mit_daten} von {kat.get('aktiv', 0)} aktiven Werten haben "
-                f"Kursdaten für diesen Zeitraum · Top {len(liste)}"
+                f"Stand {stand} · {mit_daten} von {kat.get('aktiv', 0)} aktiven Werten "
+                + ("zahlen eine Dividende" if nach_div else "haben Kursdaten für diesen Zeitraum")
+                + f" · Top {len(liste)}"
             )
+            if kat.get("veraltet_seit"):
+                try:
+                    alt_stand = datetime.datetime.fromisoformat(kat["veraltet_seit"]).strftime("%d.%m.%Y")
+                except Exception:
+                    alt_stand = kat["veraltet_seit"]
+                st.warning(f"Die Kursquelle für diese Liste hat beim letzten Lauf nicht vollständig "
+                           f"geantwortet - angezeigt wird der Stand vom {alt_stand}.")
 
             if not liste:
                 st.info("Für diesen Zeitraum reicht bei keinem Wert die Kurshistorie aus.")
                 return
 
+            def _pct(wert):
+                if wert is None:
+                    return '<td class="pt-num">–</td>'
+                farbe = "pt-up" if wert >= 0 else "pt-down"
+                return f'<td class="pt-num pt-stark {farbe}">{wert:+.2f}%</td>'
+
+            def _div(wert):
+                if not wert:
+                    return '<td class="pt-num">–</td>'
+                return f'<td class="pt-num pt-stark pt-up">{wert:.2f}%</td>'
+
             zeilen = ""
             for rang, e in enumerate(liste, 1):
-                farbe = "pt-up" if e["perf"] >= 0 else "pt-down"
+                if nach_div:
+                    werte = _div(e.get("div")) + _pct(e.get("perf"))
+                else:
+                    werte = _pct(e.get("perf")) + (_div(e.get("div")) if mit_div else "")
                 zeilen += (
                     f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">'
                     f'<td class="pt-num pt-seit">{rang}</td>'
-                    f'<td class="pt-wert"><span class="pt-name">{e["name"]}</span></td>'
-                    f'<td class="pt-num pt-stark {farbe}">{e["perf"]:+.2f}%</td>'
-                    f'<td class="pt-num pt-wknval">{e.get("wkn") or "–"}</td>'
+                    f'<td class="pt-wert"><span class="pt-name">{html.escape(str(e["name"]))}</span></td>'
+                    f'{werte}'
+                    f'<td class="pt-num pt-wknval">{html.escape(str(e.get("wkn") or "–"))}</td>'
                     f'</tr>'
                 )
+            if nach_div:
+                spalten = '<th class="pt-num">Div.-Rendite</th><th class="pt-num">1 Jahr</th>'
+            else:
+                spalten = f'<th class="pt-num">{zr_wahl}</th>' + (
+                    '<th class="pt-num">Div.-Rendite</th>' if mit_div else "")
             st.markdown(
                 '<div class="pt-wrap"><table class="pt"><thead><tr>'
                 '<th class="pt-num">#</th><th class="pt-wert">Wert</th>'
-                f'<th class="pt-num">{zr_wahl}</th><th class="pt-num">WKN</th>'
+                f'{spalten}<th class="pt-num">{kat.get("kennung", "WKN")}</th>'
                 f'</tr></thead><tbody>{zeilen}</tbody></table></div>',
                 unsafe_allow_html=True,
             )
 
             with st.expander("Hinweise zu den Ranglisten", expanded=False):
                 st.caption(
-                    "Reine Kursperformance ohne Dividenden, Gebühren oder Steuern - bei den "
-                    "Dividenden-Aktien sind die Ausschüttungen also NICHT enthalten. "
+                    "Performance = reine Kursentwicklung ohne Dividenden, Gebühren oder Steuern. "
+                    "**Div.-Rendite** = Ausschüttungen der letzten 12 Monate geteilt durch den "
+                    "aktuellen Kurs (laufende Rendite, Quelle Yahoo Finance). Sonderdividenden "
+                    "zählen mit; Werte über 30 % werden als unplausibel ausgeblendet. "
                     "Werte ohne Kurs seit mehr als 10 Tagen gelten als inaktiv und fehlen. "
-                    "wikifolios werden automatisch über die Kursquelle gefunden (alle "
-                    "Zertifikate mit WKN LS9…), die Suche wird wöchentlich erneuert. "
                     "Vergangene Performance ist kein Hinweis auf künftige Entwicklung."
                 )
+                if kat.get("kennung") == "Symbol":
+                    st.caption(
+                        "US-Werte: Mitglieder laut Bestandsliste der iShares-Index-ETFs, Kurse von "
+                        "Yahoo Finance, mit dem EUR/USD-Kurs des jeweiligen Tages in Euro "
+                        "umgerechnet - Dollar-Schwankungen sind also enthalten. Nicht jeder "
+                        "US-Nebenwert ist bei deutschen Brokern handelbar. "
+                        + ("Quelle: " + ", ".join(kat["quellen"]) + "." if kat.get("quellen") else "")
+                    )
+                else:
+                    st.caption(
+                        "wikifolios werden automatisch über die Kursquelle gefunden (alle "
+                        "Zertifikate mit WKN LS9…), die Suche wird wöchentlich erneuert."
+                    )
                 st.caption(
                     f"Letzter Lauf: {daten.get('anfragen', '–')} Kursabrufe in "
                     f"{daten.get('laufzeit_sek', '–')} s, {daten.get('fehlgeschlagen', 0)} fehlgeschlagen."
@@ -4332,9 +4383,13 @@ def render_dashboard():
             fehlend = [f for f in daten.get("nicht_gefunden", []) if f.get("kategorie") == kat["titel"]]
             if fehlend:
                 with st.expander(f"Nicht gefunden ({len(fehlend)})", expanded=False):
-                    st.caption("Diese Werte aus top50_universum.py ließen sich weder über die "
-                               "ISIN noch über den Namen finden - dort korrigieren.")
-                    for f in fehlend:
+                    if kat.get("kennung") == "Symbol":
+                        st.caption("Für diese Indexmitglieder lieferte Yahoo keine Kurse "
+                                   "(z.B. frisch umbenannt oder gerade aufgenommen).")
+                    else:
+                        st.caption("Diese Werte aus top50_universum.py ließen sich weder über die "
+                                   "ISIN noch über den Namen finden - dort korrigieren.")
+                    for f in fehlend[:100]:
                         st.write(f"- {f['name']} · {f['isin']}")
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
