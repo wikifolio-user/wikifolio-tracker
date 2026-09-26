@@ -233,13 +233,44 @@ ETFS = [
     ("FR0010468983", "Amundi Euro Stoxx 50 Daily 2x Leveraged"),
 ]
 
-# Kategorien, wie sie in der App erscheinen. "quelle" = Liste oben oder "auto"
-# (automatische Suche). "kategorien_ls" = erlaubte categoryName-Werte der
-# Kursquelle - schuetzt davor, bei der Namenssuche z.B. eine Anleihe
-# ("APPLE 14/26") statt der Aktie zu erwischen.
+# ---------------------------------------------------------------------------
+# INDEX-LISTEN (automatisch): die Mitglieder werden woechentlich aus den
+# Bestandslisten der iShares-Index-ETFs gelesen - das ist die aktuelle
+# Zusammensetzung des Index, ohne dass hier tausende Zeilen gepflegt werden
+# muessen. Kurse und Dividenden dieser Werte kommen von Yahoo Finance (die
+# Kursquelle ls-tc.de fuehrt viele US-Nebenwerte nicht) und werden mit dem
+# taeglichen EUR/USD-Kurs in Euro umgerechnet - vergleichbar mit den
+# anderen Listen.
+# Faellt die iShares-Liste aus, gilt die zuletzt geladene weiter; gibt es
+# noch keine, dient der Nasdaq-Aktienfilter nach Boersenwert als Ersatz
+# ("ersatz_boersenwert": von, bis in USD).
+# ---------------------------------------------------------------------------
+INDEX_FONDS = {
+    "IVV": {"titel": "S&P 500",
+            "url": "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/"
+                   "1467271812596.ajax?fileType=csv&fileName=IVV_holdings&dataType=fund"},
+    "IJH": {"titel": "S&P MidCap 400",
+            "url": "https://www.ishares.com/us/products/239763/ishares-core-sp-midcap-etf/"
+                   "1467271812596.ajax?fileType=csv&fileName=IJH_holdings&dataType=fund"},
+    "IWM": {"titel": "Russell 2000",
+            "url": "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/"
+                   "1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund"},
+}
+
+# Kategorien, wie sie in der App erscheinen (in dieser Reihenfolge).
+#   quelle          Liste oben | "auto" (wikifolio-Suche) | "index" (INDEX_FONDS)
+#   kategorien_ls   erlaubte categoryName-Werte der Kursquelle - schuetzt davor,
+#                   bei der Namenssuche z.B. eine Anleihe ("APPLE 14/26") statt
+#                   der Aktie zu erwischen
+#   dividende       laufende Dividendenrendite anzeigen + eigene Rangliste
 KATEGORIEN = {
     "aktien":     {"titel": "Aktien",               "quelle": AKTIEN,     "kategorien_ls": {"Aktie"}},
-    "dividenden": {"titel": "Dividenden-Aktien",    "quelle": DIVIDENDEN, "kategorien_ls": {"Aktie"}},
+    "usa":        {"titel": "US-Aktien (S&P 500 + MidCap 400)", "quelle": "index",
+                   "indizes": ["IVV", "IJH"], "ersatz_boersenwert": (5e9, None), "dividende": True},
+    "nebenwerte": {"titel": "US-Nebenwerte (Russell 2000)", "quelle": "index",
+                   "indizes": ["IWM"], "ersatz_boersenwert": (2.5e8, 5e9), "dividende": True},
+    "dividenden": {"titel": "Dividenden-Aktien",    "quelle": DIVIDENDEN, "kategorien_ls": {"Aktie"},
+                   "dividende": True},
     "etf":        {"titel": "ETFs & Hebel-ETFs",    "quelle": ETFS,
                    "kategorien_ls": {"ETF", "ETC", "ETN", "ETP", "Fonds"}},
     "wikifolios": {"titel": "wikifolios",           "quelle": "auto",     "kategorien_ls": {"Wikifolio"}},
@@ -253,5 +284,9 @@ ZEITRAEUME = [
     ("2J", "2 Jahre", 730), ("3J", "3 Jahre", 1095), ("5J", "5 Jahre", 1826),
     ("10J", "10 Jahre", 3652),
 ]
+
+# Zusaetzliche Rangliste fuer Kategorien mit "dividende": laufende
+# Dividendenrendite = Ausschuettungen der letzten 12 Monate / aktueller Kurs.
+DIVIDENDEN_SCHLUESSEL = ("DIV", "Div.-Rendite")
 
 TOP_N = 50
