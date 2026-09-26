@@ -3229,6 +3229,7 @@ def render_dashboard():
         "🔮 Zukunfts-Prognose",
         "📊 Szenario-Simulator (5 Jahre)",
         "📝 Trader-Log (Trades & Kommentare)",
+        "🏆 Watchlist Top 50",
     ]
     # Eigene .abschnitt-Ueberschrift (identisch zu "WEITERE INFORMATIONEN":
     # gleiche Groesse, gleicher Abstand, gleiche Trennlinie). Diesmal OHNE
@@ -4248,6 +4249,100 @@ def render_dashboard():
     if gewaehlte_ansicht == "📊 Szenario-Simulator (5 Jahre)":
         melde("ansicht", 0.3, "Berechne Szenarien …")
         _render_scenarios()
+        lade_fertig()
+
+    # ---------- WATCHLIST TOP 50 ----------
+    # Die Ranglisten berechnet der taegliche Agent (top50_agent.py, GitHub
+    # Actions) und legt sie fertig in state/top50.json ab. Die App liest nur
+    # diese Datei - kein einziger Kursabruf beim Umschalten, deshalb schnell.
+    # Als Fragment: Kategorie- und Zeitraumwechsel bauen nur diesen Bereich neu.
+    @st.fragment
+    def _render_top50():
+        try:
+            daten = gh_read_cached("state/top50.json", None)
+            if not daten or not daten.get("kategorien"):
+                st.info(
+                    "Noch keine Ranglisten vorhanden. Der Agent läuft täglich um 07:30 Uhr. "
+                    "Für einen Sofortstart: auf GitHub unter **Actions → Watchlist Top 50 "
+                    "(täglich) → Run workflow**."
+                )
+                return
+
+            kategorien = daten["kategorien"]
+            zeitraeume = daten.get("zeitraeume") or []
+            try:
+                stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
+            except Exception:
+                stand = daten.get("stand", "–")
+
+            kat_keys = [k for k in ("aktien", "dividenden", "etf", "wikifolios") if k in kategorien]
+            kat_titel = [kategorien[k]["titel"] for k in kat_keys]
+            gewaehlt = st.pills("Kategorie", kat_titel, default=kat_titel[0], key="top50_kategorie")
+            kat_key = kat_keys[kat_titel.index(gewaehlt)] if gewaehlt in kat_titel else kat_keys[0]
+            kat = kategorien[kat_key]
+
+            zr_titel = [t for _, t in zeitraeume]
+            zr_wahl = st.pills("Zeitraum", zr_titel, default="1 Jahr" if "1 Jahr" in zr_titel else zr_titel[0],
+                               key="top50_zeitraum")
+            zr_key = zeitraeume[zr_titel.index(zr_wahl)][0] if zr_wahl in zr_titel else zeitraeume[0][0]
+
+            liste = kat.get("top", {}).get(zr_key, [])
+            mit_daten = kat.get("mit_daten", {}).get(zr_key, 0)
+            st.caption(
+                f"Stand {stand} · {mit_daten} von {kat.get('aktiv', 0)} aktiven Werten haben "
+                f"Kursdaten für diesen Zeitraum · Top {len(liste)}"
+            )
+
+            if not liste:
+                st.info("Für diesen Zeitraum reicht bei keinem Wert die Kurshistorie aus.")
+                return
+
+            zeilen = ""
+            for rang, e in enumerate(liste, 1):
+                farbe = "pt-up" if e["perf"] >= 0 else "pt-down"
+                zeilen += (
+                    f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">'
+                    f'<td class="pt-num pt-seit">{rang}</td>'
+                    f'<td class="pt-wert"><span class="pt-name">{e["name"]}</span></td>'
+                    f'<td class="pt-num pt-stark {farbe}">{e["perf"]:+.2f}%</td>'
+                    f'<td class="pt-num pt-wknval">{e.get("wkn") or "–"}</td>'
+                    f'</tr>'
+                )
+            st.markdown(
+                '<div class="pt-wrap"><table class="pt"><thead><tr>'
+                '<th class="pt-num">#</th><th class="pt-wert">Wert</th>'
+                f'<th class="pt-num">{zr_wahl}</th><th class="pt-num">WKN</th>'
+                f'</tr></thead><tbody>{zeilen}</tbody></table></div>',
+                unsafe_allow_html=True,
+            )
+
+            with st.expander("Hinweise zu den Ranglisten", expanded=False):
+                st.caption(
+                    "Reine Kursperformance ohne Dividenden, Gebühren oder Steuern - bei den "
+                    "Dividenden-Aktien sind die Ausschüttungen also NICHT enthalten. "
+                    "Werte ohne Kurs seit mehr als 10 Tagen gelten als inaktiv und fehlen. "
+                    "wikifolios werden automatisch über die Kursquelle gefunden (alle "
+                    "Zertifikate mit WKN LS9…), die Suche wird wöchentlich erneuert. "
+                    "Vergangene Performance ist kein Hinweis auf künftige Entwicklung."
+                )
+                st.caption(
+                    f"Letzter Lauf: {daten.get('anfragen', '–')} Kursabrufe in "
+                    f"{daten.get('laufzeit_sek', '–')} s, {daten.get('fehlgeschlagen', 0)} fehlgeschlagen."
+                )
+            fehlend = [f for f in daten.get("nicht_gefunden", []) if f.get("kategorie") == kat["titel"]]
+            if fehlend:
+                with st.expander(f"Nicht gefunden ({len(fehlend)})", expanded=False):
+                    st.caption("Diese Werte aus top50_universum.py ließen sich weder über die "
+                               "ISIN noch über den Namen finden - dort korrigieren.")
+                    for f in fehlend:
+                        st.write(f"- {f['name']} · {f['isin']}")
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Top50", e)
+
+    if gewaehlte_ansicht == "🏆 Watchlist Top 50":
+        melde("ansicht", 0.3, "Lade Ranglisten …")
+        _render_top50()
         lade_fertig()
 
     # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
