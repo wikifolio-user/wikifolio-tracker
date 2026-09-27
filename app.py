@@ -4631,7 +4631,10 @@ def render_dashboard():
                 )
                 if kat.get("kennung") == "Symbol":
                     st.caption(
-                        "Indexwerte: Mitglieder laut Bestandsliste der iShares-Index-ETFs, Kurse "
+                        "Länderlisten: alle Aktien der Heimatbörsen je Land ab einer Mindestgröße "
+                        "(Börsenwert, laut Yahoo Finance), wöchentlich aktualisiert; ausländische "
+                        "Zweitnotierungen und ADRs sind herausgefiltert, außerhalb der USA höchstens die "
+                        "1.500 größten Werte je Land. Kurse "
                         "von Yahoo Finance (Heimatbörse), mit dem Wechselkurs des jeweiligen Tages "
                         "in Euro umgerechnet - Währungsschwankungen sind also enthalten. Nicht "
                         "jeder Nebenwert oder Auslandswert ist bei deutschen Brokern handelbar. "
@@ -4890,7 +4893,7 @@ def render_dashboard():
             st.info("Noch kein Qualitäts-Score vorhanden. Der Agent läuft täglich um 05:00 Uhr. Für einen "
                     "Sofortstart: auf GitHub unter **Actions → Watchlist Qualitäts-Score (täglich) → Run "
                     "workflow**. Die Kennzahlen aller Aktien werden in den ersten Tagen "
-                    "schrittweise aufgebaut (bis zu 1.500 je Lauf, große Werte zuerst).")
+                    "schrittweise aufgebaut (bis zu 3.000 je Lauf, große Werte zuerst).")
             return
         daten_q = daten
         kats = daten["kategorien"]
@@ -4944,7 +4947,7 @@ def render_dashboard():
         )
         if abd.get("mit_kennzahlen", 0) < 0.9 * abd.get("universum", 1):
             st.warning(f"Aufbau läuft: Kennzahlen für {abd.get('mit_kennzahlen', 0)} von "
-                       f"{abd.get('universum', 0)} Aktien liegen vor. Jeder Lauf ergänzt bis zu 1.500 – "
+                       f"{abd.get('universum', 0)} Aktien liegen vor. Jeder Lauf ergänzt bis zu 3.000 – "
                        "große Werte zuerst, Russell-Nebenwerte zuletzt.")
         if not symbole:
             st.info("In dieser Einordnung gibt es hier derzeit keine Aktie.")
