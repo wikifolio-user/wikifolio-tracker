@@ -640,6 +640,60 @@ st.markdown("""
     .pt-leer { color: #4B5058; }
     .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.75rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
 
+    /* ---------- WATCHLIST / QUALITAETS-SCORE ----------
+       Zweite Zeile unter dem Namen (Kennung, Branche) statt eigener Spalten -
+       spart auf dem iPhone die Breite fuer die eigentlichen Zahlen. */
+    .pt-sub {
+        display: block; margin-top: 2px; white-space: normal;
+        font-size: 0.68rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
+    }
+    .q-punkte { font-weight: 800; font-size: 0.9rem; }
+    .q-prio { color: #16C784; }
+    .q-beob { color: #F5B942; }
+    .q-nicht { color: #8A9099; }
+    .pt td.q-fokus-hl, .pt th.q-fokus-hl { background: rgba(255, 255, 255, 0.05); }
+    .q-legende { font-size: 0.72rem; color: var(--label); margin: -4px 0 10px; }
+    .q-kpis {
+        display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px; margin: 6px 0 12px;
+    }
+    .q-kpi {
+        background: #0B0C0F; border: 1px solid var(--line); border-radius: 10px;
+        padding: 10px 12px; min-width: 0;
+    }
+    .q-kpi-l {
+        font-size: 0.64rem; font-weight: 700; color: var(--label);
+        text-transform: uppercase; letter-spacing: 0.6px;
+    }
+    .q-kpi-v {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+        font-size: 1.35rem; font-weight: 800; color: #FFFFFF; line-height: 1.3;
+    }
+    .q-kpi-v span { font-size: 0.8rem; font-weight: 600; color: var(--label); }
+    .q-kpi-v b { font-weight: 800; }
+    /* Kleine Tabellen mit mehreren Zahlenspalten: Koepfe duerfen zweizeilig sein */
+    .pt.pt-kompakt thead th { white-space: normal; line-height: 1.25; }
+    .q-balken { margin: 4px 0 14px; }
+    .q-b-zeile {
+        display: grid; grid-template-columns: minmax(0, 1fr) 96px 46px;
+        gap: 10px; align-items: center; padding: 6px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.82rem; color: #FFFFFF;
+    }
+    .q-b-bahn { height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden; }
+    .q-b-fuell { height: 100%; border-radius: 4px; }
+    .q-b-wert {
+        text-align: right; font-weight: 700;
+        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+    }
+    @media (max-width: 700px) {
+        .q-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .q-kpi-v { font-size: 1.2rem; }
+        .q-b-zeile { grid-template-columns: minmax(0, 1fr) 72px 44px; font-size: 0.86rem; }
+        .pt-sub { font-size: 0.74rem; }
+        .q-punkte { font-size: 0.98rem; }
+        .pt.pt-kompakt td, .pt.pt-kompakt thead th { padding: 9px 6px; }
+    }
+
     /* ---------- MOBILE: FOKUS AUF EINE KENNZAHL ----------
        Die volle Tabelle braucht ~980px, ein Smartphone bietet ~360px.
        Ein Karten-Layout (jeder Wert eine eigene Karte) waere zwar lesbar,
@@ -4261,7 +4315,7 @@ def render_dashboard():
     # Die Agenten speichern taeglich die Top 50 und vergleichen mit dem Stand
     # von vor 7 Tagen: "vor" = Platz damals (None = neu in der Liste).
     TREND_FARBE = {"up": "#16C784", "down": "#EA3943", "gleich": "#9AA0A6", "neu": "#16C784"}
-    Q_KLASSEN_KURZ = {"prio": "Priorität", "beobachten": "Beobachtungsliste", "nicht": "Nicht weiterverfolgen"}
+    Q_KLASSEN_KURZ = {"prio": "Priorität", "beobachten": "Beobachten", "nicht": "Nicht weiterv."}
 
     def _trend(vor, jetzt):
         """-> (text, art) - ▲ 3 / ▼ 2 / o / NEU"""
@@ -4304,7 +4358,9 @@ def render_dashboard():
             return f'<div class="pt-wrap"><table class="pt"><thead><tr>{k}</tr></thead><tbody>{z}</tbody></table></div>'
 
         def zelle(text, farbe=None, wert=False):
-            stil = f' style="color:{farbe}"' if farbe else ""
+            # white-space normal: laengere Texte ("→ Beobachten") duerfen auf
+            # dem iPhone umbrechen, statt die Tabelle zu verbreitern
+            stil = f' style="color:{farbe};white-space:normal"' if farbe else ""
             return f'<td class="{"pt-wert" if wert else "pt-num"}"{stil}>{html.escape(str(text))}</td>'
 
         with st.expander(f"📅 Wochenveränderung: {len(neu)} neu · {len(raus)} rausgeflogen · "
@@ -4318,7 +4374,7 @@ def render_dashboard():
                 [zelle(r["name"], wert=True), zelle(r["vor"]),
                  zelle(r["jetzt"] if r.get("jetzt") else
                        f"→ {Q_KLASSEN_KURZ.get(r['klasse'], r['klasse'])}" if r.get("klasse") else
-                       "nicht mehr bewertet" if r.get("grund") else "ohne Daten", TREND_FARBE["down"])]
+                       "nicht bewertet" if r.get("grund") else "ohne Daten", TREND_FARBE["down"])]
                 for r in sorted(raus, key=lambda r: r["vor"])]), unsafe_allow_html=True)
             st.markdown("**🚀 Größte Aufsteiger**", unsafe_allow_html=True)
             st.markdown(tabelle(["Wert", "Platz", "Veränderung"], [
@@ -4413,21 +4469,21 @@ def render_dashboard():
                 zeilen += (
                     f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">'
                     f'<td class="pt-num pt-seit">{rang}</td>{trend_td}'
-                    f'<td class="pt-wert"><span class="pt-name">{html.escape(str(e["name"]))}</span></td>'
+                    f'<td class="pt-wert"><span class="pt-name">{html.escape(str(e["name"]))}</span>'
+                    f'<span class="pt-sub">{html.escape(str(e.get("wkn") or ""))}</span></td>'
                     f'{werte}'
-                    f'<td class="pt-num pt-wknval">{html.escape(str(e.get("wkn") or "–"))}</td>'
                     f'</tr>'
                 )
             if nach_div:
-                spalten = '<th class="pt-num">Div.-Rendite</th><th class="pt-num">1 Jahr</th>'
+                spalten = '<th class="pt-num">Div.-<br>Rendite</th><th class="pt-num">1 Jahr</th>'
             else:
                 spalten = f'<th class="pt-num">{zr_wahl}</th>' + (
-                    '<th class="pt-num">Div.-Rendite</th>' if mit_div else "")
+                    '<th class="pt-num">Div.-<br>Rendite</th>' if mit_div else "")
             st.markdown(
-                '<div class="pt-wrap"><table class="pt"><thead><tr>'
-                '<th class="pt-num">#</th>' + ('<th class="pt-num">7 T.</th>' if mit_trend else "") +
-                '<th class="pt-wert">Wert</th>'
-                f'{spalten}<th class="pt-num">{kat.get("kennung", "WKN")}</th>'
+                '<div class="pt-wrap"><table class="pt pt-kompakt"><thead><tr>'
+                '<th class="pt-num">#</th>' + ('<th class="pt-num">7&nbsp;T.</th>' if mit_trend else "") +
+                f'<th class="pt-wert">Wert</th>'
+                f'{spalten}'
                 f'</tr></thead><tbody>{zeilen}</tbody></table></div>',
                 unsafe_allow_html=True,
             )
@@ -4498,64 +4554,87 @@ def render_dashboard():
     def _q_x(x, suffix="x"):
         return "–" if x is None else f"{x:.1f}{suffix}"
 
-    def _q_tabelle(werte, symbole, vergleich=None):
-        zeilen = []
+    # Spalten der Qualitaets-Tabelle: (Schluessel, Kopf, Formatierung, Farbe)
+    def _qf_pct(nachkomma=1, vorzeichen=True):
+        return lambda x: "–" if x is None else f"{x:+.{nachkomma}f} %" if vorzeichen else f"{x:.{nachkomma}f} %"
+
+    def _qf_zahl(suffix=""):
+        return lambda x: "–" if x is None else f"{x:.1f}{suffix}"
+
+    def _qc_schwelle(gut, schlecht, umgekehrt=False):
+        def farbe(x):
+            if x is None:
+                return ""
+            if umgekehrt:
+                return "pt-up" if x <= gut else "pt-down" if x >= schlecht else ""
+            return "pt-up" if x >= gut else "pt-down" if x <= schlecht else ""
+        return farbe
+
+    def _qc_label(gut, schlecht):
+        return lambda x: "pt-up" if x in gut else "pt-down" if x in schlecht else ""
+
+    Q_SPALTEN = [
+        ("roic", "ROIC", _qf_pct(1, False), _qc_schwelle(15, 8)),
+        ("g_fcfps", "FCF/Aktie-Wachst.", _qf_pct(), _qc_schwelle(8, 0)),
+        ("fcfy", "FCF-Rendite", _qf_pct(2, False), _qc_schwelle(5, 2)),
+        ("fkgv", "Forward-KGV", _qf_zahl(), _qc_schwelle(15, 35, True)),
+        ("ev_ebit", "EV/EBIT", _qf_zahl(), _qc_schwelle(15, 30, True)),
+        ("g_ums", "Umsatz-Wachst.", _qf_pct(), _qc_schwelle(8, 0)),
+        ("g_eps", "EPS-Wachst.", _qf_pct(), _qc_schwelle(8, 0)),
+        ("g_fcf", "FCF-Wachst.", _qf_pct(), _qc_schwelle(8, 0)),
+        ("om", "Op. Marge", _qf_pct(1, False), _qc_schwelle(15, 5)),
+        ("fm", "FCF-Marge", _qf_pct(1, False), _qc_schwelle(12, 3)),
+        ("nde", "Net Debt/EBITDA", lambda x: "–" if x is None else "Netto-Cash" if x <= 0 else f"{x:.1f}x",
+         _qc_schwelle(1, 3, True)),
+        ("akt", "Verwässerung p.a.", _qf_pct(), _qc_schwelle(0, 2, True)),
+        ("moat", "Moat*", str, _qc_label(("stark",), ("gering",))),
+        ("mgmt", "Management*", str, _qc_label(("gut",), ("schwach",))),
+        ("bew", "Bewertung", str, _qc_label(("günstig",), ("teuer",))),
+        ("risiko", "Risiko", str, _qc_label(("niedrig",), ("hoch",))),
+        ("mcap", "Mkap. Mrd €", _qf_zahl(), lambda x: ""),
+    ]
+    Q_KLASSE_CSS = {"prio": "q-prio", "beobachten": "q-beob", "nicht": "q-nicht"}
+
+    def _q_tabelle(werte, symbole, vergleich=None, fokus="roic"):
+        """HTML-Tabelle. Am Desktop alle Kennzahlen (seitlich scrollbar), auf
+        dem iPhone nur Rang, Trend, Name, die gewaehlte Kennzahl und Punkte -
+        so bleiben alle Werte untereinander direkt vergleichbar."""
+        mit_trend = vergleich is not None
+        kopf = '<th class="pt-num">#</th>' + ('<th class="pt-num">7&nbsp;T.</th>' if mit_trend else "")
+        kopf += '<th class="pt-wert">Unternehmen</th>'
+        for key, titel, _, _ in Q_SPALTEN:
+            hl = " q-fokus-hl" if key == fokus else ""
+            kopf += f'<th class="pt-num{hl}" data-spalte="q_{key}">{titel}</th>'
+        kopf += '<th class="pt-num">Punkte</th>'
+        zeilen = ""
         for rang, sym in enumerate(symbole, 1):
             e = werte.get(sym)
             if not e:
                 continue
-            trend = {"7 T.": _trend((vergleich["vor"]).get(sym), rang)[0]} if vergleich is not None else {}
-            zeilen.append({
-                "#": rang, **trend, "Unternehmen": e["name"], "Ticker": sym, "Branche": e.get("br") or "–",
-                "Kurs": f'{e["kurs"]:,.2f} {e["kwae"]}'.replace(",", "."),
-                "Mkap. Mrd €": e.get("mcap"),
-                "Umsatz-Wachstum": e.get("g_ums"), "EPS-Wachstum": e.get("g_eps"),
-                "FCF-Wachstum": e.get("g_fcf"), "FCF/Aktie-Wachstum": e.get("g_fcfps"),
-                "ROIC": e.get("roic"), "Op. Marge": e.get("om"), "FCF-Marge": e.get("fm"),
-                "Net Debt/EBITDA": e.get("nde"), "Verwässerung p.a.": e.get("akt"),
-                "Forward-KGV": e.get("fkgv"), "EV/EBIT": e.get("ev_ebit"), "FCF-Rendite": e.get("fcfy"),
-                "Moat*": e.get("moat"), "Management*": e.get("mgmt"), "Bewertung": e.get("bew"),
-                "Risiko": e.get("risiko"), "Punkte": e.get("gesamt"),
-                "Einordnung": Q_KLASSEN.get(e.get("klasse"), "–"),
-            })
-        df = pd.DataFrame(zeilen)
-        pct = lambda t, h=None: st.column_config.NumberColumn(t, format="%.1f %%", help=h)
-        daten_df = df
-        if "7 T." in df.columns:
-            def _farbe(text):
-                art = "neu" if text == "NEU" else "up" if text.startswith("▲") else \
-                    "down" if text.startswith("▼") else "gleich"
-                return f"color: {TREND_FARBE[art]}; font-weight: 700"
-            stil = df.style
-            daten_df = (stil.map if hasattr(stil, "map") else stil.applymap)(_farbe, subset=["7 T."])
-        st.dataframe(
-            daten_df, width="stretch", hide_index=True, height=38 + 35 * len(df),
-            column_config={
-                "#": st.column_config.NumberColumn("#", width="small", format="%d"),
-                "7 T.": st.column_config.TextColumn("7 T.", width="small",
-                                                    help="Platzveränderung gegenüber vor 7 Tagen: ▲ aufgestiegen, "
-                                                         "▼ abgestiegen, o unverändert, NEU = neu in der Liste"),
-                "Unternehmen": st.column_config.TextColumn("Unternehmen", width="medium", pinned=True),
-                "Mkap. Mrd €": st.column_config.NumberColumn("Mkap. Mrd €", format="%.1f"),
-                "Umsatz-Wachstum": pct("Umsatz-Wachstum", "Jährliche Wachstumsrate über die verfügbaren Geschäftsjahre (bis 5)"),
-                "EPS-Wachstum": pct("EPS-Wachstum", "Gewinn je Aktie (verwässert), p.a."),
-                "FCF-Wachstum": pct("FCF-Wachstum", "Free Cashflow absolut, p.a."),
-                "FCF/Aktie-Wachstum": pct("FCF/Aktie-Wachstum", "Free Cashflow je Aktie, p.a. - die wichtigste Wachstumszahl"),
-                "ROIC": pct("ROIC", "Durchschnitt über die verfügbaren Geschäftsjahre"),
-                "Op. Marge": pct("Op. Marge", "EBIT-Marge, Durchschnitt"),
-                "FCF-Marge": pct("FCF-Marge", "Durchschnitt"),
-                "Net Debt/EBITDA": st.column_config.NumberColumn("Net Debt/EBITDA", format="%.1fx",
-                                                                 help="Negativ = mehr Cash als Schulden"),
-                "Verwässerung p.a.": st.column_config.NumberColumn("Verwässerung p.a.", format="%+.1f %%",
-                                                                   help="Veränderung der Aktienanzahl p.a. - negativ = Rückkäufe"),
-                "Forward-KGV": st.column_config.NumberColumn("Forward-KGV", format="%.1f"),
-                "EV/EBIT": st.column_config.NumberColumn("EV/EBIT", format="%.1f"),
-                "FCF-Rendite": st.column_config.NumberColumn("FCF-Rendite", format="%.2f %%"),
-                "Moat*": st.column_config.TextColumn("Moat*", help="Näherung über ROIC-Höhe/-Stabilität, Bruttomarge und Margenstabilität"),
-                "Management*": st.column_config.TextColumn("Management*", help="Näherung über Aktienanzahl, ROIC-Trend und Zukäufe"),
-                "Punkte": st.column_config.ProgressColumn("Punkte", min_value=0, max_value=100, format="%d"),
-            },
-        )
+            z = f'<td class="pt-num pt-seit">{rang}</td>'
+            if mit_trend:
+                t, art = _trend(vergleich["vor"].get(sym), rang)
+                z += f'<td class="pt-num" style="color:{TREND_FARBE[art]};font-weight:700">{t}</td>'
+            unter = " · ".join(x for x in (sym, e.get("br")) if x)
+            z += (f'<td class="pt-wert"><span class="pt-name">{html.escape(str(e["name"]))}</span>'
+                  f'<span class="pt-sub">{html.escape(unter)}</span></td>')
+            for key, _, fmt, farbe in Q_SPALTEN:
+                x = e.get(key)
+                hl = " q-fokus-hl" if key == fokus else ""
+                z += (f'<td class="pt-num pt-stark {farbe(x)}{hl}" data-spalte="q_{key}">'
+                      f'{html.escape(fmt(x))}</td>')
+            z += (f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(e.get("klasse"), "")}">'
+                  f'{e.get("gesamt", "–")}</td>')
+            zeilen += f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">{z}</tr>'
+        # Nur die gewaehlte Kennzahl auf schmalen Bildschirmen einblenden
+        # (die allgemeine Regel blendet dort alle data-spalte-Zellen aus)
+        stil = (f'<style>@media (max-width: 700px) {{ .pt.qt td[data-spalte="q_{fokus}"], '
+                f'.pt.qt th[data-spalte="q_{fokus}"] {{ display: table-cell; }} }}</style>')
+        st.markdown(stil + f'<div class="pt-wrap"><table class="pt qt"><thead><tr>{kopf}</tr></thead>'
+                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+        st.markdown('<div class="q-legende">Punkte: <span class="q-prio">■</span> Hohe Analysepriorität · '
+                    '<span class="q-beob">■</span> Beobachtungsliste · <span class="q-nicht">■</span> '
+                    'Nicht weiterverfolgen · * = aus Kennzahlen angenähert</div>', unsafe_allow_html=True)
 
     def _q_details(sym, zeile):
         teil = gh_read_cached(f"state/qualitaet/details_{zeile.get('d', 0)}.json", None) or {}
@@ -4569,23 +4648,30 @@ def render_dashboard():
             f"Marktkap. {e['mcap']:,.1f} Mrd € · Jahresabschlüsse {e['gj_erst'][:4]}–{e['gj'][:4]} "
             f"({e['n']} Geschäftsjahre, letztes bis {datetime.date.fromisoformat(e['gj']).strftime('%d.%m.%Y')})"
         )
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Gesamtpunktzahl", f"{e['gesamt']} / 100")
-        c2.metric("Qualität", f"{e['q_ant']:.0f} %")
-        c3.metric("Bewertung", f"{e['b_ant']:.0f} %")
-        c4.metric("Risiko", e["risiko"])
+        kl_css = Q_KLASSE_CSS.get(e["klasse"], "")
+        kacheln = [("Gesamtpunktzahl", f'<b class="{kl_css}">{e["gesamt"]}</b><span> / 100</span>'),
+                   ("Qualität", f'{e["q_ant"]:.0f}<span> %</span>'),
+                   ("Bewertung", f'{e["b_ant"]:.0f}<span> %</span>'),
+                   ("Risiko", html.escape(e["risiko"]))]
+        st.markdown('<div class="q-kpis">' + "".join(
+            f'<div class="q-kpi"><div class="q-kpi-l">{l}</div><div class="q-kpi-v">{v}</div></div>'
+            for l, v in kacheln) + "</div>", unsafe_allow_html=True)
         st.markdown(f"**Einordnung: {Q_KLASSEN.get(e['klasse'])}** – {e['grund']}.")
 
         st.markdown("**Punkte je Bereich**")
-        st.dataframe(pd.DataFrame([{"Bereich": t, "Punkte": e["p"].get(k, 0), "von": m}
-                                   for k, t, m in Q_BEREICHE]),
-                     hide_index=True, width="stretch", height=38 + 35 * len(Q_BEREICHE),
-                     column_config={"Punkte": st.column_config.ProgressColumn(
-                         "Punkte", min_value=0, max_value=20, format="%d")})
+        balken = ""
+        for k, t, m in Q_BEREICHE:
+            p = e["p"].get(k, 0)
+            anteil = p / m if m else 0
+            farbe = "#16C784" if anteil >= 0.7 else "#F5B942" if anteil >= 0.4 else "#EA3943"
+            balken += (f'<div class="q-b-zeile"><div>{html.escape(t)}</div>'
+                       f'<div class="q-b-bahn"><div class="q-b-fuell" style="width:{anteil * 100:.0f}%;'
+                       f'background:{farbe}"></div></div><div class="q-b-wert">{p}/{m}</div></div>')
+        st.markdown(f'<div class="q-balken">{balken}</div>', unsafe_allow_html=True)
         if e["flags"]:
-            st.markdown("**Red Flags (Abzug)**\n" + "\n".join(f"- {t} (−{a})" for t, a in e["flags"]))
+            st.markdown("**Red Flags (Abzug)**\n\n" + "\n".join(f"- {t} (−{a})" for t, a in e["flags"]))
 
-        st.markdown("**Warum interessant?**\n" + ("\n".join(f"- {t}" for t in e["staerken"])
+        st.markdown("**Warum interessant?**\n\n" + ("\n".join(f"- {t}" for t in e["staerken"])
                                                  or "- Keine herausragenden Stärken in den Kennzahlen."))
         abschnitte = [
             ("Wettbewerbsvorteil (Näherung)", [
@@ -4629,35 +4715,41 @@ def render_dashboard():
                 "normalisierter Free Cashflow"]),
         ]
         for titel, zeilen in abschnitte:
-            st.markdown(f"**{titel}**\n" + "\n".join(f"- {z}" for z in zeilen))
+            st.markdown(f"**{titel}**\n\n" + "\n".join(f"- {z}" for z in zeilen))
 
         if e.get("szen"):
             st.markdown("**Szenarien (Bear / Base / Bull)**")
-            namen = {"bear": "Bear Case", "base": "Base Case (konservativ fair)", "bull": "Bull Case"}
-            st.dataframe(pd.DataFrame([{
-                "Szenario": namen[k], "FCF-Wachstum J. 1–5": v["g"], "Kapitalkosten": v["r"],
-                "Endwert-Multiple (EV/FCF)": v["m"], "Wert vs. Kurs": v["pot"]}
-                for k, v in e["szen"].items() if k in namen]),
-                hide_index=True, width="stretch", height=38 + 35 * 3,
-                column_config={"FCF-Wachstum J. 1–5": st.column_config.NumberColumn(format="%.1f %%"),
-                               "Kapitalkosten": st.column_config.NumberColumn(format="%.1f %%"),
-                               "Endwert-Multiple (EV/FCF)": st.column_config.NumberColumn(format="%.1fx"),
-                               "Wert vs. Kurs": st.column_config.NumberColumn(format="%+.0f %%")})
-            st.caption("Wachstum ab Jahr 6 läuft linear auf das ewige Wachstum aus. Bear Case zusätzlich mit "
-                       "10 % geringerem, normalisiertem Free Cashflow.")
+            namen = {"bear": "Bear", "base": "Base", "bull": "Bull"}
+            zeilen = ""
+            for k in ("bear", "base", "bull"):
+                v = e["szen"].get(k)
+                if not v:
+                    continue
+                farbe = "pt-up" if (v["pot"] or 0) >= 0 else "pt-down"
+                zeilen += (f'<tr><td class="pt-wert"><span class="pt-name">{namen[k]}</span></td>'
+                           f'<td class="pt-num">{v["g"]:.1f} %</td><td class="pt-num">{v["r"]:.1f} %</td>'
+                           f'<td class="pt-num">{v["m"]:.1f}x</td>'
+                           f'<td class="pt-num pt-stark {farbe}">{v["pot"]:+.0f} %</td></tr>')
+            st.markdown('<div class="pt-wrap"><table class="pt pt-kompakt"><thead><tr><th class="pt-wert">Fall</th>'
+                        '<th class="pt-num">FCF-<br>Wachstum</th><th class="pt-num">Kapital-<br>kosten</th>'
+                        '<th class="pt-num">Multi-<br>ple</th><th class="pt-num">Wert vs.<br>Kurs</th></tr></thead>'
+                        f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+            st.caption("FCF-Wachstum gilt für die Jahre 1–5 und läuft danach linear auf das ewige Wachstum "
+                       "aus. Multiple = Endwert im Verhältnis zum FCF (EV/FCF). Bear Case zusätzlich mit 10 % "
+                       "geringerem, normalisiertem Free Cashflow.")
         mos = e.get("mos")
-        st.markdown("**Margin of Safety**\n- " + (
+        st.markdown("**Margin of Safety**\n\n- " + (
             "Kein positiver fairer Wert berechenbar." if mos is None else
             ("Kurs liegt beim Dreifachen des konservativen fairen Werts oder darüber." if mos <= -200 else
              f"{mos:+.0f} % Sicherheitsmarge zum konservativen fairen Wert (Base Case)"
              + (" – der Kurs liegt darüber." if mos < 0 else ""))))
-        st.markdown("**Risiken (aus Kennzahlen)**\n" + "\n".join(
+        st.markdown("**Risiken (aus Kennzahlen)**\n\n" + "\n".join(
             f"- {r}" for r in (e["risiken"] + [f"Kursschwankung {_q_pct(e['vola'], False, 0)} p.a., "
                                                f"größter Rückgang 5 J. {_q_pct(e['dd'], True, 0)}"]))
                     + "\n- Wettbewerb, Disruption, Regulierung, Kunden-/Lieferantenabhängigkeit: nicht automatisch bewertbar.")
         if e.get("kat"):
-            st.markdown("**Mögliche Katalysatoren (aus Kennzahlen)**\n" + "\n".join(f"- {k}" for k in e["kat"]))
-        st.markdown("**These-Killer (Kontrollpunkte)**\n" + "\n".join(f"- {k}" for k in e["killer"]))
+            st.markdown("**Mögliche Katalysatoren (aus Kennzahlen)**\n\n" + "\n".join(f"- {k}" for k in e["kat"]))
+        st.markdown("**These-Killer (Kontrollpunkte)**\n\n" + "\n".join(f"- {k}" for k in e["killer"]))
 
     daten_q = {}
 
@@ -4705,9 +4797,10 @@ def render_dashboard():
             return
 
         werte = daten.get("werte", {})
-        _q_tabelle(werte, symbole, vergleich)
-        st.caption("Sortiert nach Gesamtpunktzahl. Tippen auf einen Spaltenkopf sortiert um. "
-                   "* = aus Kennzahlen angenähert.")
+        titel_fokus = [t for _, t, _, _ in Q_SPALTEN]
+        f_wahl = st.pills("Kennzahl in der Tabelle", titel_fokus, default="ROIC", key="q_fokus") or "ROIC"
+        fokus = Q_SPALTEN[titel_fokus.index(f_wahl)][0] if f_wahl in titel_fokus else "roic"
+        _q_tabelle(werte, symbole, vergleich, fokus)
         if vergleich is not None or daten.get("vergleich_seit") is None:
             _wochen_bilanz([(r, werte[s]["name"] if s in werte else s, s, (vergleich or {}).get("vor", {}).get(s))
                             for r, s in enumerate(symbole, 1)],
