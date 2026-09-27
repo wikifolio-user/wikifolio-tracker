@@ -48,8 +48,9 @@ STATE_TRENDS = "state/qualitaet/revisionen.json"
 STATE_SEKTOREN = "state/qualitaet/sektoren.json"
 STATE_VERLAUF = "state/qualitaet/verlauf.json"
 STATE_DETAILS = "state/qualitaet/details_{}.json"
+STATE_MATRIX = "state/qualitaet/matrix.json"      # Qualitaet x Kursentwicklung, alle Aktien
 CACHE_TEILE = 32
-DETAIL_TEILE = 8
+DETAIL_TEILE = 32             # Details fuer ALLE bewerteten Aktien (auch die der Qualitaet-x-Kurs-Liste)
 
 MAX_AKTUALISIERUNG = 1500      # Fundamentaldaten-Abrufe je Lauf (je 2 Anfragen)
 AKTUALISIEREN_NACH_TAGEN = 7
@@ -407,6 +408,10 @@ def aktualisiere(symbol):
         return None, "zu wenige Geschaeftsjahre"
     k["kurs_wae"] = kurs_wae
     k["kurs_fb"] = wochen[-1][1] if wochen else None      # Ersatzkurs, falls Uebersicht fehlt
+    # Kurshistorie fuer "Qualitaet x Kurs": etwa monatliche Punkte ueber gut
+    # 3 Jahre (jede 4. Woche, vom juengsten Kurs rueckwaerts) - klein genug
+    # fuer den Cache, genau genug fuer 6 Monate / 1 Jahr / 3 Jahre.
+    k["kh"] = [[t.toordinal(), round(p, 6)] for t, p in wochen[::-1][:180:4]][::-1]
     k["name_y"] = chart["name"] if chart else ""
     return k, ""
 
@@ -414,6 +419,28 @@ def aktualisiere(symbol):
 # ---------------------------------------------------------------------------
 # Bewertung (taeglich, kursabhaengig)
 # ---------------------------------------------------------------------------
+def kurs_perf(kurs, waehrung, kh, heute=None):
+    """Kursentwicklung in EUR (Wechselkurs des jeweiligen Tages) ueber 6 Monate,
+    1 Jahr und 3 Jahre: {tage: prozent}. Der Referenzkurs ist der letzte
+    gespeicherte Punkt am oder vor dem Stichtag (hoechstens 35 Tage davor -
+    die Punkte liegen rund 4 Wochen auseinander)."""
+    heute = heute or datetime.date.today()
+    ergebnis = {}
+    if not kh or not kurs:
+        return ergebnis
+    jetzt_eur = nach_eur(kurs, waehrung)
+    for tage in (182, 365, 1095):
+        stichtag = (heute - datetime.timedelta(days=tage)).toordinal()
+        kandidaten = [(t, p) for t, p in kh if t <= stichtag]
+        if not kandidaten or stichtag - kandidaten[-1][0] > 35:
+            continue
+        t, p = kandidaten[-1]
+        damals = nach_eur(p, waehrung, datetime.date.fromordinal(t))
+        if jetzt_eur and damals and damals > 0:
+            ergebnis[tage] = round((jetzt_eur / damals - 1) * 100, 1)
+    return ergebnis
+
+
 def barwert(fcf0, g1, r, jahre=JAHRE_DCF, g_ewig=G_EWIG, g_verlauf="konstant"):
     """Barwert eines FCF-Stroms. g_verlauf 'konstant': g1 alle 10 Jahre;
     'abflachend': g1 fuer 5 Jahre, dann linear bis g_ewig in Jahr 10."""
@@ -456,6 +483,7 @@ def bewerte(sym, k, q, rev, stamm):
     aktien = (q or {}).get("sharesOutstanding") or k["sh"]
     if not kurs or not aktien:
         return None
+    kursentwicklung = kurs_perf(kurs, kwae, k.get("kh"))
     mcap = nach_eur(kurs * aktien, kwae)
     netto_schuld = nach_eur(k["debt"] - k["cash"], wae)
     fcf_b = nach_eur(k["fcf_basis"], wae)
@@ -721,6 +749,7 @@ def bewerte(sym, k, q, rev, stamm):
         "szen": {n: {"g": v["g"], "r": v["r"], "m": v["multiple"],
                      "pot": r1(max((v["wert"] / mcap - 1) * 100, -100.0))} for n, v in szen.items()},
         "rev": revision, "rev90": (rev or {}).get("rev90"), "g1": (rev or {}).get("g1"),
+        "p6": kursentwicklung.get(182), "p12": kursentwicklung.get(365), "p36": kursentwicklung.get(1095),
         # Punkte
         "p": P, "flags": [[t, a] for t, a in flags], "gesamt": gesamt,
         "q_ant": r1(qual_anteil * 100, 0), "b_ant": r1(bew_anteil * 100, 0),
@@ -828,7 +857,12 @@ def main():
             return 9999
 
     def faellig_ab(s):
-        return 3 if (cache.get(s) or {}).get("fehlt") else AKTUALISIEREN_NACH_TAGEN
+        c = cache.get(s) or {}
+        if c.get("fehlt"):
+            return 3
+        if c.get("k") and "kh" not in c["k"]:
+            return 0                  # aeltere Eintraege ohne Kurshistorie zuerst nachholen
+        return AKTUALISIEREN_NACH_TAGEN
 
     # Reihenfolge beim Aufbau: grosse Standardwerte zuerst, Russell-Nebenwerte
     # zuletzt - so sind die wichtigsten Listen schon nach dem ersten Lauf voll
@@ -968,11 +1002,32 @@ def main():
         sys.exit(1)
     # Details zuerst schreiben: die App soll nie eine Zeile ohne Analyse sehen
     details = {i: {} for i in range(DETAIL_TEILE)}
-    for s in ausgabe["werte"]:
+    for s in ergebnisse:
         details[detail_teil(s)][s] = ergebnisse[s]
     for i, d in details.items():
         T.speichere_state(STATE_DETAILS.format(i), {"stand": ausgabe["stand"], "werte": d},
                           f"qualitaet: details {i} [skip ci]")
+    # Qualitaet x Kurs: kompakte Zeile je bewerteter Aktie (Arrays statt Dicts,
+    # damit auch 5.000+ Aktien deutlich unter 1 MB bleiben)
+    sym_index = {s: i for i, s in enumerate(sorted(ergebnisse))}
+    matrix = {
+        "stand": ausgabe["stand"],
+        "felder": ["s", "name", "br", "gesamt", "klasse", "q_ant", "b_ant", "fcfy", "mos", "bew",
+                   "p6", "p12", "p36", "d"],
+        "zeilen": [[s, (e["name"] or s)[:34], (e.get("br") or "")[:24], e["gesamt"], e["klasse"],
+                    e["q_ant"], e["b_ant"], e["fcfy"], e["mos"], e["bew"], e.get("p6"), e.get("p12"),
+                    e.get("p36"), detail_teil(s)]
+                   for s, e in sorted(ergebnisse.items())],
+        "reihenfolge": ausgabe["reihenfolge"],
+        "kategorien": {k: {"titel": v["titel"],
+                           "idx": [sym_index[s] for s in ((alle if k == "alle" else je_kat[k]))
+                                   if s in sym_index]}
+                       for k, v in ausgabe["kategorien"].items()},
+    }
+    if len(json.dumps(matrix, ensure_ascii=False).encode()) > MAX_JSON_BYTES:
+        for z in matrix["zeilen"]:          # Notfall: kuerzere Texte statt fehlender Aktien
+            z[1], z[2] = z[1][:22], z[2][:12]
+    T.speichere_state(STATE_MATRIX, matrix, "qualitaet: matrix [skip ci]")
     T.speichere_state(STATE_ERGEBNIS, ausgabe, "qualitaet: taeglicher score [skip ci]")
     klassen = ausgabe["kategorien"]["alle"]["klassen"]
     log.info(f"Fertig in {dauer:.0f}s - {len(ergebnisse)} bewertet "
