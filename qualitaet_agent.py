@@ -875,7 +875,7 @@ def main():
     # Reihenfolge beim Aufbau: grosse Standardwerte zuerst, Russell-Nebenwerte
     # zuletzt - so sind die wichtigsten Listen schon nach dem ersten Lauf voll
     vorrang = {}
-    for rang, key in enumerate(("aktien", "dividenden", "usa", "europa", "welt", "welt_neben", "em", "nebenwerte")):
+    for rang, key in enumerate(("aktien", "dividenden", "usa", "europa", "welt", "welt_neben", "em", "nebenwerte", "us_micro")):
         for sym in je_kat.get(key, []):
             vorrang.setdefault(sym, rang)
     faellig = [s for s in alle if alter(s) >= faellig_ab(s)]
