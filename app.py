@@ -4257,6 +4257,78 @@ def render_dashboard():
     # Actions) und legt sie fertig in state/top50.json ab. Die App liest nur
     # diese Datei - kein einziger Kursabruf beim Umschalten, deshalb schnell.
     # Als Fragment: Kategorie- und Zeitraumwechsel bauen nur diesen Bereich neu.
+    # ---------- WOCHENVERGLEICH (Pfeile + Neu/Raus) ----------
+    # Die Agenten speichern taeglich die Top 50 und vergleichen mit dem Stand
+    # von vor 7 Tagen: "vor" = Platz damals (None = neu in der Liste).
+    TREND_FARBE = {"up": "#16C784", "down": "#EA3943", "gleich": "#9AA0A6", "neu": "#16C784"}
+    Q_KLASSEN_KURZ = {"prio": "Priorität", "beobachten": "Beobachtungsliste", "nicht": "Nicht weiterverfolgen"}
+
+    def _trend(vor, jetzt):
+        """-> (text, art) - ▲ 3 / ▼ 2 / o / NEU"""
+        if vor is None:
+            return "NEU", "neu"
+        d = vor - jetzt
+        if d > 0:
+            return f"▲ {d}", "up"
+        if d < 0:
+            return f"▼ {-d}", "down"
+        return "o", "gleich"
+
+    def _seit_text(seit):
+        try:
+            d = datetime.date.fromisoformat(seit)
+        except Exception:
+            return None
+        tage = (datetime.date.today() - d).days
+        text = f"Vergleich mit dem Stand vom {d.strftime('%d.%m.%Y')}"
+        if tage < 7:
+            text += f" (erst {tage} Tag{'e' if tage != 1 else ''} Verlauf – volle Woche folgt)"
+        return text
+
+    def _wochen_bilanz(eintraege, raus, seit):
+        """eintraege: [(platz, name, kennung, vor)], raus: [{"name","vor","jetzt"}]"""
+        seit_txt = _seit_text(seit)
+        if not seit_txt:
+            st.caption("Wochenvergleich: startet mit dem nächsten Lauf (es gibt noch keinen früheren Stand).")
+            return
+        neu = [(p, n, k) for p, n, k, v in eintraege if v is None]
+        bewegt = [(v - p, p, n, k) for p, n, k, v in eintraege if v is not None and v != p]
+        auf = sorted([b for b in bewegt if b[0] > 0], reverse=True)[:5]
+        ab = sorted([b for b in bewegt if b[0] < 0])[:5]
+
+        def tabelle(kopf, zeilen):
+            if not zeilen:
+                return '<div class="pt-leer">– keine –</div>'
+            k = "".join(f'<th class="{"pt-wert" if i == 0 else "pt-num"}">{h}</th>' for i, h in enumerate(kopf))
+            z = "".join("<tr>" + "".join(zeilen_i) + "</tr>" for zeilen_i in zeilen)
+            return f'<div class="pt-wrap"><table class="pt"><thead><tr>{k}</tr></thead><tbody>{z}</tbody></table></div>'
+
+        def zelle(text, farbe=None, wert=False):
+            stil = f' style="color:{farbe}"' if farbe else ""
+            return f'<td class="{"pt-wert" if wert else "pt-num"}"{stil}>{html.escape(str(text))}</td>'
+
+        with st.expander(f"📅 Wochenveränderung: {len(neu)} neu · {len(raus)} rausgeflogen · "
+                         f"{len(bewegt)} verschoben", expanded=True):
+            st.caption(seit_txt)
+            st.markdown(f"**🆕 Neu in der Liste ({len(neu)})**", unsafe_allow_html=True)
+            st.markdown(tabelle(["Wert", "Platz"], [[zelle(n, wert=True), zelle(p, TREND_FARBE["neu"])]
+                                                  for p, n, k in neu]), unsafe_allow_html=True)
+            st.markdown(f"**❌ Rausgeflogen ({len(raus)})**", unsafe_allow_html=True)
+            st.markdown(tabelle(["Wert", "vorher", "jetzt"], [
+                [zelle(r["name"], wert=True), zelle(r["vor"]),
+                 zelle(r["jetzt"] if r.get("jetzt") else
+                       f"→ {Q_KLASSEN_KURZ.get(r['klasse'], r['klasse'])}" if r.get("klasse") else
+                       "nicht mehr bewertet" if r.get("grund") else "ohne Daten", TREND_FARBE["down"])]
+                for r in sorted(raus, key=lambda r: r["vor"])]), unsafe_allow_html=True)
+            st.markdown("**🚀 Größte Aufsteiger**", unsafe_allow_html=True)
+            st.markdown(tabelle(["Wert", "Platz", "Veränderung"], [
+                [zelle(n, wert=True), zelle(p), zelle(f"▲ {d}", TREND_FARBE["up"])] for d, p, n, k in auf]),
+                unsafe_allow_html=True)
+            st.markdown("**📉 Größte Absteiger**", unsafe_allow_html=True)
+            st.markdown(tabelle(["Wert", "Platz", "Veränderung"], [
+                [zelle(n, wert=True), zelle(p), zelle(f"▼ {-d}", TREND_FARBE["down"])] for d, p, n, k in ab]),
+                unsafe_allow_html=True)
+
     def _render_performance():
         try:
             daten = gh_read_cached("state/top50.json", None)
@@ -4326,15 +4398,21 @@ def render_dashboard():
                     return '<td class="pt-num">–</td>'
                 return f'<td class="pt-num pt-stark pt-up">{wert:.2f}%</td>'
 
+            vergleich = (kat.get("vergleich") or {}).get(zr_key)
+            mit_trend = vergleich is not None
             zeilen = ""
             for rang, e in enumerate(liste, 1):
+                trend_td = ""
+                if mit_trend:
+                    t, art = _trend(e.get("vor"), rang)
+                    trend_td = f'<td class="pt-num" style="color:{TREND_FARBE[art]};font-weight:700">{t}</td>'
                 if nach_div:
                     werte = _div(e.get("div")) + _pct(e.get("perf"))
                 else:
                     werte = _pct(e.get("perf")) + (_div(e.get("div")) if mit_div else "")
                 zeilen += (
                     f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">'
-                    f'<td class="pt-num pt-seit">{rang}</td>'
+                    f'<td class="pt-num pt-seit">{rang}</td>{trend_td}'
                     f'<td class="pt-wert"><span class="pt-name">{html.escape(str(e["name"]))}</span></td>'
                     f'{werte}'
                     f'<td class="pt-num pt-wknval">{html.escape(str(e.get("wkn") or "–"))}</td>'
@@ -4347,11 +4425,16 @@ def render_dashboard():
                     '<th class="pt-num">Div.-Rendite</th>' if mit_div else "")
             st.markdown(
                 '<div class="pt-wrap"><table class="pt"><thead><tr>'
-                '<th class="pt-num">#</th><th class="pt-wert">Wert</th>'
+                '<th class="pt-num">#</th>' + ('<th class="pt-num">7 T.</th>' if mit_trend else "") +
+                '<th class="pt-wert">Wert</th>'
                 f'{spalten}<th class="pt-num">{kat.get("kennung", "WKN")}</th>'
                 f'</tr></thead><tbody>{zeilen}</tbody></table></div>',
                 unsafe_allow_html=True,
             )
+
+            if mit_trend or daten.get("vergleich_seit") is None:
+                _wochen_bilanz([(r, e["name"], e.get("wkn"), e.get("vor")) for r, e in enumerate(liste, 1)],
+                               (vergleich or {}).get("raus", []), daten.get("vergleich_seit"))
 
             with st.expander("Hinweise zu den Ranglisten", expanded=False):
                 st.caption(
@@ -4415,14 +4498,15 @@ def render_dashboard():
     def _q_x(x, suffix="x"):
         return "–" if x is None else f"{x:.1f}{suffix}"
 
-    def _q_tabelle(werte, symbole):
+    def _q_tabelle(werte, symbole, vergleich=None):
         zeilen = []
         for rang, sym in enumerate(symbole, 1):
             e = werte.get(sym)
             if not e:
                 continue
+            trend = {"7 T.": _trend((vergleich["vor"]).get(sym), rang)[0]} if vergleich is not None else {}
             zeilen.append({
-                "#": rang, "Unternehmen": e["name"], "Ticker": sym, "Branche": e.get("br") or "–",
+                "#": rang, **trend, "Unternehmen": e["name"], "Ticker": sym, "Branche": e.get("br") or "–",
                 "Kurs": f'{e["kurs"]:,.2f} {e["kwae"]}'.replace(",", "."),
                 "Mkap. Mrd €": e.get("mcap"),
                 "Umsatz-Wachstum": e.get("g_ums"), "EPS-Wachstum": e.get("g_eps"),
@@ -4436,10 +4520,21 @@ def render_dashboard():
             })
         df = pd.DataFrame(zeilen)
         pct = lambda t, h=None: st.column_config.NumberColumn(t, format="%.1f %%", help=h)
+        daten_df = df
+        if "7 T." in df.columns:
+            def _farbe(text):
+                art = "neu" if text == "NEU" else "up" if text.startswith("▲") else \
+                    "down" if text.startswith("▼") else "gleich"
+                return f"color: {TREND_FARBE[art]}; font-weight: 700"
+            stil = df.style
+            daten_df = (stil.map if hasattr(stil, "map") else stil.applymap)(_farbe, subset=["7 T."])
         st.dataframe(
-            df, width="stretch", hide_index=True, height=38 + 35 * len(df),
+            daten_df, width="stretch", hide_index=True, height=38 + 35 * len(df),
             column_config={
-                "#": st.column_config.NumberColumn("#", width="small"),
+                "#": st.column_config.NumberColumn("#", width="small", format="%d"),
+                "7 T.": st.column_config.TextColumn("7 T.", width="small",
+                                                    help="Platzveränderung gegenüber vor 7 Tagen: ▲ aufgestiegen, "
+                                                         "▼ abgestiegen, o unverändert, NEU = neu in der Liste"),
                 "Unternehmen": st.column_config.TextColumn("Unternehmen", width="medium", pinned=True),
                 "Mkap. Mrd €": st.column_config.NumberColumn("Mkap. Mrd €", format="%.1f"),
                 "Umsatz-Wachstum": pct("Umsatz-Wachstum", "Jährliche Wachstumsrate über die verfügbaren Geschäftsjahre (bis 5)"),
@@ -4583,11 +4678,13 @@ def render_dashboard():
         kat = kats[keys[titel.index(wahl)] if wahl in titel else keys[0]]
         ansichten = ["Gesamt-Rangliste"] + list(Q_KLASSEN.values())
         a_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="q_klasse") or ansichten[0]
+        kat_key = keys[titel.index(wahl)] if wahl in titel else keys[0]
         if a_wahl == ansichten[0]:
-            symbole = kat["top"]
+            symbole, liste_key = kat["top"], f"{kat_key}|top"
         else:
             kl = next(k for k, v in Q_KLASSEN.items() if v == a_wahl)
-            symbole = kat["je_klasse"].get(kl, [])
+            symbole, liste_key = kat["je_klasse"].get(kl, []), f"{kat_key}|{kl}"
+        vergleich = (daten.get("vergleich") or {}).get(liste_key)
 
         try:
             stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
@@ -4608,9 +4705,13 @@ def render_dashboard():
             return
 
         werte = daten.get("werte", {})
-        _q_tabelle(werte, symbole)
+        _q_tabelle(werte, symbole, vergleich)
         st.caption("Sortiert nach Gesamtpunktzahl. Tippen auf einen Spaltenkopf sortiert um. "
                    "* = aus Kennzahlen angenähert.")
+        if vergleich is not None or daten.get("vergleich_seit") is None:
+            _wochen_bilanz([(r, werte[s]["name"] if s in werte else s, s, (vergleich or {}).get("vor", {}).get(s))
+                            for r, s in enumerate(symbole, 1)],
+                           (vergleich or {}).get("raus", []), daten.get("vergleich_seit"))
 
         optionen = [s for s in symbole if s in werte]
         auswahl = st.selectbox("Detailanalyse:", optionen, index=None, key="q_detail",
