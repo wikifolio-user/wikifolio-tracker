@@ -46,6 +46,7 @@ STATE_ERGEBNIS = "state/qualitaet.json"
 STATE_CACHE = "state/qualitaet/kennzahlen_{:02d}.json"
 STATE_TRENDS = "state/qualitaet/revisionen.json"
 STATE_SEKTOREN = "state/qualitaet/sektoren.json"
+STATE_VERLAUF = "state/qualitaet/verlauf.json"
 STATE_DETAILS = "state/qualitaet/details_{}.json"
 CACHE_TEILE = 32
 DETAIL_TEILE = 8
@@ -935,6 +936,28 @@ def main():
         n -= 5
         ausgabe = auswerten(n)
     ausgabe["top_n"] = n
+
+    # Wochenvergleich: Platz vor 7 Tagen je Liste, Neuaufnahmen, Rausgeflogene
+    volle = {}
+    for key, kat_erg in ausgabe["kategorien"].items():
+        symbole = alle if key == "alle" else je_kat[key]
+        bewertet = [s for s in symbole if s in ergebnisse]
+        volle[f"{key}|top"] = rangliste(bewertet, len(bewertet))
+        for kl in ("prio", "beobachten", "nicht"):
+            volle[f"{key}|{kl}"] = rangliste([s for s in bewertet if ergebnisse[s]["klasse"] == kl], len(bewertet))
+    seit, vergleich = T.wochenvergleich(STATE_VERLAUF, heute, volle,
+                                        {s: stamm[s]["name"] for s in stamm}, top_n=n)
+    # Rausgeflogene aus einer Einordnungs-Liste: meist nicht "schlechter",
+    # sondern in eine andere Einordnung gewechselt - das dazuschreiben
+    for v in vergleich.values():
+        for r in v["raus"]:
+            if r["jetzt"] is None:
+                if r["id"] in ergebnisse:
+                    r["klasse"] = ergebnisse[r["id"]]["klasse"]
+                else:
+                    r["grund"] = "nicht mehr bewertet"
+    ausgabe["vergleich_seit"] = seit
+    ausgabe["vergleich"] = vergleich
     dauer = time.monotonic() - start
     ausgabe["laufzeit_sek"] = round(dauer)
     ausgabe["anfragen"] = T.ZAEHLER["yahoo"]
