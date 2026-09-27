@@ -1,0 +1,40 @@
+name: Watchlist Qualitäts-Score (täglich)
+
+on:
+  # Täglich 03:00 UTC = 05:00 Uhr deutscher Sommerzeit (04:00 im Winter) -
+  # vor den Top-50-Ranglisten (05:30 UTC). Beide teilen sich die Yahoo-Drossel
+  # und laufen deshalb nie gleichzeitig (concurrency unten).
+  schedule:
+    - cron: "0 3 * * *"
+  # Manuell startbar: Actions -> "Watchlist Qualitäts-Score (täglich)" -> Run workflow
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yahoo-abrufe
+  cancel-in-progress: false
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    # Erste Läufe bauen die Fundamentaldaten auf (je Lauf bis zu 1.500 Werte),
+    # danach frischt jeder Lauf nur noch rund ein Siebtel auf.
+    timeout-minutes: 90
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests tzdata
+
+      - name: Qualitäts-Score berechnen
+        env:
+          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python qualitaet_agent.py
