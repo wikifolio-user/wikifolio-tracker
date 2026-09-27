@@ -660,6 +660,19 @@ def index_mitglieder(kat, cache, heute):
     dem Cache. Gibt ([(ticker, name, boerse, standort, sektor)], quellen_hinweis)."""
     alle, hinweise = {}, []
     ohne = kat.get("ohne_standorte") or set()
+    # Symbole anderer Fonds ausschliessen (z.B. Micro Caps ohne Russell 2000).
+    # Deren Liste wird dafuer bei Bedarf ebenfalls geladen.
+    ausschluss = set()
+    for fonds_ohne in kat.get("ohne_fonds") or []:
+        eintrag = cache.get(fonds_ohne) or {}
+        if not eintrag.get("liste"):
+            neu = ishares_mitglieder(fonds_ohne)
+            if len(neu) >= 50:
+                eintrag = {"stand": heute.isoformat(), "liste": neu, "quelle": "iShares"}
+                cache[fonds_ohne] = eintrag
+        for e in eintrag.get("liste") or []:
+            ausschluss.add(yahoo_symbol(e[0], e[2] if len(e) > 2 else "",
+                                        e[3] if len(e) > 3 else "United States")[0])
     for fonds in kat["indizes"]:
         eintrag = cache.get(fonds) or {}
         try:
@@ -683,6 +696,8 @@ def index_mitglieder(kat, cache, heute):
                 if standort in ohne:
                     continue
                 symbol, _ = yahoo_symbol(ticker, boerse, standort)
+                if symbol in ausschluss:
+                    continue
                 alle.setdefault(symbol, (ticker, name, boerse, standort, sektor))
     if not alle and kat.get("ersatz_boersenwert"):
         von, bis = kat["ersatz_boersenwert"]
