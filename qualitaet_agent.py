@@ -55,7 +55,8 @@ ALLE_TEILE = 6
 CACHE_TEILE = 32
 DETAIL_TEILE = 32             # Details fuer ALLE bewerteten Aktien (auch die der Qualitaet-x-Kurs-Liste)
 
-MAX_AKTUALISIERUNG = 1500      # Fundamentaldaten-Abrufe je Lauf (je 2 Anfragen)
+MAX_AKTUALISIERUNG = 3000      # Fundamentaldaten-Abrufe je Lauf (je 2 Anfragen, ~25 Min.)
+MAX_SEKTOR_ABRUFE = 1500       # Branchen-Nachschlagen je Lauf (Werte ohne Branche aus der Laenderliste)
 AKTUALISIEREN_NACH_TAGEN = 7
 TRENDS_FUER_TOP = 200          # Analystenrevisionen fuer die besten N Kandidaten
 TRENDS_CACHE_TAGE = 7
@@ -805,7 +806,7 @@ def universum(heute):
         if key in ("etf", "wikifolios"):
             continue
         symbole = []
-        if kat["quelle"] == "index":
+        if kat["quelle"] in ("index", "yahoo"):
             liste, _ = T.index_mitglieder(kat, index_cache, heute)
             for ticker, name, boerse, standort, sektor in liste:
                 sym, _ = T.yahoo_symbol(ticker, boerse, standort)
@@ -841,7 +842,8 @@ def main():
 
     # Branche fuer Werte ohne iShares-Sektor (feste Listen) - einmalig, gecacht
     sektoren = T.lade_state(STATE_SEKTOREN, {}) or {}
-    fehlend = [s for s in alle if not stamm[s]["branche"] and s not in sektoren]
+    # hoechstens MAX_SEKTOR_ABRUFE je Lauf (erster Aufbau verteilt sich so auf einige Tage)
+    fehlend = [s for s in alle if not stamm[s]["branche"] and s not in sektoren][:MAX_SEKTOR_ABRUFE]
     if fehlend:
         with ThreadPoolExecutor(T.YAHOO_PARALLEL) as pool:
             for s, (sek, ind) in zip(fehlend, pool.map(lade_sektor, fehlend)):
