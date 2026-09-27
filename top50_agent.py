@@ -57,6 +57,7 @@ STATE_IDS = "state/top50_ids.json"
 STATE_WIKIFOLIOS = "state/top50_wikifolios.json"
 STATE_INDIZES = "state/top50_indizes.json"     # Mitgliederlisten der US-Indizes
 STATE_YAHOO = "state/top50_yahoo.json"         # Symbol-Zuordnung + letzte Dividendenrenditen
+STATE_VERLAUF = "state/top50_verlauf.json"     # Tagesstaende der Ranglisten (Wochenvergleich)
 
 SUCHE_MAX_TREFFER = 20        # Obergrenze der ls-tc-Suche je Aufruf (getestet)
 WIKIFOLIO_CACHE_TAGE = 7      # Entdeckung nur woechentlich neu
@@ -730,6 +731,54 @@ def lade_dividende_isin(isin, name, ymap):
 
 
 # ---------------------------------------------------------------------------
+# Wochenvergleich der Ranglisten
+# ---------------------------------------------------------------------------
+VERLAUF_TAGE = 7              # Vergleich mit dem Stand von vor einer Woche
+VERLAUF_BEHALTEN = 10         # so viele Tagesstaende werden aufbewahrt
+
+
+def wochenvergleich(pfad, heute, listen, namen, top_n=TOP_N):
+    """Vergleicht die heutigen Ranglisten mit dem Stand von vor 7 Tagen und
+    speichert den heutigen Stand.
+
+    listen: {schluessel: [ids in voller Rangfolge]} - voll, damit auch fuer
+            rausgeflogene Werte der heutige Platz bekannt ist.
+    namen:  {id: anzeigename} fuer rausgeflogene Werte.
+    Rueckgabe: (referenzdatum oder None, {schluessel: {"vor": {id: platz},
+               "raus": [{"id", "name", "vor", "jetzt"}]}}).
+    Gibt es noch keinen 7 Tage alten Stand (erste Woche), wird mit dem
+    aeltesten vorhandenen verglichen - das Datum steht dann in der App."""
+    verlauf = lade_state(pfad, {}) or {}
+    staende = verlauf.get("staende") or {}
+    heute_s = heute.isoformat()
+    frueher = sorted(d for d in staende if d < heute_s)
+    ref = None
+    for d in frueher:
+        if (heute - datetime.date.fromisoformat(d)).days >= VERLAUF_TAGE:
+            ref = d                      # juengster Stand, der mind. 7 Tage alt ist
+    if ref is None and frueher:
+        ref = frueher[0]
+    vergleich = {}
+    if ref:
+        for key, voll in listen.items():
+            alt = staende[ref].get(key)
+            if alt is None:
+                continue
+            platz_alt = {i: r for r, i in enumerate(alt, 1)}
+            platz_neu = {i: r for r, i in enumerate(voll, 1)}
+            jetzt_top = set(voll[:top_n])
+            vergleich[key] = {
+                "vor": {i: platz_alt[i] for i in voll[:top_n] if i in platz_alt},
+                "raus": [{"id": i, "name": namen.get(i, i), "vor": platz_alt[i], "jetzt": platz_neu.get(i)}
+                         for i in alt if i not in jetzt_top],
+            }
+    staende[heute_s] = {key: voll[:top_n] for key, voll in listen.items()}
+    staende = {d: staende[d] for d in sorted(staende)[-VERLAUF_BEHALTEN:]}
+    speichere_state(pfad, {"staende": staende}, "top50: ranglisten-verlauf [skip ci]")
+    return ref, vergleich
+
+
+# ---------------------------------------------------------------------------
 # Hauptablauf
 # ---------------------------------------------------------------------------
 def lade_state(pfad, standard):
@@ -870,6 +919,7 @@ def main():
         "nicht_gefunden": nicht_gefunden,
     }
     div_key = DIVIDENDEN_SCHLUESSEL[0]
+    volle_listen, alle_namen = {}, {}
     for key, kat in KATEGORIEN.items():
         eintraege = []
         for uid, name, wkn, isin in mitglieder.get(key, []):
@@ -890,12 +940,16 @@ def main():
             mit_daten[schluessel] = len(mit_wert)
             mit_wert.sort(key=lambda e: e[4][schluessel], reverse=True)
             top[schluessel] = [zeile(e, schluessel) for e in mit_wert[:TOP_N]]
+            volle_listen[f"{key}|{schluessel}"] = [e[2] for e in mit_wert]
         if kat.get("dividende"):
             # Rangliste nach laufender Rendite; "perf" zeigt dort das 1-Jahres-Kursplus
             mit_div = [e for e in eintraege if (e[4].get("_div") or 0) > 0]
             mit_daten[div_key] = len(mit_div)
             mit_div.sort(key=lambda e: e[4]["_div"], reverse=True)
             top[div_key] = [zeile(e, "1J") for e in mit_div[:TOP_N]]
+            volle_listen[f"{key}|{div_key}"] = [e[2] for e in mit_div]
+        for _, name, wkn, _ in mitglieder.get(key, []):
+            alle_namen.setdefault(wkn, name)
 
         neu = {
             "titel": kat["titel"],
@@ -919,6 +973,26 @@ def main():
         ergebnis["kategorien"][key] = neu
         log.info(f"{kat['titel']}: {neu['aktiv']} aktive Werte, "
                  f"mit 10-Jahres-Daten: {neu['mit_daten'].get('10J', 0)}")
+
+    # 7) Wochenvergleich: Pfeile (Platz vor 7 Tagen), Neuaufnahmen, Rausgeflogene.
+    #    Kategorien, fuer die heute die Vortagesliste gezeigt wird, bleiben
+    #    aussen vor - sonst saehe es so aus, als haette sich nichts bewegt.
+    aktuelle = {k: v for k, v in volle_listen.items()
+                if not ergebnis["kategorien"].get(k.split("|")[0], {}).get("veraltet_seit")}
+    if any(k["aktiv"] for k in ergebnis["kategorien"].values()):
+        seit, vergleich = wochenvergleich(STATE_VERLAUF, heute, aktuelle, alle_namen)
+        ergebnis["vergleich_seit"] = seit
+        for key, kat_erg in ergebnis["kategorien"].items():
+            if kat_erg.get("veraltet_seit"):
+                continue
+            kat_erg["vergleich"] = {}
+            for zr, liste in kat_erg["top"].items():
+                v = vergleich.get(f"{key}|{zr}")
+                if v is None:
+                    continue
+                for z in liste:
+                    z["vor"] = v["vor"].get(z["wkn"])        # None = neu in der Top 50
+                kat_erg["vergleich"][zr] = {"raus": v["raus"]}
 
     dauer = time.monotonic() - start
     ergebnis["laufzeit_sek"] = round(dauer)
