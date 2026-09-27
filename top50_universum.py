@@ -255,6 +255,32 @@ INDEX_FONDS = {
     "IWM": {"titel": "Russell 2000",
             "url": "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/"
                    "1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund"},
+    # MSCI Europe IMI: gross, mittel UND klein - enthaelt damit auch die
+    # SDAX-/TecDAX-Werte und die europaeischen Nebenwerte
+    "IEUR": {"titel": "MSCI Europe IMI",
+             "url": "https://www.ishares.com/us/products/264617/ishares-core-msci-europe-etf/"
+                    "1467271812596.ajax?fileType=csv&fileName=IEUR_holdings&dataType=fund"},
+    # MSCI ACWI ex USA: grosse und mittlere Werte aller Laender ausser USA
+    "ACWX": {"titel": "MSCI ACWI ex USA",
+             "url": "https://www.ishares.com/us/products/239594/ishares-msci-acwi-ex-us-etf/"
+                    "1467271812596.ajax?fileType=csv&fileName=ACWX_holdings&dataType=fund"},
+    # MSCI EAFE Small Cap: Nebenwerte der Industrielaender ohne USA/Kanada
+    "SCZ": {"titel": "MSCI EAFE Small Cap",
+            "url": "https://www.ishares.com/us/products/239627/ishares-msci-eafe-smallcap-etf/"
+                   "1467271812596.ajax?fileType=csv&fileName=SCZ_holdings&dataType=fund"},
+    # MSCI Emerging Markets IMI: Schwellenlaender inkl. Nebenwerte
+    "IEMG": {"titel": "MSCI Emerging Markets IMI",
+             "url": "https://www.ishares.com/us/products/244050/ishares-core-msci-emerging-markets-etf/"
+                    "1467271812596.ajax?fileType=csv&fileName=IEMG_holdings&dataType=fund"},
+}
+
+# Firmensitz-Laender, die in "Welt ohne USA/Europa" herausgefiltert werden
+# (stehen schon in der Europa-Liste)
+EUROPA_STANDORTE = {
+    "United Kingdom", "Germany", "France", "Switzerland", "Netherlands", "Sweden", "Denmark",
+    "Finland", "Norway", "Italy", "Spain", "Belgium", "Ireland", "Austria", "Portugal",
+    "Luxembourg", "Poland", "Greece", "Hungary", "Czech Republic", "Iceland", "Jersey",
+    "Guernsey", "Isle of Man", "Faroe Islands", "Malta", "Cyprus", "Liechtenstein",
 }
 
 # Kategorien, wie sie in der App erscheinen (in dieser Reihenfolge).
@@ -269,12 +295,63 @@ KATEGORIEN = {
                    "indizes": ["IVV", "IJH"], "ersatz_boersenwert": (5e9, None), "dividende": True},
     "nebenwerte": {"titel": "US-Nebenwerte (Russell 2000)", "quelle": "index",
                    "indizes": ["IWM"], "ersatz_boersenwert": (2.5e8, 5e9), "dividende": True},
+    "europa":     {"titel": "Europa (inkl. Nebenwerte)", "quelle": "index",
+                   "indizes": ["IEUR"], "dividende": True},
+    "welt":       {"titel": "Welt ohne USA/Europa", "quelle": "index",
+                   "indizes": ["ACWX"], "ohne_standorte": EUROPA_STANDORTE, "dividende": True},
+    # Europaeische Nebenwerte stecken schon in "europa" (MSCI Europe IMI)
+    "welt_neben": {"titel": "Welt-Nebenwerte (Asien/Pazifik)", "quelle": "index",
+                   "indizes": ["SCZ"], "ohne_standorte": EUROPA_STANDORTE, "dividende": True},
+    "em":         {"titel": "Schwellenländer (inkl. Nebenwerte)", "quelle": "index",
+                   "indizes": ["IEMG"], "dividende": True},
     "dividenden": {"titel": "Dividenden-Aktien",    "quelle": DIVIDENDEN, "kategorien_ls": {"Aktie"},
                    "dividende": True},
     "etf":        {"titel": "ETFs & Hebel-ETFs",    "quelle": ETFS,
                    "kategorien_ls": {"ETF", "ETC", "ETN", "ETP", "Fonds"}},
     "wikifolios": {"titel": "wikifolios",           "quelle": "auto",     "kategorien_ls": {"Wikifolio"}},
 }
+
+# ---------------------------------------------------------------------------
+# INDIZES zum Einschraenken der Auswertungen. Mitglieder kommen entweder aus
+# einer iShares-Bestandsliste ("fonds") oder aus der Bestandteil-Tabelle des
+# Wikipedia-Artikels ("wiki": (Sprache, Seitentitel)). Der Agent liest sie
+# woechentlich und ordnet sie den Aktien der Watchlist zu:
+#   ticker_spalte  Spaltenkopf mit dem Kuerzel (None = nur Namensabgleich)
+#   endungen       moegliche Yahoo-Boersenendungen fuer Kuerzel ohne Endung
+#   anzahl         Sollgroesse - dient zur Auswahl der richtigen Tabelle
+# Ticker, die nicht passen, werden ersatzweise ueber den Firmennamen gesucht.
+# ---------------------------------------------------------------------------
+EUROZONE_ENDUNGEN = [".DE", ".PA", ".AS", ".MI", ".MC", ".BR", ".HE", ".IR", ".LS", ".VI"]
+INDEX_LISTEN = [
+    # (schluessel, titel, region, quelle)
+    ("dax", "DAX", "Deutschland", {"wiki": ("en", "DAX"), "ticker_spalte": "Ticker", "endungen": [".DE"], "anzahl": 40}),
+    ("mdax", "MDAX", "Deutschland", {"wiki": ("en", "MDAX"), "ticker_spalte": "Symbol", "endungen": [".DE"], "anzahl": 50}),
+    ("sdax", "SDAX", "Deutschland", {"wiki": ("en", "SDAX"), "ticker_spalte": None, "endungen": [".DE"], "anzahl": 70}),
+    ("tecdax", "TecDAX", "Deutschland", {"wiki": ("de", "TecDAX"), "ticker_spalte": "Symbol", "endungen": [".DE"], "anzahl": 30}),
+    ("sp500", "S&P 500", "USA", {"fonds": "IVV"}),
+    ("sp400", "S&P MidCap 400", "USA", {"fonds": "IJH"}),
+    ("r2000", "Russell 2000", "USA", {"fonds": "IWM"}),
+    ("ndx", "Nasdaq-100", "USA", {"wiki": ("en", "Nasdaq-100"), "ticker_spalte": "Ticker", "endungen": [""], "anzahl": 100}),
+    ("dow", "Dow Jones", "USA", {"wiki": ("en", "List_of_Dow_Jones_Industrial_Average_companies"),
+                                 "ticker_spalte": "Symbol", "endungen": [""], "anzahl": 30}),
+    ("sx5e", "Euro Stoxx 50", "Europa", {"wiki": ("en", "EURO_STOXX_50"), "ticker_spalte": "Ticker",
+                                         "endungen": EUROZONE_ENDUNGEN, "anzahl": 50}),
+    ("ftse", "FTSE 100", "Europa", {"wiki": ("en", "FTSE_100_Index"), "ticker_spalte": "Ticker", "endungen": [".L"], "anzahl": 100}),
+    ("cac", "CAC 40", "Europa", {"wiki": ("en", "CAC_40"), "ticker_spalte": "Ticker", "endungen": [".PA", ".AS"], "anzahl": 40}),
+    ("smi", "SMI", "Europa", {"wiki": ("en", "Swiss_Market_Index"), "ticker_spalte": "Ticker", "endungen": [".SW"], "anzahl": 20}),
+    ("aex", "AEX", "Europa", {"wiki": ("en", "AEX_index"), "ticker_spalte": "Ticker", "endungen": [".AS"], "anzahl": 25}),
+    ("ibex", "IBEX 35", "Europa", {"wiki": ("en", "IBEX_35"), "ticker_spalte": "Ticker", "endungen": [".MC"], "anzahl": 35}),
+    ("mib", "FTSE MIB", "Europa", {"wiki": ("en", "FTSE_MIB"), "ticker_spalte": "Ticker", "endungen": [".MI"], "anzahl": 40}),
+    ("n225", "Nikkei 225", "Asien/Pazifik & Kanada", {"wiki": ("de", "Nikkei_225"), "ticker_spalte": "Code",
+                                                      "endungen": [".T"], "anzahl": 225}),
+    ("hsi", "Hang Seng", "Asien/Pazifik & Kanada", {"wiki": ("en", "Hang_Seng_Index"), "ticker_spalte": "Ticker",
+                                                    "endungen": [".HK"], "anzahl": 80}),
+    ("asx200", "S&P/ASX 200", "Asien/Pazifik & Kanada", {"wiki": ("en", "S&P/ASX_200"), "ticker_spalte": "Code",
+                                                          "endungen": [".AX"], "anzahl": 200}),
+    ("tsx60", "S&P/TSX 60", "Asien/Pazifik & Kanada", {"wiki": ("en", "S&P/TSX_60"), "ticker_spalte": "Symbol",
+                                                        "endungen": [".TO"], "anzahl": 60}),
+]
+INDEX_REGIONEN = ["Deutschland", "USA", "Europa", "Asien/Pazifik & Kanada"]
 
 # Zeitraeume der Ranglisten: (Schluessel, Anzeige, Kalendertage).
 # "1T" nutzt die letzten beiden Handelstage statt Kalendertagen.
