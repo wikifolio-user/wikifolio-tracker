@@ -6,3 +6,4 @@ plotly
 pytz
 tzdata
 beautifulsoup4
+reportlab
