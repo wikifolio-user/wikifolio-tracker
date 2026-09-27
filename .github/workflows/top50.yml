@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     # Großzügig bemessen: die wöchentliche wikifolio-Suche plus mehrere
     # tausend Kursabrufe mit bewusst gedrosselter Rate dauern ihre Zeit.
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - name: Repo auschecken
         uses: actions/checkout@v4
