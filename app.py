@@ -673,6 +673,18 @@ st.markdown("""
     .q-kpi-v b { font-weight: 800; }
     /* Kleine Tabellen mit mehreren Zahlenspalten: Koepfe duerfen zweizeilig sein */
     .pt.pt-kompakt thead th { white-space: normal; line-height: 1.25; }
+    /* Gesamtuebersicht: breite Tabellen scrollen IMMER seitlich (auch am
+       iPhone), die Namensspalte bleibt beim Wischen links stehen */
+    .ue-wrap {
+        overflow-x: auto; -webkit-overflow-scrolling: touch;
+        border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px;
+    }
+    .pt.ue td { white-space: nowrap; }
+    .pt.ue td.pt-wert { white-space: normal; min-width: 150px; max-width: 320px; }
+    .pt.ue .ue-fix { position: sticky; left: 0; z-index: 1; background: #0B0C0F;
+                     box-shadow: 1px 0 0 var(--line); }
+    .pt.ue thead th.ue-fix { z-index: 3; background: #1C1F26; }
+    .pt.ue tr.pt-zebra .ue-fix { background: #111216; }
     .q-balken { margin: 4px 0 14px; }
     .q-b-zeile {
         display: grid; grid-template-columns: minmax(0, 1fr) 96px 46px;
@@ -4837,12 +4849,396 @@ def render_dashboard():
                 "Preis unattraktiv sein; eine billig aussehende Aktie wird dadurch nicht attraktiv."
             )
 
+
+    # ---------- GESAMTUEBERSICHT (Ansicht + druckfertiges PDF) ----------
+    # Ein gemeinsames Datenmodell fuer Bildschirm und PDF, damit beide immer
+    # dasselbe zeigen. Zelle = (text, farbe, fett); farbe ist semantisch
+    # ("up", "down", "warn", "grau", "prio", "beob", "nicht") und wird je
+    # Ausgabe in passende Farben uebersetzt (dunkles Design vs. weisses Papier).
+    UE_TEILE = ["Zusammenfassung", "Hohe Analysepriorität", "Beobachtungsliste",
+                "Qualität je Kategorie", "Wochenveränderung", "Performance"]
+    UE_FARBEN_SCHIRM = {"up": "#16C784", "down": "#EA3943", "warn": "#F5B942", "grau": "#9AA0A6",
+                        "prio": "#16C784", "beob": "#F5B942", "nicht": "#9AA0A6"}
+    UE_FARBEN_DRUCK = {"up": "#0E8A5F", "down": "#C62828", "warn": "#B7791F", "grau": "#6B7280",
+                       "prio": "#0E8A5F", "beob": "#B7791F", "nicht": "#6B7280"}
+    UE_ZEITRAEUME = ["1W", "1M", "3M", "6M", "1J", "3J", "5J", "10J"]
+
+    def _ue_z(text, farbe=None, fett=False):
+        return (str(text), farbe, fett)
+
+    def _ue_css_farbe(klasse):
+        return {"pt-up": "up", "pt-down": "down"}.get(klasse)
+
+    def _ue_trend(vor, platz):
+        t, art = _trend(vor, platz)
+        return _ue_z(t, {"up": "up", "down": "down", "neu": "up", "gleich": "grau"}[art], art != "gleich")
+
+    def _ue_qualitaets_tabelle(werte, symbole, vergleich, umfang):
+        spalten = [("#", 3, "r"), ("7 T.", 4, "r"), ("Unternehmen", 17, "l"), ("Branche", 11, "l"),
+                   ("Punkte", 5, "r"), ("Einordnung", 7, "l")]
+        spalten[3] = ("Branche", 10, "l")
+        spalten += [(titel, 7 if key == "nde" else 6, "r") for key, titel, _, _ in Q_SPALTEN]
+        zeilen = []
+        for platz, sym in enumerate(symbole[:umfang], 1):
+            e = werte.get(sym)
+            if not e:
+                continue
+            kl = e.get("klasse")
+            z = [_ue_z(platz, fett=True),
+                 _ue_trend((vergleich or {}).get("vor", {}).get(sym), platz) if vergleich is not None else _ue_z("–", "grau"),
+                 _ue_z(f'{e["name"]} ({sym})', fett=True), _ue_z(e.get("br") or "–"),
+                 _ue_z(e.get("gesamt", "–"), {"prio": "prio", "beobachten": "beob"}.get(kl, "nicht"), True),
+                 _ue_z(Q_KLASSEN_KURZ.get(kl, "–"), {"prio": "prio", "beobachten": "beob"}.get(kl, "nicht"))]
+            for key, _, fmt, farbe in Q_SPALTEN:
+                x = e.get(key)
+                z.append(_ue_z(fmt(x), _ue_css_farbe(farbe(x))))
+            zeilen.append(z)
+        return spalten, zeilen
+
+    def _ue_abschnitte(dq, dp, umfang, teile):
+        """Liste von Abschnitten: {"titel", "text", "spalten": [(name, gewicht, ausrichtung)],
+        "zeilen": [[zelle, ...]], "seite": neue Seite im PDF}"""
+        ab = []
+        werte = (dq or {}).get("werte", {})
+        kats = (dq or {}).get("kategorien", {})
+        keys = [k for k in (dq or {}).get("reihenfolge", kats) if k in kats]
+        verg = (dq or {}).get("vergleich") or {}
+
+        if "Zusammenfassung" in teile and kats:
+            zeilen = []
+            for k in keys:
+                kat, v = kats[k], verg.get(f"{k}|top")
+                neu = sum(1 for s in kat["top"] if v is not None and s not in v["vor"])
+                zeilen.append([_ue_z(kat["titel"], fett=True), _ue_z(kat["universum"]), _ue_z(kat["bewertet"]),
+                               _ue_z(kat["klassen"]["prio"], "prio", True), _ue_z(kat["klassen"]["beobachten"], "beob"),
+                               _ue_z(kat["klassen"]["nicht"], "nicht"),
+                               _ue_z(neu if v is not None else "–", "up" if neu else None),
+                               _ue_z(len(v["raus"]) if v is not None else "–", "down" if v and v["raus"] else None)])
+            ab.append({"titel": "Zusammenfassung Qualitäts-Score", "seite": False,
+                       "text": "Anzahl Aktien je Kategorie und Einordnung; Neu/Raus bezieht sich auf die "
+                               f"Top {dq.get('top_n', 50)} der Gesamt-Rangliste gegenüber vor 7 Tagen.",
+                       "spalten": [("Kategorie", 22, "l"), ("Aktien", 7, "r"), ("bewertet", 7, "r"),
+                                   ("Priorität", 7, "r"), ("Beobachten", 7, "r"), ("Nicht weiterv.", 8, "r"),
+                                   ("Neu (7 T.)", 7, "r"), ("Raus (7 T.)", 7, "r")],
+                       "zeilen": zeilen})
+
+        for teil, kl, text in (("Hohe Analysepriorität", "prio",
+                                "Fundamental starke Unternehmen, deren aktuelle Bewertung eine genauere Prüfung rechtfertigt."),
+                               ("Beobachtungsliste", "beobachten",
+                                "Sehr gute Unternehmen, deren Bewertung aktuell wenig Sicherheitsmarge bietet "
+                                "oder bei denen einzelne Kennzahlen das Bild trüben.")):
+            if teil in teile and "alle" in kats:
+                symbole = kats["alle"]["je_klasse"].get(kl, [])
+                sp, zl = _ue_qualitaets_tabelle(werte, symbole, verg.get(f"alle|{kl}"), umfang)
+                ab.append({"titel": f"{teil} – alle Aktien (Top {min(umfang, len(symbole))} von "
+                                    f"{kats['alle']['klassen'][kl]})", "text": text, "spalten": sp,
+                           "zeilen": zl, "seite": True})
+
+        if "Qualität je Kategorie" in teile:
+            for k in keys:
+                if k == "alle":
+                    continue
+                kat = kats[k]
+                sp, zl = _ue_qualitaets_tabelle(werte, kat["top"], verg.get(f"{k}|top"), umfang)
+                if zl:
+                    ab.append({"titel": f"Qualitäts-Score: {kat['titel']}",
+                               "text": f"Gesamt-Rangliste, Top {len(zl)} von {kat['bewertet']} bewerteten Aktien.",
+                               "spalten": sp, "zeilen": zl, "seite": True})
+
+        if "Wochenveränderung" in teile and verg:
+            zeilen = []
+            for k in keys:
+                v = verg.get(f"{k}|top")
+                if v is None:
+                    continue
+                neu = [f"{werte[s]['name']} (Platz {i})" for i, s in enumerate(kats[k]["top"], 1)
+                       if s not in v["vor"] and s in werte]
+                raus = [f"{r['name']} ({r['vor']} → " + (str(r["jetzt"]) if r.get("jetzt") else
+                        Q_KLASSEN_KURZ.get(r.get("klasse"), "ohne Daten")) + ")" for r in v["raus"]]
+                auf = sorted(((v["vor"][s] - i, werte[s]["name"], i) for i, s in enumerate(kats[k]["top"], 1)
+                              if s in v["vor"] and s in werte and v["vor"][s] > i), reverse=True)[:3]
+                zeilen.append([_ue_z(kats[k]["titel"], fett=True),
+                               _ue_z("; ".join(neu) or "–", "up" if neu else None),
+                               _ue_z("; ".join(raus) or "–", "down" if raus else None),
+                               _ue_z("; ".join(f"{n} ▲ {d}" for d, n, _ in auf) or "–")])
+            seit = _seit_text(dq.get("vergleich_seit")) or ""
+            ab.append({"titel": "Wochenveränderung Qualitäts-Score (Gesamt-Rangliste)", "seite": True,
+                       "text": seit, "spalten": [("Kategorie", 14, "l"), ("Neu aufgenommen", 30, "l"),
+                                                 ("Rausgeflogen (vorher → jetzt)", 30, "l"),
+                                                 ("Größte Aufsteiger", 26, "l")], "zeilen": zeilen})
+
+        if "Performance" in teile and dp and dp.get("kategorien"):
+            titel_zr = dict((k, t) for k, t in dp.get("zeitraeume", []))
+            div_zr = tuple(dp.get("dividenden_zeitraum") or ("DIV", "Div.-Rendite"))
+            for k in dp.get("reihenfolge") or list(dp["kategorien"]):
+                kat = dp["kategorien"].get(k)
+                if not kat:
+                    continue
+                zrs = [z for z in UE_ZEITRAEUME if kat["top"].get(z)]
+                if kat.get("dividende") and kat["top"].get(div_zr[0]):
+                    zrs.append(div_zr[0])
+                if not zrs:
+                    continue
+                zeilen = []
+                for platz in range(1, umfang + 1):
+                    z = [_ue_z(platz, fett=True)]
+                    leer = True
+                    for zr in zrs:
+                        liste = kat["top"][zr]
+                        if platz > len(liste):
+                            z.append(_ue_z(""))
+                            continue
+                        e, leer = liste[platz - 1], False
+                        wert = e.get("div") if zr == div_zr[0] else e.get("perf")
+                        zahl = "–" if wert is None else (f"{wert:.2f} %" if zr == div_zr[0] else f"{wert:+.1f} %")
+                        v = (kat.get("vergleich") or {}).get(zr)
+                        trend = _trend(e.get("vor"), platz)[0] if v is not None else ""
+                        name = e["name"] if len(e["name"]) <= 26 else e["name"][:25] + "…"
+                        z.append(_ue_z(f"{name}\n{zahl}\t{trend}" if trend else f"{name}\n{zahl}",
+                                       "up" if (wert or 0) >= 0 else "down"))
+                    if not leer:
+                        zeilen.append(z)
+                ab.append({"titel": f"Performance: {kat['titel']}", "seite": True,
+                           "text": "Kursentwicklung je Zeitraum (ohne Dividenden), Top "
+                                   f"{min(umfang, 50)} je Spalte; ▲/▼ = Platzveränderung zu vor 7 Tagen.",
+                           "spalten": [("#", 3, "r")] + [(titel_zr.get(z, div_zr[1] if z == div_zr[0] else z), 12, "l")
+                                                         for z in zrs],
+                           "zeilen": zeilen})
+        return ab
+
+    def _ue_html(abschnitte):
+        """Bildschirm: breite Tabellen scrollen seitlich, die Namensspalte bleibt stehen."""
+        for a in abschnitte:
+            st.markdown(f'<div class="abschnitt">{html.escape(a["titel"])}</div>', unsafe_allow_html=True)
+            if a.get("text"):
+                st.caption(a["text"])
+            if not a["zeilen"]:
+                st.caption("– keine Einträge –")
+                continue
+            namensspalte = next((i for i, (n, _, _) in enumerate(a["spalten"])
+                                 if n in ("Unternehmen", "Kategorie")), None)
+            kopf = "".join(
+                f'<th class="{"pt-wert" if aus == "l" else "pt-num"}{" ue-fix" if i == namensspalte else ""}">'
+                f'{html.escape(n).replace("7 T.", "7&nbsp;T.")}</th>' for i, (n, _, aus) in enumerate(a["spalten"]))
+            zeilen = ""
+            for r, zeile in enumerate(a["zeilen"]):
+                zellen = ""
+                for i, ((text, farbe, fett), (_, _, aus)) in enumerate(zip(zeile, a["spalten"])):
+                    stil = f"color:{UE_FARBEN_SCHIRM[farbe]};" if farbe else ""
+                    stil += "font-weight:700;" if fett else ""
+                    inhalt = "<br>".join(html.escape(t) for t in text.split("\n")).replace(
+                        "\t", '&nbsp;&nbsp;<span style="font-weight:700">') + ("</span>" if "\t" in text else "")
+                    zellen += (f'<td class="{"pt-wert" if aus == "l" else "pt-num"}'
+                               f'{" ue-fix" if i == namensspalte else ""}" style="{stil}">{inhalt}</td>')
+                zeilen += f'<tr class="{"pt-zebra" if r % 2 else ""}">{zellen}</tr>'
+            st.markdown(f'<div class="ue-wrap"><table class="pt pt-kompakt ue"><thead><tr>{kopf}</tr></thead>'
+                        f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+
+    def _ue_pdf(abschnitte, stand_text):
+        """Druckfertiges PDF (A4 quer). Pfeile werden als Vektorgrafik gezeichnet -
+        Symbolschriften sind nicht auf jedem Geraet/Drucker vorhanden."""
+        import io
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (Flowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
+                                        TableStyle)
+
+        class Trend(Flowable):
+            """▲ 3 / ▼ 2 als gezeichnetes Dreieck + Zahl"""
+            def __init__(self, richtung, text, farbe, groesse=6.5):
+                super().__init__()
+                self.richtung, self.text, self.farbe, self.g = richtung, text, farbe, groesse
+                self.width, self.height = 18 * mm, self.g + 1
+
+            def wrap(self, *a):
+                return self.width, self.height
+
+            def draw(self):
+                c = self.canv
+                c.setFillColor(colors.HexColor(self.farbe))
+                s = self.g * 0.8
+                if self.richtung == "up":
+                    pfad = [(0, 0.5), (s, 0.5), (s / 2, s + 0.5)]
+                else:
+                    pfad = [(0, s + 0.5), (s, s + 0.5), (s / 2, 0.5)]
+                p = c.beginPath()
+                p.moveTo(*pfad[0])
+                for pt in pfad[1:]:
+                    p.lineTo(*pt)
+                p.close()
+                c.drawPath(p, fill=1, stroke=0)
+                c.setFont("Helvetica-Bold", self.g)
+                c.drawString(s + 2, 0.8, self.text)
+
+        grund = ParagraphStyle("u", fontName="Helvetica", fontSize=6.6, leading=8)
+        fett = ParagraphStyle("uf", parent=grund, fontName="Helvetica-Bold")
+        titel = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=12.5, leading=15, spaceAfter=2)
+        klein = ParagraphStyle("k", fontName="Helvetica", fontSize=7.5, leading=9.5,
+                               textColor=colors.HexColor("#4B5563"), spaceAfter=5)
+        breite = landscape(A4)[0] - 20 * mm
+
+        # Koepfe fuer die schmalen PDF-Spalten: Umbruch nur an Leerzeichen
+        PDF_KOPF = {"FCF/Aktie-Wachst.": "FCF/ Aktie p.a.", "FCF-Rendite": "FCF Rend.",
+                    "Forward-KGV": "Fwd KGV", "Umsatz-Wachst.": "Umsatz p.a.", "EPS-Wachst.": "EPS p.a.",
+                    "FCF-Wachst.": "FCF p.a.", "Net Debt/EBITDA": "ND/ EBITDA", "Verwässerung p.a.": "Aktien p.a.",
+                    "FCF-Marge": "FCF Marge",
+                    "Management*": "Mgmt.*", "Bewertung": "Bewer- tung", "Mkap. Mrd €": "Mkap. Mrd €",
+                    "Einordnung": "Einord.", "Nicht weiterv.": "Nicht weiterv."}
+
+        def trend_zelle(t, farbe_zahl):
+            """kleine Zeile: Zahl links, Trend (Dreieck/o/NEU) rechts daneben"""
+            if t.startswith(("▲", "▼")):
+                hexf = UE_FARBEN_DRUCK["up" if t[0] == "▲" else "down"]
+                return Trend("up" if t[0] == "▲" else "down", t[1:].strip(), hexf, groesse=6)
+            return Paragraph(f'<font color="{UE_FARBEN_DRUCK["up" if t == "NEU" else "grau"]}"><b>{t}</b></font>',
+                             ParagraphStyle("tz", parent=grund, fontSize=6))
+
+        def zelle(text, farbe, ist_fett, ausrichtung):
+            hexfarbe = UE_FARBEN_DRUCK.get(farbe) if farbe else None
+            if "\t" in text:                  # Performance-Matrix: Name / Zahl + Trend
+                name, rest = text.split("\n", 1)
+                zahl, t = rest.split("\t", 1)
+                innen = Table([[Paragraph(html.escape(name), grund), ""],
+                               [Paragraph(f'<font color="{hexfarbe}"><b>{html.escape(zahl)}</b></font>', grund),
+                                trend_zelle(t, hexfarbe)]],
+                              colWidths=[None, 12 * mm], style=TableStyle([
+                                  ("SPAN", (0, 0), (1, 0)), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                  ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                  ("BOTTOMPADDING", (0, 0), (-1, -1), 0), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+                return innen
+            text = text.replace("Netto-Cash", "Netcash")
+            erste = text.split("\n")[0]
+            if erste[:1] in ("▲", "▼") and "\n" not in text and hexfarbe:
+                return Trend("up" if erste[0] == "▲" else "down", erste[1:].strip(), hexfarbe)
+            teile_txt = []
+            for zeile in text.split("\n"):
+                z = html.escape(zeile)
+                for sym, rtg in (("▲", "up"), ("▼", "down")):
+                    # Pfeile im Fliesstext (Performance-Matrix): als farbiges Wort
+                    z = z.replace(sym + " ", "+" if rtg == "up" else "−")
+                teile_txt.append(z)
+            inhalt = "<br/>".join(teile_txt)
+            if hexfarbe:
+                if "\n" in text:        # Performance-Zelle: Name schwarz, Zahl farbig
+                    kopf, rest = inhalt.split("<br/>", 1)
+                    inhalt = f'{kopf}<br/><font color="{hexfarbe}"><b>{rest}</b></font>'
+                else:
+                    inhalt = f'<font color="{hexfarbe}">{inhalt}</font>'
+            stil = ParagraphStyle("z", parent=fett if ist_fett else grund,
+                                  alignment=2 if ausrichtung == "r" else 0)
+            return Paragraph(inhalt, stil)
+
+        puffer = io.BytesIO()
+
+        def rahmen(c, doc):
+            c.saveState()
+            c.setFont("Helvetica-Bold", 8)
+            c.setFillColor(colors.HexColor("#111827"))
+            c.drawString(10 * mm, landscape(A4)[1] - 7 * mm, "Watchlist-Gesamtübersicht")
+            c.setFont("Helvetica", 7.5)
+            c.setFillColor(colors.HexColor("#6B7280"))
+            c.drawRightString(landscape(A4)[0] - 10 * mm, landscape(A4)[1] - 7 * mm, stand_text)
+            c.drawString(10 * mm, 6 * mm, "Keine Kauf- oder Verkaufsempfehlung. Kennzahlen aus Yahoo Finance, "
+                                          "Moat/Management (*) aus Kennzahlen angenähert.")
+            c.drawRightString(landscape(A4)[0] - 10 * mm, 6 * mm, f"Seite {doc.page}")
+            c.restoreState()
+
+        doc = SimpleDocTemplate(puffer, pagesize=landscape(A4), leftMargin=10 * mm, rightMargin=10 * mm,
+                                topMargin=12 * mm, bottomMargin=12 * mm, title="Watchlist-Gesamtübersicht")
+        inhalt = [Paragraph("Watchlist-Gesamtübersicht", ParagraphStyle("h", fontName="Helvetica-Bold",
+                                                                         fontSize=18, leading=22)),
+                  Paragraph(stand_text + " · Grün = Hohe Analysepriorität / positiv, Gelb = Beobachtungsliste, "
+                            "Grau = Nicht weiterverfolgen, Rot = negativ · Dreieck = Platzveränderung zu vor "
+                            "7 Tagen, o = unverändert, NEU = neu in der Liste.", klein), Spacer(1, 3 * mm)]
+        erste = True
+        for a in abschnitte:
+            if a["seite"] and not erste:
+                inhalt.append(PageBreak())
+            erste = False
+            inhalt.append(Paragraph(html.escape(a["titel"]), titel))
+            if a.get("text"):
+                inhalt.append(Paragraph(html.escape(a["text"]), klein))
+            if not a["zeilen"]:
+                inhalt.append(Paragraph("– keine Einträge –", klein))
+                continue
+            gewichte = [g for _, g, _ in a["spalten"]]
+            spaltenbreiten = [breite * g / sum(gewichte) for g in gewichte]
+            kopf = [Paragraph(html.escape(PDF_KOPF.get(n, n)), ParagraphStyle(
+                "kopf", parent=fett, fontSize=6.2, leading=7.5, textColor=colors.white,
+                alignment=2 if aus == "r" else 0)) for n, _, aus in a["spalten"]]
+            daten = [kopf] + [[zelle(t, f, b, aus) for (t, f, b), (_, _, aus) in zip(z, a["spalten"])]
+                              for z in a["zeilen"]]
+            tab = Table(daten, colWidths=spaltenbreiten, repeatRows=1)
+            stil = [("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F2937")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2.2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 2.5), ("RIGHTPADDING", (0, 0), (-1, -1), 2.5)]
+            for r in range(2, len(daten), 2):
+                stil.append(("BACKGROUND", (0, r), (-1, r), colors.HexColor("#F3F4F6")))
+            tab.setStyle(TableStyle(stil))
+            inhalt += [tab, Spacer(1, 4 * mm)]
+        inhalt += [Spacer(1, 4 * mm), Paragraph(
+            "Methodik: 100 Punkte (Qualität 20, Wachstum 15, Free Cashflow 15, Bilanz 10, Management 10, "
+            "Wettbewerbsvorteil 10, Bewertung 15, Chance-Risiko 5) abzüglich Red Flags. Qualität und Bewertung "
+            "werden getrennt betrachtet. Banken/Versicherungen sind nicht bewertet. Performance = reine "
+            "Kursentwicklung in Euro. Alle Angaben ohne Gewähr – vor jeder Entscheidung im Geschäftsbericht "
+            "prüfen.", klein)]
+        doc.build(inhalt, onFirstPage=rahmen, onLaterPages=rahmen)
+        return puffer.getvalue()
+
+    def _render_uebersicht():
+        dq = gh_read_cached("state/qualitaet.json", None)
+        dp = gh_read_cached("state/top50.json", None)
+        if not dq and not dp:
+            st.info("Noch keine Daten vorhanden – die Übersicht erscheint nach dem ersten Lauf der Agenten.")
+            return
+        umfang_txt = st.pills("Umfang je Liste", ["Top 10", "Top 25", "Top 50"], default="Top 10",
+                              key="ue_umfang") or "Top 10"
+        umfang = int(umfang_txt.split()[1])
+        teile = st.pills("Inhalt", UE_TEILE, default=UE_TEILE, selection_mode="multi", key="ue_teile") or []
+        try:
+            stand = datetime.datetime.fromisoformat((dq or dp)["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
+        except Exception:
+            stand = "–"
+        stand_text = f"Stand {stand}"
+        abschnitte = _ue_abschnitte(dq, dp, umfang, teile)
+        if not abschnitte:
+            st.info("Bitte mindestens einen Inhalt auswählen.")
+            return
+
+        # PDF erst auf Knopfdruck erzeugen - das Bauen kostet einige Sekunden
+        schluessel = f"ue_pdf|{stand}|{umfang}|{'/'.join(teile)}"
+        if st.button("📄 PDF zum Drucken erstellen", key="ue_pdf_knopf", width="stretch"):
+            try:
+                st.session_state["ue_pdf"] = (schluessel, _ue_pdf(abschnitte, stand_text))
+            except ImportError:
+                st.error("Für das PDF fehlt das Paket **reportlab**: bitte die Zeile `reportlab` in die "
+                         "requirements.txt des Repos aufnehmen – Streamlit installiert es dann automatisch.")
+        fertig = st.session_state.get("ue_pdf")
+        if fertig and fertig[0] == schluessel:
+            st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
+                               file_name=f"Watchlist_Uebersicht_{datetime.date.today().isoformat()}.pdf",
+                               key="ue_pdf_download", width="stretch", type="primary")
+        st.caption(f"{stand_text} · A4 quer · breite Tabellen lassen sich hier seitlich wischen, "
+                   "die Namensspalte bleibt stehen.")
+        _ue_html(abschnitte)
+
     @st.fragment
     def _render_top50():
-        art = st.pills("Liste", ["⭐ Qualitäts-Score", "📈 Performance"], default="⭐ Qualitäts-Score",
-                       key="top50_art") or "⭐ Qualitäts-Score"
+        art = st.pills("Liste", ["⭐ Qualitäts-Score", "📈 Performance", "🗂️ Gesamtübersicht"],
+                       default="⭐ Qualitäts-Score", key="top50_art") or "⭐ Qualitäts-Score"
         if art == "📈 Performance":
             _render_performance()
+            return
+        if art == "🗂️ Gesamtübersicht":
+            try:
+                _render_uebersicht()
+            except Exception as e:
+                st.error(f"⚠️ Fehler in diesem Tab: {e}")
+                notify_app_error("Tab-Uebersicht", e)
             return
         try:
             _render_qualitaet()
