@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     # Erste Läufe bauen die Fundamentaldaten auf (je Lauf bis zu 1.500 Werte),
     # danach frischt jeder Lauf nur noch rund ein Siebtel auf.
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - name: Repo auschecken
         uses: actions/checkout@v4
