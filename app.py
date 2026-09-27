@@ -4649,6 +4649,8 @@ def render_dashboard():
                     'Nicht weiterverfolgen · * = aus Kennzahlen angenähert</div>', unsafe_allow_html=True)
 
     def _q_details(sym, zeile):
+        if not daten_q:                 # Aufruf aus einem anderen Reiter: Annahmen nachladen
+            daten_q.update(gh_read_cached("state/qualitaet.json", None) or {})
         teil = gh_read_cached(f"state/qualitaet/details_{zeile.get('d', 0)}.json", None) or {}
         e = (teil.get("werte") or {}).get(sym)
         if not e:
@@ -4850,13 +4852,173 @@ def render_dashboard():
             )
 
 
+
+    # ---------- QUALITAET x KURS ----------
+    # Abgleich Qualitaets-Score mit der Kursentwicklung: trennt "Aktie ist
+    # gefallen" von "Aktie ist fundamental gut" - und umgekehrt Kursstaerke
+    # ohne fundamentale Deckung. Daten: state/qualitaet/matrix.json (alle
+    # bewerteten Aktien, kompakt als Arrays).
+    QK_QUAL_GRENZE = 62          # Qualitaet (ohne Bewertung) ab 62 % = "hoch" (wie Beobachtungsliste)
+    QK_ZEITRAEUME = [("p6", "6 Monate"), ("p12", "1 Jahr"), ("p36", "3 Jahre")]
+    QK_FELDER = [
+        ("gut_schwach", "🔍 Gute Firma, schwacher Kurs",
+         "Qualität hoch, Kurs schwächer als der Median der Kategorie. Kandidaten, bei denen kurzfristige "
+         "Probleme den Kurs belastet haben könnten – ob die Aktie dadurch auch GÜNSTIG ist, zeigen "
+         "FCF-Rendite und Bewertung. Ein Kursrückgang allein macht eine Aktie nicht attraktiv."),
+        ("gut_stark", "✅ Qualität mit Rückenwind",
+         "Qualität hoch, Kurs stärker als der Median. Der Markt honoriert die Qualität bereits – "
+         "häufig mit höherer Bewertung."),
+        ("schwach_stark", "⚠️ Kurs ohne Fundament",
+         "Qualität niedrig, Kurs stärker als der Median. Kursstärke ohne fundamentale Deckung – "
+         "Hype- und Rückschlagrisiko."),
+        ("schwach_schwach", "❌ Weder noch",
+         "Qualität niedrig und Kurs schwächer als der Median."),
+    ]
+
+    def _qk_daten():
+        m = gh_read_cached("state/qualitaet/matrix.json", None)
+        if not m or not m.get("zeilen"):
+            return None
+        felder = m["felder"]
+        m["_zeilen"] = [dict(zip(felder, z)) for z in m["zeilen"]]
+        return m
+
+    def _qk_einteilen(zeilen, zr_key):
+        """-> ({feld: [zeilen sortiert]}, median) fuer Zeilen mit Kursdaten"""
+        mit = [z for z in zeilen if z.get(zr_key) is not None and z.get("q_ant") is not None]
+        if not mit:
+            return {f: [] for f, _, _ in QK_FELDER}, None
+        werte = sorted(z[zr_key] for z in mit)
+        median = werte[len(werte) // 2]
+        felder = {f: [] for f, _, _ in QK_FELDER}
+        for z in mit:
+            q_hoch = z["q_ant"] >= QK_QUAL_GRENZE
+            k_stark = z[zr_key] >= median
+            felder[("gut_" if q_hoch else "schwach_") + ("stark" if k_stark else "schwach")].append(z)
+        felder["gut_schwach"].sort(key=lambda z: (-z["gesamt"], z[zr_key]))
+        felder["gut_stark"].sort(key=lambda z: -z["gesamt"])
+        felder["schwach_stark"].sort(key=lambda z: -z[zr_key])
+        felder["schwach_schwach"].sort(key=lambda z: -z["gesamt"])
+        return felder, median
+
+    def _qk_tabelle(zeilen, zr_key, zr_titel):
+        kopf = ('<th class="pt-num">#</th><th class="pt-wert">Unternehmen</th>'
+                f'<th class="pt-num">Kurs {html.escape(zr_titel)}</th><th class="pt-num">FCF-<br>Rendite</th>'
+                '<th class="pt-num">Punkte</th>')
+        z_html = ""
+        for platz, z in enumerate(zeilen, 1):
+            perf = z[zr_key]
+            bew = z.get("bew") or "–"
+            mos = z.get("mos")
+            unter = f'{z["s"]} · Qualität {z["q_ant"]:.0f} % · Bewertung {bew}'
+            if mos is not None and mos > -200:
+                unter += f" · MoS {mos:+.0f} %"
+            unter = unter.replace(" %", "\u00a0%")          # Zahl und % nie getrennt umbrechen
+            fy = z.get("fcfy")
+            z_html += (
+                f'<tr class="{"pt-zebra" if platz % 2 == 0 else ""}">'
+                f'<td class="pt-num pt-seit">{platz}</td>'
+                f'<td class="pt-wert"><span class="pt-name">{html.escape(z["name"])}</span>'
+                f'<span class="pt-sub">{html.escape(unter)}</span></td>'
+                f'<td class="pt-num pt-stark {"pt-up" if perf >= 0 else "pt-down"}">{perf:+.1f} %</td>'
+                f'<td class="pt-num pt-stark {"pt-up" if (fy or 0) >= 5 else "pt-down" if fy is not None and fy < 2 else ""}">'
+                f'{"–" if fy is None else f"{fy:.1f} %"}</td>'
+                f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(z["klasse"], "")}">{z["gesamt"]}</td></tr>')
+        st.markdown(f'<div class="pt-wrap"><table class="pt pt-kompakt"><thead><tr>{kopf}</tr></thead>'
+                    f'<tbody>{z_html}</tbody></table></div>', unsafe_allow_html=True)
+
+    def _qk_diagramm(zeilen, zr_key, zr_titel, median):
+        mit = [z for z in zeilen if z.get(zr_key) is not None and z.get("q_ant") is not None]
+        if not mit:
+            return
+        # Ausreisser (z.B. +900 %) stauchen sonst alles andere zusammen
+        werte = sorted(z[zr_key] for z in mit)
+        oben = werte[int(len(werte) * 0.98)] if len(werte) > 20 else werte[-1]
+        unten = werte[int(len(werte) * 0.02)] if len(werte) > 20 else werte[0]
+        fig = go.Figure()
+        for kl, titel_kl, farbe in (("nicht", "Nicht weiterverfolgen", "#6B7280"),
+                                    ("beobachten", "Beobachtungsliste", "#F5B942"),
+                                    ("prio", "Hohe Analysepriorität", "#16C784")):
+            pts = [z for z in mit if z["klasse"] == kl]
+            if not pts:
+                continue
+            fig.add_trace(go.Scattergl(
+                x=[min(max(z[zr_key], unten), oben) for z in pts], y=[z["q_ant"] for z in pts],
+                mode="markers", name=titel_kl,
+                marker=dict(color=farbe, size=6 if kl != "nicht" else 5, opacity=0.85 if kl != "nicht" else 0.45),
+                text=[f'{z["name"]} ({z["s"]})<br>Kurs {zr_titel}: {z[zr_key]:+.1f} %<br>'
+                      f'Qualität {z["q_ant"]:.0f} % · {z["gesamt"]} Punkte' for z in pts],
+                hovertemplate="%{text}<extra></extra>"))
+        for x0, y0, text in ((unten, 99, "Qualität hoch · Kurs schwach"), (oben, 99, "Qualität hoch · Kurs stark"),
+                             (unten, 1, "Qualität niedrig · Kurs schwach"), (oben, 1, "Qualität niedrig · Kurs stark")):
+            fig.add_annotation(x=x0, y=y0, text=text, showarrow=False, font=dict(size=10, color="#71717A"),
+                               xanchor="left" if x0 == unten else "right", yanchor="top" if y0 > 50 else "bottom")
+        fig.add_vline(x=median, line=dict(color="#A1A1AA", width=1, dash="dot"))
+        fig.add_hline(y=QK_QUAL_GRENZE, line=dict(color="#A1A1AA", width=1, dash="dot"))
+        fig.update_layout(
+            paper_bgcolor="#000000", plot_bgcolor="#000000", height=380, margin=dict(l=10, r=10, t=10, b=40),
+            showlegend=True, legend=dict(orientation="h", y=-0.14, x=0, font=dict(color="#A1A1AA", size=10)),
+            xaxis=dict(title=dict(text=f"Kursentwicklung {zr_titel} (EUR)", font=dict(color="#A1A1AA", size=11)),
+                       ticksuffix=" %", showgrid=True, gridcolor="#1A1A1A", zeroline=True, zerolinecolor="#333",
+                       tickfont=dict(color="#A1A1AA")),
+            yaxis=dict(title=dict(text="Qualität (%)", font=dict(color="#A1A1AA", size=11)), range=[0, 100],
+                       showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
+            dragmode=False)
+        st.plotly_chart(fig, width="stretch", key="qk_diagramm", config={"displayModeBar": False})
+
+    def _render_qualitaet_kurs():
+        m = _qk_daten()
+        if not m:
+            st.info("Noch keine Daten für den Abgleich. Die Kursentwicklung wird ab dem nächsten Lauf des "
+                    "Qualitäts-Agenten mitgespeichert; bis alle Aktien sie haben, dauert es einige Läufe.")
+            return
+        kats = m["kategorien"]
+        keys = [k for k in m.get("reihenfolge", kats) if k in kats]
+        titel = [kats[k]["titel"] for k in keys]
+        wahl = st.pills("Kategorie", titel, default=titel[0], key="qk_kategorie") or titel[0]
+        kat = kats[keys[titel.index(wahl)]]
+        zr_titel = [t for _, t in QK_ZEITRAEUME]
+        zr_wahl = st.pills("Zeitraum", zr_titel, default="1 Jahr", key="qk_zeitraum") or "1 Jahr"
+        zr_key = dict((t, k) for k, t in QK_ZEITRAEUME)[zr_wahl]
+
+        zeilen = [m["_zeilen"][i] for i in kat["idx"]]
+        felder, median = _qk_einteilen(zeilen, zr_key)
+        mit = sum(len(v) for v in felder.values())
+        if not mit:
+            st.info("Für diese Kategorie liegt die Kursentwicklung noch nicht vor – sie wird mit den nächsten "
+                    "Läufen aufgebaut.")
+            return
+        st.caption(f"{mit} von {len(zeilen)} bewerteten Aktien mit Kursdaten · Trennlinien: Qualität "
+                   f"{QK_QUAL_GRENZE} % (ohne Bewertung) und Median der Kursentwicklung ({median:+.1f} %)")
+        _qk_diagramm(zeilen, zr_key, zr_wahl, median)
+
+        f_titel = [f"{t} ({len(felder[f])})" for f, t, _ in QK_FELDER]
+        f_wahl = st.pills("Feld", f_titel, default=f_titel[0], key="qk_feld") or f_titel[0]
+        f_key, _, f_text = QK_FELDER[f_titel.index(f_wahl)]
+        st.caption(f_text)
+        liste = felder[f_key][:50]
+        if not liste:
+            st.info("In diesem Feld liegt derzeit keine Aktie.")
+            return
+        _qk_tabelle(liste, zr_key, zr_wahl)
+        st.markdown('<div class="q-legende">Punkte: <span class="q-prio">■</span> Hohe Analysepriorität · '
+                    '<span class="q-beob">■</span> Beobachtungsliste · <span class="q-nicht">■</span> '
+                    'Nicht weiterverfolgen · MoS = Sicherheitsmarge zum konservativen fairen Wert</div>',
+                    unsafe_allow_html=True)
+        auswahl = st.selectbox("Detailanalyse:", [z["s"] for z in liste], index=None, key="qk_detail",
+                               placeholder="Aktie auswählen …",
+                               format_func=lambda s: next(f'{z["name"]} ({s}) – {z["gesamt"]} Punkte'
+                                                          for z in liste if z["s"] == s))
+        if auswahl:
+            _q_details(auswahl, next(z for z in liste if z["s"] == auswahl))
+
     # ---------- GESAMTUEBERSICHT (Ansicht + druckfertiges PDF) ----------
     # Ein gemeinsames Datenmodell fuer Bildschirm und PDF, damit beide immer
     # dasselbe zeigen. Zelle = (text, farbe, fett); farbe ist semantisch
     # ("up", "down", "warn", "grau", "prio", "beob", "nicht") und wird je
     # Ausgabe in passende Farben uebersetzt (dunkles Design vs. weisses Papier).
     UE_TEILE = ["Zusammenfassung", "Hohe Analysepriorität", "Beobachtungsliste",
-                "Qualität je Kategorie", "Wochenveränderung", "Performance"]
+                "Qualität je Kategorie", "Qualität × Kurs", "Wochenveränderung", "Performance"]
     UE_FARBEN_SCHIRM = {"up": "#16C784", "down": "#EA3943", "warn": "#F5B942", "grau": "#9AA0A6",
                         "prio": "#16C784", "beob": "#F5B942", "nicht": "#9AA0A6"}
     UE_FARBEN_DRUCK = {"up": "#0E8A5F", "down": "#C62828", "warn": "#B7791F", "grau": "#6B7280",
@@ -4944,6 +5106,31 @@ def render_dashboard():
                     ab.append({"titel": f"Qualitäts-Score: {kat['titel']}",
                                "text": f"Gesamt-Rangliste, Top {len(zl)} von {kat['bewertet']} bewerteten Aktien.",
                                "spalten": sp, "zeilen": zl, "seite": True})
+
+        if "Qualität × Kurs" in teile:
+            mq = _qk_daten()
+            if mq and "alle" in mq["kategorien"]:
+                zeilen_alle = [mq["_zeilen"][i] for i in mq["kategorien"]["alle"]["idx"]]
+                felder, median = _qk_einteilen(zeilen_alle, "p12")
+                for f_key, f_titel, f_text in QK_FELDER[:3]:
+                    zl = []
+                    for platz, z in enumerate(felder[f_key][:umfang], 1):
+                        fy = z.get("fcfy")
+                        zl.append([_ue_z(platz, fett=True), _ue_z(f'{z["name"]} ({z["s"]})', fett=True),
+                                   _ue_z(z.get("br") or "–"),
+                                   _ue_z(f'{z["p12"]:+.1f} %', "up" if z["p12"] >= 0 else "down", True),
+                                   _ue_z(f'{z["q_ant"]:.0f} %'),
+                                   _ue_z(z["gesamt"], {"prio": "prio", "beobachten": "beob"}.get(z["klasse"], "nicht"), True),
+                                   _ue_z("–" if fy is None else f"{fy:.1f} %", "up" if (fy or 0) >= 5 else None),
+                                   _ue_z(z.get("bew") or "–"),
+                                   _ue_z("–" if z.get("mos") is None or z["mos"] <= -200 else f'{z["mos"]:+.0f} %')])
+                    ab.append({"titel": f"Qualität × Kurs (1 Jahr): {f_titel[2:].strip()} – alle Aktien "
+                                        f"(Top {len(zl)} von {len(felder[f_key])})",
+                               "text": f_text + (f" Median Kursentwicklung: {median:+.1f} %." if median is not None else ""),
+                               "spalten": [("#", 3, "r"), ("Unternehmen", 22, "l"), ("Branche", 14, "l"),
+                                           ("Kurs 1 J.", 7, "r"), ("Qualität", 7, "r"), ("Punkte", 6, "r"),
+                                           ("FCF-Rendite", 8, "r"), ("Bewertung", 8, "l"), ("MoS", 7, "r")],
+                               "zeilen": zl, "seite": True})
 
         if "Wochenveränderung" in teile and verg:
             zeilen = []
@@ -5228,8 +5415,16 @@ def render_dashboard():
 
     @st.fragment
     def _render_top50():
-        art = st.pills("Liste", ["⭐ Qualitäts-Score", "📈 Performance", "🗂️ Gesamtübersicht"],
+        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🧭 Qualität × Kurs", "📈 Performance",
+                                 "🗂️ Gesamtübersicht"],
                        default="⭐ Qualitäts-Score", key="top50_art") or "⭐ Qualitäts-Score"
+        if art == "🧭 Qualität × Kurs":
+            try:
+                _render_qualitaet_kurs()
+            except Exception as e:
+                st.error(f"⚠️ Fehler in diesem Tab: {e}")
+                notify_app_error("Tab-QualitaetKurs", e)
+            return
         if art == "📈 Performance":
             _render_performance()
             return
