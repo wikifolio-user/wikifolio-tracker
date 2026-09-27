@@ -288,6 +288,42 @@ EUROPA_STANDORTE = {
     "Guernsey", "Isle of Man", "Faroe Islands", "Malta", "Cyprus", "Liechtenstein",
 }
 
+# ---------------------------------------------------------------------------
+# YAHOO-LAENDERLISTEN (seit iShares die Bestandslisten nicht mehr ausliefert):
+# alle Aktien der Heimatboersen eines Landes ab einer Mindestgroesse, direkt
+# aus dem Aktienfilter von Yahoo Finance. Woechentlich neu geladen.
+#   Reihenfolge = Vorrang bei Doppelnotierungen: eine Firma, die an mehreren
+#   Boersen gelistet ist, zaehlt nur einmal - beim ersten Land dieser Liste.
+#   Asien/Pazifik/Schwellenlaender stehen VOR Europa, weil viele asiatische
+#   Firmen zusaetzlich an Xetra gehandelt werden (Heimatboerse soll gewinnen).
+#   US-Notierungen auslaendischer Firmen (ADRs) werden an ihrer Bilanzwaehrung
+#   erkannt und weggelassen.
+# ---------------------------------------------------------------------------
+YAHOO_REGIONEN = [
+    # (region, land, heimatboersen, min. Boersenwert in USD)
+    ("us", "United States", ["NMS", "NYQ", "NGM", "NCM", "ASE"], 5e7),
+    ("ca", "Canada", ["TOR"], 2e8), ("jp", "Japan", ["JPX"], 2e8), ("hk", "Hong Kong", ["HKG"], 2e8),
+    ("au", "Australia", ["ASX"], 2e8), ("nz", "New Zealand", ["NZE"], 2e8), ("sg", "Singapore", ["SES"], 2e8),
+    ("il", "Israel", ["TLV"], 2e8),
+    ("cn", "China", ["SHH", "SHZ"], 3e8), ("kr", "Korea (South)", ["KSC", "KOE"], 3e8),
+    ("tw", "Taiwan", ["TAI", "TWO"], 3e8), ("in", "India", ["NSI"], 3e8), ("br", "Brazil", ["SAO"], 3e8),
+    ("mx", "Mexico", ["MEX"], 3e8), ("za", "South Africa", ["JNB"], 3e8), ("sa", "Saudi Arabia", ["SAU"], 3e8),
+    ("th", "Thailand", ["SET"], 3e8), ("my", "Malaysia", ["KLS"], 3e8), ("id", "Indonesia", ["JKT"], 3e8),
+    ("tr", "Turkey", ["IST"], 3e8), ("cl", "Chile", ["SGO"], 3e8), ("ph", "Philippines", ["PHS"], 3e8),
+    ("ae", "United Arab Emirates", ["DFM", "ADX"], 3e8), ("qa", "Qatar", ["DOH"], 3e8),
+    ("gb", "United Kingdom", ["LSE"], 1e8), ("ch", "Switzerland", ["EBS"], 1e8),
+    ("nl", "Netherlands", ["AMS"], 1e8), ("fr", "France", ["PAR"], 1e8), ("de", "Germany", ["GER"], 1e8),
+    ("it", "Italy", ["MIL"], 1e8), ("es", "Spain", ["MCE"], 1e8), ("se", "Sweden", ["STO"], 1e8),
+    ("dk", "Denmark", ["CPH"], 1e8), ("no", "Norway", ["OSL"], 1e8), ("fi", "Finland", ["HEL"], 1e8),
+    ("be", "Belgium", ["BRU"], 1e8), ("at", "Austria", ["VIE"], 1e8), ("ie", "Ireland", ["ISE"], 1e8),
+    ("pt", "Portugal", ["LIS"], 1e8), ("pl", "Poland", ["WSE"], 1e8), ("gr", "Greece", ["ATH"], 1e8),
+]
+REGIONEN_EUROPA = ["gb", "ch", "nl", "fr", "de", "it", "es", "se", "dk", "no", "fi", "be", "at", "ie", "pt", "pl", "gr"]
+REGIONEN_APAC = ["jp", "hk", "au", "nz", "sg", "ca", "il"]
+REGIONEN_EM = ["cn", "kr", "tw", "in", "br", "mx", "za", "sa", "th", "my", "id", "tr", "cl", "ph", "ae", "qa"]
+# Gruppen fuer die Zwischenspeicher-Dateien (je Datei < 1 MB)
+YAHOO_DATEIGRUPPEN = {"us": ["us"], "europa": REGIONEN_EUROPA, "apac": REGIONEN_APAC, "em": REGIONEN_EM}
+
 # Kategorien, wie sie in der App erscheinen (in dieser Reihenfolge).
 #   quelle          Liste oben | "auto" (wikifolio-Suche) | "index" (INDEX_FONDS)
 #   kategorien_ls   erlaubte categoryName-Werte der Kursquelle - schuetzt davor,
@@ -296,24 +332,21 @@ EUROPA_STANDORTE = {
 #   dividende       laufende Dividendenrendite anzeigen + eigene Rangliste
 KATEGORIEN = {
     "aktien":     {"titel": "Aktien",               "quelle": AKTIEN,     "kategorien_ls": {"Aktie"}},
-    "usa":        {"titel": "US-Aktien (S&P 500 + MidCap 400)", "quelle": "index",
-                   "indizes": ["IVV", "IJH"], "ersatz_boersenwert": (5e9, None), "dividende": True},
-    "nebenwerte": {"titel": "US-Nebenwerte (Russell 2000)", "quelle": "index",
-                   "indizes": ["IWM"], "ersatz_boersenwert": (2.5e8, 5e9), "dividende": True},
-    # Nur was NICHT schon im Russell 2000 steht ("ohne_fonds") - sonst waere
-    # die Haelfte der Liste doppelt. Sehr schwankungsanfaellig, oft kaum handelbar.
-    "us_micro":   {"titel": "US-Kleinstwerte (Micro Caps)", "quelle": "index",
-                   "indizes": ["IWC"], "ohne_fonds": ["IWM"], "ersatz_boersenwert": (5e7, 2.5e8),
-                   "dividende": True},
-    "europa":     {"titel": "Europa (inkl. Nebenwerte)", "quelle": "index",
-                   "indizes": ["IEUR"], "dividende": True},
-    "welt":       {"titel": "Welt ohne USA/Europa", "quelle": "index",
-                   "indizes": ["ACWX"], "ohne_standorte": EUROPA_STANDORTE, "dividende": True},
-    # Europaeische Nebenwerte stecken schon in "europa" (MSCI Europe IMI)
-    "welt_neben": {"titel": "Welt-Nebenwerte (Asien/Pazifik)", "quelle": "index",
-                   "indizes": ["SCZ"], "ohne_standorte": EUROPA_STANDORTE, "dividende": True},
-    "em":         {"titel": "Schwellenländer (inkl. Nebenwerte)", "quelle": "index",
-                   "indizes": ["IEMG"], "dividende": True},
+    # Groessenklassen nach Boersenwert in USD (angelehnt an die Indexgrenzen)
+    "usa":        {"titel": "US-Aktien (groß, ab 5 Mrd. $)", "quelle": "yahoo", "regionen": ["us"],
+                   "boersenwert": (5e9, None), "ersatz_boersenwert": (5e9, None), "dividende": True},
+    "nebenwerte": {"titel": "US-Nebenwerte (0,3–5 Mrd. $)", "quelle": "yahoo", "regionen": ["us"],
+                   "boersenwert": (3e8, 5e9), "ersatz_boersenwert": (3e8, 5e9), "dividende": True},
+    "us_micro":   {"titel": "US-Kleinstwerte (Micro Caps)", "quelle": "yahoo", "regionen": ["us"],
+                   "boersenwert": (5e7, 3e8), "ersatz_boersenwert": (5e7, 3e8), "dividende": True},
+    "europa":     {"titel": "Europa (inkl. Nebenwerte)", "quelle": "yahoo", "regionen": REGIONEN_EUROPA,
+                   "boersenwert": (1e8, None), "dividende": True},
+    "welt":       {"titel": "Asien/Pazifik & Kanada (groß)", "quelle": "yahoo", "regionen": REGIONEN_APAC,
+                   "boersenwert": (2e9, None), "dividende": True},
+    "welt_neben": {"titel": "Asien/Pazifik & Kanada (Nebenwerte)", "quelle": "yahoo", "regionen": REGIONEN_APAC,
+                   "boersenwert": (2e8, 2e9), "dividende": True},
+    "em":         {"titel": "Schwellenländer (inkl. Nebenwerte)", "quelle": "yahoo", "regionen": REGIONEN_EM,
+                   "boersenwert": (3e8, None), "dividende": True},
     "dividenden": {"titel": "Dividenden-Aktien",    "quelle": DIVIDENDEN, "kategorien_ls": {"Aktie"},
                    "dividende": True},
     "etf":        {"titel": "ETFs & Hebel-ETFs",    "quelle": ETFS,
@@ -338,10 +371,14 @@ INDEX_LISTEN = [
     ("mdax", "MDAX", "Deutschland", {"wiki": ("en", "MDAX"), "ticker_spalte": "Symbol", "endungen": [".DE"], "anzahl": 50}),
     ("sdax", "SDAX", "Deutschland", {"wiki": ("en", "SDAX"), "ticker_spalte": None, "endungen": [".DE"], "anzahl": 70}),
     ("tecdax", "TecDAX", "Deutschland", {"wiki": ("de", "TecDAX"), "ticker_spalte": "Symbol", "endungen": [".DE"], "anzahl": 30}),
-    ("sp500", "S&P 500", "USA", {"fonds": "IVV"}),
-    ("sp400", "S&P MidCap 400", "USA", {"fonds": "IJH"}),
-    ("r2000", "Russell 2000", "USA", {"fonds": "IWM"}),
-    ("rmicro", "Russell Microcap", "USA", {"fonds": "IWC"}),
+    ("sp500", "S&P 500", "USA", {"wiki": ("en", "List_of_S&P_500_companies"), "ticker_spalte": "Symbol",
+                                 "endungen": [""], "anzahl": 503}),
+    ("sp400", "S&P MidCap 400", "USA", {"wiki": ("en", "List_of_S&P_400_companies"), "ticker_spalte": "Symbol",
+                                        "endungen": [""], "anzahl": 400}),
+    # Fuer Russell-Indizes gibt es keine frei zugaengliche Mitgliederliste -
+    # Naeherung ueber die gleichnamige Groessenklasse (daher das "≈")
+    ("r2000", "≈ Russell 2000", "USA", {"kategorie": "nebenwerte"}),
+    ("rmicro", "≈ Russell Microcap", "USA", {"kategorie": "us_micro"}),
     ("ndx", "Nasdaq-100", "USA", {"wiki": ("en", "Nasdaq-100"), "ticker_spalte": "Ticker", "endungen": [""], "anzahl": 100}),
     ("dow", "Dow Jones", "USA", {"wiki": ("en", "List_of_Dow_Jones_Industrial_Average_companies"),
                                  "ticker_spalte": "Symbol", "endungen": [""], "anzahl": 30}),
