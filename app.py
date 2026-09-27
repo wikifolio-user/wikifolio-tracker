@@ -1,4 +1,5 @@
 import datetime
+import time
 import re
 import html
 import logging
@@ -826,6 +827,14 @@ def gh_read(path, default):
     return data if data is not None else default
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def gh_read_taeglich(path, default):
+    """Fuer Dateien, die die Agenten nur einmal taeglich schreiben (Watchlist-
+    Ranglisten, Qualitaets-Score): 15 Minuten gehalten statt 60 Sekunden -
+    die Dateien sind mehrere hundert KB gross."""
+    return gh_read(path, default)
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def gh_read_cached(path, default):
     """Wie gh_read, aber 60s gecacht - für Status-/Alarm-Reads, die bei jedem
@@ -952,41 +961,63 @@ def get_live_market_data():
 
 
 # --- ECHTE HISTORISCHE DATEN VON ls-tc.de LADEN ---
-@st.cache_data(ttl=300, show_spinner=False)
+# Tageskurs-Historien aendern sich hoechstens einmal am Handelstag - der
+# aktuelle Wert kommt ohnehin live ueber get_live_kurs(). Deshalb EIN Abruf je
+# Instrument, 15 Minuten gehalten und fuer alle Zeitraeume nur zugeschnitten.
+# st.cache_data gilt fuer alle Sitzungen: ein Neuladen der Seite (neue Sitzung)
+# bedient sich ebenfalls aus diesem Speicher.
+HISTORIE_CACHE_SEK = 900
+
+
+@st.cache_data(ttl=HISTORIE_CACHE_SEK, show_spinner=False)
+def lade_rohhistorie(instrument_id):
+    """[(ts_ms, close), ...] einer Instrument-ID, [] bei Fehler."""
+    params = {
+        "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
+        "quotetype": "mid", "series": "history", "type": "", "localeId": "2",
+    }
+    try:
+        r = requests.get(config.LS_TC_BASE_URL, params=params,
+                         headers=config.LS_TC_HEADERS, timeout=8)
+        r.raise_for_status()
+        raw = r.json()
+        return (raw.get("series", {}).get("history", {}).get("data")
+                or raw.get("history", {}).get("data") or [])
+    except Exception as e:
+        logging.error(f"Historie für Instrument {instrument_id} nicht ladbar: {e}")
+        raise          # Fehler NICHT zwischenspeichern - beim naechsten Aufruf neu versuchen
+
+
+def historie_zuschnitt(history, start_date, end_date):
+    """Rohpunkte -> Series (Index=Zeitpunkt) im Datumsbereich, in einem
+    Schritt fuer alle Punkte (schnell genug, um NICHT zwischenspeichern zu
+    muessen - so landen auch keine Fehlerergebnisse im Speicher)."""
+    if not history:
+        return pd.Series(dtype=float)
+    df = pd.DataFrame(history, columns=["ts", "Close"])
+    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+    df["Date"] = pd.to_datetime(df["ts"], unit="ms")
+    tage = df["Date"].dt.date
+    df = df[(tage >= start_date) & (tage <= end_date) & (df["Close"] > 0)]
+    return df.set_index("Date").sort_index()["Close"].astype(float)
+
+
 def get_historical_market_data(start_date, end_date, live_close_fallback):
     """
     Holt die Tages-History direkt von ls-tc.de. Da der Endpunkt primär
     Schlusskurse liefert, werden Open/High/Low pragmatisch aus dem Close
     approximiert, sofern die API keine echten OHLC liefert.
+
+    Nicht mehr selbst zwischengespeichert: vorher war der Live-Kurs Teil des
+    Speicherschluessels, jede Kursbewegung erzwang einen kompletten Neuabruf.
+    Jetzt kommt die Rohhistorie aus lade_rohhistorie() (15 Min. gehalten).
     """
-    params = {
-        "container": "chart1",
-        "instrumentId": config.LS_INSTRUMENT_ID,
-        "marketId": "1",
-        "quotetype": "mid",
-        "series": "history",
-        "type": "",
-        "localeId": "2",
-    }
     try:
-        r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=8)
-        r.raise_for_status()
-        raw = r.json()
-        history = (
-            raw.get("series", {}).get("history", {}).get("data")
-            or raw.get("history", {}).get("data")
-            or []
-        )
+        history = lade_rohhistorie(config.LS_INSTRUMENT_ID)
         if history:
-            rows = []
-            for ts_ms, close in history:
-                ts = pd.to_datetime(ts_ms, unit="ms")
-                if ts.date() < start_date or ts.date() > end_date:
-                    continue
-                rows.append({"Date": ts, "Close": float(close)})
-            if rows:
-                df = pd.DataFrame(rows).set_index("Date").sort_index()
-                df = df[df["Close"] > 0]
+            closes = historie_zuschnitt(history, start_date, end_date)
+            if not closes.empty:
+                df = closes.to_frame("Close")
                 if not df.empty:
                     df["Open"] = df["Close"]
                     df["High"] = df["Close"] * 1.003
@@ -1218,30 +1249,12 @@ def get_live_kurs(instrument_id):
     return None, None, "Fehler – keine Live-Daten"
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_kurshistorie(instrument_id, start_date, end_date):
     """Tages-Schlusskurse einer beliebigen Instrument-ID als Series
     (Index=Datum). Basis fuer die Zeitraum-Kennzahlen - ersetzt das
     produktspezifische Scraping der wikifolio-Seite."""
-    params = {
-        "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
-        "quotetype": "mid", "series": "history", "type": "", "localeId": "2",
-    }
     try:
-        r = requests.get(config.LS_TC_BASE_URL, params=params,
-                         headers=config.LS_TC_HEADERS, timeout=8)
-        r.raise_for_status()
-        raw = r.json()
-        history = (raw.get("series", {}).get("history", {}).get("data")
-                   or raw.get("history", {}).get("data") or [])
-        rows = []
-        for ts_ms, close in history:
-            ts = pd.to_datetime(ts_ms, unit="ms")
-            if start_date <= ts.date() <= end_date:
-                rows.append({"Date": ts, "Close": float(close)})
-        if rows:
-            s = pd.DataFrame(rows).set_index("Date").sort_index()["Close"]
-            return s[s > 0]
+        return historie_zuschnitt(lade_rohhistorie(instrument_id), start_date, end_date)
     except Exception as e:
         logging.error(f"Historie für Instrument {instrument_id} nicht ladbar: {e}")
     return pd.Series(dtype=float)
@@ -1687,8 +1700,13 @@ def erstelle_ladeanzeige(platzhalter, phasen):
         laufend += gewicht
 
     hoechster = {"pct": 0}
+    beginn = time.monotonic()
+    ANZEIGE_AB_SEK = 0.4      # kommt alles aus dem Zwischenspeicher, steht die Seite
+                              # schneller - dann gar keinen Balken aufblitzen lassen
 
     def melde(schluessel, anteil=0.0, text=""):
+        if time.monotonic() - beginn < ANZEIGE_AB_SEK:
+            return
         start, gewicht = versatz.get(schluessel, (0, gesamt_gewicht))
         anteil = max(0.0, min(1.0, anteil))
         pct = int((start + gewicht * anteil) / gesamt_gewicht * 100)
@@ -4399,7 +4417,7 @@ def render_dashboard():
 
     def _render_performance():
         try:
-            daten = gh_read_cached("state/top50.json", None)
+            daten = gh_read_taeglich("state/top50.json", None)
             if not daten or not daten.get("kategorien"):
                 st.info(
                     "Noch keine Ranglisten vorhanden. Der Agent läuft täglich um 07:30 Uhr. "
@@ -4650,8 +4668,8 @@ def render_dashboard():
 
     def _q_details(sym, zeile):
         if not daten_q:                 # Aufruf aus einem anderen Reiter: Annahmen nachladen
-            daten_q.update(gh_read_cached("state/qualitaet.json", None) or {})
-        teil = gh_read_cached(f"state/qualitaet/details_{zeile.get('d', 0)}.json", None) or {}
+            daten_q.update(gh_read_taeglich("state/qualitaet.json", None) or {})
+        teil = gh_read_taeglich(f"state/qualitaet/details_{zeile.get('d', 0)}.json", None) or {}
         e = (teil.get("werte") or {}).get(sym)
         if not e:
             st.info("Die ausführliche Analyse wird gerade neu geschrieben - bitte in einer Minute erneut öffnen.")
@@ -4769,7 +4787,7 @@ def render_dashboard():
 
     def _render_qualitaet():
         nonlocal daten_q
-        daten = gh_read_cached("state/qualitaet.json", None)
+        daten = gh_read_taeglich("state/qualitaet.json", None)
         if not daten or not daten.get("kategorien"):
             st.info("Noch kein Qualitäts-Score vorhanden. Der Agent läuft täglich um 05:00 Uhr. Für einen "
                     "Sofortstart: auf GitHub unter **Actions → Watchlist Qualitäts-Score (täglich) → Run "
@@ -4876,7 +4894,7 @@ def render_dashboard():
     ]
 
     def _qk_daten():
-        m = gh_read_cached("state/qualitaet/matrix.json", None)
+        m = gh_read_taeglich("state/qualitaet/matrix.json", None)
         if not m or not m.get("zeilen"):
             return None
         felder = m["felder"]
@@ -5377,8 +5395,8 @@ def render_dashboard():
         return puffer.getvalue()
 
     def _render_uebersicht():
-        dq = gh_read_cached("state/qualitaet.json", None)
-        dp = gh_read_cached("state/top50.json", None)
+        dq = gh_read_taeglich("state/qualitaet.json", None)
+        dp = gh_read_taeglich("state/top50.json", None)
         if not dq and not dp:
             st.info("Noch keine Daten vorhanden – die Übersicht erscheint nach dem ersten Lauf der Agenten.")
             return
