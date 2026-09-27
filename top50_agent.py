@@ -15,9 +15,10 @@ Ablauf:
   2. wikifolios entdecken: alle Zertifikate mit WKN "LS9..." ueber eine
      schrittweise verfeinerte Praefixsuche (die Suche liefert je Aufruf
      hoechstens 20 Treffer). Ergebnis wird 7 Tage gecacht.
-  3. US-Indexlisten (S&P 500, MidCap 400, Russell 2000) woechentlich aus den
-     iShares-Bestandslisten lesen; Kurse + Dividenden dieser Werte von Yahoo
-     Finance, umgerechnet in Euro.
+  3. Indexlisten (S&P 500, MidCap 400, Russell 2000, MSCI Europe IMI, MSCI
+     ACWI ex USA) woechentlich aus den iShares-Bestandslisten lesen; Kurse +
+     Dividenden dieser Werte von Yahoo Finance (Heimatboerse), umgerechnet
+     in Euro.
   4. Laufende Dividendenrendite (letzte 12 Monate / Kurs) fuer alle
      Kategorien mit "dividende" - bei den ls-tc-Werten ueber die ISIN bei
      Yahoo nachgeschlagen.
@@ -68,7 +69,8 @@ ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 INDEX_CACHE_TAGE = 7          # Indexmitglieder nur woechentlich neu laden
 YAHOO_PRO_SEKUNDE = 4         # Yahoo reagiert auf Massenabrufe mit 429 - vorsichtig
 YAHOO_PARALLEL = 4
-YAHOO_MAX_429 = 150           # danach Yahoo fuer diesen Lauf aufgeben (Vortagesdaten bleiben)
+YAHOO_MAX_429_FOLGE = 40      # so viele 429 HINTEREINANDER = echte Sperre -> Yahoo fuer diesen
+                              # Lauf aufgeben (Vortagesdaten bleiben); vereinzelte 429 sind normal
 YAHOO_HISTORIE_TAGE = 3700    # gut 10 Jahre fuer die 10-Jahres-Liste
 DIV_FENSTER_TAGE = 365        # "laufend" = Ausschuettungen der letzten 12 Monate
 DIV_MAX_PROZENT = 30.0        # darueber fast sicher Sonderdividende/Datenfehler
@@ -103,7 +105,8 @@ class Drossel:
 
 _drossel = Drossel(ANFRAGEN_PRO_SEKUNDE)
 _lokal = threading.local()
-ZAEHLER = {"anfragen": 0, "fehler": 0, "yahoo": 0, "yahoo_fehler": 0, "yahoo_429": 0}
+ZAEHLER = {"anfragen": 0, "fehler": 0, "yahoo": 0, "yahoo_fehler": 0, "yahoo_429": 0,
+           "yahoo_429_folge": 0}
 
 
 def _session():
@@ -303,27 +306,61 @@ _yahoo_pause = {"bis": 0.0}
 _yahoo_lock = threading.Lock()
 
 
+_yahoo_s = {"session": None, "crumb": None, "crumb_versucht": False}
+
+
 def _yahoo_session():
-    if not hasattr(_lokal, "y"):
-        s = requests.Session()
-        s.headers.update({"User-Agent": BROWSER_UA, "Accept": "application/json,text/plain,*/*",
-                          "Accept-Language": "en-US,en;q=0.9"})
-        try:                       # setzt die Yahoo-Cookies - ohne gibt es eher 429
-            s.get("https://fc.yahoo.com", timeout=10)
-        except Exception:
-            pass
-        _lokal.y = s
-    return _lokal.y
+    """EINE gemeinsame Session fuer alle Threads: Yahoo bindet den Crumb an
+    die Cookies - getrennte Sessions je Thread wuerden nicht zusammenpassen."""
+    with _yahoo_lock:
+        if _yahoo_s["session"] is None:
+            s = requests.Session()
+            s.headers.update({"User-Agent": BROWSER_UA, "Accept": "application/json,text/plain,*/*",
+                              "Accept-Language": "en-US,en;q=0.9"})
+            try:                   # setzt die Yahoo-Cookies - ohne gibt es eher 429
+                s.get("https://fc.yahoo.com", timeout=10)
+            except Exception:
+                pass
+            _yahoo_s["session"] = s
+        return _yahoo_s["session"]
+
+
+def yahoo_crumb(neu=False):
+    """Crumb fuer die Endpunkte, die ihn verlangen (Kursuebersicht,
+    Analystenschaetzungen). None, wenn Yahoo keinen ausgibt."""
+    s = _yahoo_session()
+    with _yahoo_lock:
+        if neu:
+            _yahoo_s["crumb"], _yahoo_s["crumb_versucht"] = None, False
+        if not _yahoo_s["crumb_versucht"]:
+            _yahoo_s["crumb_versucht"] = True
+            for host in ("query1", "query2"):
+                try:
+                    r = s.get(f"https://{host}.finance.yahoo.com/v1/test/getcrumb", timeout=15)
+                    text = (r.text or "").strip()
+                    if r.status_code == 200 and text and len(text) < 64 and "<" not in text:
+                        _yahoo_s["crumb"] = text
+                        break
+                except Exception:
+                    pass
+            if not _yahoo_s["crumb"]:
+                log.warning("Yahoo-Crumb nicht erhalten - Analystendaten fehlen heute.")
+        return _yahoo_s["crumb"]
 
 
 def yahoo_aufgegeben():
-    return ZAEHLER["yahoo_429"] >= YAHOO_MAX_429
+    return ZAEHLER["yahoo_429_folge"] >= YAHOO_MAX_429_FOLGE
 
 
-def yahoo_json(pfad, params):
+def yahoo_json(pfad, params, crumb=False):
     """GET gegen Yahoo, abwechselnd query1/query2. Bei 429 legt ein
     gemeinsamer Zeitstempel ALLE Threads kurz schlafen, statt dass jeder fuer
-    sich weiter anklopft."""
+    sich weiter anklopft. crumb=True haengt den Sitzungs-Crumb an."""
+    if crumb:
+        c = yahoo_crumb()
+        if not c:
+            return None
+        params = {**params, "crumb": c}
     for versuch in range(4):
         if yahoo_aufgegeben():
             return None
@@ -338,10 +375,20 @@ def yahoo_json(pfad, params):
             if r.status_code == 429:
                 with _yahoo_lock:
                     ZAEHLER["yahoo_429"] += 1
+                    ZAEHLER["yahoo_429_folge"] += 1
+                    if ZAEHLER["yahoo_429_folge"] == YAHOO_MAX_429_FOLGE:
+                        log.error("Yahoo sperrt dauerhaft - breche Yahoo-Abrufe fuer heute ab.")
                     _yahoo_pause["bis"] = max(_yahoo_pause["bis"], time.monotonic() + 15 * (versuch + 1))
                 continue
+            ZAEHLER["yahoo_429_folge"] = 0         # Antwort ohne Sperre
             if r.status_code == 404:
                 return None                         # Symbol unbekannt - kein Wiederholen
+            if r.status_code == 401 and crumb and versuch == 0:
+                c = yahoo_crumb(neu=True)           # Crumb abgelaufen -> einmal erneuern
+                if not c:
+                    return None
+                params = {**params, "crumb": c}
+                continue
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -356,13 +403,13 @@ def _tag(ts, versatz):
     return datetime.datetime.fromtimestamp(int(ts) + int(versatz or 0), datetime.timezone.utc).date()
 
 
-def yahoo_chart(symbol, tage):
+def yahoo_chart(symbol, tage, intervall="1d"):
     """Tageskurse (nicht dividendenbereinigt - wie bei ls-tc reine
     Kursperformance) plus Dividendenzahlungen eines Yahoo-Symbols."""
     jetzt = int(time.time())
     daten = yahoo_json(f"/v8/finance/chart/{quote(symbol)}", {
         "period1": jetzt - tage * 86400, "period2": jetzt + 86400,
-        "interval": "1d", "events": "div", "includePrePost": "false"})
+        "interval": intervall, "events": "div", "includePrePost": "false"})
     ergebnis = ((daten or {}).get("chart") or {}).get("result") or []
     if not ergebnis:
         return None
@@ -417,36 +464,56 @@ def dividendenrendite(chart):
     return round(rendite, 2)
 
 
-def yahoo_symbol_suchen(begriff, land=""):
-    """Sucht das Yahoo-Symbol der Heimatboerse zu ISIN oder Name."""
+def yahoo_symbol_suchen(begriff, land="", endung=None):
+    """Sucht das Yahoo-Symbol der Heimatboerse zu ISIN oder Name. endung
+    erzwingt eine Boerse (".T", ".L" ...; "" = US-Listing)."""
     daten = yahoo_json("/v1/finance/search", {"q": begriff, "quotesCount": 10, "newsCount": 0,
                                                "listsCount": 0, "enableFuzzyQuery": "false"})
     kandidaten = [q.get("symbol") for q in (daten or {}).get("quotes") or []
                   if q.get("quoteType") == "EQUITY" and q.get("symbol")]
     if not kandidaten:
         return None
-    endung = YAHOO_ENDUNG.get(land)
+    if endung is None:
+        endung = YAHOO_ENDUNG.get(land)
     if endung:
-        for sym in kandidaten:
-            if sym.endswith(endung):
-                return sym
+        return next((sym for sym in kandidaten if sym.endswith(endung)), None)
+    if endung == "":
+        return next((sym for sym in kandidaten if "." not in sym), None)
     for sym in kandidaten:
         if "." not in sym:                 # US-Heimatlisting
             return sym
     return kandidaten[0]
 
 
-def eurusd_reihe():
-    """USD je 1 EUR, taeglich - zum Umrechnen der US-Kurse in Euro."""
-    chart = yahoo_chart("EURUSD=X", YAHOO_HISTORIE_TAGE + 30)
-    if not chart:
+# ---------------------------------------------------------------------------
+# Waehrungen: alles in Euro
+# ---------------------------------------------------------------------------
+# Unterwaehrungen (Pence, Agorot, Cent): fuer die PERFORMANCE spielt der
+# konstante Faktor 100 keine Rolle - es zaehlt nur die Kursbewegung der
+# Hauptwaehrung.
+HAUPTWAEHRUNG = {"GBp": "GBP", "GBX": "GBP", "ILA": "ILS", "ZAc": "ZAR", "ZAC": "ZAR", "KWF": "KWD"}
+_fx_cache = {}
+_fx_lock = threading.Lock()
+
+
+def fx_reihe(waehrung):
+    """Tagesreihe 'Einheiten der Waehrung je 1 EUR' (Yahoo 'EURxxx=X').
+    None = Euro (keine Umrechnung), False = nicht ladbar."""
+    w = HAUPTWAEHRUNG.get(waehrung, (waehrung or "").upper())
+    if w in ("", "EUR"):
         return None
-    return [t for t, _ in chart["reihe"]], [k for _, k in chart["reihe"]]
+    with _fx_lock:
+        if w not in _fx_cache:
+            chart = yahoo_chart(f"EUR{w}=X", YAHOO_HISTORIE_TAGE + 30)
+            _fx_cache[w] = ([t for t, _ in chart["reihe"]], [k for _, k in chart["reihe"]]) if chart else False
+            if not chart:
+                log.warning(f"Wechselkurs EUR/{w} nicht ladbar - Werte in {w} fehlen heute.")
+        return _fx_cache[w]
 
 
 def in_euro(reihe, fx):
-    """Rechnet eine USD-Reihe mit dem Kurs des jeweiligen Tages (bzw. des
-    letzten Tages davor) in Euro um."""
+    """Rechnet eine Kursreihe mit dem Wechselkurs des jeweiligen Tages (bzw.
+    des letzten Tages davor) in Euro um."""
     tage, kurse = fx
     ergebnis = []
     for tag, kurs in reihe:
@@ -457,17 +524,73 @@ def in_euro(reihe, fx):
 
 
 # ---------------------------------------------------------------------------
-# Mitgliederlisten der US-Indizes
+# Mitgliederlisten der Indizes und Yahoo-Symbole
 # ---------------------------------------------------------------------------
-def symbol_aus_ticker(ticker):
-    """iShares 'BRK.B' / 'BF/B' / 'MOG A' -> Yahoo 'BRK-B'."""
-    return re.sub(r"[./ ]+", "-", ticker.strip().upper())
+# Boerse (Spalte "Exchange" der iShares-Liste) -> Yahoo-Endung. Stichwort-
+# suche, Reihenfolge wichtig (spezifisch vor allgemein).
+BOERSE_ENDUNG = [
+    ("shanghai", ".SS"), ("shenzhen", ".SZ"), ("hong kong", ".HK"), ("tokyo", ".T"),
+    ("kosdaq", ".KQ"), ("korea", ".KS"), ("gretai", ".TWO"), ("taipei exchange", ".TWO"),
+    ("taiwan", ".TW"), ("national stock exchange of india", ".NS"), ("bombay", ".BO"),
+    ("london", ".L"), ("xetra", ".DE"), ("deutsche b", ".DE"), ("frankfurt", ".DE"),
+    ("paris", ".PA"), ("amsterdam", ".AS"), ("brussels", ".BR"), ("lisbon", ".LS"),
+    ("irish", ".IR"), ("dublin", ".IR"), ("swiss", ".SW"), ("helsinki", ".HE"),
+    ("copenhagen", ".CO"), ("stockholm", ".ST"), ("oslo", ".OL"), ("italiana", ".MI"),
+    ("milan", ".MI"), ("madrid", ".MC"), ("wiener", ".VI"), ("vienna", ".VI"),
+    ("warsaw", ".WA"), ("athens", ".AT"), ("budapest", ".BD"), ("prague", ".PR"),
+    ("toronto", ".TO"), ("tsx venture", ".V"), ("asx", ".AX"), ("australian", ".AX"),
+    ("sao paulo", ".SA"), ("bovespa", ".SA"), ("b3 s.a", ".SA"), ("mexicana", ".MX"),
+    ("johannesburg", ".JO"), ("singapore", ".SI"), ("tel aviv", ".TA"), ("saudi", ".SR"),
+    ("thailand", ".BK"), ("bursa malaysia", ".KL"), ("indonesia", ".JK"),
+    ("new zealand", ".NZ"), ("istanbul", ".IS"), ("santiago", ".SN"), ("philippine", ".PS"),
+    ("qatar", ".QA"), ("kuwait", ".KW"), ("egypt", ".CA"), ("colombia", ".CL"),
+    ("lima", ".LM"), ("abu dhabi", ".AE"), ("dubai", ".AE"),
+    ("new york", ""), ("nyse", ""), ("cboe", ""), ("bats", ""), ("nasdaq", ""),
+]
+# Ersatz ueber das Sitzland, wenn die Boerse unbekannt/mehrdeutig ist
+# (z.B. "Nasdaq Omx Nordic" = Stockholm, Kopenhagen oder Helsinki)
+LAND_ENDUNG = {
+    "United States": "", "United Kingdom": ".L", "Germany": ".DE", "France": ".PA",
+    "Netherlands": ".AS", "Belgium": ".BR", "Portugal": ".LS", "Ireland": ".IR",
+    "Switzerland": ".SW", "Finland": ".HE", "Denmark": ".CO", "Sweden": ".ST",
+    "Norway": ".OL", "Italy": ".MI", "Spain": ".MC", "Austria": ".VI", "Poland": ".WA",
+    "Greece": ".AT", "Japan": ".T", "Korea (South)": ".KS", "Taiwan": ".TW", "India": ".NS",
+    "Hong Kong": ".HK", "Canada": ".TO", "Australia": ".AX", "Brazil": ".SA", "Mexico": ".MX",
+    "South Africa": ".JO", "Singapore": ".SI", "Israel": ".TA", "Saudi Arabia": ".SR",
+    "Thailand": ".BK", "Malaysia": ".KL", "Indonesia": ".JK", "New Zealand": ".NZ",
+    "Turkey": ".IS", "Chile": ".SN", "Philippines": ".PS", "Qatar": ".QA", "Kuwait": ".KW",
+    "Egypt": ".CA", "Colombia": ".CL", "Peru": ".LM", "United Arab Emirates": ".AE",
+}
+
+
+def yahoo_endung(boerse, standort):
+    b = (boerse or "").lower()
+    if "nordic" in b or "omx" in b:                    # Land entscheidet
+        return LAND_ENDUNG.get(standort, ".ST")
+    for stichwort, endung in BOERSE_ENDUNG:
+        if stichwort in b:
+            return endung
+    return LAND_ENDUNG.get(standort, "")
+
+
+def yahoo_symbol(ticker, boerse="", standort="United States"):
+    """iShares-Ticker -> Yahoo-Symbol der Heimatboerse:
+    'BRK.B' -> 'BRK-B', 'BP.' (London) -> 'BP.L', '700' (HK) -> '0700.HK',
+    'VOLV B' (Stockholm) -> 'VOLV-B.ST', '5930' (Korea) -> '005930.KS'."""
+    endung = yahoo_endung(boerse, standort)
+    t = ticker.strip().upper().rstrip(".*").strip()
+    if endung == ".HK" and t.isdigit():
+        t = t.zfill(4)
+    elif endung in (".KS", ".KQ", ".SS", ".SZ") and t.isdigit():
+        t = t.zfill(6)
+    t = re.sub(r"[./ ]+", "-", t).strip("-")
+    return t + endung, endung
 
 
 def ishares_mitglieder(fonds):
     """Liest die Bestandsliste eines iShares-ETFs (CSV mit einigen Kopfzeilen
     vor der eigentlichen Tabelle). Nur Aktien - Cash, Futures und
-    Geldmarktfonds fallen raus."""
+    Geldmarktfonds fallen raus. Eintrag: [Ticker, Name, Boerse, Sitzland, Sektor]."""
     try:
         r = requests.get(INDEX_FONDS[fonds]["url"], timeout=60,
                          headers={"User-Agent": BROWSER_UA, "Accept": "text/csv,*/*"})
@@ -484,17 +607,19 @@ def ishares_mitglieder(fonds):
     for z in csv.DictReader(io.StringIO("\n".join(zeilen[kopf:]))):
         ticker = (z.get("Ticker") or "").strip()
         klasse = (z.get("Asset Class") or "").strip().lower()
-        if not ticker or klasse != "equity" or not re.fullmatch(r"[A-Z0-9./ ]{1,10}", ticker):
+        if not ticker or klasse != "equity" or not re.fullmatch(r"[A-Z0-9./ &*\-]{1,15}", ticker):
             continue
         name = re.sub(r"\s+", " ", (z.get("Name") or ticker).strip())
-        mitglieder.append([ticker, name])
+        mitglieder.append([ticker, name, (z.get("Exchange") or "").strip(),
+                           (z.get("Location") or "").strip(), (z.get("Sector") or "").strip()])
     log.info(f"iShares {fonds}: {len(mitglieder)} Aktien")
     return mitglieder
 
 
 def nasdaq_filter(von, bis):
-    """Ersatzquelle, falls iShares ausfaellt und noch keine Liste gespeichert
-    ist: alle US-Aktien der Nasdaq-Uebersicht im Boersenwert-Bereich."""
+    """Ersatzquelle fuer US-Listen, falls iShares ausfaellt und noch keine
+    Liste gespeichert ist: alle US-Aktien der Nasdaq-Uebersicht im
+    Boersenwert-Bereich."""
     try:
         r = requests.get("https://api.nasdaq.com/api/screener/stocks",
                          params={"tableonly": "true", "limit": "10000", "offset": "0", "download": "true"},
@@ -513,15 +638,17 @@ def nasdaq_filter(von, bis):
             continue
         if (re.fullmatch(r"[A-Z]{1,5}", sym) and (z.get("country") or "") == "United States"
                 and wert >= von and (bis is None or wert < bis)):
-            mitglieder.append([sym, (z.get("name") or sym).strip()])
+            mitglieder.append([sym, (z.get("name") or sym).strip(), "NASDAQ", "United States",
+                               (z.get("sector") or "").strip()])
     log.info(f"Nasdaq-Filter {von:.0e}-{bis or 'max'}: {len(mitglieder)} Aktien")
     return mitglieder
 
 
 def index_mitglieder(kat, cache, heute):
     """Mitglieder einer Index-Kategorie; je Fonds woechentlich neu, sonst aus
-    dem Cache. Gibt (liste, quellen_hinweis) zurueck."""
+    dem Cache. Gibt ([(ticker, name, boerse, standort, sektor)], quellen_hinweis)."""
     alle, hinweise = {}, []
+    ohne = kat.get("ohne_standorte") or set()
     for fonds in kat["indizes"]:
         eintrag = cache.get(fonds) or {}
         try:
@@ -537,43 +664,54 @@ def index_mitglieder(kat, cache, heute):
                 log.warning(f"{fonds}: nutze gespeicherte Liste vom {eintrag.get('stand')}")
         if eintrag.get("liste"):
             hinweise.append(f"{INDEX_FONDS[fonds]['titel']} (Stand {eintrag.get('stand')})")
-            for ticker, name in eintrag["liste"]:
-                alle.setdefault(ticker, name)
+            for e in eintrag["liste"]:
+                ticker, name = e[0], e[1]
+                boerse = e[2] if len(e) > 2 else ""
+                standort = e[3] if len(e) > 3 else "United States"
+                sektor = e[4] if len(e) > 4 else ""
+                if standort in ohne:
+                    continue
+                symbol, _ = yahoo_symbol(ticker, boerse, standort)
+                alle.setdefault(symbol, (ticker, name, boerse, standort, sektor))
     if not alle and kat.get("ersatz_boersenwert"):
         von, bis = kat["ersatz_boersenwert"]
-        for ticker, name in nasdaq_filter(von, bis):
-            alle.setdefault(ticker, name)
+        for ticker, name, boerse, standort, sektor in nasdaq_filter(von, bis):
+            alle.setdefault(ticker, (ticker, name, boerse, standort, sektor))
         if alle:
             hinweise.append("Ersatz: Nasdaq-Filter nach Börsenwert (iShares nicht erreichbar)")
-    return sorted(alle.items()), hinweise
+    return [alle[k] for k in sorted(alle)], hinweise
 
 
 def schoener_name(name):
-    """'SUPER MICRO COMPUTER INC' -> 'Super Micro Computer Inc'"""
-    if name and name.isupper():
-        return " ".join(w if len(w) <= 3 and w in ("REIT", "LLC", "PLC", "AG", "SA", "NV")
-                        else w.capitalize() for w in name.split())
-    return name
+    """'SUPER MICRO COMPUTER INC' -> 'Super Micro Computer Inc', Kuerzel wie
+    'BP PLC' / 'SAP SE' bleiben gross."""
+    if not name or not name.isupper():
+        return name
+    klein = {"INC", "CORP", "LTD", "CO", "THE", "AND", "OF", "DE", "LA", "DI", "DER", "NEW", "ONE"}
+    return " ".join(w if len(w) <= 3 and w not in klein else w.capitalize() for w in name.split())
 
 
-def lade_indexwert(ticker, name, fx, ymap):
-    """Kurshistorie (in EUR) + Dividendenrendite eines US-Indexwerts.
-    Unbekanntes Symbol -> einmalige Namenssuche bei Yahoo, Treffer wird
-    gemerkt (ymap)."""
-    symbol = ymap.get("ticker", {}).get(ticker) or symbol_aus_ticker(ticker)
+def lade_indexwert(ticker, name, boerse, standort, ymap):
+    """Kurshistorie (in EUR) + Dividendenrendite eines Indexwerts.
+    Unbekanntes Symbol -> einmalige Namenssuche bei Yahoo an derselben
+    Boerse, Treffer wird gemerkt (ymap)."""
+    standard, endung = yahoo_symbol(ticker, boerse, standort)
+    gemerkt = ymap.setdefault("ticker", {})
+    symbol = gemerkt.get(standard) or standard
     chart = yahoo_chart(symbol, YAHOO_HISTORIE_TAGE)
-    if chart is None and not yahoo_aufgegeben() and ticker not in ymap.get("ticker", {}):
-        gefunden = yahoo_symbol_suchen(name, "US")
+    if chart is None and not yahoo_aufgegeben() and standard not in gemerkt:
+        gefunden = yahoo_symbol_suchen(schoener_name(name), endung=endung)
         if gefunden and gefunden != symbol:
             chart = yahoo_chart(gefunden, YAHOO_HISTORIE_TAGE)
             if chart:
-                ymap.setdefault("ticker", {})[ticker] = gefunden
+                gemerkt[standard] = gefunden
                 symbol = gefunden
     if chart is None:
         return symbol, None, None, name
-    reihe = chart["reihe"]
-    if chart["waehrung"] == "USD" and fx:
-        reihe = in_euro(reihe, fx)
+    fx = fx_reihe(chart["waehrung"])
+    if fx is False:
+        return symbol, None, None, name                # Waehrung nicht umrechenbar
+    reihe = in_euro(chart["reihe"], fx) if fx else chart["reihe"]
     anzeige = schoener_name(chart["name"] or name)
     return symbol, bereinigen(reihe), dividendenrendite(chart), anzeige
 
@@ -672,23 +810,15 @@ def main():
     index_cache_vorher = repr(index_cache)
     quellen_hinweis = {}
     index_keys = [k for k, kat in KATEGORIEN.items() if kat["quelle"] == "index"]
-    fx = None
-    if index_keys:
-        fx = eurusd_reihe()
-        if not fx:
-            log.warning("EUR/USD nicht ladbar - US-Werte werden heute nicht neu berechnet.")
     for key in index_keys:
         kat = KATEGORIEN[key]
         liste, quellen_hinweis[key] = index_mitglieder(kat, index_cache, heute)
         mitglieder[key] = []
-        if not fx:
-            mitglieder[key] = [(f"Y:{symbol_aus_ticker(t)}", n, t, "") for t, n in liste]
-            continue
         log.info(f"{kat['titel']}: lade {len(liste)} Werte von Yahoo ...")
         with ThreadPoolExecutor(YAHOO_PARALLEL) as pool:
-            geladen = list(pool.map(lambda e: lade_indexwert(e[0], e[1], fx, ymap), liste))
+            geladen = list(pool.map(lambda e: lade_indexwert(*e[:4], ymap), liste))
         ohne = 0
-        for (ticker, name), (symbol, reihe, div, anzeige) in zip(liste, geladen):
+        for (ticker, name, *_), (symbol, reihe, div, anzeige) in zip(liste, geladen):
             uid = f"Y:{symbol}"
             mitglieder[key].append((uid, anzeige, symbol, ""))
             if uid not in perf_je_id:
@@ -699,7 +829,7 @@ def main():
             if not reihe:
                 ohne += 1
                 if ohne <= 100:
-                    nicht_gefunden.append({"kategorie": kat["titel"], "isin": ticker, "name": name})
+                    nicht_gefunden.append({"kategorie": kat["titel"], "isin": symbol, "name": name})
         log.info(f"{kat['titel']}: {len(liste) - ohne} von {len(liste)} mit Kursdaten")
     if repr(index_cache) != index_cache_vorher:
         speichere_state(STATE_INDIZES, index_cache, "top50: indexlisten [skip ci]")
@@ -749,8 +879,7 @@ def main():
 
         def zeile(e, schluessel):
             uid, name, wkn, isin, p = e
-            z = {"name": name, "wkn": wkn, "isin": isin, "id": uid,
-                 "perf": p.get(schluessel), "kurs": round(p["_kurs"], 4), "stand": p["_stand"]}
+            z = {"name": name, "wkn": wkn, "perf": p.get(schluessel)}
             if kat.get("dividende"):
                 z["div"] = p.get("_div")
             return z
