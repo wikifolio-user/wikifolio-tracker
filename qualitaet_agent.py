@@ -48,7 +48,10 @@ STATE_TRENDS = "state/qualitaet/revisionen.json"
 STATE_SEKTOREN = "state/qualitaet/sektoren.json"
 STATE_VERLAUF = "state/qualitaet/verlauf.json"
 STATE_DETAILS = "state/qualitaet/details_{}.json"
-STATE_MATRIX = "state/qualitaet/matrix.json"      # Qualitaet x Kursentwicklung, alle Aktien
+STATE_ALLE = "state/qualitaet/alle_{}.json"       # ALLE bewerteten Aktien (Index-Filter, Qualitaet x Kurs)
+STATE_GRUPPEN = "state/qualitaet/gruppen.json"    # Kategorien + Indizes -> Symbole
+STATE_VERLAUF_INDIZES = "state/qualitaet/verlauf_indizes.json"
+ALLE_TEILE = 6
 CACHE_TEILE = 32
 DETAIL_TEILE = 32             # Details fuer ALLE bewerteten Aktien (auch die der Qualitaet-x-Kurs-Liste)
 
@@ -779,6 +782,11 @@ ZEILEN_FELDER = ("name", "br", "kurs", "kwae", "mcap", "g_ums", "g_eps", "g_fcf"
                  "risiko", "gesamt", "klasse", "grund", "q_ant", "b_ant", "gj")
 
 
+ALLE_FELDER = ["s", "name", "br", "kurs", "kwae", "mcap", "g_ums", "g_eps", "g_fcf", "g_fcfps", "roic", "om",
+               "fm", "nde", "akt", "fkgv", "ev_ebit", "fcfy", "moat", "mgmt", "bew", "risiko", "gesamt",
+               "klasse", "q_ant", "b_ant", "mos", "p6", "p12", "p36", "d"]
+
+
 def zeile(e):
     z = {f: e[f] for f in ZEILEN_FELDER}
     z["d"] = detail_teil(e["s"])
@@ -819,7 +827,7 @@ def universum(heute):
         T.speichere_state(T.STATE_YAHOO, ymap, "qualitaet: isin-zuordnung [skip ci]")
     if repr(index_cache) != index_vorher:
         T.speichere_state(T.STATE_INDIZES, index_cache, "qualitaet: indexlisten [skip ci]")
-    return stamm, je_kat
+    return stamm, je_kat, index_cache
 
 
 def main():
@@ -827,7 +835,7 @@ def main():
     jetzt = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
     heute = jetzt.date()
 
-    stamm, je_kat = universum(heute)
+    stamm, je_kat, index_cache = universum(heute)
     alle = sorted(stamm)
     log.info(f"Universum: {len(alle)} Aktien in {len(je_kat)} Kategorien")
 
@@ -867,7 +875,7 @@ def main():
     # Reihenfolge beim Aufbau: grosse Standardwerte zuerst, Russell-Nebenwerte
     # zuletzt - so sind die wichtigsten Listen schon nach dem ersten Lauf voll
     vorrang = {}
-    for rang, key in enumerate(("aktien", "dividenden", "usa", "europa", "welt", "nebenwerte")):
+    for rang, key in enumerate(("aktien", "dividenden", "usa", "europa", "welt", "welt_neben", "em", "nebenwerte")):
         for sym in je_kat.get(key, []):
             vorrang.setdefault(sym, rang)
     faellig = [s for s in alle if alter(s) >= faellig_ab(s)]
@@ -992,6 +1000,38 @@ def main():
                     r["grund"] = "nicht mehr bewertet"
     ausgabe["vergleich_seit"] = seit
     ausgabe["vergleich"] = vergleich
+
+    # Index-Filter: Mitglieder je Index (woechentlich, von beiden Agenten
+    # geteilt) + Wochenvergleich der Index-Ranglisten
+    gruppen = {"stand": ausgabe["stand"], "reihenfolge": ausgabe["reihenfolge"], "kategorien": {}, "indizes": {},
+               "regionen": T.INDEX_REGIONEN}
+    for key, kat_erg in ausgabe["kategorien"].items():
+        gruppen["kategorien"][key] = {"titel": kat_erg["titel"]}
+        if key != "alle":
+            gruppen["kategorien"][key]["s"] = [s_ for s_ in je_kat[key] if s_ in ergebnisse]
+    try:
+        indizes = T.index_mitgliedschaften({s_: stamm[s_]["name"] for s_ in stamm}, index_cache, heute)
+        volle_idx = {}
+        for key, info in indizes.items():
+            mitglieder_idx = [s_ for s_ in info.get("s", []) if s_ in ergebnisse]
+            gruppen["indizes"][key] = {"titel": info["titel"], "region": info["region"], "s": mitglieder_idx,
+                                       "tabelle": info.get("tabelle"), "zugeordnet": len(info.get("s", []))}
+            volle_idx[f"i:{key}|top"] = rangliste(mitglieder_idx, len(mitglieder_idx))
+            for kl in ("prio", "beobachten", "nicht"):
+                volle_idx[f"i:{key}|{kl}"] = rangliste([s_ for s_ in mitglieder_idx
+                                                        if ergebnisse[s_]["klasse"] == kl], len(mitglieder_idx))
+        _, vergleich_idx = T.wochenvergleich(STATE_VERLAUF_INDIZES, heute, volle_idx,
+                                             {s_: stamm[s_]["name"] for s_ in stamm}, top_n=n)
+        for v in vergleich_idx.values():
+            for r in v["raus"]:
+                if r["jetzt"] is None:
+                    if r["id"] in ergebnisse:
+                        r["klasse"] = ergebnisse[r["id"]]["klasse"]
+                    else:
+                        r["grund"] = "nicht mehr bewertet"
+        ausgabe["vergleich"].update(vergleich_idx)
+    except Exception as e:                 # Index-Filter darf den Score nie verhindern
+        log.error(f"Index-Zuordnung fehlgeschlagen: {e}", exc_info=True)
     dauer = time.monotonic() - start
     ausgabe["laufzeit_sek"] = round(dauer)
     ausgabe["anfragen"] = T.ZAEHLER["yahoo"]
@@ -1007,27 +1047,18 @@ def main():
     for i, d in details.items():
         T.speichere_state(STATE_DETAILS.format(i), {"stand": ausgabe["stand"], "werte": d},
                           f"qualitaet: details {i} [skip ci]")
-    # Qualitaet x Kurs: kompakte Zeile je bewerteter Aktie (Arrays statt Dicts,
-    # damit auch 5.000+ Aktien deutlich unter 1 MB bleiben)
-    sym_index = {s: i for i, s in enumerate(sorted(ergebnisse))}
-    matrix = {
-        "stand": ausgabe["stand"],
-        "felder": ["s", "name", "br", "gesamt", "klasse", "q_ant", "b_ant", "fcfy", "mos", "bew",
-                   "p6", "p12", "p36", "d"],
-        "zeilen": [[s, (e["name"] or s)[:34], (e.get("br") or "")[:24], e["gesamt"], e["klasse"],
-                    e["q_ant"], e["b_ant"], e["fcfy"], e["mos"], e["bew"], e.get("p6"), e.get("p12"),
-                    e.get("p36"), detail_teil(s)]
-                   for s, e in sorted(ergebnisse.items())],
-        "reihenfolge": ausgabe["reihenfolge"],
-        "kategorien": {k: {"titel": v["titel"],
-                           "idx": [sym_index[s] for s in ((alle if k == "alle" else je_kat[k]))
-                                   if s in sym_index]}
-                       for k, v in ausgabe["kategorien"].items()},
-    }
-    if len(json.dumps(matrix, ensure_ascii=False).encode()) > MAX_JSON_BYTES:
-        for z in matrix["zeilen"]:          # Notfall: kuerzere Texte statt fehlender Aktien
-            z[1], z[2] = z[1][:22], z[2][:12]
-    T.speichere_state(STATE_MATRIX, matrix, "qualitaet: matrix [skip ci]")
+    # Gesamtdaten ALLER bewerteten Aktien fuer den Index-Filter und
+    # "Qualitaet x Kurs": die App bildet daraus jede beliebige Rangliste.
+    # Kompakt als Arrays, verteilt auf ALLE_TEILE Dateien (je < 1 MB).
+    teile = {i: [] for i in range(ALLE_TEILE)}
+    for s_, e in ergebnisse.items():
+        teile[zlib.crc32(s_.encode()) % ALLE_TEILE].append(
+            [s_, (e["name"] or s_)[:40], (e.get("br") or "")[:28]] + [e.get(f) for f in ALLE_FELDER[3:-1]]
+            + [detail_teil(s_)])
+    for i, zeilen in teile.items():
+        T.speichere_state(STATE_ALLE.format(i), {"stand": ausgabe["stand"], "felder": ALLE_FELDER, "zeilen": zeilen},
+                          f"qualitaet: alle aktien {i} [skip ci]")
+    T.speichere_state(STATE_GRUPPEN, gruppen, "qualitaet: gruppen [skip ci]")
     T.speichere_state(STATE_ERGEBNIS, ausgabe, "qualitaet: taeglicher score [skip ci]")
     klassen = ausgabe["kategorien"]["alle"]["klassen"]
     log.info(f"Fertig in {dauer:.0f}s - {len(ergebnisse)} bewertet "
