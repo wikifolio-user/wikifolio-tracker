@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: top50
+  group: yahoo-abrufe   # nie gleichzeitig mit dem Qualitaets-Agenten (Yahoo-Drossel)
   cancel-in-progress: false
 
 jobs:
