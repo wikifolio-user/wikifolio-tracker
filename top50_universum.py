@@ -264,6 +264,11 @@ INDEX_FONDS = {
     "ACWX": {"titel": "MSCI ACWI ex USA",
              "url": "https://www.ishares.com/us/products/239594/ishares-msci-acwi-ex-us-etf/"
                     "1467271812596.ajax?fileType=csv&fileName=ACWX_holdings&dataType=fund"},
+    # Russell Microcap: die kleinsten US-Werte (ueberschneidet sich mit dem
+    # unteren Ende des Russell 2000 - in der Kategorie werden diese entfernt)
+    "IWC": {"titel": "Russell Microcap",
+            "url": "https://www.ishares.com/us/products/239716/ishares-microcap-etf/"
+                   "1467271812596.ajax?fileType=csv&fileName=IWC_holdings&dataType=fund"},
     # MSCI EAFE Small Cap: Nebenwerte der Industrielaender ohne USA/Kanada
     "SCZ": {"titel": "MSCI EAFE Small Cap",
             "url": "https://www.ishares.com/us/products/239627/ishares-msci-eafe-smallcap-etf/"
@@ -295,6 +300,11 @@ KATEGORIEN = {
                    "indizes": ["IVV", "IJH"], "ersatz_boersenwert": (5e9, None), "dividende": True},
     "nebenwerte": {"titel": "US-Nebenwerte (Russell 2000)", "quelle": "index",
                    "indizes": ["IWM"], "ersatz_boersenwert": (2.5e8, 5e9), "dividende": True},
+    # Nur was NICHT schon im Russell 2000 steht ("ohne_fonds") - sonst waere
+    # die Haelfte der Liste doppelt. Sehr schwankungsanfaellig, oft kaum handelbar.
+    "us_micro":   {"titel": "US-Kleinstwerte (Micro Caps)", "quelle": "index",
+                   "indizes": ["IWC"], "ohne_fonds": ["IWM"], "ersatz_boersenwert": (5e7, 2.5e8),
+                   "dividende": True},
     "europa":     {"titel": "Europa (inkl. Nebenwerte)", "quelle": "index",
                    "indizes": ["IEUR"], "dividende": True},
     "welt":       {"titel": "Welt ohne USA/Europa", "quelle": "index",
@@ -331,6 +341,7 @@ INDEX_LISTEN = [
     ("sp500", "S&P 500", "USA", {"fonds": "IVV"}),
     ("sp400", "S&P MidCap 400", "USA", {"fonds": "IJH"}),
     ("r2000", "Russell 2000", "USA", {"fonds": "IWM"}),
+    ("rmicro", "Russell Microcap", "USA", {"fonds": "IWC"}),
     ("ndx", "Nasdaq-100", "USA", {"wiki": ("en", "Nasdaq-100"), "ticker_spalte": "Ticker", "endungen": [""], "anzahl": 100}),
     ("dow", "Dow Jones", "USA", {"wiki": ("en", "List_of_Dow_Jones_Industrial_Average_companies"),
                                  "ticker_spalte": "Symbol", "endungen": [""], "anzahl": 30}),
