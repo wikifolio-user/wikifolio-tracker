@@ -48,7 +48,7 @@ import requests
 import config
 import github_store
 from top50_universum import (DIVIDENDEN_SCHLUESSEL, INDEX_FONDS, INDEX_LISTEN, INDEX_REGIONEN, KATEGORIEN,
-                             TOP_N, ZEITRAEUME)
+                             TOP_N, YAHOO_DATEIGRUPPEN, YAHOO_REGIONEN, ZEITRAEUME)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger("top50")
@@ -363,10 +363,11 @@ def yahoo_aufgegeben():
     return ZAEHLER["yahoo_429_folge"] >= YAHOO_MAX_429_FOLGE
 
 
-def yahoo_json(pfad, params, crumb=False):
-    """GET gegen Yahoo, abwechselnd query1/query2. Bei 429 legt ein
-    gemeinsamer Zeitstempel ALLE Threads kurz schlafen, statt dass jeder fuer
-    sich weiter anklopft. crumb=True haengt den Sitzungs-Crumb an."""
+def yahoo_json(pfad, params, crumb=False, koerper=None):
+    """GET (bzw. POST mit JSON-koerper) gegen Yahoo, abwechselnd query1/query2.
+    Bei 429 legt ein gemeinsamer Zeitstempel ALLE Threads kurz schlafen,
+    statt dass jeder fuer sich weiter anklopft. crumb=True haengt den
+    Sitzungs-Crumb an."""
     if crumb:
         c = yahoo_crumb()
         if not c:
@@ -382,7 +383,11 @@ def yahoo_json(pfad, params, crumb=False):
         ZAEHLER["yahoo"] += 1
         host = "query1" if versuch % 2 == 0 else "query2"
         try:
-            r = _yahoo_session().get(f"https://{host}.finance.yahoo.com{pfad}", params=params, timeout=20)
+            url = f"https://{host}.finance.yahoo.com{pfad}"
+            if koerper is not None:
+                r = _yahoo_session().post(url, params=params, json=koerper, timeout=30)
+            else:
+                r = _yahoo_session().get(url, params=params, timeout=20)
             if r.status_code == 429:
                 with _yahoo_lock:
                     ZAEHLER["yahoo_429"] += 1
@@ -588,6 +593,8 @@ def yahoo_symbol(ticker, boerse="", standort="United States"):
     """iShares-Ticker -> Yahoo-Symbol der Heimatboerse:
     'BRK.B' -> 'BRK-B', 'BP.' (London) -> 'BP.L', '700' (HK) -> '0700.HK',
     'VOLV B' (Stockholm) -> 'VOLV-B.ST', '5930' (Korea) -> '005930.KS'."""
+    if boerse == "YAHOO":                  # stammt schon aus Yahoos Laenderliste
+        return ticker, (ticker[ticker.rfind("."):] if "." in ticker else "")
     endung = yahoo_endung(boerse, standort)
     t = ticker.strip().upper().rstrip(".*").strip()
     if endung == ".HK" and t.isdigit():
@@ -655,10 +662,143 @@ def nasdaq_filter(von, bis):
     return mitglieder
 
 
+# ---------------------------------------------------------------------------
+# Yahoo-Laenderlisten (Aktienfilter "Screener")
+# ---------------------------------------------------------------------------
+STATE_YAHOO_LAENDER = "state/top50_yahoo_{}.json"    # je Dateigruppe (us/europa/apac/em)
+SCREENER_SEITE = 250                                   # Obergrenze je Abruf bei Yahoo
+SCREENER_MAX_OFFSET = 10000
+SCREENER_MAX_JE_LAND = {"us": 7000}                    # sonst hoechstens die 1.500 groessten je Land
+SCREENER_MAX_STANDARD = 1500
+_laender_cache = {}
+
+
+def yahoo_screener(region, boersen, min_usd):
+    """Alle Aktien der Heimatboersen einer Region ab min_usd Boersenwert,
+    nach Boersenwert absteigend, seitenweise. -> Liste von Yahoo-Quotes."""
+    abfrage = {"operator": "AND", "operands": [
+        {"operator": "EQ", "operands": ["region", region]},
+        {"operator": "GT", "operands": ["intradaymarketcap", min_usd]},
+        {"operator": "OR", "operands": [{"operator": "EQ", "operands": ["exchange", b]} for b in boersen]},
+    ]}
+    quotes, offset, gesamt = [], 0, None
+    grenze = min(SCREENER_MAX_OFFSET, SCREENER_MAX_JE_LAND.get(region, SCREENER_MAX_STANDARD))
+    while offset < grenze:
+        daten = yahoo_json("/v1/finance/screener",
+                           {"lang": "en-US", "region": "US", "formatted": "false", "corsDomain": "finance.yahoo.com"},
+                           crumb=True,
+                           koerper={"offset": offset, "size": SCREENER_SEITE, "count": SCREENER_SEITE,
+                                    "sortField": "intradaymarketcap", "sortType": "DESC", "quoteType": "EQUITY",
+                                    "query": abfrage, "userId": "", "userIdType": "guid"})
+        ergebnis = (((daten or {}).get("finance") or {}).get("result") or [None])[0]
+        if not ergebnis:
+            break
+        seite = ergebnis.get("quotes") or []
+        gesamt = ergebnis.get("total", gesamt)
+        quotes += seite
+        offset += SCREENER_SEITE
+        if not seite or (gesamt is not None and offset >= gesamt):
+            break
+    return quotes[:grenze]
+
+
+def _usd(wert, waehrung):
+    """Boersenwert in USD (ueber die EUR-Kurse). None, wenn nicht umrechenbar."""
+    if not wert:
+        return None
+    fx_w = fx_reihe(waehrung)
+    fx_usd = fx_reihe("USD")
+    if fx_w is False or fx_usd is False or not fx_usd:
+        return None
+    eur = wert if fx_w is None else wert / fx_w[1][-1]
+    usd = eur * fx_usd[1][-1]
+    if waehrung in ("GBp", "GBX", "ZAc", "ZAC", "ILA") and usd > 5e12:
+        usd /= 100                         # falls der Wert doch in Pence o.ae. geliefert wurde
+    return usd
+
+
+def yahoo_laenderlisten(heute):
+    """{region: [[symbol, name, land, sektor, boersenwert_usd], ...]}, woechentlich
+    neu. Doppelnotierungen werden entfernt (Vorrang = Reihenfolge YAHOO_REGIONEN),
+    US-Notierungen auslaendischer Firmen (Bilanz nicht in USD) fallen weg."""
+    if _laender_cache.get("daten") is not None:
+        return _laender_cache["daten"], _laender_cache["stand"]
+    gespeichert = {g: lade_state(STATE_YAHOO_LAENDER.format(g), {}) or {} for g in YAHOO_DATEIGRUPPEN}
+    staende = [g.get("stand") for g in gespeichert.values()]
+    try:
+        alter = max((heute - datetime.date.fromisoformat(st)).days for st in staende)
+    except Exception:
+        alter = 9999
+    if alter < INDEX_CACHE_TAGE:
+        daten = {}
+        for g in gespeichert.values():
+            daten.update(g.get("regionen") or {})
+        _laender_cache.update(daten=daten, stand=min(staende))
+        return daten, min(staende)
+
+    log.info("Lade Yahoo-Laenderlisten neu ...")
+    daten, gesehen = {}, set()
+    for region, land, boersen, min_usd in YAHOO_REGIONEN:
+        quotes = yahoo_screener(region, boersen, min_usd)
+        liste = []
+        for q in quotes:
+            sym = q.get("symbol")
+            name = q.get("longName") or q.get("shortName") or sym
+            if not sym or q.get("quoteType", "EQUITY") != "EQUITY":
+                continue
+            if q.get("exchange") and q["exchange"] not in boersen:
+                continue                                   # Nebenboerse (falls Yahoo den Filter ignoriert)
+            if region == "us" and (q.get("financialCurrency") or "USD") != "USD":
+                continue                                   # ADR / auslaendische Firma
+            n = name_norm(name)
+            if n and n in gesehen:
+                continue                                   # schon an einer vorrangigen Boerse
+            gesehen.add(n)
+            liste.append([sym, name[:60], land, q.get("sector") or "",
+                          _usd(q.get("marketCap"), q.get("currency") or "USD")])
+        daten[region] = liste
+        log.info(f"Yahoo {land}: {len(liste)} Aktien (von {len(quotes)} Treffern)")
+    alt = {}
+    for g in gespeichert.values():
+        alt.update(g.get("regionen") or {})
+    # Region ohne Antwort (Stoerung) -> alte Liste behalten statt Luecke
+    for region, liste in list(daten.items()):
+        if len(liste) < 0.5 * len(alt.get(region) or []):
+            log.warning(f"Yahoo {region}: nur {len(liste)} statt {len(alt[region])} - behalte alte Liste")
+            daten[region] = alt[region]
+    if sum(len(v) for v in daten.values()) >= 100:
+        for gruppe, regionen in YAHOO_DATEIGRUPPEN.items():
+            speichere_state(STATE_YAHOO_LAENDER.format(gruppe),
+                            {"stand": heute.isoformat(), "regionen": {r: daten.get(r, []) for r in regionen}},
+                            f"top50: yahoo-laenderliste {gruppe} [skip ci]")
+        stand = heute.isoformat()
+    else:
+        log.error("Yahoo-Laenderlisten leer - nutze gespeicherte Listen.")
+        daten, stand = alt, (min(s for s in staende if s) if any(staende) else "–")
+    _laender_cache.update(daten=daten, stand=stand)
+    return daten, stand
+
+
 def index_mitglieder(kat, cache, heute):
     """Mitglieder einer Index-Kategorie; je Fonds woechentlich neu, sonst aus
     dem Cache. Gibt ([(ticker, name, boerse, standort, sektor)], quellen_hinweis)."""
     alle, hinweise = {}, []
+    if kat.get("quelle") == "yahoo":
+        laender, stand = yahoo_laenderlisten(heute)
+        von, bis = kat["boersenwert"]
+        for region in kat["regionen"]:
+            for sym, name, land, sektor, wert in laender.get(region, []):
+                if wert is not None and wert >= von and (bis is None or wert < bis):
+                    alle.setdefault(sym, (sym, name, "YAHOO", land, sektor))
+        if alle:
+            hinweise.append(f"Yahoo-Länderliste (Stand {stand})")
+        elif kat.get("ersatz_boersenwert"):
+            von, bis = kat["ersatz_boersenwert"]
+            for ticker, name, boerse, standort, sektor in nasdaq_filter(von, bis):
+                alle.setdefault(ticker, (ticker, name, boerse, standort, sektor))
+            if alle:
+                hinweise.append("Ersatz: Nasdaq-Filter nach Börsenwert (Yahoo-Länderliste nicht erreichbar)")
+        return [alle[k] for k in sorted(alle)], hinweise
     ohne = kat.get("ohne_standorte") or set()
     # Symbole anderer Fonds ausschliessen (z.B. Micro Caps ohne Russell 2000).
     # Deren Liste wird dafuer bei Bedarf ebenfalls geladen.
@@ -965,7 +1105,12 @@ def index_mitgliedschaften(universum_namen, index_cache, heute, erzwingen=False)
     ergebnis = {}
     for key, titel, region, cfg in INDEX_LISTEN:
         alt = (gespeichert.get("indizes") or {}).get(key) or {}
-        if "fonds" in cfg:
+        if "kategorie" in cfg:
+            liste, _ = index_mitglieder(KATEGORIEN[cfg["kategorie"]], index_cache, heute)
+            syms = [e[0] if e[2] == "YAHOO" else yahoo_symbol(e[0], e[2], e[3])[0] for e in liste]
+            syms = [x for x in syms if x in universum_namen]
+            anzahl = len(liste)
+        elif "fonds" in cfg:
             eintrag = index_cache.get(cfg["fonds"]) or {}
             syms = []
             for e in eintrag.get("liste") or []:
@@ -1048,7 +1193,7 @@ def aktien_universum(mitglieder, ymap):
     jede Aktie nur einmal vorkommt."""
     uni = {}
     for key, kat in KATEGORIEN.items():
-        if kat["quelle"] == "index":
+        if kat["quelle"] in ("index", "yahoo"):
             for uid, name, sym, _ in mitglieder.get(key, []):
                 uni.setdefault(sym, (name, uid, sym))
     isin_map = ymap.get("isin") or {}
@@ -1191,7 +1336,7 @@ def main():
     index_cache = lade_state(STATE_INDIZES, {}) or {}
     index_cache_vorher = repr(index_cache)
     quellen_hinweis = {}
-    index_keys = [k for k, kat in KATEGORIEN.items() if kat["quelle"] == "index"]
+    index_keys = [k for k, kat in KATEGORIEN.items() if kat["quelle"] in ("index", "yahoo")]
     for key in index_keys:
         kat = KATEGORIEN[key]
         liste, quellen_hinweis[key] = index_mitglieder(kat, index_cache, heute)
@@ -1291,14 +1436,14 @@ def main():
             "mit_daten": mit_daten,
             "top": top,
             "dividende": bool(kat.get("dividende")),
-            "kennung": "Symbol" if kat["quelle"] == "index" else "WKN",
+            "kennung": "Symbol" if kat["quelle"] in ("index", "yahoo") else "WKN",
         }
         if key in quellen_hinweis:
             neu["quellen"] = quellen_hinweis[key]
         # Yahoo gesperrt/ausgefallen: lieber die Rangliste vom Vortag zeigen als
         # eine, der die Haelfte der Werte fehlt
         alt = (vorher.get("kategorien") or {}).get(key)
-        if (kat["quelle"] == "index" and alt and alt.get("aktiv", 0) > neu["aktiv"]
+        if (kat["quelle"] in ("index", "yahoo") and alt and alt.get("aktiv", 0) > neu["aktiv"]
                 and neu["aktiv"] < 0.5 * max(neu["im_universum"], 1)):
             log.warning(f"{kat['titel']}: nur {neu['aktiv']} Werte geladen - behalte Vortagesliste.")
             alt["veraltet_seit"] = alt.get("veraltet_seit") or vorher.get("stand")
