@@ -457,6 +457,18 @@ st.markdown("""
         font-size: 0.9rem !important;
         min-height: 44px !important;
     }
+    /* Streamlit begrenzt aufgeklappte Listen auf 300px (7,5 Eintraege a 40px) -
+       der 8. Eintrag bei "Ansicht wählen" wurde dadurch angeschnitten.
+       340px zeigen 8 Eintraege vollstaendig. Bewusst nicht mehr: Streamlit
+       zeichnet nur die sichtbaren Eintraege (300px + 2 Reserve-Eintraege =
+       380px) - eine hoehere Liste haette bei langen Auswahlen (z.B. der
+       Detailanalyse) leere Stellen. Gezielt nur der Scroll-Behaelter (der als
+       einziger "overflow" im style traegt), nicht der innere Inhaltsblock. */
+    [data-testid="stSelectboxVirtualDropdown"],
+    [data-testid="stSelectboxVirtualDropdown"] div[style*="overflow"] {
+        height: auto !important;
+        max-height: min(340px, 60vh) !important;
+    }
 
     /* ---------- ABSCHNITTE & AUFKLAPPBEREICHE ----------
        Die Aufklappbereiche taten bisher zweierlei (etwas einstellen vs. etwas
