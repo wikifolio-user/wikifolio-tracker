@@ -4426,6 +4426,82 @@ def render_dashboard():
                 [zelle(n, wert=True), zelle(p), zelle(f"▼ {-d}", TREND_FARBE["down"])] for d, p, n, k in ab]),
                 unsafe_allow_html=True)
 
+    # ---------- INDEX-FILTER (gemeinsam fuer alle Listen) ----------
+    # Die Agenten schreiben die Daten ALLER Aktien in Teildateien plus die
+    # Indexmitglieder; die App bildet daraus die Rangliste des gewaehlten
+    # Index mit derselben Sortierung wie der Agent. Pfeile/Neu/Raus kommen
+    # aus dem Wochenvergleich, den die Agenten je Index-Rangliste fuehren.
+    @st.cache_data(ttl=900, show_spinner=False)
+    def _lade_teile(muster, anzahl):
+        zeilen, felder, stand = [], None, None
+        for i in range(anzahl):
+            d = gh_read(muster.format(i), None) or {}
+            felder = d.get("felder") or felder
+            stand = d.get("stand") or stand
+            zeilen += d.get("zeilen") or []
+        if not felder:
+            return {}, None
+        return {z[0]: dict(zip(felder, z)) for z in zeilen}, stand
+
+    def _q_alle():
+        return _lade_teile("state/qualitaet/alle_{}.json", 6)
+
+    def _p_alle():
+        return _lade_teile("state/top50_alle_{}.json", 4)
+
+    def _index_auswahl(prefix, indizes, regionen):
+        """Region + Index als Knoepfe. indizes = {key: {"titel","region","s"}}.
+        -> index_schluessel oder None"""
+        # Indizes ohne zugeordnete Aktien (Quelle gerade nicht lesbar) ausblenden
+        indizes = {k: v for k, v in indizes.items() if v.get("s")}
+        vorhanden = [r for r in regionen if any(v.get("region") == r for v in indizes.values())]
+        if not vorhanden:
+            st.info("Die Indexzuordnung liegt noch nicht vor – sie entsteht beim nächsten Lauf der Agenten.")
+            return None
+        region = st.pills("Region", vorhanden, default=vorhanden[0], key=f"{prefix}_region") or vorhanden[0]
+        keys = [k for k, v in indizes.items() if v.get("region") == region]
+        titel = [f'{indizes[k]["titel"]} ({len(indizes[k].get("s") or [])})' for k in keys]
+        wahl = st.pills("Index", titel, default=titel[0], key=f"{prefix}_index_{region}")
+        # Die Anzahl im Namen kann sich ueber Nacht aendern - eine gespeicherte,
+        # nicht mehr vorhandene Auswahl faellt dann auf den ersten Index zurueck
+        return keys[titel.index(wahl)] if wahl in titel else keys[0]
+
+    def _auswahl_art(prefix):
+        return st.pills("Auswahl nach", ["Kategorie", "Index"], default="Kategorie",
+                        key=f"{prefix}_auswahl_art") or "Kategorie"
+
+    INDEX_REGIONEN_APP = ["Deutschland", "USA", "Europa", "Asien/Pazifik & Kanada"]
+
+    def _p_index_kat(idx_key, info, daten):
+        """Baut aus den Gesamtdaten eine Rangliste im Format einer Kategorie
+        (top/mit_daten/vergleich), damit dieselbe Anzeige genutzt werden kann."""
+        alle, _ = _p_alle()
+        if not alle:
+            return None, None
+        iv = gh_read_taeglich("state/top50_index_vergleich.json", None) or {}
+        div_key = (daten.get("dividenden_zeitraum") or ["DIV"])[0]
+        mitglieder = [alle[s] for s in info.get("s", []) if s in alle]
+        top, mit_daten, vergleich = {}, {}, {}
+        zrs = [z[0] for z in daten.get("zeitraeume") or []] + [div_key]
+        for zr in zrs:
+            mit = [z for z in mitglieder if z.get(zr) is not None and (zr != div_key or z[zr] > 0)]
+            mit.sort(key=lambda z: (-z[zr], z["s"]))
+            mit_daten[zr] = len(mit)
+            v = (iv.get("listen") or {}).get(f"{idx_key}|{zr}")
+            eintraege = []
+            for z in mit[:50]:
+                e = {"name": z["name"], "wkn": z["kennung"], "div": z.get(div_key),
+                     "perf": z.get("1J") if zr == div_key else z[zr]}
+                if v is not None:
+                    e["vor"] = v["vor"].get(z["s"])
+                eintraege.append(e)
+            top[zr] = eintraege
+            if v is not None:
+                vergleich[zr] = {"raus": v["raus"]}
+        kat = {"titel": info.get("titel"), "top": top, "mit_daten": mit_daten, "aktiv": len(mitglieder),
+               "dividende": True, "kennung": "WKN/Symbol", "vergleich": vergleich}
+        return kat, (iv.get("seit") or {}).get(info.get("region"))
+
     def _render_performance():
         try:
             daten = gh_read_taeglich("state/top50.json", None)
@@ -4448,9 +4524,20 @@ def render_dashboard():
             kat_keys = [k for k in reihenfolge if k in kategorien] + \
                        [k for k in kategorien if k not in reihenfolge]
             kat_titel = [kategorien[k]["titel"] for k in kat_keys]
-            gewaehlt = st.pills("Kategorie", kat_titel, default=kat_titel[0], key="top50_kategorie")
-            kat_key = kat_keys[kat_titel.index(gewaehlt)] if gewaehlt in kat_titel else kat_keys[0]
-            kat = kategorien[kat_key]
+            vergleich_seit = daten.get("vergleich_seit")
+            if _auswahl_art("top50") == "Index":
+                mitglieder_idx = (gh_read_taeglich("state/top50_indexmitglieder.json", None) or {}).get("indizes") or {}
+                idx_key = _index_auswahl("top50", mitglieder_idx, INDEX_REGIONEN_APP)
+                if not idx_key:
+                    return
+                kat, vergleich_seit = _p_index_kat(idx_key, mitglieder_idx[idx_key], daten)
+                if not kat:
+                    st.info("Für diesen Index liegen noch keine Kursdaten vor – sie entstehen beim nächsten Lauf.")
+                    return
+            else:
+                gewaehlt = st.pills("Kategorie", kat_titel, default=kat_titel[0], key="top50_kategorie")
+                kat_key = kat_keys[kat_titel.index(gewaehlt)] if gewaehlt in kat_titel else kat_keys[0]
+                kat = kategorien[kat_key]
 
             # Kategorien mit Dividende bekommen zusaetzlich die Rangliste nach
             # laufender Dividendenrendite als eigene "Zeitraum"-Pille
@@ -4529,9 +4616,9 @@ def render_dashboard():
                 unsafe_allow_html=True,
             )
 
-            if mit_trend or daten.get("vergleich_seit") is None:
+            if mit_trend or vergleich_seit is None:
                 _wochen_bilanz([(r, e["name"], e.get("wkn"), e.get("vor")) for r, e in enumerate(liste, 1)],
-                               (vergleich or {}).get("raus", []), daten.get("vergleich_seit"))
+                               (vergleich or {}).get("raus", []), vergleich_seit)
 
             with st.expander("Hinweise zu den Ranglisten", expanded=False):
                 st.caption(
@@ -4802,18 +4889,41 @@ def render_dashboard():
         if not daten or not daten.get("kategorien"):
             st.info("Noch kein Qualitäts-Score vorhanden. Der Agent läuft täglich um 05:00 Uhr. Für einen "
                     "Sofortstart: auf GitHub unter **Actions → Watchlist Qualitäts-Score (täglich) → Run "
-                    "workflow**. Die Kennzahlen aller rund 6.000 Aktien werden in den ersten Tagen "
+                    "workflow**. Die Kennzahlen aller Aktien werden in den ersten Tagen "
                     "schrittweise aufgebaut (bis zu 1.500 je Lauf, große Werte zuerst).")
             return
         daten_q = daten
         kats = daten["kategorien"]
         keys = [k for k in daten.get("reihenfolge", kats) if k in kats]
         titel = [kats[k]["titel"] for k in keys]
-        wahl = st.pills("Kategorie", titel, default=titel[0], key="q_kategorie")
-        kat = kats[keys[titel.index(wahl)] if wahl in titel else keys[0]]
+        werte = daten.get("werte", {})
         ansichten = ["Gesamt-Rangliste"] + list(Q_KLASSEN.values())
+
+        if _auswahl_art("q") == "Index":
+            # Index: Rangliste aus den Gesamtdaten, gleiche Sortierung wie der Agent
+            gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
+            idx_key = _index_auswahl("q", gruppen.get("indizes") or {}, INDEX_REGIONEN_APP)
+            if not idx_key:
+                return
+            alle, _ = _q_alle()
+            info = gruppen["indizes"][idx_key]
+            mitglieder = [s for s in info.get("s", []) if s in alle]
+            werte = {s: alle[s] for s in mitglieder}
+            n = daten.get("top_n", 50)
+
+            def rang(liste):
+                return sorted(liste, key=lambda s: (-werte[s]["gesamt"], -(werte[s]["b_ant"] or 0)))[:n]
+
+            kat = {"top": rang(mitglieder), "universum": info.get("zugeordnet", len(mitglieder)),
+                   "bewertet": len(mitglieder),
+                   "je_klasse": {kl: rang([s for s in mitglieder if werte[s]["klasse"] == kl]) for kl in Q_KLASSEN},
+                   "klassen": {kl: sum(1 for s in mitglieder if werte[s]["klasse"] == kl) for kl in Q_KLASSEN}}
+            kat_key = f"i:{idx_key}"
+        else:
+            wahl = st.pills("Kategorie", titel, default=titel[0], key="q_kategorie")
+            kat_key = keys[titel.index(wahl)] if wahl in titel else keys[0]
+            kat = kats[kat_key]
         a_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="q_klasse") or ansichten[0]
-        kat_key = keys[titel.index(wahl)] if wahl in titel else keys[0]
         if a_wahl == ansichten[0]:
             symbole, liste_key = kat["top"], f"{kat_key}|top"
         else:
@@ -4827,8 +4937,9 @@ def render_dashboard():
             stand = daten.get("stand", "–")
         abd = daten.get("abdeckung", {})
         kl = kat["klassen"]
+        basis_txt = "Indexmitgliedern" if kat_key.startswith("i:") else "Aktien"
         st.caption(
-            f"Stand {stand} · {kat['bewertet']} von {kat['universum']} Aktien bewertet · "
+            f"Stand {stand} · {kat['bewertet']} von {kat['universum']} {basis_txt} bewertet · "
             f"Priorität {kl['prio']} · Beobachten {kl['beobachten']} · Nicht weiterverfolgen {kl['nicht']}"
         )
         if abd.get("mit_kennzahlen", 0) < 0.9 * abd.get("universum", 1):
@@ -4836,10 +4947,9 @@ def render_dashboard():
                        f"{abd.get('universum', 0)} Aktien liegen vor. Jeder Lauf ergänzt bis zu 1.500 – "
                        "große Werte zuerst, Russell-Nebenwerte zuletzt.")
         if not symbole:
-            st.info("In dieser Einordnung gibt es in dieser Kategorie derzeit keine Aktie.")
+            st.info("In dieser Einordnung gibt es hier derzeit keine Aktie.")
             return
 
-        werte = daten.get("werte", {})
         titel_fokus = [t for _, t, _, _ in Q_SPALTEN]
         f_wahl = st.pills("Kennzahl in der Tabelle", titel_fokus, default="ROIC", key="q_fokus") or "ROIC"
         fokus = Q_SPALTEN[titel_fokus.index(f_wahl)][0] if f_wahl in titel_fokus else "roic"
@@ -4905,12 +5015,17 @@ def render_dashboard():
     ]
 
     def _qk_daten():
-        m = gh_read_taeglich("state/qualitaet/matrix.json", None)
-        if not m or not m.get("zeilen"):
+        """Gesamtdaten aller bewerteten Aktien + Kategorien/Indizes."""
+        alle, _ = _q_alle()
+        gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
+        if not alle or not gruppen.get("kategorien"):
             return None
-        felder = m["felder"]
-        m["_zeilen"] = [dict(zip(felder, z)) for z in m["zeilen"]]
-        return m
+        return {"alle": alle, "gruppen": gruppen}
+
+    def _qk_zeilen(m, kat_key):
+        if kat_key == "alle":
+            return list(m["alle"].values())
+        return [m["alle"][s_] for s_ in m["gruppen"]["kategorien"].get(kat_key, {}).get("s", []) if s_ in m["alle"]]
 
     def _qk_einteilen(zeilen, zr_key):
         """-> ({feld: [zeilen sortiert]}, median) fuer Zeilen mit Kursdaten"""
@@ -5001,16 +5116,22 @@ def render_dashboard():
             st.info("Noch keine Daten für den Abgleich. Die Kursentwicklung wird ab dem nächsten Lauf des "
                     "Qualitäts-Agenten mitgespeichert; bis alle Aktien sie haben, dauert es einige Läufe.")
             return
-        kats = m["kategorien"]
-        keys = [k for k in m.get("reihenfolge", kats) if k in kats]
-        titel = [kats[k]["titel"] for k in keys]
-        wahl = st.pills("Kategorie", titel, default=titel[0], key="qk_kategorie") or titel[0]
-        kat = kats[keys[titel.index(wahl)]]
+        gruppen = m["gruppen"]
+        if _auswahl_art("qk") == "Index":
+            idx_key = _index_auswahl("qk", gruppen.get("indizes") or {}, INDEX_REGIONEN_APP)
+            if not idx_key:
+                return
+            zeilen = [m["alle"][s_] for s_ in gruppen["indizes"][idx_key].get("s", []) if s_ in m["alle"]]
+        else:
+            kats = gruppen["kategorien"]
+            keys = [k for k in gruppen.get("reihenfolge", kats) if k in kats]
+            titel = [kats[k]["titel"] for k in keys]
+            wahl = st.pills("Kategorie", titel, default=titel[0], key="qk_kategorie") or titel[0]
+            zeilen = _qk_zeilen(m, keys[titel.index(wahl)] if wahl in titel else keys[0])
         zr_titel = [t for _, t in QK_ZEITRAEUME]
         zr_wahl = st.pills("Zeitraum", zr_titel, default="1 Jahr", key="qk_zeitraum") or "1 Jahr"
         zr_key = dict((t, k) for k, t in QK_ZEITRAEUME)[zr_wahl]
 
-        zeilen = [m["_zeilen"][i] for i in kat["idx"]]
         felder, median = _qk_einteilen(zeilen, zr_key)
         mit = sum(len(v) for v in felder.values())
         if not mit:
@@ -5022,8 +5143,8 @@ def render_dashboard():
         _qk_diagramm(zeilen, zr_key, zr_wahl, median)
 
         f_titel = [f"{t} ({len(felder[f])})" for f, t, _ in QK_FELDER]
-        f_wahl = st.pills("Feld", f_titel, default=f_titel[0], key="qk_feld") or f_titel[0]
-        f_key, _, f_text = QK_FELDER[f_titel.index(f_wahl)]
+        f_wahl = st.pills("Feld", f_titel, default=f_titel[0], key="qk_feld")
+        f_key, _, f_text = QK_FELDER[f_titel.index(f_wahl) if f_wahl in f_titel else 0]
         st.caption(f_text)
         liste = felder[f_key][:50]
         if not liste:
@@ -5138,8 +5259,8 @@ def render_dashboard():
 
         if "Qualität × Kurs" in teile:
             mq = _qk_daten()
-            if mq and "alle" in mq["kategorien"]:
-                zeilen_alle = [mq["_zeilen"][i] for i in mq["kategorien"]["alle"]["idx"]]
+            if mq:
+                zeilen_alle = list(mq["alle"].values())
                 felder, median = _qk_einteilen(zeilen_alle, "p12")
                 for f_key, f_titel, f_text in QK_FELDER[:3]:
                     zl = []
