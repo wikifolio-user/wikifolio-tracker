@@ -27,6 +27,9 @@ Ablauf:
 """
 import bisect
 import csv
+import html as html_mod
+import unicodedata
+import zlib
 import datetime
 import io
 import logging
@@ -36,6 +39,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from html.parser import HTMLParser
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -43,7 +47,8 @@ import requests
 
 import config
 import github_store
-from top50_universum import DIVIDENDEN_SCHLUESSEL, INDEX_FONDS, KATEGORIEN, TOP_N, ZEITRAEUME
+from top50_universum import (DIVIDENDEN_SCHLUESSEL, INDEX_FONDS, INDEX_LISTEN, INDEX_REGIONEN, KATEGORIEN,
+                             TOP_N, ZEITRAEUME)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger("top50")
@@ -58,6 +63,11 @@ STATE_WIKIFOLIOS = "state/top50_wikifolios.json"
 STATE_INDIZES = "state/top50_indizes.json"     # Mitgliederlisten der US-Indizes
 STATE_YAHOO = "state/top50_yahoo.json"         # Symbol-Zuordnung + letzte Dividendenrenditen
 STATE_VERLAUF = "state/top50_verlauf.json"     # Tagesstaende der Ranglisten (Wochenvergleich)
+STATE_INDEXMITGLIEDER = "state/top50_indexmitglieder.json"   # Index -> Yahoo-Symbole (woechentlich)
+STATE_ALLE = "state/top50_alle_{}.json"        # Performance ALLER Aktien (fuer den Index-Filter)
+STATE_INDEX_VERGLEICH = "state/top50_index_vergleich.json"
+STATE_VERLAUF_REGION = "state/top50_verlauf_{}.json"
+ALLE_TEILE = 4
 
 SUCHE_MAX_TREFFER = 20        # Obergrenze der ls-tc-Suche je Aufruf (getestet)
 WIKIFOLIO_CACHE_TAGE = 7      # Entdeckung nur woechentlich neu
@@ -731,6 +741,239 @@ def lade_dividende_isin(isin, name, ymap):
 
 
 # ---------------------------------------------------------------------------
+# Indexmitgliedschaften (fuer den Index-Filter in der App)
+# ---------------------------------------------------------------------------
+INDEX_CACHE_MITGLIEDER_TAGE = 7
+WIKI_UA = "wikifolio-tracker/1.0 (privates Depot-Dashboard; Abruf 1x woechentlich)"
+BEKANNTE_ENDUNG = re.compile(r"\.(DE|F|PA|AS|MI|MC|BR|HE|IR|LS|VI|L|SW|ST|CO|OL|T|HK|AX|TO|V|NZ|SI|KS|KQ|TW|NS|SA|MX)$")
+
+
+class _TabellenLeser(HTMLParser):
+    """Liest alle Tabellen mit Klasse 'wikitable' als Zeilen aus Zelltexten.
+    colspan wird aufgefuellt; rowspan wird nachgetragen, damit die Spalten
+    in den Folgezeilen nicht verrutschen."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.tabellen, self._tab, self._zeile, self._zelle = [], None, None, None
+        self._tiefe, self._span, self._rowspan = 0, 1, {}
+        self._ignorieren = 0
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "table":
+            self._tiefe += 1
+            if self._tiefe == 1 and "wikitable" in (a.get("class") or ""):
+                self._tab, self._rowspan = [], {}
+        elif self._tab is not None and self._tiefe == 1:
+            if tag == "tr":
+                self._zeile = []
+            elif tag in ("td", "th") and self._zeile is not None:
+                self._zelle = []
+                self._span = int(re.sub(r"\D", "", a.get("colspan") or "1") or 1)
+                rs = int(re.sub(r"\D", "", a.get("rowspan") or "1") or 1)
+                self._rs_aktuell = rs
+            elif tag in ("sup", "style") and self._zelle is not None:
+                self._ignorieren += 1          # Fussnoten [1] und Stil-Bloecke weglassen
+            elif tag == "br" and self._zelle is not None:
+                self._zelle.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag == "table":
+            if self._tiefe == 1 and self._tab is not None:
+                self.tabellen.append(self._tab)
+                self._tab = None
+            self._tiefe -= 1
+        elif self._tab is not None and self._tiefe == 1:
+            if tag in ("sup", "style") and self._ignorieren:
+                self._ignorieren -= 1
+            elif tag in ("td", "th") and self._zelle is not None:
+                text = re.sub(r"\s+", " ", "".join(self._zelle)).strip()
+                # vorhandene rowspan-Zellen aus frueheren Zeilen einfuegen
+                while len(self._zeile) in self._rowspan:
+                    t, rest = self._rowspan.pop(len(self._zeile))
+                    self._zeile.append(t)
+                    if rest > 1:
+                        self._rowspan[len(self._zeile) - 1] = (t, rest - 1)
+                for _ in range(self._span):
+                    if self._rs_aktuell > 1:
+                        self._rowspan[len(self._zeile)] = (text, self._rs_aktuell - 1)
+                    self._zeile.append(text)
+                self._zelle = None
+            elif tag == "tr" and self._zeile is not None:
+                while len(self._zeile) in self._rowspan:
+                    t, rest = self._rowspan.pop(len(self._zeile))
+                    self._zeile.append(t)
+                    if rest > 1:
+                        self._rowspan[len(self._zeile) - 1] = (t, rest - 1)
+                if self._zeile:
+                    self._tab.append(self._zeile)
+                self._zeile = None
+
+    def handle_data(self, data):
+        if self._zelle is not None and not self._ignorieren:
+            self._zelle.append(data)
+
+
+def wiki_tabellen(sprache, titel):
+    """Alle wikitable-Tabellen eines Wikipedia-Artikels als Zeilenlisten."""
+    try:
+        r = requests.get(f"https://{sprache}.wikipedia.org/w/api.php", timeout=30,
+                         headers={"User-Agent": WIKI_UA},
+                         params={"action": "parse", "page": titel, "prop": "text", "format": "json",
+                                 "formatversion": "2", "redirects": "1"})
+        r.raise_for_status()
+        text = (r.json().get("parse") or {}).get("text") or ""
+    except Exception as e:
+        log.warning(f"Wikipedia {sprache}:{titel} nicht ladbar: {e}")
+        return []
+    leser = _TabellenLeser()
+    leser.feed(text)
+    return leser.tabellen
+
+
+def name_norm(name):
+    """Firmenname fuer den Abgleich: ohne Rechtsform, Satzzeichen, Akzente."""
+    n = unicodedata.normalize("NFKD", html_mod.unescape(name or "")).encode("ascii", "ignore").decode().lower()
+    n = re.sub(r"\(.*?\)", " ", n)
+    n = re.sub(r"[^a-z0-9 ]+", " ", n)
+    weg = {"ag", "se", "kgaa", "co", "gmbh", "sa", "nv", "n", "v", "plc", "inc", "incorporated", "corp",
+           "corporation", "ltd", "limited", "holding", "holdings", "group", "the", "and", "vz", "st",
+           "class", "a", "b", "c", "spa", "s", "p", "ab", "asa", "as", "oyj", "company", "companies",
+           "reit", "trust", "par", "sp", "adr", "de", "la", "le", "et", "cie", "sca", "bv", "kk", "tbk"}
+    teile = [t for t in n.split() if t not in weg]
+    return " ".join(teile)
+
+
+def ticker_kandidaten(zelle, endungen):
+    """'SEHK: 5' -> ['0005.HK'], 'AIXA' -> ['AIXA.DE'], 'ADS.DE' -> ['ADS.DE'],
+    'BRK.B' (USA) -> ['BRK-B'], '7203' -> ['7203.T']."""
+    t = re.sub(r"^[A-Za-z]+\s*:\s*", "", (zelle or "").strip())          # 'SEHK: 5', 'NYSE: MMM'
+    t = t.split()[0] if t.split() else ""
+    t = t.upper().strip(".,;*")
+    if not t or t in ("-", "–"):
+        return []
+    m = BEKANNTE_ENDUNG.search(t)
+    if m:
+        basis, endung = t[:m.start()], m.group(0)
+        if endung == ".HK" and basis.isdigit():
+            basis = basis.zfill(4)
+        return [re.sub(r"[./ ]+", "-", basis) + endung]
+    basis = re.sub(r"[./ ]+", "-", t).strip("-")
+    aus = []
+    for e in endungen:
+        b = basis.zfill(4) if e == ".HK" and basis.isdigit() else basis
+        aus.append(b + e)
+    return aus
+
+
+def _spalte(kopf, stichwort):
+    stichwort = stichwort.lower()
+    for i, h in enumerate(kopf):
+        if stichwort == h.lower().strip() or h.lower().startswith(stichwort):
+            return i
+    for i, h in enumerate(kopf):
+        if stichwort in h.lower():
+            return i
+    return None
+
+
+def _namens_spalte(kopf):
+    for wort in ("company", "name", "unternehmen", "constituent"):
+        i = _spalte(kopf, wort)
+        if i is not None:
+            return i
+    return None
+
+
+def index_aus_wiki(cfg, universum_namen):
+    """-> (liste zugeordneter Symbole, anzahl tabellenzeilen)"""
+    sprache, titel = cfg["wiki"]
+    kandidaten = []
+    for tab in wiki_tabellen(sprache, titel):
+        if len(tab) < 2:
+            continue
+        kopf = tab[0]
+        t_sp = _spalte(kopf, cfg["ticker_spalte"]) if cfg.get("ticker_spalte") else None
+        n_sp = _namens_spalte(kopf)
+        if t_sp is None and n_sp is None:
+            continue
+        zeilen = [z for z in tab[1:] if len(z) > max(x for x in (t_sp, n_sp) if x is not None)]
+        # passendste Tabelle: Kuerzelspalte vorhanden, Zeilenzahl nahe der Sollgroesse
+        guete = (t_sp is not None or not cfg.get("ticker_spalte"), -abs(len(zeilen) - cfg["anzahl"]))
+        kandidaten.append((guete, t_sp, n_sp, zeilen))
+    if not kandidaten:
+        return [], 0
+    _, t_sp, n_sp, zeilen = max(kandidaten, key=lambda k: k[0])
+
+    endungen = cfg["endungen"]
+    # Namensverzeichnis nur fuer die passenden Boersen (sonst "Bayer" <-> falsche Firma)
+    nach_name = {}
+    for sym, name in universum_namen.items():
+        endung = "" if "." not in sym else sym[sym.rfind("."):]
+        if endung in endungen or (endungen == [""] and "." not in sym):
+            nach_name.setdefault(name_norm(name), sym)
+
+    treffer = []
+    for z in zeilen:
+        sym = None
+        if t_sp is not None:
+            for k in ticker_kandidaten(z[t_sp], endungen):
+                if k in universum_namen:
+                    sym = k
+                    break
+        if sym is None and n_sp is not None:
+            n = name_norm(z[n_sp])
+            if n:
+                sym = nach_name.get(n)
+                if sym is None and len(n) >= 4:
+                    # Praefixabgleich: 'rheinmetall' <-> 'rheinmetall ag vz' u.ae. -
+                    # nur bei eindeutigem Treffer
+                    passend = [s for nn, s in nach_name.items()
+                               if nn and (nn.startswith(n + " ") or n.startswith(nn + " ") or nn == n)]
+                    if len(set(passend)) == 1:
+                        sym = passend[0]
+        if sym:
+            treffer.append(sym)
+    return list(dict.fromkeys(treffer)), len(zeilen)
+
+
+def index_mitgliedschaften(universum_namen, index_cache, heute, erzwingen=False):
+    """{index_schluessel: {"titel", "region", "s": [symbole], "tabelle": n, "stand"}},
+    woechentlich neu (sonst aus dem Cache). universum_namen = {yahoo_symbol: name}."""
+    gespeichert = lade_state(STATE_INDEXMITGLIEDER, {}) or {}
+    try:
+        alter = (heute - datetime.date.fromisoformat(gespeichert.get("stand", "2000-01-01"))).days
+    except Exception:
+        alter = 9999
+    if gespeichert.get("indizes") and alter < INDEX_CACHE_MITGLIEDER_TAGE and not erzwingen:
+        return gespeichert["indizes"]
+    ergebnis = {}
+    for key, titel, region, cfg in INDEX_LISTEN:
+        alt = (gespeichert.get("indizes") or {}).get(key) or {}
+        if "fonds" in cfg:
+            eintrag = index_cache.get(cfg["fonds"]) or {}
+            syms = []
+            for e in eintrag.get("liste") or []:
+                sym, _ = yahoo_symbol(e[0], e[2] if len(e) > 2 else "", e[3] if len(e) > 3 else "United States")
+                if sym in universum_namen:
+                    syms.append(sym)
+            anzahl = len(eintrag.get("liste") or [])
+        else:
+            syms, anzahl = index_aus_wiki(cfg, universum_namen)
+        # Faellt eine Quelle aus (oder liefert Unsinn), gilt die letzte Zuordnung weiter
+        if len(syms) < 0.5 * len(alt.get("s") or []):
+            log.warning(f"Index {titel}: nur {len(syms)} zugeordnet - behalte {len(alt.get('s') or [])} vom {alt.get('stand')}")
+            ergebnis[key] = alt
+            continue
+        ergebnis[key] = {"titel": titel, "region": region, "s": syms, "tabelle": anzahl,
+                         "stand": heute.isoformat()}
+        log.info(f"Index {titel}: {len(syms)} von {anzahl} Mitgliedern zugeordnet")
+    speichere_state(STATE_INDEXMITGLIEDER, {"stand": heute.isoformat(), "indizes": ergebnis},
+                    "top50: indexmitglieder [skip ci]")
+    return ergebnis
+
+
+# ---------------------------------------------------------------------------
 # Wochenvergleich der Ranglisten
 # ---------------------------------------------------------------------------
 VERLAUF_TAGE = 7              # Vergleich mit dem Stand von vor einer Woche
@@ -776,6 +1019,81 @@ def wochenvergleich(pfad, heute, listen, namen, top_n=TOP_N):
     staende = {d: staende[d] for d in sorted(staende)[-VERLAUF_BEHALTEN:]}
     speichere_state(pfad, {"staende": staende}, "top50: ranglisten-verlauf [skip ci]")
     return ref, vergleich
+
+
+# ---------------------------------------------------------------------------
+# Index-Auswertung (Performance)
+# ---------------------------------------------------------------------------
+PERF_FELDER = [k for k, _, _ in ZEITRAEUME] + [DIVIDENDEN_SCHLUESSEL[0]]
+
+
+def aktien_universum(mitglieder, ymap):
+    """{yahoo_symbol: (name, schluessel_in_perf_je_id, kennung)} - alle Aktien.
+    Index-Kategorien (Yahoo) haben Vorrang vor den festen ls-tc-Listen, damit
+    jede Aktie nur einmal vorkommt."""
+    uni = {}
+    for key, kat in KATEGORIEN.items():
+        if kat["quelle"] == "index":
+            for uid, name, sym, _ in mitglieder.get(key, []):
+                uni.setdefault(sym, (name, uid, sym))
+    isin_map = ymap.get("isin") or {}
+    for key, kat in KATEGORIEN.items():
+        if isinstance(kat["quelle"], list) and key != "etf":
+            for iid, name, wkn, isin in mitglieder.get(key, []):
+                sym = isin_map.get(isin)
+                if sym:
+                    uni.setdefault(sym, (name, iid, wkn))
+    return uni
+
+
+def index_auswertung(heute, mitglieder, perf_je_id, ymap, index_cache, ergebnis):
+    uni = aktien_universum(mitglieder, ymap)
+    namen = {s: v[0] for s, v in uni.items()}
+    indizes = index_mitgliedschaften(namen, index_cache, heute)
+
+    # Performance aller Aktien, kompakt als Arrays in ALLE_TEILE Dateien
+    teile = {i: [] for i in range(ALLE_TEILE)}
+    for sym, (name, pid, kennung) in uni.items():
+        p = perf_je_id.get(pid) or {}
+        if not p:
+            continue
+        werte = [p.get(k) if k != DIVIDENDEN_SCHLUESSEL[0] else p.get("_div") for k in PERF_FELDER]
+        teile[zlib.crc32(sym.encode()) % ALLE_TEILE].append([sym, name[:40], kennung] + werte)
+    for i, zeilen in teile.items():
+        speichere_state(STATE_ALLE.format(i), {"stand": ergebnis["stand"], "felder": ["s", "name", "kennung"] + PERF_FELDER,
+                                               "zeilen": zeilen}, f"top50: alle aktien {i} [skip ci]")
+
+    # Ranglisten je Index und Zeitraum nur fuer den Wochenvergleich (die App
+    # bildet die Listen selbst aus den Gesamtdaten - identische Sortierung)
+    perf_sym = {}
+    for sym, (_, pid, _) in uni.items():
+        p = perf_je_id.get(pid) or {}
+        if p:
+            perf_sym[sym] = p
+    listen_region = {r: {} for r in INDEX_REGIONEN}
+    for key, info in indizes.items():
+        region = info.get("region")
+        if region not in listen_region:
+            continue
+        for zr in PERF_FELDER:
+            feld = "_div" if zr == DIVIDENDEN_SCHLUESSEL[0] else zr
+            mit = [(perf_sym[s][feld], s) for s in info.get("s", [])
+                   if s in perf_sym and perf_sym[s].get(feld) is not None
+                   and (feld != "_div" or perf_sym[s][feld] > 0)]
+            mit.sort(key=lambda x: (-x[0], x[1]))
+            listen_region[region][f"{key}|{zr}"] = [s for _, s in mit]
+    alle_vergleiche, seit = {}, {}
+    for i, (region, listen) in enumerate(listen_region.items()):
+        if not listen:
+            continue
+        ref, v = wochenvergleich(STATE_VERLAUF_REGION.format(i), heute, listen, namen)
+        seit[region] = ref
+        alle_vergleiche.update(v)
+    speichere_state(STATE_INDEX_VERGLEICH, {"stand": ergebnis["stand"], "seit": seit, "listen": alle_vergleiche},
+                    "top50: index-wochenvergleich [skip ci]")
+    ergebnis["indizes"] = {k: {"titel": v["titel"], "region": v["region"], "anzahl": len(v.get("s", [])),
+                               "tabelle": v.get("tabelle")} for k, v in indizes.items()}
+    log.info(f"Index-Auswertung: {sum(len(t) for t in teile.values())} Aktien, {len(indizes)} Indizes")
 
 
 # ---------------------------------------------------------------------------
@@ -993,6 +1311,13 @@ def main():
                 for z in liste:
                     z["vor"] = v["vor"].get(z["wkn"])        # None = neu in der Top 50
                 kat_erg["vergleich"][zr] = {"raus": v["raus"]}
+
+    # 8) Index-Filter: Performance ALLER Aktien (Teildateien, die App filtert
+    #    selbst) + Indexmitgliedschaften + Wochenvergleich je Index-Rangliste.
+    try:
+        index_auswertung(heute, mitglieder, perf_je_id, ymap, index_cache, ergebnis)
+    except Exception as e:                 # der Index-Filter darf die Ranglisten nie verhindern
+        log.error(f"Index-Auswertung fehlgeschlagen: {e}", exc_info=True)
 
     dauer = time.monotonic() - start
     ergebnis["laufzeit_sek"] = round(dauer)
