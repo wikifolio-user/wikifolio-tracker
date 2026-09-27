@@ -4257,8 +4257,7 @@ def render_dashboard():
     # Actions) und legt sie fertig in state/top50.json ab. Die App liest nur
     # diese Datei - kein einziger Kursabruf beim Umschalten, deshalb schnell.
     # Als Fragment: Kategorie- und Zeitraumwechsel bauen nur diesen Bereich neu.
-    @st.fragment
-    def _render_top50():
+    def _render_performance():
         try:
             daten = gh_read_cached("state/top50.json", None)
             if not daten or not daten.get("kategorien"):
@@ -4365,10 +4364,10 @@ def render_dashboard():
                 )
                 if kat.get("kennung") == "Symbol":
                     st.caption(
-                        "US-Werte: Mitglieder laut Bestandsliste der iShares-Index-ETFs, Kurse von "
-                        "Yahoo Finance, mit dem EUR/USD-Kurs des jeweiligen Tages in Euro "
-                        "umgerechnet - Dollar-Schwankungen sind also enthalten. Nicht jeder "
-                        "US-Nebenwert ist bei deutschen Brokern handelbar. "
+                        "Indexwerte: Mitglieder laut Bestandsliste der iShares-Index-ETFs, Kurse "
+                        "von Yahoo Finance (Heimatbörse), mit dem Wechselkurs des jeweiligen Tages "
+                        "in Euro umgerechnet - Währungsschwankungen sind also enthalten. Nicht "
+                        "jeder Nebenwert oder Auslandswert ist bei deutschen Brokern handelbar. "
                         + ("Quelle: " + ", ".join(kat["quellen"]) + "." if kat.get("quellen") else "")
                     )
                 else:
@@ -4394,6 +4393,268 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Top50", e)
+
+
+    # ---------- QUALITAETS-SCORE (Hauptliste) ----------
+    # Berechnet taeglich von qualitaet_agent.py (GitHub Actions) nach dem
+    # 100-Punkte-Schema. Die Tabelle kommt aus state/qualitaet.json, die
+    # ausfuehrliche Analyse je Aktie aus state/qualitaet/details_<n>.json -
+    # erst geladen, wenn eine Aktie ausgewaehlt wird.
+    Q_KLASSEN = {"prio": "Hohe Analysepriorität", "beobachten": "Beobachtungsliste",
+                 "nicht": "Nicht weiterverfolgen"}
+    Q_BEREICHE = [("qualitaet", "Unternehmensqualität", 20), ("wachstum", "Wachstum & Reinvestment", 15),
+                  ("fcf", "Free Cashflow & Gewinnqualität", 15), ("bilanz", "Bilanzqualität", 10),
+                  ("management", "Management & Kapitalallokation*", 10), ("moat", "Wettbewerbsvorteil*", 10),
+                  ("bewertung", "Bewertung", 15), ("chance", "Chance-Risiko / Margin of Safety", 5)]
+
+    def _q_pct(x, vorzeichen=True, nachkomma=1):
+        if x is None:
+            return "–"
+        return f"{x:+.{nachkomma}f} %" if vorzeichen else f"{x:.{nachkomma}f} %"
+
+    def _q_x(x, suffix="x"):
+        return "–" if x is None else f"{x:.1f}{suffix}"
+
+    def _q_tabelle(werte, symbole):
+        zeilen = []
+        for rang, sym in enumerate(symbole, 1):
+            e = werte.get(sym)
+            if not e:
+                continue
+            zeilen.append({
+                "#": rang, "Unternehmen": e["name"], "Ticker": sym, "Branche": e.get("br") or "–",
+                "Kurs": f'{e["kurs"]:,.2f} {e["kwae"]}'.replace(",", "."),
+                "Mkap. Mrd €": e.get("mcap"),
+                "Umsatz-Wachstum": e.get("g_ums"), "EPS-Wachstum": e.get("g_eps"),
+                "FCF-Wachstum": e.get("g_fcf"), "FCF/Aktie-Wachstum": e.get("g_fcfps"),
+                "ROIC": e.get("roic"), "Op. Marge": e.get("om"), "FCF-Marge": e.get("fm"),
+                "Net Debt/EBITDA": e.get("nde"), "Verwässerung p.a.": e.get("akt"),
+                "Forward-KGV": e.get("fkgv"), "EV/EBIT": e.get("ev_ebit"), "FCF-Rendite": e.get("fcfy"),
+                "Moat*": e.get("moat"), "Management*": e.get("mgmt"), "Bewertung": e.get("bew"),
+                "Risiko": e.get("risiko"), "Punkte": e.get("gesamt"),
+                "Einordnung": Q_KLASSEN.get(e.get("klasse"), "–"),
+            })
+        df = pd.DataFrame(zeilen)
+        pct = lambda t, h=None: st.column_config.NumberColumn(t, format="%.1f %%", help=h)
+        st.dataframe(
+            df, width="stretch", hide_index=True, height=38 + 35 * len(df),
+            column_config={
+                "#": st.column_config.NumberColumn("#", width="small"),
+                "Unternehmen": st.column_config.TextColumn("Unternehmen", width="medium", pinned=True),
+                "Mkap. Mrd €": st.column_config.NumberColumn("Mkap. Mrd €", format="%.1f"),
+                "Umsatz-Wachstum": pct("Umsatz-Wachstum", "Jährliche Wachstumsrate über die verfügbaren Geschäftsjahre (bis 5)"),
+                "EPS-Wachstum": pct("EPS-Wachstum", "Gewinn je Aktie (verwässert), p.a."),
+                "FCF-Wachstum": pct("FCF-Wachstum", "Free Cashflow absolut, p.a."),
+                "FCF/Aktie-Wachstum": pct("FCF/Aktie-Wachstum", "Free Cashflow je Aktie, p.a. - die wichtigste Wachstumszahl"),
+                "ROIC": pct("ROIC", "Durchschnitt über die verfügbaren Geschäftsjahre"),
+                "Op. Marge": pct("Op. Marge", "EBIT-Marge, Durchschnitt"),
+                "FCF-Marge": pct("FCF-Marge", "Durchschnitt"),
+                "Net Debt/EBITDA": st.column_config.NumberColumn("Net Debt/EBITDA", format="%.1fx",
+                                                                 help="Negativ = mehr Cash als Schulden"),
+                "Verwässerung p.a.": st.column_config.NumberColumn("Verwässerung p.a.", format="%+.1f %%",
+                                                                   help="Veränderung der Aktienanzahl p.a. - negativ = Rückkäufe"),
+                "Forward-KGV": st.column_config.NumberColumn("Forward-KGV", format="%.1f"),
+                "EV/EBIT": st.column_config.NumberColumn("EV/EBIT", format="%.1f"),
+                "FCF-Rendite": st.column_config.NumberColumn("FCF-Rendite", format="%.2f %%"),
+                "Moat*": st.column_config.TextColumn("Moat*", help="Näherung über ROIC-Höhe/-Stabilität, Bruttomarge und Margenstabilität"),
+                "Management*": st.column_config.TextColumn("Management*", help="Näherung über Aktienanzahl, ROIC-Trend und Zukäufe"),
+                "Punkte": st.column_config.ProgressColumn("Punkte", min_value=0, max_value=100, format="%d"),
+            },
+        )
+
+    def _q_details(sym, zeile):
+        teil = gh_read_cached(f"state/qualitaet/details_{zeile.get('d', 0)}.json", None) or {}
+        e = (teil.get("werte") or {}).get(sym)
+        if not e:
+            st.info("Die ausführliche Analyse wird gerade neu geschrieben - bitte in einer Minute erneut öffnen.")
+            return
+        st.markdown(f"#### {e['name']} ({sym})")
+        st.caption(
+            f"{e.get('br') or 'Branche unbekannt'} · {e.get('land') or '–'} · Kurs {e['kurs']:,.2f} {e['kwae']} · "
+            f"Marktkap. {e['mcap']:,.1f} Mrd € · Jahresabschlüsse {e['gj_erst'][:4]}–{e['gj'][:4]} "
+            f"({e['n']} Geschäftsjahre, letztes bis {datetime.date.fromisoformat(e['gj']).strftime('%d.%m.%Y')})"
+        )
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Gesamtpunktzahl", f"{e['gesamt']} / 100")
+        c2.metric("Qualität", f"{e['q_ant']:.0f} %")
+        c3.metric("Bewertung", f"{e['b_ant']:.0f} %")
+        c4.metric("Risiko", e["risiko"])
+        st.markdown(f"**Einordnung: {Q_KLASSEN.get(e['klasse'])}** – {e['grund']}.")
+
+        st.markdown("**Punkte je Bereich**")
+        st.dataframe(pd.DataFrame([{"Bereich": t, "Punkte": e["p"].get(k, 0), "von": m}
+                                   for k, t, m in Q_BEREICHE]),
+                     hide_index=True, width="stretch", height=38 + 35 * len(Q_BEREICHE),
+                     column_config={"Punkte": st.column_config.ProgressColumn(
+                         "Punkte", min_value=0, max_value=20, format="%d")})
+        if e["flags"]:
+            st.markdown("**Red Flags (Abzug)**\n" + "\n".join(f"- {t} (−{a})" for t, a in e["flags"]))
+
+        st.markdown("**Warum interessant?**\n" + ("\n".join(f"- {t}" for t in e["staerken"])
+                                                 or "- Keine herausragenden Stärken in den Kennzahlen."))
+        abschnitte = [
+            ("Wettbewerbsvorteil (Näherung)", [
+                f"Einstufung: **{e['moat']}**",
+                f"ROIC Ø {_q_pct(e['roic'], False)}, niedrigster Jahreswert {_q_pct(e['roic_min'], False)}",
+                f"Bruttomarge Ø {_q_pct(e['gm'], False)}, Schwankung der operativen Marge {_q_x(e['om_std'], ' Prozentpunkte')}",
+                "Netzwerkeffekte, Marke, Patente, Wechselkosten u. Ä. sind nicht automatisch bewertbar."]),
+            ("Wachstum", [
+                f"Umsatz {_q_pct(e['g_ums'])} p.a. · EPS {_q_pct(e['g_eps'])} p.a. · FCF {_q_pct(e['g_fcf'])} p.a. · "
+                f"**FCF je Aktie {_q_pct(e['g_fcfps'])} p.a.**",
+                f"Analysten: erwartetes Gewinnwachstum nächstes GJ {_q_pct(e.get('g1'))}"
+                + (f" · Schätzungsrevision 90 Tage {_q_pct(e.get('rev90'))} ({e['rev']})" if e.get("rev") else "")]),
+            ("ROIC und Reinvestment", [
+                f"ROIC zuletzt {_q_pct(e['roic_l'], False)}, Ø {_q_pct(e['roic'], False)}, Trend {_q_x(e['roic_trend'], ' Prozentpunkte')}",
+                f"ROE zuletzt {_q_pct(e['roe'], False)} · Capex {_q_pct(e['capex'], False)} vom Umsatz · "
+                f"Zukäufe {_q_pct(e['zukauf'], False)} des Free Cashflows"]),
+            ("Free Cashflow und Gewinnqualität", [
+                f"FCF-Marge Ø {_q_pct(e['fm'], False)} · Cash Conversion (FCF/Gewinn) {_q_x(e['cc'])}",
+                f"Aktienbasierte Vergütung {_q_pct(e['sbc'], False)} vom Umsatz · Goodwill/Immaterielles "
+                f"{_q_pct(e['gw'], False)} der Bilanzsumme"]),
+            ("Bilanz", [
+                "Nettocash (mehr liquide Mittel als Schulden)" if e["netcash"] else
+                f"Net Debt/EBITDA {_q_x(e['nde'])}",
+                f"Zinsdeckung (EBIT/Zinsaufwand) {_q_x(e['zinsd'])}"]),
+            ("Management und Kapitalallokation (Näherung)", [
+                f"Einstufung: **{e['mgmt']}**",
+                f"Aktienanzahl {_q_pct(e['akt'])} p.a. · Rückkäufe + Dividenden {_q_pct(e['aussch'], False)} des FCF",
+                "Insiderkäufe, Vergütung und Prognosetreue sind nicht automatisch bewertbar."]),
+            ("Bewertung", [
+                f"KGV {_q_x(e['kgv'], '')} · Forward-KGV {_q_x(e['fkgv'], '')} · EV/EBIT {_q_x(e['ev_ebit'], '')} · "
+                f"EV/EBITDA {_q_x(e['ev_ebitda'], '')} · EV/FCF {_q_x(e['ev_fcf'], '')} · PEG {_q_x(e['peg'], '')}",
+                f"FCF-Rendite {_q_pct(e['fcfy'], False, 2)} – eigener Schnitt zu früheren Geschäftsjahresenden "
+                f"{_q_pct(e['h_fcfy'], False, 2)} · früheres KGV Ø {_q_x(e['h_kgv'], '')}"]),
+            ("Reverse DCF", [
+                ("Der heutige Unternehmenswert unterstellt **"
+                 + ("≥ 60" if e["g_impl"] >= 60 else "≤ −30" if e["g_impl"] <= -30 else f"{e['g_impl']:.1f}")
+                 + f" % FCF-Wachstum p.a.** über 10 Jahre – erreicht bzw. erwartet sind rund {e['g_ref']:.1f} %"
+                 + f" → **{e['erw']}**") if e.get("g_impl") is not None else f"Nicht berechenbar: {e['erw']}",
+                f"Annahmen: Kapitalkosten {daten_q.get('annahmen', {}).get('diskont', 9):.0f} %, danach "
+                f"{daten_q.get('annahmen', {}).get('g_ewig', 2.5):.1f} % ewiges Wachstum; bei Zyklikern "
+                "normalisierter Free Cashflow"]),
+        ]
+        for titel, zeilen in abschnitte:
+            st.markdown(f"**{titel}**\n" + "\n".join(f"- {z}" for z in zeilen))
+
+        if e.get("szen"):
+            st.markdown("**Szenarien (Bear / Base / Bull)**")
+            namen = {"bear": "Bear Case", "base": "Base Case (konservativ fair)", "bull": "Bull Case"}
+            st.dataframe(pd.DataFrame([{
+                "Szenario": namen[k], "FCF-Wachstum J. 1–5": v["g"], "Kapitalkosten": v["r"],
+                "Endwert-Multiple (EV/FCF)": v["m"], "Wert vs. Kurs": v["pot"]}
+                for k, v in e["szen"].items() if k in namen]),
+                hide_index=True, width="stretch", height=38 + 35 * 3,
+                column_config={"FCF-Wachstum J. 1–5": st.column_config.NumberColumn(format="%.1f %%"),
+                               "Kapitalkosten": st.column_config.NumberColumn(format="%.1f %%"),
+                               "Endwert-Multiple (EV/FCF)": st.column_config.NumberColumn(format="%.1fx"),
+                               "Wert vs. Kurs": st.column_config.NumberColumn(format="%+.0f %%")})
+            st.caption("Wachstum ab Jahr 6 läuft linear auf das ewige Wachstum aus. Bear Case zusätzlich mit "
+                       "10 % geringerem, normalisiertem Free Cashflow.")
+        mos = e.get("mos")
+        st.markdown("**Margin of Safety**\n- " + (
+            "Kein positiver fairer Wert berechenbar." if mos is None else
+            ("Kurs liegt beim Dreifachen des konservativen fairen Werts oder darüber." if mos <= -200 else
+             f"{mos:+.0f} % Sicherheitsmarge zum konservativen fairen Wert (Base Case)"
+             + (" – der Kurs liegt darüber." if mos < 0 else ""))))
+        st.markdown("**Risiken (aus Kennzahlen)**\n" + "\n".join(
+            f"- {r}" for r in (e["risiken"] + [f"Kursschwankung {_q_pct(e['vola'], False, 0)} p.a., "
+                                               f"größter Rückgang 5 J. {_q_pct(e['dd'], True, 0)}"]))
+                    + "\n- Wettbewerb, Disruption, Regulierung, Kunden-/Lieferantenabhängigkeit: nicht automatisch bewertbar.")
+        if e.get("kat"):
+            st.markdown("**Mögliche Katalysatoren (aus Kennzahlen)**\n" + "\n".join(f"- {k}" for k in e["kat"]))
+        st.markdown("**These-Killer (Kontrollpunkte)**\n" + "\n".join(f"- {k}" for k in e["killer"]))
+
+    daten_q = {}
+
+    def _render_qualitaet():
+        nonlocal daten_q
+        daten = gh_read_cached("state/qualitaet.json", None)
+        if not daten or not daten.get("kategorien"):
+            st.info("Noch kein Qualitäts-Score vorhanden. Der Agent läuft täglich um 05:00 Uhr. Für einen "
+                    "Sofortstart: auf GitHub unter **Actions → Watchlist Qualitäts-Score (täglich) → Run "
+                    "workflow**. Die Kennzahlen aller rund 6.000 Aktien werden in den ersten Tagen "
+                    "schrittweise aufgebaut (bis zu 1.500 je Lauf, große Werte zuerst).")
+            return
+        daten_q = daten
+        kats = daten["kategorien"]
+        keys = [k for k in daten.get("reihenfolge", kats) if k in kats]
+        titel = [kats[k]["titel"] for k in keys]
+        wahl = st.pills("Kategorie", titel, default=titel[0], key="q_kategorie")
+        kat = kats[keys[titel.index(wahl)] if wahl in titel else keys[0]]
+        ansichten = ["Gesamt-Rangliste"] + list(Q_KLASSEN.values())
+        a_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="q_klasse") or ansichten[0]
+        if a_wahl == ansichten[0]:
+            symbole = kat["top"]
+        else:
+            kl = next(k for k, v in Q_KLASSEN.items() if v == a_wahl)
+            symbole = kat["je_klasse"].get(kl, [])
+
+        try:
+            stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
+        except Exception:
+            stand = daten.get("stand", "–")
+        abd = daten.get("abdeckung", {})
+        kl = kat["klassen"]
+        st.caption(
+            f"Stand {stand} · {kat['bewertet']} von {kat['universum']} Aktien bewertet · "
+            f"Priorität {kl['prio']} · Beobachten {kl['beobachten']} · Nicht weiterverfolgen {kl['nicht']}"
+        )
+        if abd.get("mit_kennzahlen", 0) < 0.9 * abd.get("universum", 1):
+            st.warning(f"Aufbau läuft: Kennzahlen für {abd.get('mit_kennzahlen', 0)} von "
+                       f"{abd.get('universum', 0)} Aktien liegen vor. Jeder Lauf ergänzt bis zu 1.500 – "
+                       "große Werte zuerst, Russell-Nebenwerte zuletzt.")
+        if not symbole:
+            st.info("In dieser Einordnung gibt es in dieser Kategorie derzeit keine Aktie.")
+            return
+
+        werte = daten.get("werte", {})
+        _q_tabelle(werte, symbole)
+        st.caption("Sortiert nach Gesamtpunktzahl. Tippen auf einen Spaltenkopf sortiert um. "
+                   "* = aus Kennzahlen angenähert.")
+
+        optionen = [s for s in symbole if s in werte]
+        auswahl = st.selectbox("Detailanalyse:", optionen, index=None, key="q_detail",
+                               placeholder="Aktie auswählen …",
+                               format_func=lambda s: f"{werte[s]['name']} ({s}) – {werte[s]['gesamt']} Punkte")
+        if auswahl:
+            _q_details(auswahl, werte[auswahl])
+
+        with st.expander("Methodik und Grenzen", expanded=False):
+            st.markdown(
+                "**100 Punkte:** Unternehmensqualität 20 · Wachstum & Reinvestment 15 · Free Cashflow & "
+                "Gewinnqualität 15 · Bilanz 10 · Management & Kapitalallokation 10 · Wettbewerbsvorteil 10 · "
+                "Bewertung 15 · Chance-Risiko 5. Red Flags (z. B. negativer FCF, Verwässerung > 5 % p. a., "
+                "stark steigende Schulden, SBC > 10 % vom Umsatz, extreme eingepreiste Erwartungen) ziehen "
+                "Punkte ab.\n\n"
+                "**Einordnung:** Qualität (die 80 Punkte ohne Bewertung) und Bewertung werden getrennt "
+                "betrachtet. *Hohe Analysepriorität* = Qualität ≥ 70 %, Bewertung ≥ 55 %, mind. 65 Punkte, "
+                "keine schwere Red Flag. *Beobachtungsliste* = Qualität ≥ 62 %, aber zu wenig "
+                "Sicherheitsmarge. Alles andere: *Nicht weiterverfolgen*.\n\n"
+                "**Näherungen:** Moat und Management lassen sich nicht aus Zahlen ablesen – sie werden über "
+                "ROIC-Höhe und -Stabilität, Bruttomarge, Margenstabilität, Aktienanzahl, ROIC-Trend und "
+                "Zukäufe angenähert. Qualitative Risiken (Wettbewerb, Disruption, Regulierung) werden nicht "
+                "bewertet.\n\n"
+                "**Nicht bewertet:** Banken und Versicherungen (Free Cashflow, ROIC und EBITDA sind dort "
+                f"nicht sinnvoll definiert) – derzeit {abd.get('finanzwerte', 0)} Werte.\n\n"
+                "**Daten:** Yahoo Finance – bis zu 5 Geschäftsjahre, wöchentlich aufgefrischt; Kurse und "
+                "Bewertung täglich. Alle Beträge in Euro umgerechnet. Fehlerhafte Quelldaten sind möglich – "
+                "vor jeder Entscheidung im Geschäftsbericht prüfen.\n\n"
+                "**Keine Kauf- oder Verkaufsempfehlung.** Ein hervorragendes Unternehmen kann zum falschen "
+                "Preis unattraktiv sein; eine billig aussehende Aktie wird dadurch nicht attraktiv."
+            )
+
+    @st.fragment
+    def _render_top50():
+        art = st.pills("Liste", ["⭐ Qualitäts-Score", "📈 Performance"], default="⭐ Qualitäts-Score",
+                       key="top50_art") or "⭐ Qualitäts-Score"
+        if art == "📈 Performance":
+            _render_performance()
+            return
+        try:
+            _render_qualitaet()
+        except Exception as e:
+            st.error(f"⚠️ Fehler in diesem Tab: {e}")
+            notify_app_error("Tab-Qualitaet", e)
 
     if gewaehlte_ansicht == "🏆 Watchlist Top 50":
         melde("ansicht", 0.3, "Lade Ranglisten …")
