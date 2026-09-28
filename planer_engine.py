@@ -935,3 +935,98 @@ def optimiere(modell, renditen_netto, confidences, grenzen=None):
     return {"gewichte": {i: 100.0 * max(xi, 0.0) for i, xi in zip(ids, x)},
             "endwert": endwert, "max_endwert": start * fmax, "erreichbar": erreichbar}
 
+
+# ===========================================================================
+# Gewichtung fuer das Zielvermoegen ("Gewichtung 100k")
+# ===========================================================================
+def gewichtung_fuer_ziel(modell, renditen_netto, ziel=None, **kw):
+    """Passt die Gewichte so an, dass der Modell-Endwert genau das Ziel trifft.
+
+    Verfahren (nachvollziehbar statt Blackbox): Die bisherigen Gewichte werden
+    stufenlos zu den renditestaerkeren Bausteinen gekippt,
+        w_i  ~  w_i(bisher) * (1 + r_i) ^ lambda,
+    und lambda wird per Bisektion so gewaehlt, dass die Projektion (inkl.
+    Sparrate und Rebalancing) den Zielwert erreicht. Liegt das Modell schon
+    darueber, kippt es entsprechend Richtung der renditeschwaecheren.
+    - Fixierte Bausteine ("fixiert", z.B. die Reserve) behalten ihr Gewicht.
+    - Bausteine mit 0 % oder deaktiviert bleiben draussen.
+    - Optimizer-Grenzen werden NICHT erzwungen, aber gemeldet (grenzen_verletzungen).
+    -> {"gewichte": {id: %}, "endwert", "erreichbar", "max_endwert"} oder {"fehler"}"""
+    ziel = float(ziel if ziel is not None else modell["rahmen"]["zielvermoegen"])
+    summe = gewichte_summe(modell)
+    if summe <= 0:
+        return {"fehler": "Keine aktiven Bausteine mit Gewicht."}
+    aktiv = aktive_assets(modell)
+    bisher = {a["id"]: float(a.get("targetWeight") or 0.0) * 100.0 / summe for a in aktiv}
+    fix = {a["id"] for a in aktiv if a.get("fixiert")}
+    frei = [i for i in bisher if i not in fix and bisher[i] > 0]
+    if not frei:
+        return {"fehler": "Alle Bausteine sind fixiert – mindestens einen freigeben."}
+    rest = 100.0 - sum(bisher[i] for i in fix)
+    basis = {i: max(1.0 + renditen_netto.get(i, 0.0), 1e-6) for i in frei}
+    log_b = {i: math.log(basis[i]) for i in frei}
+
+    def gewichte_bei(lam):
+        # numerisch stabil: Exponenten relativ zum groessten
+        exps = {i: math.log(bisher[i]) + lam * log_b[i] for i in frei}
+        mx = max(exps.values())
+        roh = {i: math.exp(e - mx) for i, e in exps.items()}
+        s = sum(roh.values())
+        g = dict(bisher)
+        for i in frei:
+            g[i] = roh[i] / s * rest
+        return g
+
+    def endwert_bei(g):
+        m2 = dict(modell)
+        m2["assets"] = [dict(a, targetWeight=g.get(a["id"], 0.0)) if a.get("enabled") else a
+                        for a in modell["assets"]]
+        return projektion(m2, renditen_netto, **kw)["endwert"]
+
+    e0 = endwert_bei(gewichte_bei(0.0))
+    richtung = 1.0 if e0 < ziel else -1.0
+    grenze = 1.0
+    while True:
+        e = endwert_bei(gewichte_bei(richtung * grenze))
+        if (e >= ziel) if richtung > 0 else (e <= ziel):
+            break
+        if grenze > 4096:
+            g = gewichte_bei(richtung * grenze)
+            return {"gewichte": g, "endwert": e, "erreichbar": False, "max_endwert": e if richtung > 0 else None}
+        grenze *= 2.0
+    lo, hi = 0.0, grenze
+    for _ in range(80):
+        mitte = (lo + hi) / 2.0
+        e = endwert_bei(gewichte_bei(richtung * mitte))
+        if (e >= ziel) if richtung > 0 else (e <= ziel):
+            hi = mitte
+        else:
+            lo = mitte
+    g = gewichte_bei(richtung * hi)
+    return {"gewichte": g, "endwert": endwert_bei(g), "erreichbar": True, "max_endwert": None}
+
+
+def grenzen_verletzungen(modell, gewichte_pct=None):
+    """Liste der verletzten Optimizer-Grenzen (Texte) fuer die aktuelle
+    oder eine vorgeschlagene Gewichtung (in %)."""
+    grenzen = modell["grenzen"]
+    if gewichte_pct is None:
+        gewichte_pct = {i: g * 100.0 for i, g in gewichte(modell).items()}
+    assets = {a["id"]: a for a in modell["assets"]}
+    aus = []
+    einzel = float(grenzen.get("einzelasset_max", 100.0))
+    for i, g in gewichte_pct.items():
+        if _typ(assets[i]) != "cash" and g > einzel + 0.05:
+            aus.append(f"{assets[i]['name']} {g:.1f} % > {einzel:.0f} % je Baustein")
+    for gr in grenzen.get("gruppen", []):
+        summe = 0.0
+        for i, g in gewichte_pct.items():
+            if gr.get("merkmal"):
+                summe += g * (asset_merkmal(assets[i], modell, gr["merkmal"]) or 0.0)
+            elif assets[i]["category"] in gr.get("kategorien", []):
+                summe += g
+        if gr.get("max") is not None and summe > gr["max"] + 0.05:
+            aus.append(f"{gr['titel']} {summe:.1f} % > {gr['max']:.0f} %")
+        if gr.get("min") is not None and summe < gr["min"] - 0.05:
+            aus.append(f"{gr['titel']} {summe:.1f} % < {gr['min']:.0f} %")
+    return [t.replace(".", ",") for t in aus]
