@@ -15,7 +15,9 @@ Alle Zahlen: Szenariorechnung, keine Prognose, vor Steuern.
 """
 import copy
 import datetime
+import hashlib
 import html
+import json
 import math
 import zlib
 
@@ -163,6 +165,8 @@ def _migriere(m):
     for k, v in seed["rahmen"].items():
         m["rahmen"].setdefault(k, v)
     for a in m["assets"]:
+        if "fixiert" not in a:
+            a["fixiert"] = a["category"] == "cash"
         for k, v in D._asset("x", "x", "cash", 0).items():
             a.setdefault(k, v)
     return m
@@ -177,6 +181,24 @@ def _lade_gespeichert(h):
     return daten
 
 
+def _norm(x):
+    """Zahlen vereinheitlichen (40 und 40.0 gelten als gleich) - sonst loeste
+    schon das blosse Oeffnen eines Bereichs eine Speicherung aus."""
+    if isinstance(x, bool) or x is None or isinstance(x, str):
+        return x
+    if isinstance(x, (int, float)):
+        return round(float(x), 6)
+    if isinstance(x, dict):
+        return {str(k): _norm(v) for k, v in x.items() if v is not None}     # fehlend == None
+    if isinstance(x, (list, tuple)):
+        return [_norm(v) for v in x]
+    return str(x)
+
+
+def _hash(m):
+    return hashlib.sha1(json.dumps(_norm(m), sort_keys=True).encode()).hexdigest()
+
+
 def _modell(h):
     if "planer_modell" not in st.session_state:
         daten = _lade_gespeichert(h)
@@ -184,7 +206,35 @@ def _modell(h):
         st.session_state["planer_modell"] = _migriere(eintrag["modell"]) if eintrag else D.seed_modell()
         st.session_state["planer_name"] = (daten.get("aktiv") or "Aktuelles Modell") if eintrag else None
         st.session_state.setdefault("planer_ver", 0)
+        # Stand beim Laden merken - gespeichert wird erst bei einer Aenderung
+        st.session_state["planer_hash"] = _hash(st.session_state["planer_modell"])
     return st.session_state["planer_modell"]
+
+
+def _auto_speichern(m, h):
+    """Automatische Speicherung: jede Aenderung am Modell wird ins aktive
+    Szenario geschrieben (Standard "Aktuelles Modell"). Vor dem Schreiben wird
+    die Datei frisch gelesen, damit andere gespeicherte Szenarien erhalten
+    bleiben (z. B. von einem anderen Geraet)."""
+    neu = _hash(m)
+    if neu == st.session_state.get("planer_hash"):
+        return st.session_state.get("planer_auto")
+    name = st.session_state.get("planer_name") or "Aktuelles Modell"
+    daten = _lade_gespeichert(h)
+    daten["szenarien"][name] = {"modell": copy.deepcopy(m),
+                                "gespeichert": datetime.datetime.now().isoformat(timespec="minutes")}
+    daten["aktiv"] = name
+    try:
+        ok = h["gh_write"](PFAD_SZENARIEN, daten, message=f"planer: auto {name} [skip ci]")
+    except Exception:
+        ok = False
+    if ok:
+        st.session_state["planer_hash"] = neu
+        st.session_state["planer_name"] = name
+        st.session_state["planer_auto"] = ("ok", name, datetime.datetime.now().strftime("%H:%M"))
+    else:
+        st.session_state["planer_auto"] = ("fehler", name, None)
+    return st.session_state["planer_auto"]
 
 
 def _asset(m, aid):
@@ -510,7 +560,53 @@ def _gewichtswarnung(platz, m):
 
 
 # --- 1 Allocation -----------------------------------------------------------
-def _b_allocation(m, R):
+def _hoehe(zeilen):
+    """Tabellenhoehe fuer st.data_editor: alle Zeilen sichtbar, kein inneres Scrollen."""
+    return int(35 * (zeilen + 1) + 3)
+
+
+def _kategorie_raten(t):
+    """Kategorie eines Suchtreffers aus Name/WKN/Gattung - in den Stammdaten aenderbar."""
+    txt = f'{t.get("name", "")} {t.get("kategorie", "")}'.lower()
+    wkn = str(t.get("wkn", "")).upper()
+    regeln = [
+        (wkn.startswith("LS9") or "wikifolio" in txt, "wikifolio"),
+        (any(x in txt for x in ("2x", "3x", "leverag", "hebel", "long x")), "leveraged_etf"),
+        (any(x in txt for x in ("bitcoin", "ethereum", "crypto", "krypto")), "crypto"),
+        (any(x in txt for x in ("semicond", "halbleiter", "chip")), "semiconductor"),
+        (any(x in txt for x in ("gold", "silver", "silber", "miner", "copper", "kupfer", "rohstoff")), "mining"),
+        ("small" in txt, "small_cap"),
+        (any(x in txt for x in ("momentum", "quality", "value", "min vol", "dividend")), "factor"),
+        (any(x in txt for x in ("nasdaq", "tech", "informat")), "technology"),
+        (any(x in txt for x in ("etf", "ucits", "fonds", "fund", "index", "msci", "ftse", "s&p")), "global_equity"),
+    ]
+    return next((k for bed, k in regeln if bed), "single_stock")
+
+
+def _baustein_neu(m, name, kategorie, *, wkn=None, isin=None, gewicht=0.0, rendite=None):
+    aid = "u_" + str(abs(zlib.crc32((name + datetime.datetime.now().isoformat()).encode())))
+    m["assets"].append(D._asset(aid, name, kategorie, float(gewicht), isin=isin or None, ticker=wkn or None,
+                                hebel=2.0 if kategorie == "leveraged_etf" else 1.0,
+                                hebel_typ="daily" if kategorie == "leveraged_etf" else None,
+                                notiz="Über den Portfolio Builder hinzugefügt."))
+    E.setze_annahme(m, aid, "manualScenario", None if rendite is None else float(rendite) / 100.0,
+                    notiz="Eigene Annahme" if rendite is not None else "Noch keine Annahme – bitte eintragen.")
+    return aid
+
+
+def _baustein_entfernen(m, aid):
+    m["assets"] = [a for a in m["assets"] if a["id"] != aid]
+    m["annahmen"] = [x for x in m["annahmen"] if x["assetId"] != aid]
+    (m.get("holdings") or {}).pop(aid, None)
+    if m["nachkauf"].get("ziel_asset") == aid:
+        m["nachkauf"]["ziel_asset"] = "etf_allworld"
+
+
+def _ziel_label(ziel):
+    return f"{_de(ziel / 1000)}k" if ziel >= 1000 and ziel % 1000 == 0 else _de(ziel) + " €"
+
+
+def _b_allocation(m, R, h):
     _abschnitt("Portfolio Builder")
     start = m["rahmen"]["startkapital"]
     summe = E.gewichte_summe(m) or 1.0
@@ -520,64 +616,154 @@ def _b_allocation(m, R):
         info = R["info"].get(a["id"]) or {}
         zeilen.append({
             "Aktiv": bool(a.get("enabled")), "Baustein": a["name"],
-            "Gewicht %": float(a.get("targetWeight") or 0.0),
+            "Gew. %": float(a.get("targetWeight") or 0.0),
+            "Annahme %": None if not eig or eig.get("value") is None else round(eig["value"] * 100, 2),
+            "Fix": bool(a.get("fixiert")),
             "Betrag €": round(start * float(a.get("targetWeight") or 0) / summe) if a.get("enabled") else 0,
-            "Annahme % p.a.": None if not eig else round(eig["value"] * 100, 2),
-            "Genutzt % p.a.": None if info.get("netto") is None else round(info["netto"] * 100, 2),
-            "Confidence": R["conf"].get(a["id"]),
+            "Genutzt %": None if info.get("netto") is None else round(info["netto"] * 100, 2),
+            "Conf.": R["conf"].get(a["id"]),
         })
     df = pd.DataFrame(zeilen)
     ed = st.data_editor(
-        df, key=_k("builder"), hide_index=True, width="stretch", num_rows="fixed",
-        disabled=["Baustein", "Betrag €", "Genutzt % p.a.", "Confidence"],
+        df, key=_k("builder"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
+        disabled=["Baustein", "Betrag €", "Genutzt %", "Conf."],
         column_config={
             "Aktiv": st.column_config.CheckboxColumn("Aktiv", width="small"),
-            "Gewicht %": st.column_config.NumberColumn("Gewicht %", min_value=0.0, max_value=100.0, step=0.5,
-                                                       format="%.1f"),
+            "Baustein": st.column_config.TextColumn("Baustein", width="medium"),
+            "Gew. %": st.column_config.NumberColumn("Gew. %", min_value=0.0, max_value=100.0, step=0.5,
+                                                    format="%.1f", width="small",
+                                                    help="Anteil am Gesamtportfolio – auch für Wikifolios frei einstellbar"),
+            "Annahme %": st.column_config.NumberColumn(
+                "Annahme %", step=0.5, format="%.1f", width="small",
+                help="Eigene Renditeannahme p.a. (Szenario, keine Prognose)"),
+            "Fix": st.column_config.CheckboxColumn(
+                "Fix", width="small", help="Fixierte Gewichte ändert „Gewichtung 100k“ nicht"),
             "Betrag €": st.column_config.NumberColumn("Betrag €", format="%d"),
-            "Annahme % p.a.": st.column_config.NumberColumn(
-                "Annahme % p.a.", step=0.5, format="%.2f",
-                help="Eigene Renditeannahme (Szenario, keine Prognose)"),
-            "Genutzt % p.a.": st.column_config.NumberColumn("Genutzt % p.a.", format="%.2f",
-                                                            help="In der Rechnung verwendet (aktive Quelle, ggf. netto)"),
-            "Confidence": st.column_config.NumberColumn("Conf.", format="%d",
-                                                        help="Belastbarkeit der Datenbasis 0–100"),
+            "Genutzt %": st.column_config.NumberColumn("Genutzt %", format="%.1f",
+                                                       help="In der Rechnung verwendet (aktive Quelle, ggf. netto)"),
+            "Conf.": st.column_config.NumberColumn("Conf.", format="%d",
+                                                   help="Belastbarkeit der Datenbasis 0–100"),
         })
     geaendert = False
     for i, a in enumerate(m["assets"]):
         z = ed.iloc[i]
         aktiv = bool(z["Aktiv"])
-        gew = 0.0 if pd.isna(z["Gewicht %"]) else float(z["Gewicht %"])
+        gew = 0.0 if pd.isna(z["Gew. %"]) else float(z["Gew. %"])
         if aktiv != bool(a.get("enabled")) or abs(gew - float(a.get("targetWeight") or 0)) > 1e-9:
             a["enabled"], a["targetWeight"] = aktiv, gew
             geaendert = True
-        ann = z["Annahme % p.a."]
+        if bool(z["Fix"]) != bool(a.get("fixiert")):
+            a["fixiert"] = bool(z["Fix"])
+            geaendert = True
+        ann = z["Annahme %"]
         if not pd.isna(ann):
             eig = E.annahme(m, a["id"], "manualScenario")
-            if eig is None or abs(eig["value"] - float(ann) / 100.0) > 1e-9:
+            if eig is None or eig.get("value") is None or abs(eig["value"] - float(ann) / 100.0) > 1e-9:
                 E.setze_annahme(m, a["id"], "manualScenario", float(ann) / 100.0)
                 geaendert = True
     if geaendert:
         st.rerun()
 
     summe = E.gewichte_summe(m)
-    c1, c2, c3 = st.columns([2, 1, 1])
-    c1.markdown(f'<div class="pl-zeile">Summe aktiver Gewichte: <b class="{"pl-gut" if abs(summe - 100) <= 0.05 else "pl-schlecht"}">'
+    ziel = m["rahmen"]["zielvermoegen"]
+    st.markdown(f'<div class="pl-zeile">Summe aktiver Gewichte: <b class="{"pl-gut" if abs(summe - 100) <= 0.05 else "pl-schlecht"}">'
                 f'{_de(summe, 1)} %</b></div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    if c1.button(f"🎯 Gewichtung {_ziel_label(ziel)}", key=_k("g100k"), width="stretch",
+                 help=f"Gewichte so verschieben, dass nach {m['rahmen']['horizont_jahre']} Jahren "
+                      f"{_de(ziel)} € herauskommen (fixierte Zeilen bleiben unverändert)"):
+        erg = E.gewichtung_fuer_ziel(m, R["r"], rebalancing=R["reb"])
+        if erg.get("fehler"):
+            st.session_state["planer_100k"] = ("fehler", erg["fehler"], [])
+        elif not erg["erreichbar"]:
+            st.session_state["planer_100k"] = (
+                "warnung", f"{_de(ziel)} € sind mit den aktuellen Annahmen auch bei maximaler Verschiebung nicht "
+                           f"erreichbar (höchstens {_eur(erg['max_endwert'])}). Nichts geändert – Fixierungen lösen "
+                           "oder Annahmen prüfen.", [])
+        else:
+            for a in m["assets"]:
+                if a["id"] in erg["gewichte"]:
+                    a["targetWeight"] = erg["gewichte"][a["id"]]      # ungerundet: Ziel exakt
+            st.session_state["planer_100k"] = (
+                "ok", f"Gewichte angepasst: Modell-Endwert {_eur(erg['endwert'])} nach "
+                      f"{m['rahmen']['horizont_jahre']} Jahren.", E.grenzen_verletzungen(m, erg["gewichte"]))
+            _neu_zeichnen()
+            st.rerun()
     if c2.button("Gewichte normalisieren", key=_k("norm"), width="stretch"):
         E.normalisieren(m)
         _neu_zeichnen()
         st.rerun()
     if c3.button("Startgewichte", key=_k("seed_gew"), width="stretch",
-                 help="Platzhalter-Gewichte des Ausgangsmodells wiederherstellen"):
+                 help="Platzhalter-Gewichte des Ausgangsmodells wiederherstellen (gelöschte Bausteine kommen zurück)"):
+        vorhanden = {a["id"] for a in m["assets"]}
+        for a in D.seed_modell()["assets"]:
+            if a["id"] not in vorhanden:
+                m["assets"].append(a)
+                for x in D.seed_modell()["annahmen"]:
+                    if x["assetId"] == a["id"]:
+                        m["annahmen"].append(x)
         seed = {a["id"]: a for a in D.SEED_ASSETS}
         for a in m["assets"]:
             if a["id"] in seed:
                 a["targetWeight"], a["enabled"] = seed[a["id"]]["targetWeight"], seed[a["id"]]["enabled"]
         _neu_zeichnen()
         st.rerun()
-    st.caption("Die Startgewichte sind Platzhalter (die Gewichtung des bisherigen Modells lag nicht vor). "
-               "Rendite-Annahmen sind frei gewählte Szenariowerte.")
+    meldung = st.session_state.get("planer_100k")
+    if meldung:
+        art, text, verletzt = meldung
+        {"ok": st.success, "warnung": st.warning, "fehler": st.error}[art](text)
+        if verletzt:
+            st.caption("Hinweis – über den Optimizer-Grenzen: " + " · ".join(verletzt) + ". Die Gewichtung ist eine "
+                       "reine Rückrechnung aus den Annahmen, keine Empfehlung.")
+    st.caption("„Gewichtung“ verschiebt die bisherigen Gewichte stufenlos zu den Bausteinen mit höherer Annahme, "
+               "bis das Ziel exakt erreicht ist. Fix-Häkchen (z. B. Reserve oder ein Wikifolio mit manuell "
+               "gesetztem Anteil) bleiben unverändert. Startgewichte sind Platzhalter.")
+
+    # --- Bausteine hinzufuegen / entfernen ---
+    _abschnitt("Baustein hinzufügen (WKN / ISIN)")
+    c4, c5 = st.columns([3, 1])
+    suchtext = c4.text_input("WKN oder ISIN", key=_k("add_such"), placeholder="z. B. A1JX52 oder IE00B4L5Y983")
+    if c5.button("Suchen", key=_k("add_btn"), width="stretch", disabled=not suchtext.strip()):
+        try:
+            st.session_state["planer_treffer"] = h["suche_instrument"](suchtext.strip()) or []
+        except Exception:
+            st.session_state["planer_treffer"] = []
+        st.session_state["planer_treffer_q"] = suchtext.strip()
+    treffer = st.session_state.get("planer_treffer")
+    if treffer is not None and st.session_state.get("planer_treffer_q"):
+        if not treffer:
+            st.warning(f"Kein Treffer für „{st.session_state['planer_treffer_q']}“.")
+        else:
+            wahl = st.selectbox("Treffer", list(range(len(treffer))), key=_k("add_wahl"),
+                                format_func=lambda i: f'{treffer[i]["name"]} · {treffer[i].get("wkn") or "–"} · '
+                                                      f'{treffer[i].get("isin") or ""}'.strip(" ·"))
+            t = treffer[wahl]
+            kats = list(D.KATEGORIEN)
+            c6, c7, c8 = st.columns(3)
+            kat = c6.selectbox("Kategorie", kats, index=kats.index(_kategorie_raten(t)),
+                               format_func=lambda k: D.KATEGORIEN[k]["titel"], key=_k("add_kat"))
+            gew = c7.number_input("Gewicht %", 0.0, 100.0, 0.0, step=0.5, key=_k("add_gew"))
+            ren = c8.number_input("Annahme % p.a.", -50.0, 300.0, value=None, step=0.5, key=_k("add_ren"),
+                                  placeholder="leer = später")
+            if st.button("➕ Zum Portfolio hinzufügen", key=_k("add_ok"), width="stretch"):
+                _baustein_neu(m, t["name"], kat, wkn=t.get("wkn"), isin=t.get("isin"), gewicht=gew, rendite=ren)
+                st.session_state.pop("planer_treffer", None)
+                st.session_state.pop("planer_treffer_q", None)
+                _neu_zeichnen()
+                st.rerun()
+            st.caption("Ohne Annahme rechnet der Baustein mit 0 % – die historische Rendite erscheint nach dem "
+                       "Hinzufügen unter „Annahmen & Datenqualität“.")
+
+    _abschnitt("Baustein entfernen")
+    c9, c10 = st.columns([3, 1])
+    weg = c9.selectbox("Baustein", [a["id"] for a in m["assets"]], key=_k("del_wahl"),
+                       format_func=lambda i: _asset(m, i)["name"])
+    if c10.button("🗑 Entfernen", key=_k("del_btn"), width="stretch", disabled=not m["assets"]):
+        _baustein_entfernen(m, weg)
+        _neu_zeichnen()
+        st.rerun()
+    st.caption("Entfernen löscht den Baustein samt Annahmen aus diesem Modell. „Startgewichte“ holt die "
+               "Bausteine des Ausgangsmodells zurück; nur „Aktiv“ abwählen lässt ihn in der Liste.")
 
     _abschnitt("Allocation")
     w = E.gewichte(m)
@@ -683,7 +869,7 @@ def _b_ziel(m, R):
     g["einzelasset_max"] = float(st.number_input("Max. Gewicht je Baustein (%)", 1.0, 100.0,
                                                  float(g["einzelasset_max"]), step=1.0, key=_k("g_einzel")))
     df = pd.DataFrame([{"Grenze": x["titel"], "Max %": x.get("max"), "Min %": x.get("min")} for x in g["gruppen"]])
-    ed = st.data_editor(df, key=_k("grenzen"), hide_index=True, width="stretch", disabled=["Grenze"],
+    ed = st.data_editor(df, key=_k("grenzen"), hide_index=True, height=_hoehe(len(df)), width="stretch", disabled=["Grenze"],
                         column_config={"Max %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=1.0),
                                        "Min %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=1.0)})
     for i, x in enumerate(g["gruppen"]):
@@ -764,7 +950,7 @@ def _b_korb(m, R, fund, fund_stand, je_score, korb_score, hist_korb):
         "Sektor": x["sektor"],
     } for x in m["korb"]])
     ed = st.data_editor(
-        df, key=_k("korb_ed"), hide_index=True, width="stretch",
+        df, key=_k("korb_ed"), hide_index=True, width="stretch", height=_hoehe(len(df)),
         disabled=["Aktie", "Score", "5J p.a. %", "Sektor"] + ([] if m["korb_methode"] == "manual" else ["Gewicht %"]),
         column_config={
             "Gewicht %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=0.5, format="%.1f"),
@@ -938,6 +1124,7 @@ def _b_szenarien(m, R, historie, h):
         daten["aktiv"] = name
         if h["gh_write"](PFAD_SZENARIEN, daten, message=f"planer: szenario {name} [skip ci]"):
             st.session_state["planer_name"] = name
+            st.session_state["planer_hash"] = _hash(m)
             st.success(f"„{name}“ gespeichert.")
         else:
             st.error("Speichern nicht möglich (GitHub-Speicher nicht verfügbar).")
@@ -947,6 +1134,7 @@ def _b_szenarien(m, R, historie, h):
         if c4.button("Laden", key=_k("sz_load"), width="stretch"):
             st.session_state["planer_modell"] = _migriere(daten["szenarien"][laden]["modell"])
             st.session_state["planer_name"] = laden
+            st.session_state["planer_hash"] = _hash(st.session_state["planer_modell"])
             st.session_state.pop("planer_opt", None)
             _neu_zeichnen()
             st.rerun()
@@ -954,6 +1142,9 @@ def _b_szenarien(m, R, historie, h):
             daten["szenarien"].pop(laden, None)
             if daten.get("aktiv") == laden:
                 daten["aktiv"] = None
+            if st.session_state.get("planer_name") == laden:
+                st.session_state["planer_name"] = None      # naechste Aenderung -> "Aktuelles Modell"
+                st.session_state["planer_hash"] = None
             h["gh_write"](PFAD_SZENARIEN, daten, message=f"planer: szenario {laden} geloescht [skip ci]")
             _neu_zeichnen()
             st.rerun()
@@ -971,7 +1162,9 @@ def _b_szenarien(m, R, historie, h):
             except Exception as ex:
                 zeilen.append([_esc(n), f"Fehler: {_esc(ex)}"] + ["–"] * 6)
         _tabelle(["Szenario", "Endwert", "p.a.", "Wikifolios", "Hebel", "Max. Gew.", "Conf.", "Gespeichert"], zeilen)
-        st.caption("Alle gespeicherten Szenarien mit den heutigen historischen Daten neu gerechnet.")
+        st.caption("Alle gespeicherten Szenarien mit den heutigen historischen Daten neu gerechnet. Änderungen "
+               "werden automatisch in das zuletzt geladene bzw. gespeicherte Szenario geschrieben – für eine "
+               "Variante erst unter neuem Namen speichern, dann ändern.")
 
 
 # --- 7 Risiko & Konzentration -----------------------------------------------
@@ -1065,7 +1258,7 @@ def _b_reserve(m, R):
                                             key=_k("nk_score"), disabled=not nk["min_score_aktiv"]))
     df = pd.DataFrame([{"Tranche": n + 1, "Drawdown %": t["drawdown"], "Anteil der Reserve %": round(t["anteil"] * 100, 1)}
                        for n, t in enumerate(nk["tranchen"])])
-    ed = st.data_editor(df, key=_k("tranchen"), hide_index=True, width="stretch", disabled=["Tranche"],
+    ed = st.data_editor(df, key=_k("tranchen"), hide_index=True, height=_hoehe(len(df)), width="stretch", disabled=["Tranche"],
                         column_config={"Drawdown %": st.column_config.NumberColumn(min_value=-95.0, max_value=0.0, step=5.0),
                                        "Anteil der Reserve %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0,
                                                                                              step=5.0)})
@@ -1073,7 +1266,7 @@ def _b_reserve(m, R):
         d, a = ed.iloc[n]["Drawdown %"], ed.iloc[n]["Anteil der Reserve %"]
         if not pd.isna(d):
             t["drawdown"] = float(d)
-        if not pd.isna(a):
+        if not pd.isna(a) and abs(float(a) - round(t["anteil"] * 100, 1)) > 1e-9:
             t["anteil"] = float(a) / 100
     st.caption("Regelbasiert: Eine Tranche wird nur bei einem Markt-Drawdown ab der Schwelle eingesetzt. Ein "
                "Kursrückgang allein ist kein Grund – Einzelwerte bzw. der Korb kommen nur bei ausreichendem "
@@ -1187,7 +1380,7 @@ def _b_annahmen(m, R, historie, hist_assets):
         eig = E.annahme(m, a["id"], "manualScenario")
         z["Notiz"] = (eig or {}).get("notes", "")
         zeilen.append(z)
-    ed = st.data_editor(pd.DataFrame(zeilen), key=_k("annahmen"), hide_index=True, width="stretch",
+    ed = st.data_editor(pd.DataFrame(zeilen), key=_k("annahmen"), hide_index=True, height=_hoehe(len(zeilen)), width="stretch",
                         disabled=["Baustein"],
                         column_config={t: st.column_config.NumberColumn(t, step=0.5, format="%.2f") for t in titel.values()})
     geaendert = False
@@ -1272,7 +1465,7 @@ def _b_annahmen(m, R, historie, hist_assets):
         "Hebel": a.get("leverage") or 1.0, "Tech %": None if a.get("techAnteil") is None else a["techAnteil"] * 100,
         "Halbl. %": None if a.get("semiAnteil") is None else a["semiAnteil"] * 100,
     } for a in m["assets"]])
-    ed = st.data_editor(df, key=_k("stamm"), hide_index=True, width="stretch", disabled=["Baustein"],
+    ed = st.data_editor(df, key=_k("stamm"), hide_index=True, height=_hoehe(len(df)), width="stretch", disabled=["Baustein"],
                         column_config={"Kategorie": st.column_config.SelectboxColumn(options=kats),
                                        "TER %": st.column_config.NumberColumn(format="%.2f", step=0.05),
                                        "Perf.-Fee %": st.column_config.NumberColumn(format="%.0f", step=1.0),
@@ -1313,13 +1506,9 @@ def _b_annahmen(m, R, historie, hist_assets):
         gew = c4.number_input("Gewicht %", 0.0, 100.0, 0.0, step=0.5, key=_k("neu_w"))
         rendite = c5.number_input("Annahme % p.a.", -50.0, 200.0, 0.0, step=0.5, key=_k("neu_r"))
         if st.button("Hinzufügen", key=_k("neu_ok"), disabled=not name.strip()):
-            aid = "u_" + str(abs(zlib.crc32((name + str(datetime.datetime.now())).encode())))
             kennung = kennung.strip().upper()
-            m["assets"].append(D._asset(aid, name.strip(), kat, gew,
-                                        isin=kennung if len(kennung) == 12 else None,
-                                        ticker=kennung if kennung and len(kennung) != 12 else None,
-                                        hebel=1.0))
-            E.setze_annahme(m, aid, "manualScenario", rendite / 100, notiz="Eigene Annahme")
+            _baustein_neu(m, name.strip(), kat, isin=kennung if len(kennung) == 12 else None,
+                          wkn=kennung if kennung and len(kennung) != 12 else None, gewicht=gew, rendite=rendite)
             _neu_zeichnen()
             st.rerun()
 
@@ -1336,6 +1525,7 @@ def render(h):
     _hinweis("Szenariorechnung / keine Prognose – alle Renditen sind Annahmen oder historische Ausgangswerte, "
              "keine Erwartung und keine Anlageempfehlung.")
 
+    status_platz = st.empty()
     _rahmen(m)
     kpi_platz = st.empty()
     warn_platz = st.empty()
@@ -1353,7 +1543,7 @@ def render(h):
     # Eingaben des Bereichs zuerst (sie aendern das Modell), danach rechnen
     R = _rechne(m, historie, korb_score)
     if bereich == BEREICHE[0]:
-        _b_allocation(m, R)
+        _b_allocation(m, R, h)
     elif bereich == BEREICHE[1]:
         _b_growth(m, R)
     elif bereich == BEREICHE[2]:
@@ -1379,3 +1569,10 @@ def render(h):
     _kpis(kpi_platz, m, R)
     _gewichtswarnung(warn_platz, m)
 
+    status = _auto_speichern(m, h)
+    if status:
+        art, sz_name, zeit = status
+        text = (f"✓ Automatisch gespeichert als „{sz_name}“ · {zeit} Uhr" if art == "ok" else
+                "⚠ Automatische Speicherung nicht möglich (GitHub-Speicher nicht erreichbar) – "
+                "Änderungen gelten nur bis zum Neuladen.")
+        status_platz.markdown(f'<div class="pl-hinweis">{_esc(text)}</div>', unsafe_allow_html=True)
