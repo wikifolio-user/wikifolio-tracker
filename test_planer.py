@@ -358,6 +358,42 @@ class Optimizer(unittest.TestCase):
         self.assertIn("fehler", o)
 
 
+class GewichtungZiel(unittest.TestCase):
+    def test_trifft_ziel(self):
+        m = D.seed_modell()
+        r = renditen(m)
+        o = E.gewichtung_fuer_ziel(m, r)
+        self.assertTrue(o["erreichbar"])
+        self.assertAlmostEqual(sum(o["gewichte"].values()), 100.0, places=6)
+        self.assertAlmostEqual(o["gewichte"]["reserve"], 10.0)            # fixiert
+        for a in m["assets"]:
+            a["targetWeight"] = o["gewichte"].get(a["id"], 0.0)
+        self.assertGreaterEqual(E.projektion(m, r)["endwert"], 100000 - 1e-6)
+        self.assertLess(E.projektion(m, r)["endwert"], 100000 * 1.0001)
+
+    def test_nach_unten_und_mit_rebalancing(self):
+        m = D.seed_modell()
+        m["rahmen"]["zielvermoegen"] = 40000
+        r = renditen(m)
+        o = E.gewichtung_fuer_ziel(m, r, rebalancing={"art": "jaehrlich"})
+        self.assertAlmostEqual(o["endwert"], 40000, delta=5)
+        self.assertLess(o["gewichte"]["wf_ff"], 10.0)
+
+    def test_fixiert_und_unerreichbar(self):
+        m = D.seed_modell()
+        for a in m["assets"]:
+            if a["category"] == "wikifolio":
+                a["fixiert"] = True
+        o = E.gewichtung_fuer_ziel(m, renditen(m))
+        self.assertFalse(o["erreichbar"])
+        self.assertLess(o["max_endwert"], 100000)
+
+    def test_grenzen_meldung(self):
+        m = D.seed_modell()
+        self.assertEqual(E.grenzen_verletzungen(m), [])
+        o = E.gewichtung_fuer_ziel(m, renditen(m))
+        self.assertTrue(any("Wikifolios" in t for t in E.grenzen_verletzungen(m, o["gewichte"])))
+
+
 if __name__ == "__main__":
     unittest.main()
-
