@@ -70,13 +70,14 @@ METHODEN = {
 # ---------------------------------------------------------------------------
 def _asset(id, name, kategorie, gewicht, *, ticker=None, isin=None, sub=None, region="Global",
            sektor="Diversifiziert", hebel=1.0, hebel_typ=None, ter=None, perf_fee=None,
-           emittent=None, tech=None, semi=None, aktiv=True, bias=False, notiz=""):
+           emittent=None, tech=None, semi=None, aktiv=True, bias=False, notiz="", fix=False):
     return {
         "id": id, "name": name, "ticker": ticker, "isin": isin, "category": kategorie,
         "subCategory": sub, "region": region, "sector": sektor, "targetWeight": gewicht,
         "leverage": hebel, "leverageType": hebel_typ, "expenseRatio": ter, "performanceFee": perf_fee,
         "emittent": emittent, "techAnteil": tech, "semiAnteil": semi, "enabled": aktiv,
         "historicalWinnerBias": bias, "notes": notiz,
+        "fixiert": fix,                 # bei "Gewichtung 100k" unveraendert lassen
     }
 
 
@@ -107,7 +108,7 @@ SEED_ASSETS = [
            notiz="Aus Unternehmen zusammengestellt, die in den letzten Jahren stark gelaufen sind - "
                  "historische Renditen dieser Auswahl sind keine faire Zukunftserwartung."),
     # --- Nachkauf-/Liquiditaetsreserve ---
-    _asset("reserve", "Nachkaufreserve", "cash", 10.0, region="-", sektor="Cash"),
+    _asset("reserve", "Nachkaufreserve", "cash", 10.0, region="-", sektor="Cash", fix=True),
 ]
 
 # Aktienkorb: Gewicht INNERHALB des Korbs (Summe 100 %). Sektor/Region sind
@@ -289,4 +290,3 @@ def seed_modell():
         "korb_methode": "manual", "manuell": {},      # manuelle Moat-/Risiko-Punkte je Korbaktie
         "holdings": {},                               # {etf_id: {firma: anteil_%}} - fuer Effective Exposure
     })
-
