@@ -466,7 +466,7 @@ st.markdown("""
        also korrekt scrollbar. */
     [data-testid="stSelectboxVirtualDropdown"],
     [data-testid="stSelectboxVirtualDropdown"] [role="listbox"] {
-        max-height: min(24rem, 75vh) !important;
+        max-height: min(30rem, 80vh) !important;
     }
 
     /* ---------- ABSCHNITTE & AUFKLAPPBEREICHE ----------
@@ -3324,6 +3324,7 @@ def render_dashboard():
         "🕯️ Tages-Candlestick",
         "🔮 Zukunfts-Prognose",
         "📊 Szenario-Simulator (5 Jahre)",
+        "💼 Portfolio-Planer",
         "📝 Trader-Log (Trades & Kommentare)",
         "🏆 Watchlist Top 50",
     ]
@@ -5597,6 +5598,23 @@ def render_dashboard():
     if gewaehlte_ansicht == "🏆 Watchlist Top 50":
         melde("ansicht", 0.3, "Lade Ranglisten …")
         _render_top50()
+        lade_fertig()
+
+    # --- PORTFOLIO-PLANER: eigenes Modul (planer_daten / planer_engine /
+    # planer_ui). Bekommt die vorhandenen Funktionen fuer Kurssuche, Historie
+    # und GitHub-Speicher, statt sie doppelt zu implementieren.
+    if gewaehlte_ansicht == "💼 Portfolio-Planer":
+        melde("ansicht", 0.3, "Lade Portfolio-Planer …")
+        try:
+            import planer_ui
+            planer_ui.render({
+                "suche_instrument": suche_instrument, "get_kurshistorie": get_kurshistorie,
+                "gh_read": gh_read, "gh_write": gh_write, "gh_read_taeglich": gh_read_taeglich,
+                "heute": heute_date, "benchmarks": getattr(config, "BENCHMARKS", {}) or {},
+            })
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Portfolio-Planer: {e}")
+            notify_app_error("Tab-Portfolio-Planer", e)
         lade_fertig()
 
     # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
