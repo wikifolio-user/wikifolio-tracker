@@ -1012,7 +1012,14 @@ def gewichtung_fuer_ziel(modell, renditen_netto, ziel=None, **kw):
     fix = {a["id"] for a in aktiv if a.get("fixiert")}
     frei = [i for i in bisher if i not in fix and bisher[i] > 0]
     if not frei:
-        return {"fehler": "Alle Bausteine sind fixiert – mindestens einen freigeben."}
+        offen = [i for i in bisher if i not in fix]
+        if not offen:
+            return {"fehler": "Alle Bausteine sind fixiert – mindestens einen freigeben."}
+        # alle freien Bausteine stehen auf 0 %: gleich verteilt starten
+        rest0 = 100.0 - sum(bisher[i] for i in fix)
+        for i in offen:
+            bisher[i] = rest0 / len(offen)
+        frei = offen
     rest = 100.0 - sum(bisher[i] for i in fix)
     basis = {i: max(1.0 + renditen_netto.get(i, 0.0), 1e-6) for i in frei}
     log_b = {i: math.log(basis[i]) for i in frei}
