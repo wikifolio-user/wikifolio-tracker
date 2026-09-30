@@ -552,12 +552,27 @@ def _phase(titel):
 
 
 def _benoetigt(m):
-    """Benoetigte Rendite p.a. fuers Zielvermoegen (None ohne Ziel/Aufbau)."""
+    """Benoetigte Rendite p.a. fuers Zielvermoegen (None ohne Ziel).
+    Mit Aufbau (> 0 Jahre): Ziel = Vermoegen am Ende des Aufbaus.
+    Ohne Aufbau (0 Jahre): Ziel = Vermoegen am Ende der Entnahme -> benoetigte
+    Rendite in der Entnahme (nach allen Entnahmen bleibt genau das Ziel)."""
     r = m["rahmen"]
-    if int(r.get("horizont_jahre") or 0) <= 0 or float(r.get("zielvermoegen") or 0) <= 0:
+    ziel = float(r.get("zielvermoegen") or 0)
+    if ziel <= 0:
         return None
-    return E.erforderliche_rendite(float(r["startkapital"]), float(r["zielvermoegen"]), int(r["horizont_jahre"]),
-                                   float(r.get("sparrate_monat") or 0.0))
+    if int(r.get("horizont_jahre") or 0) > 0:
+        return E.erforderliche_rendite(float(r["startkapital"]), ziel, int(r["horizont_jahre"]),
+                                       float(r.get("sparrate_monat") or 0.0))
+    e = _entnahme_daten(m)
+    if not e.get("aktiv", True):
+        return None
+    return E.rendite_fuer_restwert(float(r["startkapital"]), float(e["monatlich"]), ziel,
+                                   jahre=int(e["dauer_jahre"]), dynamik_pa=float(e["dynamik_pa"]) / 100.0)
+
+
+def _ziel_in_entnahme(m):
+    """True = das Zielvermoegen gilt fuer das Ende der Entnahme (0 Jahre Aufbau)."""
+    return int(m["rahmen"].get("horizont_jahre") or 0) <= 0
 
 
 def _auto_modus(m):
@@ -582,7 +597,11 @@ def _auto_gewichtung(m, R):
     if not modus:
         st.session_state.pop("planer_autogew", None)
         return False
-    if modus == "ziel":
+    if modus == "ziel" and _ziel_in_entnahme(m):
+        ben = _benoetigt(m)
+        erg = E.gewichtung_fuer_rendite(m, R["r"], ben)
+        erg["benoetigt"] = ben
+    elif modus == "ziel":
         erg = E.gewichtung_fuer_zielvermoegen(m, R["r"], R["reb"])
     else:
         erg = E.gewichtung_fuer_rendite(m, R["r"], float(_entnahme_daten(m)["rendite_pa"]) / 100.0)
@@ -601,8 +620,9 @@ def _auto_gewichtung(m, R):
 def _auto_hinweis(m):
     modus = _auto_modus(m)
     if modus == "ziel":
+        wann = "am Ende der Entnahme" if _ziel_in_entnahme(m) else "am Ende des Aufbaus"
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend so verteilt, dass das Zielvermögen "
-                f"von {_de(m['rahmen']['zielvermoegen'])} € erreicht wird (benötigt {_pct(_benoetigt(m))} p.a.) – "
+                f"von {_de(m['rahmen']['zielvermoegen'])} € {wann} erreicht wird (benötigt {_pct(_benoetigt(m))} p.a.) – "
                 "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 1“.")
     elif modus == "entnahme":
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend auf "
@@ -637,19 +657,20 @@ def _rahmen(m):
                                                        help="0 = kein Aufbau, die Entnahme startet sofort mit dem Startkapital"))
         rahmen["zielvermoegen"] = float(c4.number_input("Zielvermögen am Ende (€)", 0.0, 1e10,
                                                         float(rahmen["zielvermoegen"]), step=5000.0, format="%.0f",
-                                                        key=_k("ziel"), help="0 = kein Ziel"))
-        ben = _benoetigt(m)
-        if ben is not None:
+                                                        key=_k("ziel"),
+                                                        help="0 = kein Ziel. Mit Aufbau: Vermögen am Ende des Aufbaus. "
+                                                             "Bei 0 Jahren Aufbau: Vermögen am Ende der Entnahme "
+                                                             "(nach allen Entnahmen)."))
+        ziel_platz = None
+        if float(rahmen.get("zielvermoegen") or 0) > 0:
             rahmen["auto_ziel"] = st.toggle(
                 "Gewichte automatisch aufs Zielvermögen verteilen", value=bool(rahmen.get("auto_ziel", True)),
                 key=_k("auto_ziel"),
                 help="Berechnet die benötigte Rendite p.a. und verteilt die Prozente im Portfolio – ausgehend von "
-                     "einer Gleichverteilung, gekippt nach den Renditen der Bausteine – so, dass die Modellrechnung "
+                     "einer Gleichverteilung, gekippt nach den Renditen der Bausteine – so, dass die Rechnung "
                      "das Ziel genau erreicht. Fixierte Bausteine und Reserve bleiben. Manuelle Gewichte werden "
                      "dabei überschrieben.")
-            st.markdown(f'<div class="pl-zeile">Benötigte Rendite p.a.: <b>{_pct(ben)}</b>'
-                        + (" → Gewichte werden automatisch darauf verteilt" if rahmen["auto_ziel"] else "")
-                        + "</div>", unsafe_allow_html=True)
+            ziel_platz = st.empty()          # wird nach den Entnahme-Eingaben gefuellt (aktuelle Werte)
 
         _phase("Phase 2 · Entnahme (ab Ende des Aufbaus)")
         e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"),
@@ -670,9 +691,15 @@ def _rahmen(m):
             e["rendite_quelle"] = q
             if q == "eigen" and _auto_modus(m) == "ziel":
                 # ein Portfolio, eine Rendite: die Entnahme rechnet mit der benoetigten Rendite
-                st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>wie Aufbauphase</b> '
-                            f'(automatisch – benötigt {_pct(_benoetigt(m))}; ist das Ziel nicht erreichbar, gilt die '
-                            'tatsächlich erreichte Modellrendite)</div>', unsafe_allow_html=True)
+                if _ziel_in_entnahme(m):
+                    st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>{_pct(_benoetigt(m))}</b> '
+                                f'(automatisch aus dem Zielvermögen von {_de(rahmen["zielvermoegen"])} € nach '
+                                f'{e["dauer_jahre"]} J. Entnahme; ist das nicht erreichbar, gilt die höchstmögliche '
+                                'Portfoliorendite)</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>wie Aufbauphase</b> '
+                                f'(automatisch – benötigt {_pct(_benoetigt(m))}; ist das Ziel nicht erreichbar, gilt '
+                                'die tatsächlich erreichte Modellrendite)</div>', unsafe_allow_html=True)
             elif q == "eigen":
                 e["rendite_pa"] = float(st.number_input(
                     "Rendite p.a. in der Entnahme (%)", -20.0, 200.0, float(e["rendite_pa"]), step=0.5,
@@ -694,6 +721,18 @@ def _rahmen(m):
                 e["freibetrag"] = float(c10.number_input("Freibetrag pro Jahr (€)", 0.0, 1e5, float(e["freibetrag"]),
                                                          step=100.0, format="%.0f", key=_k("en_frei"),
                                                          help="Sparerpauschbetrag – bitte aktuellen Wert prüfen"))
+
+        if ziel_platz is not None:
+            ben = _benoetigt(m)
+            if ben is None:
+                ziel_platz.caption("Ohne Aufbau gilt das Zielvermögen für das Ende der Entnahme – dafür die "
+                                   "Entnahme einplanen." if _ziel_in_entnahme(m) else
+                                   "Benötigte Rendite nicht berechenbar (Startkapital 0 ohne Sparrate?).")
+            else:
+                ziel_platz.markdown(
+                    f'<div class="pl-zeile">Benötigte Rendite p.a.' + (" in der Entnahme" if _ziel_in_entnahme(m) else "")
+                    + f': <b>{_pct(ben)}</b>' + (" → Gewichte werden automatisch darauf verteilt" if rahmen["auto_ziel"]
+                                                  else "") + "</div>", unsafe_allow_html=True)
 
         _phase("Weitere Einstellungen")
         rahmen["kosten_beruecksichtigen"] = st.toggle(
@@ -770,6 +809,13 @@ def _kpis(platz, m, R):
         auto = st.session_state.get("planer_autogew")
         if auto and auto.get("fehler"):
             zeilen.append(f'⚠ Automatische Gewichtung: {_esc(auto["fehler"])}')
+        elif auto and auto.get("modus") == "ziel" and _ziel_in_entnahme(m):
+            if auto["erreichbar"]:
+                zeilen.append(f'Gewichte automatisch aufs Ziel verteilt · benötigt <b>{_pct(auto["benoetigt"])} p.a.</b> '
+                              f'in der Entnahme · Rest nach {e["dauer_jahre"]} J. ≈ {_de(rahmen["zielvermoegen"])} €')
+            else:
+                zeilen.append(f'⚠ Ziel mit diesen Bausteinen nicht erreichbar (benötigt {_pct(auto["benoetigt"])} p.a., '
+                              f'höchstens {_pct(auto["max"])})')
         elif auto and auto.get("modus") == "ziel":
             if auto["erreichbar"]:
                 zeilen.append(f'Gewichte automatisch aufs Ziel verteilt · benötigt <b>{_pct(auto["benoetigt"])} p.a.</b>'
@@ -2321,7 +2367,7 @@ def _entnahme_rechnen(m, R, e=None):
     einstand = min(proj["eingezahlt"], kapital)
     if e.get("rendite_quelle", "eigen") == "eigen" and _auto_modus(m) != "ziel":
         rendite = e["rendite_pa"] / 100.0
-    elif R["zus"]["modell_cagr"] is not None:
+    elif R["zus"]["modell_cagr"] is not None and not _ziel_in_entnahme(m):
         rendite = R["zus"]["modell_cagr"]
     else:
         # keine Aufbauphase (0 Jahre): gewichtete Portfoliorendite statt 0 %
