@@ -1894,8 +1894,8 @@ NAV_CSS = """
 @keyframes navschimmer { 0% { background-position: 100% 0; } 55%, 100% { background-position: 0% 0; } }
 @media (prefers-reduced-motion: reduce) { .nav-lauf { animation: none; } }
 
-/* Gruppen-Ueberschrift: schiesst alle 8 s blitzschnell nach rechts aus dem
-   Bild, kommt links wieder herein, bleibt stehen und pulsiert leicht */
+/* Gruppen-Ueberschrift: schiesst beim Oeffnen einmal blitzschnell nach rechts
+   aus dem Bild, kommt links wieder herein, bleibt stehen und pulsiert leicht */
 .nav-gruppe {
     position: relative; height: 38px; margin: 0 4px; overflow: hidden;
     font-size: 0.7rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
@@ -1906,13 +1906,13 @@ NAV_CSS = """
 }
 .nav-wander {
     position: absolute; bottom: 12px; left: 0; white-space: nowrap;
-    animation: navblitz 8s infinite, navpulsieren 2.6s ease-in-out infinite;
+    /* Blitz nur einmal beim Oeffnen des Menues, danach stehen bleiben und pulsieren */
+    animation: navblitz 0.6s 1 both, navpulsieren 2.6s ease-in-out infinite;
 }
 @keyframes navblitz {
     0%     { left: 0;    transform: translateX(0);     animation-timing-function: cubic-bezier(.7, 0, 1, .6); filter: none; }
-    3.5%   { left: 100%; transform: translateX(0);     filter: blur(1.2px); }
-    3.51%  { left: 0;    transform: translateX(-100%); animation-timing-function: cubic-bezier(0, .5, .3, 1); filter: blur(1.2px); }
-    7%     { left: 0;    transform: translateX(0);     filter: none; }
+    50%    { left: 100%; transform: translateX(0);     filter: blur(1.2px); }
+    50.1%  { left: 0;    transform: translateX(-100%); animation-timing-function: cubic-bezier(0, .5, .3, 1); filter: blur(1.2px); }
     100%   { left: 0;    transform: translateX(0);     filter: none; }
 }
 @keyframes navpulsieren {
@@ -2133,7 +2133,7 @@ def navigation():
             farb_css = []
             for titel, ansichten in NAV_ZEILEN:
                 farbe = NAV_FARBEN.get(titel, "#F4F8FF")
-                verzug = f"{NAV_ZEILEN.index((titel, ansichten)) * 0.8 + 0.8:.1f}s"
+                verzug = f"{NAV_ZEILEN.index((titel, ansichten)) * 0.25 + 0.3:.2f}s"
                 st.markdown(f'<div class="nav-gruppe"><span class="nav-wander" style="animation-delay:{verzug}">'
                             f'{titel}</span></div>', unsafe_allow_html=True)
                 for i in range(0, len(ansichten), 2):
