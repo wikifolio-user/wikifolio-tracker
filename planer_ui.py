@@ -302,7 +302,7 @@ def _waehle_treffer(treffer, begriff, wiki):
 def _reihen_kennzahlen(s):
     s = s.dropna()
     s = s[s > 0]
-    if len(s) < 20:
+    if len(s) < 10:
         return None
     s.index = pd.to_datetime(s.index)
     s = s.sort_index()
@@ -335,13 +335,29 @@ def _reihen_kennzahlen(s):
         "historical1Y": cagr(1), "historical3Y": cagr(3), "historical5Y": cagr(5), "historical10Y": cagr(10),
         "vola1y": vola1,
         "gesamt_cagr": float((s.iloc[-1] / s.iloc[0]) ** (1.0 / jahre) - 1.0) if jahre >= 1 else None,
+        "seit_start": float(s.iloc[-1] / s.iloc[0] - 1.0),
         "vola": vola, "maxdd": maxdd,
         "monat": [(d.date().isoformat(), float(v)) for d, v in monat.dropna().items()],
     }
 
 
-@st.cache_data(ttl=HIST_CACHE_SEK, show_spinner=False)
+class _KeineDaten(Exception):
+    pass
+
+
 def _hist_eines(begriffe, wiki, heute_iso, _suche, _kurse, inst_id=None):
+    """Wie _hist_eines_cache - Fehler werden aber NICHT zwischengespeichert,
+    damit ein einmaliger Abruf-Aussetzer nicht stundenlang "fehlt" zeigt."""
+    try:
+        return _hist_eines_cache(begriffe, wiki, heute_iso, _suche, _kurse, inst_id)
+    except _KeineDaten as e:
+        return {"fehler": str(e)}
+    except Exception as e:
+        return {"fehler": f"Kurshistorie nicht ladbar ({e})"}
+
+
+@st.cache_data(ttl=HIST_CACHE_SEK, show_spinner=False)
+def _hist_eines_cache(begriffe, wiki, heute_iso, _suche, _kurse, inst_id=None):
     """Sucht das Instrument (WKN/ISIN/Name) und berechnet die Kennzahlen der
     kompletten verfuegbaren Historie. inst_id: bereits bekannte ls-tc-ID
     (aus config.BENCHMARKS). -> dict oder {"fehler": text}"""
@@ -359,17 +375,17 @@ def _hist_eines(begriffe, wiki, heute_iso, _suche, _kurse, inst_id=None):
         if gefunden:
             break
     if not gefunden:
-        return {"fehler": "Instrument nicht gefunden – WKN/ISIN in den Stammdaten eintragen."}
+        raise _KeineDaten("Instrument nicht gefunden – WKN/ISIN in den Stammdaten eintragen.")
     try:
         heute = datetime.date.fromisoformat(heute_iso)
         s = _kurse(gefunden["instrument_id"], datetime.date(2000, 1, 1), heute)
     except Exception as e:
-        return {"fehler": f"Kurshistorie nicht ladbar ({e})"}
+        raise _KeineDaten(f"Kurshistorie nicht ladbar ({e})")
     if s is None or len(s) == 0:
-        return {"fehler": "Keine Kurshistorie verfügbar."}
+        raise _KeineDaten("Keine Kurshistorie verfügbar.")
     k = _reihen_kennzahlen(pd.Series(s).astype(float))
     if not k:
-        return {"fehler": "Kurshistorie zu kurz."}
+        raise _KeineDaten("Kurshistorie zu kurz.")
     k.update({"quelle": "ls-tc.de Kurshistorie", "instrument": gefunden.get("name"),
               "wkn": gefunden.get("wkn"), "isin": gefunden.get("isin"),
               "abgerufen": datetime.datetime.now().strftime("%d.%m.%Y %H:%M")})
@@ -1045,7 +1061,9 @@ def _basis_text(m, a):
         src = str(rec.get("source") or "")
         if src.startswith("Kurshistorie ("):
             return "Hist. " + src[len("Kurshistorie ("):].rstrip(")").replace(" p.a.", "")
-        return "Start (auto)"
+        if src.startswith("Standard"):
+            return "Standard ⚠"
+        return "Startwert ⚠"
     return "eigene"
 
 
@@ -1093,7 +1111,9 @@ def _b_bausteine(m, R, h):
             "Basis": st.column_config.TextColumn(
                 "Basis", width=breite("small"),
                 help="Woher die Annahme stammt: „Hist. 5 J.“ usw. = automatisch aus der bisherigen Rendite p.a. "
-                     "(wird täglich nachgeführt), „eigene“ = selbst eingetragen"),
+                     "(wird täglich nachgeführt), „Hist. seit Start, N Mon.“ = junge Werte < 1 Jahr (nicht hochgerechnet), "
+                     "„Standard ⚠“ = keine Kursdaten gefunden, Kategorie-Standard, „Startwert ⚠“ = Wert aus dem "
+                     "Ausgangsmodell, keine Kursdaten, „eigene“ = selbst eingetragen"),
             "Aktiv": st.column_config.CheckboxColumn("Aktiv", width=breite("small")),
             "Baustein": st.column_config.TextColumn("Baustein", width=breite("medium")),
             "Gew. %": st.column_config.NumberColumn("Gew. %", min_value=0.0, max_value=100.0, step=0.5,
@@ -1150,7 +1170,8 @@ def _b_bausteine(m, R, h):
         st.rerun()
     if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
                  help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
-                      "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J.)"):
+                      "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J., bei jungen Werten "
+                      "seit Start ohne Hochrechnung; ohne Kursdaten Standardwert der Kategorie)"):
         n = E.annahmen_aus_historie(m, st.session_state.get("planer_historie") or {}, alle=True)
         st.session_state["planer_meldung"] = ("ok", f"{n} Annahmen aus der bisherigen Rendite p.a. übernommen.", [])
         _neu_zeichnen()
@@ -1643,7 +1664,8 @@ def _b_wiki(m, R, hist_assets):
             f'<b>{_pct(info.get("brutto"), 1)}</b><span class="pt-sub">{_esc(quelle_txt)}</span>',
             f'{_de(conf)}/100',
             _de(h.get("jahre"), 1) + " J." if h.get("jahre") else "–",
-            _pct(h.get("gesamt_cagr")),
+            _pct(h.get("gesamt_cagr")) if h.get("gesamt_cagr") is not None else
+            (_pct(h.get("seit_start")) + " ges." if h.get("seit_start") is not None else "–"),
             _pct(h.get("historical5Y")),
             _pct(h.get("vola")),
             _pct(h.get("maxdd"), 0, anteil=False),
@@ -1658,7 +1680,8 @@ def _b_wiki(m, R, hist_assets):
         if h.get("fehler"):
             st.caption(f"{a['name']}: {h['fehler']}")
     st.caption("„Genutzt p.a.“ = tatsächliche Rendite laut Kurshistorie (5 J. p.a., sonst 3 J., sonst seit Start, "
-               "sonst 1 J.). Die eigene Annahme gilt nur, wenn keine Historie ≥ 1 Jahr vorliegt oder im Portfolio "
+               "sonst 1 J.; bei weniger als 1 Jahr Historie die Rendite seit Start, nicht hochgerechnet). "
+               "Die eigene Annahme gilt nur, wenn keine Kurshistorie vorliegt oder im Portfolio "
                "Builder „Ist“ abgewählt ist. Vergangene Renditen sind keine Zukunftserwartung. Confidence misst nur, wie lang und belastbar die investierbare Historie ist – z. B. "
                "„Expected Return 50 % / Data Confidence 22/100“. Performance Fee und Kosten nur, soweit unter "
                "„🗂️ Daten → Annahmen & Quellen“ eingetragen.")
