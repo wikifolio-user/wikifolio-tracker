@@ -637,5 +637,12 @@ class ZielvermoegenAuto(unittest.TestCase):
         self.assertIn("fehler", E.gewichtung_fuer_zielvermoegen(m, r))
 
 
+class ZielNachEntnahme(unittest.TestCase):
+    def test_restwert_genau(self):
+        r = E.rendite_fuer_restwert(300000, 3500, 1_000_000, jahre=10)
+        self.assertAlmostEqual(E.entnahmeplan(300000, r, 3500, jahre=10)["restwert"], 1_000_000, delta=1)
+        self.assertIsNone(E.rendite_fuer_restwert(300000, 3500, 0, jahre=10))
+
+
 if __name__ == "__main__":
     unittest.main()
