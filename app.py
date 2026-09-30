@@ -1886,44 +1886,24 @@ NAV_CSS = """
                      background: linear-gradient(90deg, rgba(255, 255, 255, 0.75), transparent);
                      box-shadow: 0 0 6px rgba(255, 255, 255, 0.6); }
 
-/* Kacheln: 3D-Tasten aus dunklem Glas mit umlaufendem Neon-Licht
-   - Rand: rotierender Lichtverlauf (conic-gradient, per @property animiert)
-   - 3D: gestapelte Schatten = sichtbare Tastenkante, beim Druecken sinkt die Taste ein
-   - Glanz: Lichtkante oben + Lichtstreifen, der beim Antippen/Hover darueberfaehrt */
-@property --nav-winkel { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
-@keyframes navdreh { to { --nav-winkel: 360deg; } }
+/* Kacheln "Neon-Taste": dicke 3D-Kante (gestapelte Schatten), weisser
+   Neonrand, weiches Bodenleuchten unter der Taste - ruhig, ohne Bewegung */
 .st-key-nav_menue [data-testid="stButton"] button {
-    position: relative; width: 100% !important; min-height: 60px !important; border-radius: 18px !important;
-    padding: 8px 6px !important; overflow: hidden; isolation: isolate;
-    border: 2px solid transparent !important;
-    background:
-        linear-gradient(172deg, #2A2E37 0%, #17191E 48%, #0E0F12 100%) padding-box,
-        conic-gradient(from var(--nav-winkel),
-            rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.6) 5%, #FFFFFF 9%, rgba(255, 255, 255, 0.6) 13%,
-            rgba(255, 255, 255, 0.16) 20%, rgba(255, 255, 255, 0.16) 50%, rgba(255, 255, 255, 0.6) 55%,
-            #FFFFFF 59%, rgba(255, 255, 255, 0.6) 63%, rgba(255, 255, 255, 0.16) 70%, rgba(255, 255, 255, 0.16) 100%) border-box !important;
-    animation: navdreh 7s linear infinite;
-    transform: translateY(-3px);
+    position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
+    padding: 8px 6px !important;
+    background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.9) !important;
+    transform: translateY(-4px);
     box-shadow:
-        0 1px 0 #30343C, 0 2px 0 #272A31, 0 3px 0 #202328, 0 4px 0 #1A1C20, 0 5px 0 #141518,
-        0 16px 26px rgba(0, 0, 0, 0.7),
-        0 0 10px rgba(255, 255, 255, 0.30), 0 0 28px rgba(255, 255, 255, 0.12),
-        inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -8px 14px rgba(0, 0, 0, 0.35) !important;
-    transition: transform .18s ease, box-shadow .18s ease;
+        0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 5px 0 #1B1D21, 0 6px 0 #16171A,
+        0 18px 22px -6px rgba(255, 255, 255, 0.22),
+        0 20px 30px rgba(0, 0, 0, 0.7),
+        0 0 6px rgba(255, 255, 255, 0.55), 0 0 18px rgba(255, 255, 255, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 0 12px rgba(255, 255, 255, 0.10),
+        inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
+    transition: transform .15s ease, box-shadow .15s ease;
 }
-/* Glanz: obere Haelfte leicht aufgehellt (gewoelbte Glasflaeche) */
-.st-key-nav_menue [data-testid="stButton"] button::after {
-    content: ""; position: absolute; inset: 1px 1px 50% 1px; border-radius: 17px 17px 40% 40% / 17px 17px 12px 12px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.02) 70%, transparent);
-    pointer-events: none; z-index: 0;
-}
-/* Lichtstreifen, der beim Hover/Antippen ueber die Taste faehrt */
-.st-key-nav_menue [data-testid="stButton"] button::before {
-    content: ""; position: absolute; top: -60%; left: -70%; width: 45%; height: 220%;
-    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.22), transparent);
-    transform: rotate(18deg); transition: left .7s ease; pointer-events: none; z-index: 0;
-}
-.st-key-nav_menue [data-testid="stButton"] button > div { position: relative; z-index: 1; min-width: 0; max-width: 100%; }
+.st-key-nav_menue [data-testid="stButton"] button > div { min-width: 0; max-width: 100%; }
 .st-key-nav_menue [data-testid="stButton"] button p {
     /* immer einzeilig: Schrift waechst/schrumpft mit der Bildschirmbreite */
     font-size: clamp(0.7rem, 3.25vw, 0.95rem) !important; font-weight: 700 !important; line-height: 1.2 !important;
@@ -1931,29 +1911,30 @@ NAV_CSS = """
     color: #FFFFFF !important; letter-spacing: 0.2px;
     text-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
 }
+/* Antippen/Hover: Taste hebt sich, Kante und Leuchten werden staerker */
 .st-key-nav_menue [data-testid="stButton"] button:hover,
 .st-key-nav_menue [data-testid="stButton"] button:focus-visible {
-    transform: translateY(-5px);
+    transform: translateY(-6px);
+    border-color: #FFFFFF !important;
     box-shadow:
-        0 1px 0 #30343C, 0 2px 0 #272A31, 0 3px 0 #202328, 0 4px 0 #1A1C20, 0 5px 0 #141518,
-        0 6px 0 #101113, 0 7px 0 #0C0D0F,
-        0 22px 32px rgba(0, 0, 0, 0.75),
-        0 0 14px rgba(255, 255, 255, 0.6), 0 0 40px rgba(255, 255, 255, 0.22),
-        inset 0 1px 0 rgba(255, 255, 255, 0.32), inset 0 -8px 14px rgba(0, 0, 0, 0.35) !important;
+        0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 5px 0 #1B1D21, 0 6px 0 #16171A,
+        0 7px 0 #121315, 0 8px 0 #0E0F11,
+        0 22px 26px -6px rgba(255, 255, 255, 0.32),
+        0 24px 34px rgba(0, 0, 0, 0.75),
+        0 0 8px rgba(255, 255, 255, 0.75), 0 0 26px rgba(255, 255, 255, 0.32),
+        inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 14px rgba(255, 255, 255, 0.14),
+        inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
 }
-.st-key-nav_menue [data-testid="stButton"] button:hover::before { left: 130%; }
-.st-key-nav_menue [data-testid="stButton"] button:hover p { text-shadow: 0 0 10px rgba(255, 255, 255, 0.9), 0 0 22px rgba(255, 255, 255, 0.4); }
-/* Druecken: Taste sinkt ein, Kante verschwindet */
+.st-key-nav_menue [data-testid="stButton"] button:hover p { text-shadow: 0 0 10px rgba(255, 255, 255, 0.85); }
+/* Druecken: Taste sinkt ein */
 .st-key-nav_menue [data-testid="stButton"] button:active {
-    transform: translateY(2px);
+    transform: translateY(1px);
     box-shadow:
-        0 1px 0 #202328,
+        0 1px 0 #282B31,
+        0 8px 12px -4px rgba(255, 255, 255, 0.18),
         0 6px 12px rgba(0, 0, 0, 0.6),
-        0 0 16px rgba(255, 255, 255, 0.55),
-        inset 0 2px 6px rgba(0, 0, 0, 0.5) !important;
-}
-@media (prefers-reduced-motion: reduce) {
-    .st-key-nav_menue [data-testid="stButton"] button { animation: none; }
+        0 0 10px rgba(255, 255, 255, 0.55),
+        inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.74rem !important; font-weight: 600 !important; }
 
@@ -1970,7 +1951,7 @@ NAV_CSS = """
 }
 .st-key-nav_menue .st-key-nav_refresh button {
     width: auto !important; min-height: 32px !important; padding: 2px 16px !important; border-radius: 999px !important;
-    animation: none !important; transform: none !important; border: 1px solid rgba(255, 255, 255, 0.8) !important;
+    transform: none !important; border: 1px solid rgba(255, 255, 255, 0.8) !important;
     background: rgba(255, 255, 255, 0.04) !important; border-color: rgba(255, 255, 255, 0.8) !important;
     box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.2),
                 inset 0 0 10px rgba(255, 255, 255, 0.08) !important;
@@ -1979,7 +1960,6 @@ NAV_CSS = """
     transform: none !important; border-color: #FFFFFF !important;
     box-shadow: 0 0 8px rgba(255, 255, 255, 0.7), 0 0 22px rgba(255, 255, 255, 0.28) !important;
 }
-.st-key-nav_menue .st-key-nav_refresh button::after { display: none; }
 
 /* ================= ALLE BUTTONS: weisser Neonrand ================= */
 [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
@@ -2128,7 +2108,6 @@ def navigation():
                         idx = ANSICHTEN.index(ansicht)
                         spalte.button(NAV_NAMEN.get(ansicht, ansicht), key=f"nav_b{idx}",
                                       width="stretch", on_click=_nav_waehle, args=(ansicht,))
-                        farb_css.append(f".st-key-nav_menue .st-key-nav_b{idx} button {{ animation-delay: -{idx * 0.63:.2f}s; }}")
                         if titel in NAV_FARBEN:
                             farb_css.append(f".st-key-nav_menue .st-key-nav_b{idx} button {{ border-color: {farbe} !important; "
                                             f"box-shadow: 0 8px 18px rgba(0,0,0,.55), 0 0 14px {farbe}55 !important; }}")
