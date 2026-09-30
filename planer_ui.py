@@ -1013,6 +1013,25 @@ def _b_allocation(m, R, h):
     if geaendert:
         st.rerun()
 
+    if st.button("⚖️ Gewichte nach Rendite p.a. verteilen", key=_k("nach_rendite"), width="stretch",
+                 help="Verteilt 100 % auf alle aktiven Bausteine im Verhältnis ihrer Rendite p.a. (Spalte "
+                      "„Genutzt %“). Fixierte Bausteine und die Reserve behalten ihr Gewicht; Bausteine mit "
+                      "Rendite ≤ 0 bekommen 0 %."):
+        erg = E.gewichte_nach_rendite(m, R["r"])
+        if erg.get("fehler"):
+            st.session_state["planer_100k"] = ("fehler", erg["fehler"], [])
+        else:
+            for a in m["assets"]:
+                if a["id"] in erg["gewichte"]:
+                    a["targetWeight"] = round(erg["gewichte"][a["id"]], 2)
+            E.normalisieren(m)
+            n = sum(1 for v in erg["gewichte"].values() if v > 0)
+            st.session_state["planer_100k"] = (
+                "ok", f"Gewichte nach Rendite p.a. verteilt ({n} Bausteine mit Anteil).",
+                E.grenzen_verletzungen(m))
+        _neu_zeichnen()
+        st.rerun()
+
     if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
                  help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
                       "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J.)"):
