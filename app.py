@@ -1847,7 +1847,9 @@ NAV_CSS = """
 .st-key-nav_menue [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
 
 /* Kopf */
-.nav-kopf { text-align: center; padding: 10px 0 4px; }
+.nav-kopf { text-align: center; padding: 0 0 4px; margin-top: -26px; }
+.nav-credit { font-size: 0.7rem; letter-spacing: 1px; color: rgba(255, 255, 255, 0.5);
+              margin-top: 2px; }
 .nav-logo {
     font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
     letter-spacing: 5px; color: #FFFFFF; text-transform: uppercase;
@@ -1952,8 +1954,14 @@ NAV_CSS = """
 
 
 def _termine(tag):
-    return [datetime.datetime.combine(tag, datetime.time(h), tzinfo=BERLIN_TZ)
-            for h in range(AKTUALISIERUNG_START, AKTUALISIERUNG_ENDE + 1, AKTUALISIERUNG_TAKT)]
+    """Aktualisierungstermine eines Tages in Berliner Zeit. Wichtig: pytz-Zonen
+    per localize() setzen - tzinfo=BERLIN_TZ ergaebe die historische Ortszeit
+    (+00:53) und verschoebe alle Termine um rund eine Stunde."""
+    aus = []
+    for h in range(AKTUALISIERUNG_START, AKTUALISIERUNG_ENDE + 1, AKTUALISIERUNG_TAKT):
+        naiv = datetime.datetime.combine(tag, datetime.time(h))
+        aus.append(BERLIN_TZ.localize(naiv) if hasattr(BERLIN_TZ, "localize") else naiv.replace(tzinfo=BERLIN_TZ))
+    return aus
 
 
 def letzter_termin(jetzt):
@@ -2024,6 +2032,7 @@ def navigation():
         with st.container(key="nav_menue"):
             st.markdown(
                 '<div class="nav-kopf"><div class="nav-logo">FINANZ <span>DASHBOARD</span></div>'
+                '<div class="nav-credit">created by MarsTech</div>'
                 f'<div class="nav-chip"><span class="nav-dot"></span>Kurse <b>{stand.strftime("%d.%m. %H:%M")}</b>'
                 f' · nächste {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div></div>',
                 unsafe_allow_html=True)
@@ -3768,29 +3777,11 @@ def render_dashboard():
         prognose_rendite_pa, prognose_rendite_details = erwartete_rendite_pa, []
     erwarteter_zins_mo = (1 + (prognose_rendite_pa / 100.0)) ** (1 / 12) - 1
 
-    # --- SIDEBAR & STEUERUNG ---
-    st.sidebar.markdown("### ⚡ System Status")
-    if is_live_data:
-        st.sidebar.success(f"🟢 Live-Daten aktiv\nKurs-Feed: {fetched_source}\nChart-Feed: {hist_source_name}")
-    else:
-        st.sidebar.error(f"🔴 KEINE LIVE-DATEN\nKurs-Feed: {fetched_source}\nChart-Feed: {hist_source_name}")
-    st.sidebar.write(f"Webhook geladen: {'Ja' if DISCORD_WEBHOOK_URL else 'Nein'}")
-    st.sidebar.write(f"Persistenter State (GitHub): {'Ja' if GH_STATE_READY else '⚠️ Nein - GITHUB_REPO/GITHUB_TOKEN fehlen'}")
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📊 Live-Daten Monitor")
-    st.sidebar.text(f"Aktueller Kurs: {aktueller_kurs:.3f} €")
-    st.sidebar.text(f"Vortageskurs: {vortag_kurs:.3f} €")
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🎯 Automatische Prognose-Basis")
-    st.sidebar.info(f"Realisiert seit Kauf: **{erwartete_rendite_pa:.2f}% p.a.**\n\n"
-                    f"Basis der 100k-Simulation (Produkt-Historie, Median): "
-                    f"**{prognose_rendite_pa:.2f}% p.a.**")
-
-    if st.sidebar.button("🔔 Test-Alarm senden"):
-        if send_discord_alert(-1.50, aktueller_kurs):
-            st.sidebar.success("Test-Alarm gesendet!")
+    # --- SIDEBAR entfernt ---
+    # Die ganze Seite ist ein Fragment; Streamlit verbietet Fragment-Reruns
+    # (z. B. durch die Menue-Kacheln) das Schreiben in die Sidebar
+    # (StreamlitInvalidLayoutContext). Kursmonitor, Prognose-Basis und
+    # Test-Alarm stehen jetzt unter Einstellungen -> System-Status.
 
     # --- WARNBANNER: KEIN PERSISTENTER STATE KONFIGURIERT ---
     if not GH_STATE_READY:
@@ -5936,6 +5927,12 @@ def render_dashboard():
             if GH_STATE_READY:
                 st.caption(f"Repo: {GITHUB_REPO} • Branch: {config.GITHUB_STATE_BRANCH}")
             st.write(f"**High Watermark:** {high_watermark_anzeige:.3f}€")
+            st.write(f"**Kurs aktuell / Vortag:** {aktueller_kurs:.3f} € / {vortag_kurs:.3f} €")
+            st.write(f"**Prognose-Basis:** realisiert seit Kauf {erwartete_rendite_pa:.2f} % p.a. · "
+                     f"Basis der 100k-Simulation (Produkt-Historie, Median) {prognose_rendite_pa:.2f} % p.a.")
+            if st.button("🔔 Test-Alarm senden", key="test_alarm_btn"):
+                if send_discord_alert(-1.50, aktueller_kurs):
+                    st.success("Test-Alarm gesendet!")
 
             # Abgleich der Kauf-Eckdaten: macht sichtbar, ob die geladene Historie
             # wirklich am Kaufdatum beginnt - genau hier lief die Performance-
