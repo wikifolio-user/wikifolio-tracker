@@ -1004,6 +1004,10 @@ def gewichtung_fuer_ziel(modell, renditen_netto, ziel=None, **kw):
     - Optimizer-Grenzen werden NICHT erzwungen, aber gemeldet (grenzen_verletzungen).
     -> {"gewichte": {id: %}, "endwert", "erreichbar", "max_endwert"} oder {"fehler"}"""
     ziel = float(ziel if ziel is not None else modell["rahmen"]["zielvermoegen"])
+    if ziel <= 0:
+        return {"fehler": "Kein Zielvermögen gesetzt (0 €)."}
+    if int(modell["rahmen"].get("horizont_jahre") or 0) <= 0:
+        return {"fehler": "Keine Aufbauphase (0 Jahre) – ein Zielvermögen lässt sich nicht ansteuern."}
     summe = gewichte_summe(modell)
     if summe <= 0:
         return {"fehler": "Keine aktiven Bausteine mit Gewicht."}
@@ -1268,3 +1272,57 @@ def gewichte_nach_rendite(modell, renditen_netto):
     for i in frei:
         g[i] = roh[i] / summe * rest
     return {"gewichte": g}
+
+
+def gewichtung_fuer_rendite(modell, renditen_netto, ziel_r):
+    """Verteilt die Gewichte automatisch so, dass die Portfoliorendite p.a.
+    (gewichteter Mittelwert der Renditen, jaehrlich ausbalanciert) genau ziel_r
+    ergibt. Ausgangspunkt ist eine GLEICHverteilung aller aktiven, nicht
+    fixierten Bausteine ("ausgeglichen"); von dort wird stufenlos zu den
+    renditestaerkeren bzw. -schwaecheren Bausteinen gekippt:
+        w_i ~ exp(lambda * r_i),  lambda per Bisektion.
+    Fixierte Bausteine und Cash behalten ihr Gewicht.
+    -> {"gewichte": {id: %}, "rendite": erreicht, "erreichbar": bool, "min", "max"} oder {"fehler"}"""
+    aktiv = aktive_assets(modell)
+    if not aktiv:
+        return {"fehler": "Keine aktiven Bausteine."}
+    summe = gewichte_summe(modell) or 1.0
+    fest = {a["id"]: float(a.get("targetWeight") or 0.0) * 100.0 / summe for a in aktiv
+            if a.get("fixiert") or _typ(a) == "cash"}
+    offen = [a["id"] for a in aktiv if a["id"] not in fest]
+    if not offen:
+        return {"fehler": "Alle Bausteine sind fixiert – mindestens einen freigeben."}
+    rest = 100.0 - sum(fest.values())
+    if rest <= 0:
+        return {"fehler": "Fixierte Bausteine und Reserve belegen bereits 100 %."}
+    r = {i: float(renditen_netto.get(i) or 0.0) for i in list(fest) + offen}
+    beitrag_fest = sum(fest[i] * r[i] for i in fest) / 100.0
+
+    def gewichte_bei(lam):
+        mx = max(lam * r[i] for i in offen)
+        roh = {i: math.exp(lam * r[i] - mx) for i in offen}
+        su = sum(roh.values())
+        g = dict(fest)
+        for i in offen:
+            g[i] = roh[i] / su * rest
+        return g
+
+    def rendite_bei(g):
+        return sum(g[i] * r[i] for i in g) / 100.0
+
+    r_min = beitrag_fest + rest / 100.0 * min(r[i] for i in offen)
+    r_max = beitrag_fest + rest / 100.0 * max(r[i] for i in offen)
+    if ziel_r >= r_max - 1e-9 or ziel_r <= r_min + 1e-9:
+        lam = 5000.0 if ziel_r >= r_max - 1e-9 else -5000.0
+        g = gewichte_bei(lam)
+        return {"gewichte": g, "rendite": rendite_bei(g), "erreichbar": abs(rendite_bei(g) - ziel_r) < 1e-4,
+                "min": r_min, "max": r_max}
+    lo, hi = -5000.0, 5000.0
+    for _ in range(200):
+        mitte = (lo + hi) / 2.0
+        if rendite_bei(gewichte_bei(mitte)) < ziel_r:
+            lo = mitte
+        else:
+            hi = mitte
+    g = gewichte_bei(hi)
+    return {"gewichte": g, "rendite": rendite_bei(g), "erreichbar": True, "min": r_min, "max": r_max}
