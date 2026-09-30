@@ -551,19 +551,42 @@ def _phase(titel):
     st.markdown(f'<div class="pl-phase">{_esc(titel)}</div>', unsafe_allow_html=True)
 
 
-def _auto_aktiv(m):
+def _benoetigt(m):
+    """Benoetigte Rendite p.a. fuers Zielvermoegen (None ohne Ziel/Aufbau)."""
+    r = m["rahmen"]
+    if int(r.get("horizont_jahre") or 0) <= 0 or float(r.get("zielvermoegen") or 0) <= 0:
+        return None
+    return E.erforderliche_rendite(float(r["startkapital"]), float(r["zielvermoegen"]), int(r["horizont_jahre"]),
+                                   float(r.get("sparrate_monat") or 0.0))
+
+
+def _auto_modus(m):
+    """'ziel' = Gewichte automatisch aufs Zielvermoegen, 'entnahme' = auf die
+    Entnahme-Rendite, None = aus. Das Ziel hat Vorrang (ein Portfolio, ein Ziel)."""
+    if _benoetigt(m) is not None and m["rahmen"].get("auto_ziel", True):
+        return "ziel"
     e = _entnahme_daten(m)
-    return bool(e.get("aktiv", True) and e.get("rendite_quelle", "eigen") == "eigen" and e.get("auto_gewichtung"))
+    if e.get("aktiv", True) and e.get("rendite_quelle", "eigen") == "eigen" and e.get("auto_gewichtung"):
+        return "entnahme"
+    return None
+
+
+def _auto_aktiv(m):
+    return _auto_modus(m) is not None
 
 
 def _auto_gewichtung(m, R):
-    """Automatische Gewichtung auf die Entnahme-Rendite (falls eingeschaltet).
+    """Automatische Gewichtung (Ziel oder Entnahme-Rendite).
     -> True, wenn Gewichte geaendert wurden"""
-    if not _auto_aktiv(m):
+    modus = _auto_modus(m)
+    if not modus:
         st.session_state.pop("planer_autogew", None)
         return False
-    e = _entnahme_daten(m)
-    erg = E.gewichtung_fuer_rendite(m, R["r"], float(e["rendite_pa"]) / 100.0)
+    if modus == "ziel":
+        erg = E.gewichtung_fuer_zielvermoegen(m, R["r"], R["reb"])
+    else:
+        erg = E.gewichtung_fuer_rendite(m, R["r"], float(_entnahme_daten(m)["rendite_pa"]) / 100.0)
+    erg["modus"] = modus
     st.session_state["planer_autogew"] = erg
     if erg.get("fehler"):
         return False
@@ -576,7 +599,12 @@ def _auto_gewichtung(m, R):
 
 
 def _auto_hinweis(m):
-    if _auto_aktiv(m):
+    modus = _auto_modus(m)
+    if modus == "ziel":
+        st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend so verteilt, dass das Zielvermögen "
+                f"von {_de(m['rahmen']['zielvermoegen'])} € erreicht wird (benötigt {_pct(_benoetigt(m))} p.a.) – "
+                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 1“.")
+    elif modus == "entnahme":
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend auf "
                 f"{_de(_entnahme_daten(m)['rendite_pa'], 1)} % p.a. (Rendite in der Entnahme) ausgerichtet – "
                 "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 2“.")
@@ -610,6 +638,18 @@ def _rahmen(m):
         rahmen["zielvermoegen"] = float(c4.number_input("Zielvermögen am Ende (€)", 0.0, 1e10,
                                                         float(rahmen["zielvermoegen"]), step=5000.0, format="%.0f",
                                                         key=_k("ziel"), help="0 = kein Ziel"))
+        ben = _benoetigt(m)
+        if ben is not None:
+            rahmen["auto_ziel"] = st.toggle(
+                "Gewichte automatisch aufs Zielvermögen verteilen", value=bool(rahmen.get("auto_ziel", True)),
+                key=_k("auto_ziel"),
+                help="Berechnet die benötigte Rendite p.a. und verteilt die Prozente im Portfolio – ausgehend von "
+                     "einer Gleichverteilung, gekippt nach den Renditen der Bausteine – so, dass die Modellrechnung "
+                     "das Ziel genau erreicht. Fixierte Bausteine und Reserve bleiben. Manuelle Gewichte werden "
+                     "dabei überschrieben.")
+            st.markdown(f'<div class="pl-zeile">Benötigte Rendite p.a.: <b>{_pct(ben)}</b>'
+                        + (" → Gewichte werden automatisch darauf verteilt" if rahmen["auto_ziel"] else "")
+                        + "</div>", unsafe_allow_html=True)
 
         _phase("Phase 2 · Entnahme (ab Ende des Aufbaus)")
         e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"),
@@ -628,7 +668,12 @@ def _rahmen(m):
                              index=list(quellen).index(e.get("rendite_quelle", "eigen")),
                              format_func=quellen.get, key=_k("en_quelle"))
             e["rendite_quelle"] = q
-            if q == "eigen":
+            if q == "eigen" and _auto_modus(m) == "ziel":
+                # ein Portfolio, eine Rendite: die Entnahme rechnet mit der benoetigten Rendite
+                st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>wie Aufbauphase</b> '
+                            f'(automatisch – benötigt {_pct(_benoetigt(m))}; ist das Ziel nicht erreichbar, gilt die '
+                            'tatsächlich erreichte Modellrendite)</div>', unsafe_allow_html=True)
+            elif q == "eigen":
                 e["rendite_pa"] = float(st.number_input(
                     "Rendite p.a. in der Entnahme (%)", -20.0, 200.0, float(e["rendite_pa"]), step=0.5,
                     key=_k("en_rendite"), help="Ziel-Rendite des Portfolios in der Entnahmephase"))
@@ -723,7 +768,16 @@ def _kpis(platz, m, R):
             except Exception:
                 pass
         auto = st.session_state.get("planer_autogew")
-        if auto and not auto.get("fehler"):
+        if auto and auto.get("fehler"):
+            zeilen.append(f'⚠ Automatische Gewichtung: {_esc(auto["fehler"])}')
+        elif auto and auto.get("modus") == "ziel":
+            if auto["erreichbar"]:
+                zeilen.append(f'Gewichte automatisch aufs Ziel verteilt · benötigt <b>{_pct(auto["benoetigt"])} p.a.</b>'
+                              f' · Modell-Endwert {_eur(auto["endwert"])}')
+            else:
+                zeilen.append(f'⚠ Ziel mit diesen Bausteinen nicht erreichbar (benötigt {_pct(auto["benoetigt"])} p.a.) – '
+                              f'renditestärkste Verteilung ergibt {_eur(auto["endwert"])}')
+        elif auto:
             zeilen.append(("Gewichte automatisch auf " if auto["erreichbar"] else "⚠ Höchstens erreichbar: ")
                           + f'<b>{_pct(auto["rendite"])} p.a.</b> ausgerichtet'
                           + ("" if auto["erreichbar"] else f' (mit diesen Bausteinen max. {_pct(auto["max"])})'))
@@ -2265,7 +2319,7 @@ def _entnahme_rechnen(m, R, e=None):
     proj = R["zus"]["projektion"]
     kapital = proj["endwert"]
     einstand = min(proj["eingezahlt"], kapital)
-    if e.get("rendite_quelle", "eigen") == "eigen":
+    if e.get("rendite_quelle", "eigen") == "eigen" and _auto_modus(m) != "ziel":
         rendite = e["rendite_pa"] / 100.0
     elif R["zus"]["modell_cagr"] is not None:
         rendite = R["zus"]["modell_cagr"]
