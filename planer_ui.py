@@ -816,6 +816,23 @@ def _suche_hinzufuegen(m, h):
 
 
 
+def _editor_formular(df, key, **kw):
+    """Tabelle als Formular: Aenderungen werden gesammelt und erst mit
+    „Änderungen übernehmen“ gerechnet und gespeichert - nicht nach jeder
+    einzelnen Zelle. Ohne Klick liefert die Funktion die unveraenderte
+    Tabelle zurueck, die nachfolgende Uebernahme-Schleife findet dann nichts."""
+    with st.form(key + "_form", border=False):
+        st.caption("Werte eintragen, dann „✔ Änderungen übernehmen“ – erst dann wird neu gerechnet.")
+        ed = st.data_editor(df, key=key, **kw)
+        c1, c2 = st.columns(2)
+        ok = c1.form_submit_button("✔ Änderungen übernehmen", type="primary", width="stretch")
+        verwerfen = c2.form_submit_button("↺ Verwerfen", width="stretch")
+    if verwerfen:
+        _neu_zeichnen()
+        st.rerun()
+    return ed if ok else df
+
+
 def _hoehe(zeilen):
     """Tabellenhoehe fuer st.data_editor: alle Zeilen sichtbar, kein inneres Scrollen."""
     return int(35 * (zeilen + 1) + 3)
@@ -883,7 +900,7 @@ def _b_allocation(m, R, h):
             "Conf.": R["conf"].get(a["id"]),
         })
     df = pd.DataFrame(zeilen)
-    ed = st.data_editor(
+    ed = _editor_formular(
         df, key=_k("builder"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
         disabled=["Baustein", "Betrag €", "Genutzt %", "Conf."],
         column_config={
@@ -1181,7 +1198,7 @@ def _b_korb(m, R, fund, fund_stand, je_score, korb_score, hist_korb):
         else round(hist_korb[x["id"]]["historical5Y"] * 100, 1),
         "Sektor": x["sektor"],
     } for x in m["korb"]])
-    ed = st.data_editor(
+    ed = _editor_formular(
         df, key=_k("korb_ed"), hide_index=True, width="stretch", height=_hoehe(len(df)),
         disabled=["Aktie", "Score", "5J p.a. %", "Sektor"] + ([] if m["korb_methode"] == "manual" else ["Gewicht %"]),
         column_config={
@@ -1612,7 +1629,7 @@ def _b_annahmen(m, R, historie, hist_assets):
         eig = E.annahme(m, a["id"], "manualScenario")
         z["Notiz"] = (eig or {}).get("notes", "")
         zeilen.append(z)
-    ed = st.data_editor(pd.DataFrame(zeilen), key=_k("annahmen"), hide_index=True, height=_hoehe(len(zeilen)), width="stretch",
+    ed = _editor_formular(pd.DataFrame(zeilen), key=_k("annahmen"), hide_index=True, height=_hoehe(len(zeilen)), width="stretch",
                         disabled=["Baustein"],
                         column_config={t: st.column_config.NumberColumn(t, step=0.5, format="%.2f") for t in titel.values()})
     geaendert = False
@@ -1697,7 +1714,7 @@ def _b_annahmen(m, R, historie, hist_assets):
         "Hebel": a.get("leverage") or 1.0, "Tech %": None if a.get("techAnteil") is None else a["techAnteil"] * 100,
         "Halbl. %": None if a.get("semiAnteil") is None else a["semiAnteil"] * 100,
     } for a in m["assets"]])
-    ed = st.data_editor(df, key=_k("stamm"), hide_index=True, height=_hoehe(len(df)), width="stretch", disabled=["Baustein"],
+    ed = _editor_formular(df, key=_k("stamm"), hide_index=True, height=_hoehe(len(df)), width="stretch", disabled=["Baustein"],
                         column_config={"Kategorie": st.column_config.SelectboxColumn(options=kats),
                                        "TER %": st.column_config.NumberColumn(format="%.2f", step=0.05),
                                        "Perf.-Fee %": st.column_config.NumberColumn(format="%.0f", step=1.0),
