@@ -180,6 +180,12 @@ def _migriere(m):
         m.setdefault(k, v)
     for k, v in seed["rahmen"].items():
         m["rahmen"].setdefault(k, v)
+    seed_werte = {x["assetId"]: x["value"] for x in D.SEED_ANNAHMEN if x["sourceType"] == "manualScenario"}
+    for x in m["annahmen"]:
+        if "auto" not in x and x.get("sourceType") == "manualScenario" and x.get("assetId") != "reserve":
+            # unveraenderte Startwerte, leere Annahmen und Katalog-Vorschlaege gelten als automatisch
+            x["auto"] = (x.get("value") is None or seed_werte.get(x["assetId"], object()) == x.get("value")
+                         or str(x.get("notes", "")).startswith(D.VORSCHLAG["text"]))
     seed_assets = {a["id"]: a for a in seed["assets"]}
     for a in m["assets"]:
         if a["id"] in seed_assets and not a.get("ticker") and not a.get("isin"):
@@ -776,7 +782,7 @@ def _katalog(m, h):
             nutzen = vorschlag and vs is not None
             aid = _baustein_neu(
                 m, k["name"], k["category"], wkn=k["wkn"], isin=k["isin"], gewicht=gew,
-                rendite=vs["base"] * 100 if nutzen else None, extra=extra,
+                rendite=vs["base"] * 100 if nutzen else None, extra=extra, auto=True,
                 notiz=(D.VORSCHLAG["text"] + f" Historisch {vs['quelle']}: {_pct(vs['hist'])} p.a., "
                        f"Confidence {vs['confidence']}/100.") if nutzen else None)
             if nutzen:
@@ -890,7 +896,7 @@ def _kategorie_raten(t):
 
 
 def _baustein_neu(m, name, kategorie, *, wkn=None, isin=None, gewicht=0.0, rendite=None, extra=None,
-                  notiz=None):
+                  notiz=None, auto=False):
     aid = "u_" + str(abs(zlib.crc32((name + (wkn or "") + datetime.datetime.now().isoformat()).encode())))
     a = D._asset(aid, name, kategorie, float(gewicht), isin=isin or None, ticker=wkn or None,
                  hebel=2.0 if kategorie == "leveraged_etf" else 1.0,
@@ -899,8 +905,23 @@ def _baustein_neu(m, name, kategorie, *, wkn=None, isin=None, gewicht=0.0, rendi
     a.update(extra or {})
     m["assets"].append(a)
     E.setze_annahme(m, aid, "manualScenario", None if rendite is None else float(rendite) / 100.0,
-                    notiz=notiz or ("Eigene Annahme" if rendite is not None else "Noch keine Annahme – bitte eintragen."))
+                    notiz=notiz or ("Eigene Annahme" if rendite is not None else "Wird aus der Kurshistorie ergänzt."),
+                    auto=rendite is None or auto)
     return aid
+
+
+def _basis_text(m, a):
+    if a["category"] == "cash":
+        return "Cash"
+    rec = next((x for x in m["annahmen"] if x["assetId"] == a["id"] and x["sourceType"] == "manualScenario"), None)
+    if rec is None or rec.get("value") is None:
+        return "fehlt"
+    if rec.get("auto"):
+        src = str(rec.get("source") or "")
+        if src.startswith("Kurshistorie ("):
+            return "Hist. " + src[len("Kurshistorie ("):].rstrip(")").replace(" p.a.", "")
+        return "Start (auto)"
+    return "eigene"
 
 
 def _baustein_entfernen(m, aid):
@@ -927,6 +948,7 @@ def _b_allocation(m, R, h):
             "Aktiv": bool(a.get("enabled")), "Baustein": a["name"],
             "Gew. %": float(a.get("targetWeight") or 0.0),
             "Annahme %": None if not eig or eig.get("value") is None else round(eig["value"] * 100, 2),
+            "Basis": _basis_text(m, a),
             "Ist": a.get("renditequelle") == "historisch",
             "Fix": bool(a.get("fixiert")),
             "Betrag €": round(start * float(a.get("targetWeight") or 0) / summe) if a.get("enabled") else 0,
@@ -940,8 +962,12 @@ def _b_allocation(m, R, h):
     breite = (lambda w: w) if schmal else (lambda w: None)
     ed = _editor_formular(
         df, key=_k("builder"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
-        disabled=["Baustein", "Betrag €", "Genutzt %", "Conf."],
+        disabled=["Baustein", "Basis", "Betrag €", "Genutzt %", "Conf."],
         column_config={
+            "Basis": st.column_config.TextColumn(
+                "Basis", width=breite("small"),
+                help="Woher die Annahme stammt: „Hist. 5 J.“ usw. = automatisch aus der bisherigen Rendite p.a. "
+                     "(wird täglich nachgeführt), „eigene“ = selbst eingetragen"),
             "Aktiv": st.column_config.CheckboxColumn("Aktiv", width=breite("small")),
             "Baustein": st.column_config.TextColumn("Baustein", width=breite("medium")),
             "Gew. %": st.column_config.NumberColumn("Gew. %", min_value=0.0, max_value=100.0, step=0.5,
@@ -979,10 +1005,20 @@ def _b_allocation(m, R, h):
         ann = z["Annahme %"]
         if not pd.isna(ann):
             eig = E.annahme(m, a["id"], "manualScenario")
-            if eig is None or eig.get("value") is None or abs(eig["value"] - float(ann) / 100.0) > 1e-9:
+            # Toleranz: die Tabelle zeigt 2 Nachkommastellen - nur echte Aenderungen
+            # zaehlen (sonst wuerde jede automatische Annahme zur "eigenen")
+            if eig is None or eig.get("value") is None or abs(eig["value"] * 100.0 - float(ann)) > 0.006:
                 E.setze_annahme(m, a["id"], "manualScenario", float(ann) / 100.0)
                 geaendert = True
     if geaendert:
+        st.rerun()
+
+    if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
+                 help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
+                      "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J.)"):
+        n = E.annahmen_aus_historie(m, st.session_state.get("planer_historie") or {}, alle=True)
+        st.session_state["planer_100k"] = ("ok", f"{n} Annahmen aus der bisherigen Rendite p.a. übernommen.", [])
+        _neu_zeichnen()
         st.rerun()
 
     summe = E.gewichte_summe(m)
@@ -1750,7 +1786,7 @@ def _b_annahmen(m, R, historie, hist_assets):
                     m["annahmen"] = [x for x in m["annahmen"] if not (x["assetId"] == a["id"] and x["sourceType"] == q)]
                     geaendert = True
                 continue
-            if alt is None or abs(alt["value"] - float(v) / 100) > 1e-9:
+            if alt is None or abs(alt["value"] * 100 - float(v)) > 0.006:
                 E.setze_annahme(m, a["id"], q, float(v) / 100)
                 geaendert = True
         notiz = ed.iloc[i]["Notiz"]
@@ -2025,6 +2061,10 @@ def render(h):
         fund, fund_stand = _fundamentaldaten(m, h)
     je_score, korb_score = _scores(m, fund)
     historie = _layer(m, hist_assets, hist_korb, fund)
+    # Annahmen automatisch aus den bisherigen Renditen p.a. (nur automatisch
+    # gefuehrte - selbst eingetragene Werte bleiben)
+    E.annahmen_aus_historie(m, historie)
+    st.session_state["planer_historie"] = historie
 
     # Eingaben des Bereichs zuerst (sie aendern das Modell), danach rechnen
     R = _rechne(m, historie, korb_score)
