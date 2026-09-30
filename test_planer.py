@@ -395,5 +395,43 @@ class GewichtungZiel(unittest.TestCase):
         self.assertTrue(any("Wikifolios" in t for t in E.grenzen_verletzungen(m, o["gewichte"])))
 
 
+class Katalog(unittest.TestCase):
+    def test_stammdaten(self):
+        self.assertEqual(len(D.KATALOG), 72)
+        self.assertEqual(len({k["wkn"] for k in D.KATALOG}), 72)
+        for k in D.KATALOG:
+            self.assertIn(k["category"], D.KATEGORIEN)
+            self.assertIn(k["typ"], D.KATALOG_TYPEN)
+            if k["isin"]:
+                self.assertEqual(len(k["isin"]), 12)
+            if k["typ"] == "wikifolio":
+                self.assertTrue(k["wkn"].startswith("LS9"))
+            self.assertIsNone(k["ter"])              # nichts erfunden
+        self.assertEqual(sum(k["hebel"] > 1 for k in D.KATALOG), 2)
+
+    def test_risiko_score(self):
+        self.assertIsNone(E.risiko_score(None, None))
+        self.assertEqual(E.risiko_score(0.6, -80, 3.0, ""), 100)
+        self.assertEqual(E.risiko_score(0.0, 0.0, 1.0, ""), 0)
+        self.assertGreater(E.risiko_score(0.3, -40, 1.0, "Extreme Leveraged"), E.risiko_score(0.3, -40, 1.0, "Equity"))
+
+    def test_vorschlag_gedaempft(self):
+        kurz = E.vorschlag_renditen({"gesamt_cagr": 1.0, "jahre": 1.0}, "wikifolio")
+        lang = E.vorschlag_renditen({"historical5Y": 0.12, "jahre": 10.0}, "index")
+        self.assertLess(kurz["base"], 0.35)                 # 100 % bei 1 J. Historie stark gedaempft
+        self.assertAlmostEqual(lang["base"], 0.92 * 0.12 + 0.08 * 0.08, places=3)
+        self.assertLess(kurz["bear"], kurz["base"])
+        self.assertGreater(kurz["bull"], kurz["base"])
+        neg = E.vorschlag_renditen({"historical5Y": -0.2, "jahre": 10.0}, "index")
+        self.assertLess(neg["bear"], neg["base"])
+        self.assertIsNone(E.vorschlag_renditen({"jahre": 0.5}, "index"))
+
+    def test_treiber(self):
+        leveraged_welt = next(k for k in D.KATALOG if k["wkn"] == "DBX2SC")
+        self.assertEqual(E.treiber({"category": "leveraged_etf", "id": "x", "treiber": leveraged_welt["treiber"]}),
+                         "Welt-Aktien")
+        self.assertEqual(E.treiber({"category": "wikifolio", "id": "wf"}), "wf")
+
+
 if __name__ == "__main__":
     unittest.main()
