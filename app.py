@@ -1892,14 +1892,12 @@ NAV_CSS = """
     position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
     padding: 8px 6px !important;
     background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%) !important;
-    border: 1px solid #FFFFFF !important;
+    border: 1px solid rgba(255, 255, 255, 0.85) !important;
     transform: translateY(-4px);
     box-shadow:
         0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 5px 0 #1B1D21, 0 6px 0 #16171A,
-        0 16px 18px -8px rgba(255, 255, 255, 0.10),
         0 18px 26px rgba(0, 0, 0, 0.7),
-        0 0 3px rgba(255, 255, 255, 0.30),
-        inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 0 12px rgba(255, 255, 255, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.30),
         inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
     transition: transform .15s ease, box-shadow .15s ease;
 }
@@ -1919,10 +1917,9 @@ NAV_CSS = """
     box-shadow:
         0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 5px 0 #1B1D21, 0 6px 0 #16171A,
         0 7px 0 #121315, 0 8px 0 #0E0F11,
-        0 20px 22px -8px rgba(255, 255, 255, 0.16),
         0 22px 30px rgba(0, 0, 0, 0.75),
-        0 0 5px rgba(255, 255, 255, 0.45),
-        inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 14px rgba(255, 255, 255, 0.14),
+        0 0 3px rgba(255, 255, 255, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.40),
         inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
 }
 /* Druecken: Taste sinkt ein */
@@ -1931,7 +1928,6 @@ NAV_CSS = """
     box-shadow:
         0 1px 0 #282B31,
         0 6px 12px rgba(0, 0, 0, 0.6),
-        0 0 4px rgba(255, 255, 255, 0.4),
         inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.74rem !important; font-weight: 600 !important; }
