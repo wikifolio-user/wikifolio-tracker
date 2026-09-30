@@ -1353,3 +1353,59 @@ def gewichtung_fuer_rendite(modell, renditen_netto, ziel_r):
             hi = mitte
     g = gewichte_bei(hi)
     return {"gewichte": g, "rendite": rendite_bei(g), "erreichbar": True, "min": r_min, "max": r_max}
+
+
+def gewichtung_fuer_zielvermoegen(modell, renditen_netto, rebalancing=None):
+    """Automatische Gewichtung auf das Zielvermoegen: Benoetigte Rendite p.a.
+    (Start, Sparrate, Jahre -> Ziel) berechnen und die Gewichte - ausgehend von
+    einer Gleichverteilung, gekippt nach den Renditen der Bausteine wie
+    gewichtung_fuer_rendite - so verteilen, dass die ECHTE Modellrechnung
+    (inkl. Rebalancing/Drift) genau das Ziel erreicht.
+    -> {"gewichte", "benoetigt", "rendite", "endwert", "erreichbar", "min", "max"} oder {"fehler"}"""
+    import copy as _copy
+    rahmen = modell["rahmen"]
+    jahre = int(rahmen.get("horizont_jahre") or 0)
+    ziel = float(rahmen.get("zielvermoegen") or 0.0)
+    if jahre <= 0 or ziel <= 0:
+        return {"fehler": "Kein Zielvermögen oder keine Aufbauphase."}
+    benoetigt = erforderliche_rendite(float(rahmen["startkapital"]), ziel, jahre,
+                                      float(rahmen.get("sparrate_monat") or 0.0))
+    if benoetigt is None:
+        return {"fehler": "Benötigte Rendite nicht berechenbar (Startkapital 0 ohne Sparrate?)."}
+    probe = _copy.deepcopy(modell)
+
+    def endwert_bei(t):
+        erg = gewichtung_fuer_rendite(probe, renditen_netto, t)
+        if erg.get("fehler"):
+            return None, erg
+        for a in probe["assets"]:
+            if a["id"] in erg["gewichte"]:
+                a["targetWeight"] = erg["gewichte"][a["id"]]
+        return projektion(probe, renditen_netto, rebalancing=rebalancing)["endwert"], erg
+
+    basis = gewichtung_fuer_rendite(probe, renditen_netto, benoetigt)
+    if basis.get("fehler"):
+        return basis
+    lo, hi = basis["min"], basis["max"]
+    ew_hi, erg_hi = endwert_bei(hi)
+    if ew_hi is None:
+        return erg_hi
+    if ew_hi < ziel:                                  # selbst maximal renditestark reicht nicht
+        return {"gewichte": erg_hi["gewichte"], "benoetigt": benoetigt, "rendite": erg_hi["rendite"],
+                "endwert": ew_hi, "erreichbar": False, "min": lo, "max": hi}
+    ew_lo, erg_lo = endwert_bei(lo)
+    if ew_lo >= ziel:                                 # schon die defensivste Verteilung reicht
+        return {"gewichte": erg_lo["gewichte"], "benoetigt": benoetigt, "rendite": erg_lo["rendite"],
+                "endwert": ew_lo, "erreichbar": True, "min": lo, "max": hi}
+    erg, ew = erg_hi, ew_hi
+    for _ in range(40):
+        mitte = (lo + hi) / 2.0
+        ew_m, erg_m = endwert_bei(mitte)
+        if ew_m >= ziel:
+            hi, erg, ew = mitte, erg_m, ew_m
+        else:
+            lo = mitte
+        if hi - lo < 1e-6:
+            break
+    return {"gewichte": erg["gewichte"], "benoetigt": benoetigt, "rendite": erg["rendite"], "endwert": ew,
+            "erreichbar": True, "min": basis["min"], "max": basis["max"]}
