@@ -151,7 +151,26 @@ def ist_rendite(h, methode=None):
     for feld, text in reihenfolge:
         if h.get(feld) is not None:
             return h[feld], text
+    # Historie juenger als 1 Jahr: tatsaechliche Rendite seit Start, NICHT
+    # hochgerechnet (eine Annualisierung weniger Monate wuerde Werte weit ueber
+    # 100 % p.a. erzeugen). Ab 1 Monat Historie.
+    if h.get("seit_start") is not None and (h.get("jahre") or 0) >= 1.0 / 12.0:
+        mon = max(1, int(round(float(h["jahre"]) * 12)))
+        return h["seit_start"], f"seit Start, {mon} Mon."
     return None, None
+
+
+# Standardwert je Kategorie, wenn es gar keine Kursdaten gibt (Instrument nicht
+# gefunden / zu jung). Neutraler Platzhalter nahe am langfristigen Aktienmittel -
+# wird automatisch ersetzt, sobald Kursdaten da sind.
+STANDARD_RENDITE = {"global_equity": 0.07, "regional_equity": 0.07, "factor": 0.08, "small_cap": 0.07,
+                    "technology": 0.10, "semiconductor": 0.12, "sector": 0.07, "mining": 0.07,
+                    "single_stock": 0.08, "stock_basket": 0.08, "wikifolio": 0.08, "leveraged_etf": 0.10,
+                    "crypto": 0.10}
+
+
+def standard_rendite(asset):
+    return STANDARD_RENDITE.get(asset.get("category"), 0.07)
 
 
 def _szenario_um(wert, sz, regel):
@@ -1239,7 +1258,15 @@ def annahmen_aus_historie(modell, historie, alle=False):
             continue
         wert, text = ist_rendite(historie.get(a["id"]))
         if wert is None:
-            if rec is not None and alle:
+            if rec is None or rec.get("value") is None:
+                # gar keine Kursdaten und noch kein Wert: Standard der Kategorie,
+                # damit ueberall gerechnet werden kann (wird spaeter ersetzt)
+                std = standard_rendite(a)
+                setze_annahme(modell, a["id"], "manualScenario", std,
+                              notiz="Keine Kursdaten gefunden – Standardwert der Kategorie, bitte prüfen.",
+                              source="Standard (Kategorie)", auto=True)
+                geaendert += 1
+            elif alle:
                 rec["auto"] = True          # sobald Kursdaten da sind, nachfuehren
             continue
         h = historie.get(a["id"]) or {}
