@@ -1074,3 +1074,86 @@ def vorschlag_renditen(kennz, typ, params=None):
     base = conf / 100.0 * hist + (1.0 - conf / 100.0) * p["anker"]
     return {"base": base, "bear": base - p["bear_abschlag"] * abs(base), "bull": base + p["bull_zuschlag"] * abs(base),
             "hist": hist, "quelle": quelle, "confidence": conf}
+
+
+# ===========================================================================
+# Entnahmeplan (monatlich)
+# ===========================================================================
+def entnahmeplan(kapital, rendite_pa, monatlich, *, jahre=30, dynamik_pa=0.0, einstand=None, steuersatz=0.0,
+                 freibetrag=0.0, max_jahre=100):
+    """Monatliche Entnahme aus einem Kapital (Szenariorechnung, keine Prognose).
+
+    - Verzinsung monatlich mit (1 + rendite_pa)^(1/12), Entnahme am Monatsende.
+    - Entnahme (netto) steigt jedes Jahr um dynamik_pa (Anteil, 0.02 = 2 %).
+    - Steuer (optional, vereinfacht): steuersatz (Anteil) auf den Gewinnanteil
+      der Bruttoentnahme nach Durchschnittseinstand; freibetrag je 12 Monate.
+      Brutto wird so bestimmt, dass netto = gewuenschte Entnahme.
+    -> dict: verlauf (Monatswerte, Start inkl.), dauer_monate (None = reicht
+       ueber max_jahre), restwert (nach 'jahre'), summen, jahre_tabelle."""
+    rm = (1.0 + rendite_pa) ** (1.0 / 12.0) - 1.0
+    wert = float(kapital)
+    einstand = float(kapital if einstand is None else einstand)
+    verlauf, jahre_tab = [wert], []
+    summe_netto = summe_brutto = summe_steuer = 0.0
+    dauer, restwert = None, None
+    zeile = None
+    frei_rest = freibetrag
+    for mon in range(1, int(max_jahre * 12) + 1):
+        if (mon - 1) % 12 == 0:
+            frei_rest = freibetrag
+            zeile = {"jahr": (mon - 1) // 12 + 1, "anfang": wert, "ertrag": 0.0, "brutto": 0.0, "netto": 0.0,
+                     "steuer": 0.0}
+            jahre_tab.append(zeile)
+        ertrag = wert * rm
+        wert += ertrag
+        zeile["ertrag"] += ertrag
+        netto = monatlich * (1.0 + dynamik_pa) ** ((mon - 1) // 12)
+        anteil_gewinn = max(0.0, 1.0 - einstand / wert) if (steuersatz and wert > 0) else 0.0
+        if netto * anteil_gewinn <= frei_rest or not steuersatz:
+            brutto = netto
+        else:
+            brutto = (netto - steuersatz * frei_rest) / (1.0 - steuersatz * anteil_gewinn)
+        leer = brutto >= wert
+        if leer:
+            brutto = wert
+        steuerbar = brutto * anteil_gewinn
+        steuer = max(0.0, steuerbar - frei_rest) * steuersatz
+        frei_rest = max(0.0, frei_rest - steuerbar)
+        netto_ist = brutto - steuer
+        if wert > 0:
+            einstand *= max(0.0, 1.0 - brutto / wert)
+        wert -= brutto
+        summe_netto += netto_ist
+        summe_brutto += brutto
+        summe_steuer += steuer
+        for k, v in (("brutto", brutto), ("netto", netto_ist), ("steuer", steuer)):
+            zeile[k] += v
+        zeile["ende"] = wert
+        verlauf.append(wert)
+        if mon == jahre * 12:
+            restwert = wert
+        if leer:
+            dauer = mon
+            break
+    if restwert is None:
+        restwert = 0.0 if dauer is not None and dauer < jahre * 12 else wert
+    return {"verlauf": verlauf, "dauer_monate": dauer, "restwert": restwert, "summe_netto": summe_netto,
+            "summe_brutto": summe_brutto, "summe_steuer": summe_steuer, "jahre_tabelle": jahre_tab,
+            "reicht_dauerhaft": dauer is None}
+
+
+def entnahme_fuer(kapital, rendite_pa, *, ziel_restwert=0.0, jahre=30, **kw):
+    """Hoechste monatliche Entnahme, bei der nach 'jahre' noch ziel_restwert
+    uebrig ist (0 = Kapitalverzehr, kapital = Kapitalerhalt). Bisektion."""
+    if kapital <= 0:
+        return 0.0
+    lo, hi = 0.0, float(kapital)
+    for _ in range(70):
+        mitte = (lo + hi) / 2.0
+        p = entnahmeplan(kapital, rendite_pa, mitte, jahre=jahre, max_jahre=jahre, **kw)
+        ok = (p["dauer_monate"] is None or p["dauer_monate"] >= jahre * 12) and p["restwert"] >= ziel_restwert - 1e-6
+        if ok:
+            lo = mitte
+        else:
+            hi = mitte
+    return lo
