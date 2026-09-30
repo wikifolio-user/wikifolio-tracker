@@ -39,7 +39,7 @@ BEREICHE = ["🧩 Allocation", "📈 Projected Growth", "🎯 Zielerreichung", "
 FARBEN = ["#4C9AFF", "#16C784", "#F5B942", "#EA3943", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C",
           "#A3E635", "#94A3B8", "#FDE047", "#2DD4BF", "#C084FC", "#F87171"]
 
-QUELLEN = {"manualScenario": "Eigene Annahme", "historical5Y": "Historisch 5 J.", "historical10Y": "Historisch 10 J.",
+QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme", "historical5Y": "Historisch 5 J.", "historical10Y": "Historisch 10 J.",
            "fundamentalModel": "Fundamental-Modell", "analystInput": "Analysten-Input", "bear": "Bear",
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
@@ -185,6 +185,8 @@ def _migriere(m):
             a["ticker"], a["isin"] = seed_assets[a["id"]].get("ticker"), seed_assets[a["id"]].get("isin")
         if "fixiert" not in a:
             a["fixiert"] = a["category"] == "cash"
+        if "renditequelle" not in a:
+            a["renditequelle"] = "historisch" if a["category"] == "wikifolio" else "annahme"
         for k, v in D._asset("x", "x", "cash", 0).items():
             a.setdefault(k, v)
     return m
@@ -924,6 +926,7 @@ def _b_allocation(m, R, h):
             "Aktiv": bool(a.get("enabled")), "Baustein": a["name"],
             "Gew. %": float(a.get("targetWeight") or 0.0),
             "Annahme %": None if not eig or eig.get("value") is None else round(eig["value"] * 100, 2),
+            "Ist": a.get("renditequelle") == "historisch",
             "Fix": bool(a.get("fixiert")),
             "Betrag €": round(start * float(a.get("targetWeight") or 0) / summe) if a.get("enabled") else 0,
             "Genutzt %": None if info.get("netto") is None else round(info["netto"] * 100, 2),
@@ -946,6 +949,9 @@ def _b_allocation(m, R, h):
             "Annahme %": st.column_config.NumberColumn(
                 "Annahme %", step=0.5, format="%.1f", width=breite("small"),
                 help="Eigene Renditeannahme p.a. (Szenario, keine Prognose)"),
+            "Ist": st.column_config.CheckboxColumn(
+                "Ist", width=breite("small"),
+                help="Tatsächliche Rendite laut Kurshistorie statt der Annahme verwenden (Standard bei Wikifolios)"),
             "Fix": st.column_config.CheckboxColumn(
                 "Fix", width=breite("small"), help="Fixierte Gewichte ändert „Gewichtung 100k“ nicht"),
             "Betrag €": st.column_config.NumberColumn("Betrag €", format="%d"),
@@ -961,6 +967,10 @@ def _b_allocation(m, R, h):
         gew = 0.0 if pd.isna(z["Gew. %"]) else float(z["Gew. %"])
         if aktiv != bool(a.get("enabled")) or abs(gew - float(a.get("targetWeight") or 0)) > 1e-9:
             a["enabled"], a["targetWeight"] = aktiv, gew
+            geaendert = True
+        ist = "historisch" if bool(z["Ist"]) else "annahme"
+        if a["category"] != "cash" and ist != a.get("renditequelle"):
+            a["renditequelle"] = ist
             geaendert = True
         if bool(z["Fix"]) != bool(a.get("fixiert")):
             a["fixiert"] = bool(z["Fix"])
@@ -1087,7 +1097,7 @@ def _b_allocation(m, R, h):
                        "reine Rückrechnung aus den Annahmen, keine Empfehlung.")
     st.caption("„Gewichtung“ verschiebt die bisherigen Gewichte stufenlos zu den Bausteinen mit höherer Annahme, "
                "bis das Ziel exakt erreicht ist. Fix-Häkchen (z. B. Reserve oder ein Wikifolio mit manuell "
-               "gesetztem Anteil) bleiben unverändert. Startgewichte sind Platzhalter.")
+               "gesetztem Anteil) bleiben unverändert. Startgewichte sind Platzhalter. „Ist“ = Rendite laut Kurshistorie statt Annahme (bei Wikifolios Standard) – die Spalte „Genutzt %“ zeigt, womit gerechnet wird.")
 
     # --- Bausteine hinzufuegen / entfernen ---
     _abschnitt("Baustein hinzufügen")
@@ -1382,12 +1392,14 @@ def _b_wiki(m, R, hist_assets):
     zeilen = []
     for a in wikis:
         h = hist_assets.get(a["id"]) or {}
-        eig = E.annahme(m, a["id"], "manualScenario")
+        info = R["info"].get(a["id"]) or {}
+        herkunft = info.get("herkunft") or {}
+        quelle_txt = herkunft.get("source") if herkunft.get("sourceType") == "historisch" else "Annahme"
         conf = R["conf"].get(a["id"]) or E.confidence_score(h.get("jahre"), "wikifolio")
         zeilen.append([
             f'<span class="pt-name">{_esc(a["name"])}</span><span class="pt-sub">'
             f'{_esc(h.get("wkn") or a.get("ticker") or "WKN offen")} · {_esc(a.get("emittent") or "–")}</span>',
-            f'<b>{_pct(eig["value"] if eig else None, 0)}</b>',
+            f'<b>{_pct(info.get("brutto"), 1)}</b><span class="pt-sub">{_esc(quelle_txt)}</span>',
             f'{_de(conf)}/100',
             _de(h.get("jahre"), 1) + " J." if h.get("jahre") else "–",
             _pct(h.get("gesamt_cagr")),
@@ -1398,14 +1410,15 @@ def _b_wiki(m, R, hist_assets):
             _pct(a.get("expenseRatio"), 2),
             _de(a.get("leverage") or 1, 1) + "×",
         ])
-    _tabelle(["Wikifolio", "Annahme", "Confidence", "Historie", "Ø seit Start", "5 J. p.a.", "Vola",
+    _tabelle(["Wikifolio", "Genutzt p.a.", "Confidence", "Historie", "Ø seit Start", "5 J. p.a.", "Vola",
               "Max. DD", "Perf.-Fee", "Kosten", "Hebel"], zeilen)
     for a in wikis:
         h = hist_assets.get(a["id"]) or {}
         if h.get("fehler"):
             st.caption(f"{a['name']}: {h['fehler']}")
-    st.caption("„Annahme“ ist eine frei gewählte Szenarioannahme, keine historische Erwartungsrendite. "
-               "Confidence misst nur, wie lang und belastbar die investierbare Historie ist – z. B. "
+    st.caption("„Genutzt p.a.“ = tatsächliche Rendite laut Kurshistorie (5 J. p.a., sonst 3 J., sonst seit Start, "
+               "sonst 1 J.). Die eigene Annahme gilt nur, wenn keine Historie ≥ 1 Jahr vorliegt oder im Portfolio "
+               "Builder „Ist“ abgewählt ist. Vergangene Renditen sind keine Zukunftserwartung. Confidence misst nur, wie lang und belastbar die investierbare Historie ist – z. B. "
                "„Expected Return 50 % / Data Confidence 22/100“. Performance Fee und Kosten nur, soweit unter "
                "„Annahmen & Datenqualität“ eingetragen.")
     fig = go.Figure()
