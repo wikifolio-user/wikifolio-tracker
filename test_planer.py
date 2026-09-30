@@ -622,5 +622,20 @@ class LueckenFuellen(unittest.TestCase):
                 self.assertIsNotNone(E.annahme(m, x["id"], "manualScenario")["value"], x["id"])
 
 
+class ZielvermoegenAuto(unittest.TestCase):
+    def test_trifft_ziel_und_unerreichbar(self):
+        m = D.seed_modell()
+        r = renditen(m)
+        m["rahmen"]["zielvermoegen"] = 60000
+        o = E.gewichtung_fuer_zielvermoegen(m, r, m["rebalancing"])
+        self.assertTrue(o["erreichbar"])
+        self.assertAlmostEqual(o["endwert"], 60000, delta=5)
+        self.assertAlmostEqual(o["benoetigt"], E.required_cagr(15000, 60000, 5))
+        m["rahmen"]["zielvermoegen"] = 10 ** 7
+        self.assertFalse(E.gewichtung_fuer_zielvermoegen(m, r, m["rebalancing"])["erreichbar"])
+        m["rahmen"]["zielvermoegen"] = 0
+        self.assertIn("fehler", E.gewichtung_fuer_zielvermoegen(m, r))
+
+
 if __name__ == "__main__":
     unittest.main()
