@@ -852,8 +852,20 @@ def _editor_formular(df, key, **kw):
 
 
 def _hoehe(zeilen):
-    """Tabellenhoehe fuer st.data_editor: alle Zeilen sichtbar, kein inneres Scrollen."""
-    return int(35 * (zeilen + 1) + 3)
+    """Tabellenhoehe fuer st.data_editor: alle Zeilen sichtbar, kein inneres
+    Scrollen. +16 px Reserve fuer eine evtl. waagerechte Scrollleiste, die
+    sonst die letzte Zeile verdeckt."""
+    return int(35 * (zeilen + 1) + 3 + 16)
+
+
+def _smartphone():
+    """True auf Smartphones (User-Agent). iPad/Desktop -> False: dort ist
+    Platz fuer volle Spaltenbreiten. iPadOS meldet sich als Mac - passt."""
+    try:
+        ua = (st.context.headers.get("User-Agent") or "").lower()
+    except Exception:
+        return False
+    return "iphone" in ua or ("android" in ua and "mobile" in ua) or "ipod" in ua
 
 
 def _kategorie_raten(t):
@@ -918,20 +930,24 @@ def _b_allocation(m, R, h):
             "Conf.": R["conf"].get(a["id"]),
         })
     df = pd.DataFrame(zeilen)
+    # iPhone: schmale, feste Spalten, damit Name + Gewicht auf den Schirm passen.
+    # iPad/Desktop: Spalten wachsen mit dem Inhalt (volle Namen, alles sichtbar).
+    schmal = _smartphone()
+    breite = (lambda w: w) if schmal else (lambda w: None)
     ed = _editor_formular(
         df, key=_k("builder"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
         disabled=["Baustein", "Betrag €", "Genutzt %", "Conf."],
         column_config={
-            "Aktiv": st.column_config.CheckboxColumn("Aktiv", width="small"),
-            "Baustein": st.column_config.TextColumn("Baustein", width="medium"),
+            "Aktiv": st.column_config.CheckboxColumn("Aktiv", width=breite("small")),
+            "Baustein": st.column_config.TextColumn("Baustein", width=breite("medium")),
             "Gew. %": st.column_config.NumberColumn("Gew. %", min_value=0.0, max_value=100.0, step=0.5,
-                                                    format="%.1f", width="small",
+                                                    format="%.1f", width=breite("small"),
                                                     help="Anteil am Gesamtportfolio – auch für Wikifolios frei einstellbar"),
             "Annahme %": st.column_config.NumberColumn(
-                "Annahme %", step=0.5, format="%.1f", width="small",
+                "Annahme %", step=0.5, format="%.1f", width=breite("small"),
                 help="Eigene Renditeannahme p.a. (Szenario, keine Prognose)"),
             "Fix": st.column_config.CheckboxColumn(
-                "Fix", width="small", help="Fixierte Gewichte ändert „Gewichtung 100k“ nicht"),
+                "Fix", width=breite("small"), help="Fixierte Gewichte ändert „Gewichtung 100k“ nicht"),
             "Betrag €": st.column_config.NumberColumn("Betrag €", format="%d"),
             "Genutzt %": st.column_config.NumberColumn("Genutzt %", format="%.1f",
                                                        help="In der Rechnung verwendet (aktive Quelle, ggf. netto)"),
