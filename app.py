@@ -1907,7 +1907,7 @@ NAV_CSS = """
 .nav-wander {
     position: absolute; bottom: 12px; left: 0; white-space: nowrap;
     /* Blitz nur einmal beim Oeffnen des Menues, danach stehen bleiben und pulsieren */
-    animation: navblitz 0.6s 1 both, navpulsieren 2.6s ease-in-out infinite;
+    animation: navblitz 0.6s 1 both, navpulsieren 2s ease-in-out infinite;
 }
 @keyframes navblitz {
     0%     { left: 0;    transform: translateX(0);     animation-timing-function: cubic-bezier(.7, 0, 1, .6); filter: none; }
@@ -1916,8 +1916,8 @@ NAV_CSS = """
     100%   { left: 0;    transform: translateX(0);     filter: none; }
 }
 @keyframes navpulsieren {
-    0%, 100% { text-shadow: 0 0 3px rgba(255, 255, 255, 0.25); opacity: 0.88; }
-    50%      { text-shadow: 0 0 8px rgba(255, 255, 255, 0.55); opacity: 1; }
+    0%, 100% { text-shadow: 0 0 2px rgba(255, 255, 255, 0.2); opacity: 0.6; }
+    50%      { text-shadow: 0 0 6px rgba(255, 255, 255, 0.9), 0 0 14px rgba(255, 255, 255, 0.5); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .nav-wander { animation: none; } }
 
