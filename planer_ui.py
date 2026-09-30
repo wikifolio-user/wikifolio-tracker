@@ -1500,9 +1500,11 @@ def _b_growth(m, R):
 
     if zeilen:
         _abschnitt("Jahresübersicht")
-        st.caption("Aufbau: Einzahlung = Sparrate · Entnahme: " + f"{_de(e['monatlich'])} €/Monat netto"
+        st.caption(("Aufbau: Einzahlung = Sparrate · " if monate > 0 else "")
+                   + "Entnahme: " + f"{_de(e['monatlich'])} €/Monat netto"
                    + (f", +{_de(e['dynamik_pa'], 1)} % p.a." if e.get("dynamik_pa") else "")
-                   + (f" bei {_pct(rendite)} p.a." if rendite is not None else ""))
+                   + (f" · Erträge: Kapital wächst mit {_pct(rendite)} p.a. (monatlich verzinst), "
+                      "die Entnahme wird jeden Monat abgezogen" if rendite is not None else ""))
         steuer = any(z["steuer"] for z in zeilen)
         kopf = ["Jahr", "Phase", "Anfang", "Ein-/Auszahlung", "Erträge"] + (["Steuer"] if steuer else []) + ["Ende"]
         _eu = lambda v: _eur(round(v), False)
@@ -2184,8 +2186,13 @@ def _entnahme_rechnen(m, R, e=None):
     proj = R["zus"]["projektion"]
     kapital = proj["endwert"]
     einstand = min(proj["eingezahlt"], kapital)
-    rendite = (e["rendite_pa"] / 100.0) if e.get("rendite_quelle", "eigen") == "eigen" \
-        else (R["zus"]["modell_cagr"] or 0.0)
+    if e.get("rendite_quelle", "eigen") == "eigen":
+        rendite = e["rendite_pa"] / 100.0
+    elif R["zus"]["modell_cagr"] is not None:
+        rendite = R["zus"]["modell_cagr"]
+    else:
+        # keine Aufbauphase (0 Jahre): gewichtete Portfoliorendite statt 0 %
+        rendite = sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
     kw = dict(dynamik_pa=e["dynamik_pa"] / 100.0, einstand=einstand,
               steuersatz=(e["steuersatz"] / 100.0) if e["steuer"] else 0.0,
               freibetrag=e["freibetrag"] if e["steuer"] else 0.0)
