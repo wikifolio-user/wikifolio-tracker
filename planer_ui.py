@@ -47,6 +47,8 @@ HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
 
 CSS = """
 <style>
+.pl-phase { font-size: 0.72rem; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: #FFFFFF;
+            margin: 14px 0 4px; padding-bottom: 5px; border-bottom: 1px solid rgba(255, 255, 255, 0.25); }
 .pl-hinweis { font-size: 0.72rem; color: var(--label, #8A9099); margin: -2px 0 10px 2px;
               letter-spacing: 0.3px; }
 .pl-badge { display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 2px 7px;
@@ -507,30 +509,81 @@ def _rechne(m, historie, korb_score):
 # ===========================================================================
 # Bereiche
 # ===========================================================================
+def _phase(titel):
+    st.markdown(f'<div class="pl-phase">{_esc(titel)}</div>', unsafe_allow_html=True)
+
+
+def _entnahme_daten(m):
+    e = m.setdefault("entnahme", copy.deepcopy(D.ENTNAHME))
+    for k, v in D.ENTNAHME.items():
+        e.setdefault(k, v)
+    e["start"] = "modell"             # Entnahme beginnt immer mit dem Modell-Endwert der Aufbauphase
+    return e
+
+
 def _rahmen(m):
+    """EINE Planung in zwei Phasen: Aufbau (Startkapital, Sparrate, Jahre) und
+    direkt anschliessend Entnahme aus dem Endwert. Alle Eingaben an einer Stelle."""
     rahmen = m["rahmen"]
-    with st.expander("⚙️ Rahmen, Kosten & Rebalancing", expanded=False):
+    e = _entnahme_daten(m)
+    with st.expander("⚙️ Planung: Aufbau → Entnahme", expanded=False):
+        _phase("Phase 1 · Aufbau")
         c1, c2 = st.columns(2)
         rahmen["startkapital"] = float(c1.number_input("Startkapital (€)", 0.0, 1e9, float(rahmen["startkapital"]),
                                                        step=1000.0, format="%.0f", key=_k("start")))
-        rahmen["zielvermoegen"] = float(c2.number_input("Zielvermögen (€)", 0.0, 1e10, float(rahmen["zielvermoegen"]),
-                                                        step=5000.0, format="%.0f", key=_k("ziel")))
-        c3, c4 = st.columns(2)
-        rahmen["horizont_jahre"] = int(c3.number_input("Anlagehorizont (Jahre)", 1, 40, int(rahmen["horizont_jahre"]),
-                                                       key=_k("jahre")))
-        rahmen["sparrate_monat"] = float(c4.number_input("Monatliche Sparrate (€)", 0.0, 1e6,
+        rahmen["sparrate_monat"] = float(c2.number_input("Monatliche Sparrate (€)", 0.0, 1e6,
                                                          float(rahmen.get("sparrate_monat") or 0.0), step=50.0,
                                                          format="%.0f", key=_k("spar")))
+        c3, c4 = st.columns(2)
+        rahmen["horizont_jahre"] = int(c3.number_input("Dauer Aufbau (Jahre)", 1, 40, int(rahmen["horizont_jahre"]),
+                                                       key=_k("jahre")))
+        rahmen["zielvermoegen"] = float(c4.number_input("Zielvermögen am Ende (€)", 0.0, 1e10,
+                                                        float(rahmen["zielvermoegen"]), step=5000.0, format="%.0f",
+                                                        key=_k("ziel")))
+
+        _phase("Phase 2 · Entnahme (ab Ende des Aufbaus)")
+        e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"),
+                               help="Startet automatisch mit dem Modell-Endwert der Aufbauphase")
+        if e["aktiv"]:
+            c5, c6 = st.columns(2)
+            e["monatlich"] = float(c5.number_input("Entnahme pro Monat (€, netto)", 0.0, 1e7, float(e["monatlich"]),
+                                                   step=50.0, format="%.0f", key=_k("en_mon")))
+            e["dauer_jahre"] = int(c6.number_input("Dauer Entnahme (Jahre)", 1, 60, int(e["dauer_jahre"]),
+                                                   key=_k("en_dauer")))
+            c7, c8 = st.columns(2)
+            e["dynamik_pa"] = float(c7.number_input("Jährliche Erhöhung (%)", 0.0, 10.0, float(e["dynamik_pa"]),
+                                                    step=0.5, key=_k("en_dyn"), help="z. B. Inflationsausgleich"))
+            quellen = {"eigen": "Eigene Annahme", "modell": "Wie Aufbauphase"}
+            q = c8.selectbox("Rendite in der Entnahme", list(quellen),
+                             index=list(quellen).index(e.get("rendite_quelle", "eigen")),
+                             format_func=quellen.get, key=_k("en_quelle"))
+            e["rendite_quelle"] = q
+            if q == "eigen":
+                e["rendite_pa"] = float(st.number_input(
+                    "Rendite p.a. in der Entnahme (%)", -20.0, 50.0, float(e["rendite_pa"]), step=0.5,
+                    key=_k("en_rendite"), help="Annahme – z. B. nach Umschichtung in ein ruhigeres Portfolio"))
+            e["steuer"] = st.toggle("Abgeltungsteuer berücksichtigen (vereinfacht)", value=bool(e["steuer"]),
+                                    key=_k("en_st"))
+            if e["steuer"]:
+                c9, c10 = st.columns(2)
+                e["steuersatz"] = float(c9.number_input("Steuersatz (%)", 0.0, 60.0, float(e["steuersatz"]), step=0.5,
+                                                        key=_k("en_satz"),
+                                                        help="Abgeltungsteuer + Soli, ohne Kirchensteuer"))
+                e["freibetrag"] = float(c10.number_input("Freibetrag pro Jahr (€)", 0.0, 1e5, float(e["freibetrag"]),
+                                                         step=100.0, format="%.0f", key=_k("en_frei"),
+                                                         help="Sparerpauschbetrag – bitte aktuellen Wert prüfen"))
+
+        _phase("Weitere Einstellungen")
         rahmen["kosten_beruecksichtigen"] = st.toggle(
             "Kosten berücksichtigen (TER und Performance Fee, soweit hinterlegt)",
             value=bool(rahmen.get("kosten_beruecksichtigen")), key=_k("kosten"))
         arten = list(D.REBALANCING_ARTEN)
-        c5, c6 = st.columns(2)
-        art = c5.selectbox("Rebalancing", arten, index=arten.index(m["rebalancing"].get("art", "keins")),
-                           format_func=D.REBALANCING_ARTEN.get, key=_k("reb"))
+        c11, c12 = st.columns(2)
+        art = c11.selectbox("Rebalancing", arten, index=arten.index(m["rebalancing"].get("art", "keins")),
+                            format_func=D.REBALANCING_ARTEN.get, key=_k("reb"))
         m["rebalancing"]["art"] = art
         if art == "schwelle":
-            m["rebalancing"]["schwelle_relativ"] = float(c6.number_input(
+            m["rebalancing"]["schwelle_relativ"] = float(c12.number_input(
                 "Band (± % relativ zum Zielgewicht)", 1.0, 100.0,
                 float(m["rebalancing"].get("schwelle_relativ", 25.0)), step=2.5, key=_k("band"),
                 help="25 % relativ: Zielgewicht 10 % → Band 7,5–12,5 %"))
@@ -573,8 +626,19 @@ def _kpis(platz, m, R):
         monat = ""
         if rahmen.get("sparrate_monat"):
             monat = f' · Einzahlungen gesamt {_de(proj["eingezahlt"])} €'
+        entnahme = ""
+        e = _entnahme_daten(m)
+        if e.get("aktiv", True):
+            try:
+                _kap, _r, _kw, plan = _entnahme_rechnen(m, R, e)
+                dauer = "dauerhaft" if plan["reicht_dauerhaft"] else _dauer_text(plan)
+                ok = plan["reicht_dauerhaft"] or plan["dauer_monate"] >= int(e["dauer_jahre"]) * 12
+                entnahme = (f'<br>Danach Entnahme <b>{_de(e["monatlich"])} €/Monat</b> aus {_eur(_kap)} · reicht '
+                            f'<b class="{"pl-gut" if ok else "pl-schlecht"}">{dauer}</b> (Plan {e["dauer_jahre"]} J.)')
+            except Exception:
+                entnahme = ""
         st.markdown(f'<div class="pl-zeile">Multiplikator <b>{_de(z["multiplikator"], 2)}×</b>{monat}<br>'
-                    f'{jahre}</div>', unsafe_allow_html=True)
+                    f'{jahre}{entnahme}</div>', unsafe_allow_html=True)
         _hinweis()
 
 
@@ -1926,6 +1990,21 @@ def _b_annahmen(m, R, historie, hist_assets):
 
 
 # --- 11 Entnahmeplan --------------------------------------------------------
+def _entnahme_rechnen(m, R, e=None):
+    """Entnahme aus dem Modell-Endwert der Aufbauphase (eine durchgehende Rechnung)."""
+    e = e or _entnahme_daten(m)
+    proj = R["zus"]["projektion"]
+    kapital = proj["endwert"]
+    einstand = min(proj["eingezahlt"], kapital)
+    rendite = (e["rendite_pa"] / 100.0) if e.get("rendite_quelle", "eigen") == "eigen" \
+        else (R["zus"]["modell_cagr"] or 0.0)
+    kw = dict(dynamik_pa=e["dynamik_pa"] / 100.0, einstand=einstand,
+              steuersatz=(e["steuersatz"] / 100.0) if e["steuer"] else 0.0,
+              freibetrag=e["freibetrag"] if e["steuer"] else 0.0)
+    plan = E.entnahmeplan(kapital, rendite, e["monatlich"], jahre=int(e["dauer_jahre"]), **kw)
+    return kapital, rendite, kw, plan
+
+
 def _dauer_text(p, jahre_max=100):
     if p["reicht_dauerhaft"]:
         return f"über {jahre_max} J."
@@ -1934,61 +2013,19 @@ def _dauer_text(p, jahre_max=100):
 
 
 def _b_entnahme(m, R):
-    e = m.setdefault("entnahme", copy.deepcopy(D.ENTNAHME))
-    for k, v in D.ENTNAHME.items():
-        e.setdefault(k, v)
+    e = _entnahme_daten(m)
     rahmen = m["rahmen"]
     proj = R["zus"]["projektion"]
     _abschnitt("Entnahmeplan (monatlich)")
-    _hinweis("Szenariorechnung · keine Prognose · Entnahme beginnt nach dem Anlagehorizont")
-
-    starts = list(D.ENTNAHME_STARTS)
-    wahl = st.pills("Startkapital der Entnahme", [D.ENTNAHME_STARTS[x] for x in starts],
-                    default=D.ENTNAHME_STARTS[e["start"]], key=_k("en_start"))
-    if wahl:
-        e["start"] = starts[[D.ENTNAHME_STARTS[x] for x in starts].index(wahl)]
-    if e["start"] == "eigen":
-        e["startbetrag"] = float(st.number_input("Eigener Startbetrag (€)", 0.0, 1e9,
-                                                 float(e.get("startbetrag") or rahmen["zielvermoegen"]),
-                                                 step=5000.0, format="%.0f", key=_k("en_betrag")))
-    kapital = {"modell": proj["endwert"], "ziel": rahmen["zielvermoegen"],
-               "eigen": e.get("startbetrag") or 0.0}[e["start"]]
-    einstand = min(proj["eingezahlt"], kapital) if e["start"] != "eigen" else kapital * 0.5
-
-    c1, c2 = st.columns(2)
-    e["monatlich"] = float(c1.number_input("Entnahme pro Monat (€, netto)", 0.0, 1e7, float(e["monatlich"]),
-                                           step=50.0, format="%.0f", key=_k("en_mon")))
-    e["dynamik_pa"] = float(c2.number_input("Jährliche Erhöhung (%)", 0.0, 10.0, float(e["dynamik_pa"]), step=0.5,
-                                            key=_k("en_dyn"), help="z. B. Inflationsausgleich"))
-    c3, c4 = st.columns(2)
-    e["dauer_jahre"] = int(c3.number_input("Geplante Dauer (Jahre)", 1, 60, int(e["dauer_jahre"]), key=_k("en_dauer")))
-    quellen = {"eigen": "Eigene Annahme", "modell": "Modellrendite Aufbau"}
-    q = c4.selectbox("Rendite in der Entnahmephase", list(quellen), index=list(quellen).index(e["rendite_quelle"]),
-                     format_func=quellen.get, key=_k("en_quelle"))
-    e["rendite_quelle"] = q
-    if q == "eigen":
-        e["rendite_pa"] = float(st.number_input("Rendite p.a. in der Entnahmephase (%)", -20.0, 50.0,
-                                                float(e["rendite_pa"]), step=0.5, key=_k("en_rendite"),
-                                                help="Annahme – z. B. nach Umschichtung in ein ruhigeres Portfolio"))
-        rendite = e["rendite_pa"] / 100.0
-    else:
-        rendite = R["zus"]["modell_cagr"] or 0.0
-        st.caption(f"Modellrendite der Aufbauphase: {_pct(rendite)} p.a. – so hohe Renditen über Jahrzehnte "
-                   "durchzuhalten ist nicht plausibel; die eigene Annahme ist meist die ehrlichere Wahl.")
-    e["steuer"] = st.toggle("Abgeltungsteuer berücksichtigen (vereinfacht)", value=bool(e["steuer"]), key=_k("en_st"))
-    if e["steuer"]:
-        c5, c6 = st.columns(2)
-        e["steuersatz"] = float(c5.number_input("Steuersatz (%)", 0.0, 60.0, float(e["steuersatz"]), step=0.5,
-                                                key=_k("en_satz"), help="Abgeltungsteuer + Soli, ohne Kirchensteuer"))
-        e["freibetrag"] = float(c6.number_input("Freibetrag pro Jahr (€)", 0.0, 1e5, float(e["freibetrag"]),
-                                                step=100.0, format="%.0f", key=_k("en_frei"),
-                                                help="Sparerpauschbetrag – bitte aktuellen Wert prüfen"))
-        st.caption("Vereinfacht: Steuer nur auf den Gewinnanteil jeder Entnahme (Durchschnittseinstand = eingezahltes "
-                   "Kapital), ohne Teilfreistellung, Vorabpauschale und Kirchensteuer. Die Entnahme ist netto – "
-                   "brutto wird entsprechend mehr verkauft.")
-    kw = dict(dynamik_pa=e["dynamik_pa"] / 100.0, einstand=einstand,
-              steuersatz=(e["steuersatz"] / 100.0) if e["steuer"] else 0.0,
-              freibetrag=e["freibetrag"] if e["steuer"] else 0.0)
+    _hinweis("Szenariorechnung · keine Prognose · Entnahme beginnt nach dem Aufbau mit dem Modell-Endwert")
+    if not e.get("aktiv", True):
+        st.info("Die Entnahme ist ausgeschaltet – oben unter „⚙️ Planung: Aufbau → Entnahme“ einschalten.")
+        return
+    kapital, rendite, kw, plan = _entnahme_rechnen(m, R, e)
+    st.caption("Alle Eingaben (Aufbau und Entnahme) stehen oben unter „⚙️ Planung: Aufbau → Entnahme“.")
+    if e.get("rendite_quelle") == "modell":
+        st.caption(f"Rendite in der Entnahme wie Aufbauphase: {_pct(rendite)} p.a. – so hohe Renditen über "
+                   "Jahrzehnte durchzuhalten ist nicht plausibel; eine eigene Annahme ist meist ehrlicher.")
     jahre = e["dauer_jahre"]
     plan = E.entnahmeplan(kapital, rendite, e["monatlich"], jahre=jahre, **kw)
     verzehr = E.entnahme_fuer(kapital, rendite, jahre=jahre, **kw)
