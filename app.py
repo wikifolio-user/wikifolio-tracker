@@ -481,9 +481,8 @@ st.markdown("""
         padding-bottom: 7px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.45);
         /* Neon-Weiss wie Titel und Menue */
-        text-shadow: 0 0 4px rgba(255, 255, 255, 0.85), 0 0 10px rgba(255, 255, 255, 0.5),
-                     0 0 22px rgba(255, 255, 255, 0.28);
-        box-shadow: 0 6px 10px -8px rgba(255, 255, 255, 0.55);
+        text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+        box-shadow: 0 6px 8px -8px rgba(255, 255, 255, 0.35);
     }
 
     /* Jeder Aufklappbereich als eigener Block mit weissem Rand. Bewusst
@@ -1857,12 +1856,11 @@ NAV_CSS = """
 /* Kopf */
 .nav-kopf { text-align: center; padding: 0 0 4px; margin-top: -26px; }
 .nav-credit { font-size: 0.72rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
-              text-shadow: 0 0 4px rgba(255, 255, 255, 0.9), 0 0 10px rgba(255, 255, 255, 0.55),
-                           0 0 22px rgba(255, 255, 255, 0.3); }
+              text-shadow: 0 0 6px rgba(255, 255, 255, 0.35); }
 .nav-logo {
     font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
     letter-spacing: 5px; color: #FFFFFF; text-transform: uppercase;
-    text-shadow: 0 0 4px rgba(255, 255, 255, 0.9), 0 0 14px rgba(255, 255, 255, 0.55), 0 0 32px rgba(255, 255, 255, 0.25);
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.45), 0 0 20px rgba(255, 255, 255, 0.15);
 }
 .nav-logo span { font-weight: 300; }
 .nav-chip {
@@ -1880,11 +1878,11 @@ NAV_CSS = """
 .nav-gruppe {
     display: flex; align-items: center; gap: 12px; padding: 16px 4px 2px;
     font-size: 0.7rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
-    text-shadow: 0 0 4px rgba(255, 255, 255, 0.85), 0 0 10px rgba(255, 255, 255, 0.5), 0 0 22px rgba(255, 255, 255, 0.28);
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
 }
 .nav-gruppe::after { content: ""; flex: 1; height: 1px;
                      background: linear-gradient(90deg, rgba(255, 255, 255, 0.75), transparent);
-                     box-shadow: 0 0 6px rgba(255, 255, 255, 0.6); }
+                     box-shadow: 0 0 4px rgba(255, 255, 255, 0.3); }
 
 /* Kacheln "Neon-Taste": dicke 3D-Kante (gestapelte Schatten), weisser
    Neonrand, weiches Bodenleuchten unter der Taste - ruhig, ohne Bewegung */
@@ -1992,7 +1990,7 @@ NAV_CSS = """
 .nav-titel {
     font-size: 1.02rem; font-weight: 700; color: #FFFFFF; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; text-align: center; letter-spacing: 0.3px;
-    text-shadow: 0 0 6px rgba(255, 255, 255, 0.55), 0 0 16px rgba(255, 255, 255, 0.2);
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
 }
 .nav-stand { font-size: 0.72rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
 .nav-stand b { color: #FFFFFF; }
