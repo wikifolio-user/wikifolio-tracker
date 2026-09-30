@@ -34,7 +34,7 @@ HIST_CACHE_SEK = 6 * 3600
 
 BEREICHE = ["🧩 Allocation", "📈 Projected Growth", "🎯 Zielerreichung", "🧺 Fundamental Basket",
             "🧪 Wikifolio Analyse", "🎲 Szenariovergleich", "⚠️ Risiko & Konzentration",
-            "🛟 Nachkaufreserve", "🌪️ Sensitivität", "🧾 Annahmen & Datenqualität"]
+            "🛟 Nachkaufreserve", "🌪️ Sensitivität", "🧾 Annahmen & Datenqualität", "💶 Entnahmeplan"]
 
 FARBEN = ["#4C9AFF", "#16C784", "#F5B942", "#EA3943", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C",
           "#A3E635", "#94A3B8", "#FDE047", "#2DD4BF", "#C084FC", "#F87171"]
@@ -54,6 +54,8 @@ CSS = """
 .pl-warn { background: rgba(245, 185, 66, 0.14); color: #F5B942; border: 1px solid rgba(245, 185, 66, 0.4); }
 .pl-info { background: rgba(76, 154, 255, 0.12); color: #8DBBFF; border: 1px solid rgba(76, 154, 255, 0.35); }
 .pl-gut { color: #16C784; } .pl-schlecht { color: #EA3943; }
+.q-kpi-v span.pl-gut, .q-kpi-v span.pl-schlecht { font-size: inherit; font-weight: 800; }
+.q-kpi-v span.pl-gut { color: #16C784; } .q-kpi-v span.pl-schlecht { color: #EA3943; }
 .pl-sub { font-size: 0.72rem; color: var(--label, #8A9099); font-weight: 600; }
 .pl-zeile { font-size: 0.8rem; color: #D6D9DE; margin: 2px 0 12px 2px; line-height: 1.5; }
 .q-kpi-v.pl-klein { font-size: 1.05rem; }
@@ -1743,6 +1745,135 @@ def _b_annahmen(m, R, historie, hist_assets):
             st.rerun()
 
 
+# --- 11 Entnahmeplan --------------------------------------------------------
+def _dauer_text(p, jahre_max=100):
+    if p["reicht_dauerhaft"]:
+        return f"über {jahre_max} J."
+    mon = p["dauer_monate"]
+    return f"{mon // 12} J. {mon % 12} M." if mon % 12 else f"{mon // 12} J."
+
+
+def _b_entnahme(m, R):
+    e = m.setdefault("entnahme", copy.deepcopy(D.ENTNAHME))
+    for k, v in D.ENTNAHME.items():
+        e.setdefault(k, v)
+    rahmen = m["rahmen"]
+    proj = R["zus"]["projektion"]
+    _abschnitt("Entnahmeplan (monatlich)")
+    _hinweis("Szenariorechnung · keine Prognose · Entnahme beginnt nach dem Anlagehorizont")
+
+    starts = list(D.ENTNAHME_STARTS)
+    wahl = st.pills("Startkapital der Entnahme", [D.ENTNAHME_STARTS[x] for x in starts],
+                    default=D.ENTNAHME_STARTS[e["start"]], key=_k("en_start"))
+    if wahl:
+        e["start"] = starts[[D.ENTNAHME_STARTS[x] for x in starts].index(wahl)]
+    if e["start"] == "eigen":
+        e["startbetrag"] = float(st.number_input("Eigener Startbetrag (€)", 0.0, 1e9,
+                                                 float(e.get("startbetrag") or rahmen["zielvermoegen"]),
+                                                 step=5000.0, format="%.0f", key=_k("en_betrag")))
+    kapital = {"modell": proj["endwert"], "ziel": rahmen["zielvermoegen"],
+               "eigen": e.get("startbetrag") or 0.0}[e["start"]]
+    einstand = min(proj["eingezahlt"], kapital) if e["start"] != "eigen" else kapital * 0.5
+
+    c1, c2 = st.columns(2)
+    e["monatlich"] = float(c1.number_input("Entnahme pro Monat (€, netto)", 0.0, 1e7, float(e["monatlich"]),
+                                           step=50.0, format="%.0f", key=_k("en_mon")))
+    e["dynamik_pa"] = float(c2.number_input("Jährliche Erhöhung (%)", 0.0, 10.0, float(e["dynamik_pa"]), step=0.5,
+                                            key=_k("en_dyn"), help="z. B. Inflationsausgleich"))
+    c3, c4 = st.columns(2)
+    e["dauer_jahre"] = int(c3.number_input("Geplante Dauer (Jahre)", 1, 60, int(e["dauer_jahre"]), key=_k("en_dauer")))
+    quellen = {"eigen": "Eigene Annahme", "modell": "Modellrendite Aufbau"}
+    q = c4.selectbox("Rendite in der Entnahmephase", list(quellen), index=list(quellen).index(e["rendite_quelle"]),
+                     format_func=quellen.get, key=_k("en_quelle"))
+    e["rendite_quelle"] = q
+    if q == "eigen":
+        e["rendite_pa"] = float(st.number_input("Rendite p.a. in der Entnahmephase (%)", -20.0, 50.0,
+                                                float(e["rendite_pa"]), step=0.5, key=_k("en_rendite"),
+                                                help="Annahme – z. B. nach Umschichtung in ein ruhigeres Portfolio"))
+        rendite = e["rendite_pa"] / 100.0
+    else:
+        rendite = R["zus"]["modell_cagr"] or 0.0
+        st.caption(f"Modellrendite der Aufbauphase: {_pct(rendite)} p.a. – so hohe Renditen über Jahrzehnte "
+                   "durchzuhalten ist nicht plausibel; die eigene Annahme ist meist die ehrlichere Wahl.")
+    e["steuer"] = st.toggle("Abgeltungsteuer berücksichtigen (vereinfacht)", value=bool(e["steuer"]), key=_k("en_st"))
+    if e["steuer"]:
+        c5, c6 = st.columns(2)
+        e["steuersatz"] = float(c5.number_input("Steuersatz (%)", 0.0, 60.0, float(e["steuersatz"]), step=0.5,
+                                                key=_k("en_satz"), help="Abgeltungsteuer + Soli, ohne Kirchensteuer"))
+        e["freibetrag"] = float(c6.number_input("Freibetrag pro Jahr (€)", 0.0, 1e5, float(e["freibetrag"]),
+                                                step=100.0, format="%.0f", key=_k("en_frei"),
+                                                help="Sparerpauschbetrag – bitte aktuellen Wert prüfen"))
+        st.caption("Vereinfacht: Steuer nur auf den Gewinnanteil jeder Entnahme (Durchschnittseinstand = eingezahltes "
+                   "Kapital), ohne Teilfreistellung, Vorabpauschale und Kirchensteuer. Die Entnahme ist netto – "
+                   "brutto wird entsprechend mehr verkauft.")
+    kw = dict(dynamik_pa=e["dynamik_pa"] / 100.0, einstand=einstand,
+              steuersatz=(e["steuersatz"] / 100.0) if e["steuer"] else 0.0,
+              freibetrag=e["freibetrag"] if e["steuer"] else 0.0)
+    jahre = e["dauer_jahre"]
+    plan = E.entnahmeplan(kapital, rendite, e["monatlich"], jahre=jahre, **kw)
+    verzehr = E.entnahme_fuer(kapital, rendite, jahre=jahre, **kw)
+    erhalt = E.entnahme_fuer(kapital, rendite, jahre=jahre, ziel_restwert=kapital, **kw)
+    reicht = plan["reicht_dauerhaft"] or plan["dauer_monate"] >= jahre * 12
+
+    _kacheln([
+        ("Startkapital", _eur(kapital), D.ENTNAHME_STARTS[e["start"]] + f" · nach {rahmen['horizont_jahre']} J."),
+        ("Entnahme", f"{_de(e['monatlich'])} €", "pro Monat netto"
+         + (f", +{_de(e['dynamik_pa'], 1)} % p.a." if e["dynamik_pa"] else "")),
+        ("Kapital reicht", f'<span class="{"pl-gut" if reicht else "pl-schlecht"}">{_dauer_text(plan)}</span>',
+         f"Plan: {jahre} J. bei {_pct(rendite)} p.a."),
+        (f"Rest nach {jahre} J.", _eur(plan["restwert"]) if plan["restwert"] else "0 €",
+         f"Steuern gesamt {_eur(plan['summe_steuer'])}" if e["steuer"] else "vor Steuern"),
+    ])
+    _kacheln([
+        ("Kapitalverzehr", f"{_de(verzehr)} €", f"max. pro Monat, aufgebraucht nach {jahre} J."),
+        ("Kapitalerhalt", f"{_de(erhalt)} €", f"max. pro Monat, nach {jahre} J. noch {_eur(kapital)}"),
+    ], klein=True)
+    st.caption("Kapitalverzehr/-erhalt: erste Monatsentnahme (netto) – mit derselben jährlichen Erhöhung.")
+
+    # Chart: Aufbau + Entnahme auf einer Zeitachse
+    aufbau = proj["monatswerte"]
+    n_auf = len(aufbau) - 1
+    x_auf = [i / 12 for i in range(n_auf + 1)]
+    ent = plan["verlauf"][: jahre * 12 + 1] if plan["reicht_dauerhaft"] or (plan["dauer_monate"] or 0) >= jahre * 12 \
+        else plan["verlauf"]
+    x_ent = [(n_auf + i) / 12 for i in range(len(ent))]
+    fig = go.Figure()
+    if e["start"] == "modell":
+        fig.add_trace(go.Scatter(x=x_auf, y=aufbau, name="Aufbau (Modell)", line=dict(color="#4C9AFF", width=2)))
+    fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahmephase", line=dict(color="#16C784", width=3)))
+    netto_kum, summe = [0.0], 0.0
+    for i in range(1, len(ent)):
+        summe += e["monatlich"] * (1 + e["dynamik_pa"] / 100.0) ** ((i - 1) // 12)
+        netto_kum.append(summe)
+    fig.add_trace(go.Scatter(x=x_ent, y=netto_kum, name="Summe Entnahmen", line=dict(color="#F5B942", dash="dot")))
+    _layout(fig, 340)
+    fig.update_xaxes(title="Jahre ab heute")
+    _chart(fig, "pl_entnahme")
+
+    _abschnitt("Rendite-Sensitivität")
+    zeilen = []
+    for d in (-0.04, -0.02, 0.0, 0.02):
+        r = rendite + d
+        p = E.entnahmeplan(kapital, r, e["monatlich"], jahre=jahre, **kw)
+        ok = p["reicht_dauerhaft"] or p["dauer_monate"] >= jahre * 12
+        zeilen.append([("<b>" if d == 0 else "") + _pct(r) + ("</b>" if d == 0 else ""),
+                       f'<span class="{"pl-gut" if ok else "pl-schlecht"}">{_dauer_text(p)}</span>',
+                       _eur(p["restwert"]) if p["restwert"] else "0 €",
+                       _de(E.entnahme_fuer(kapital, r, jahre=jahre, **kw)) + " €"])
+    _tabelle(["Rendite p.a.", "Reicht", f"Rest nach {jahre} J.", "Verzehr/Monat"], zeilen)
+    st.caption("Konstante Renditen – echte Märkte schwanken. Verluste gleich zu Beginn der Entnahme wiegen deutlich "
+               "schwerer (Reihenfolge-Risiko); der Stresspfad unter „Nachkaufreserve“ zeigt die Aufbauphase.")
+
+    _abschnitt("Jahresübersicht")
+    tab = plan["jahre_tabelle"][:max(jahre, 1)]
+    kopf = ["Jahr", "Anfang", "Erträge", "Entnahme netto"] + (["Steuer"] if e["steuer"] else []) + ["Ende"]
+    _tabelle(kopf, [[str(rahmen["horizont_jahre"] + z["jahr"]), _de(z["anfang"]) + " €", _de(z["ertrag"]) + " €",
+                     _de(z["netto"]) + " €"] + ([_de(z["steuer"]) + " €"] if e["steuer"] else [])
+                    + [_de(z.get("ende", 0)) + " €"] for z in tab])
+    st.caption("„Jahr“ = Jahre ab heute (Aufbauphase + Entnahmejahr). Beträge ungerundet zur Nachvollziehbarkeit – "
+               "alle Werte bleiben Szenariorechnung.")
+
+
 # ===========================================================================
 # Einstieg
 # ===========================================================================
@@ -1790,6 +1921,8 @@ def render(h):
         _b_reserve(m, R)
     elif bereich == BEREICHE[8]:
         _b_sensitiv(m, R)
+    elif bereich == BEREICHE[10]:
+        _b_entnahme(m, R)
     else:
         _b_annahmen(m, R, historie, hist_assets)
 
