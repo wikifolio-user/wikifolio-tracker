@@ -1443,23 +1443,78 @@ def _b_gewichtung(m, R):
 
 
 # --- 2 Projected Growth -----------------------------------------------------
+def _gesamtverlauf(m, R):
+    """Aufbau + Entnahme als EINE Zeitachse (Monatswerte) und Jahrestabelle.
+    Funktioniert auch ohne Aufbau (0 Jahre), ohne Ziel und ohne Sparrate."""
+    rahmen = m["rahmen"]
+    proj = R["zus"]["projektion"]
+    aufbau = list(proj["monatswerte"])
+    n_auf = len(aufbau) - 1
+    spar = float(rahmen.get("sparrate_monat") or 0.0)
+    zeilen = []
+    for j in range(n_auf // 12):
+        anf, ende = aufbau[j * 12], aufbau[(j + 1) * 12]
+        zeilen.append({"jahr": j + 1, "phase": "Aufbau", "anfang": anf, "fluss": spar * 12,
+                       "ertrag": ende - anf - spar * 12, "steuer": 0.0, "ende": ende})
+    e = _entnahme_daten(m)
+    ent, rendite, plan = [], None, None
+    if e.get("aktiv", True) and float(e.get("monatlich") or 0) > 0:
+        _, rendite, _, plan = _entnahme_rechnen(m, R, e)
+        jahre = int(e["dauer_jahre"])
+        ent = plan["verlauf"][: jahre * 12 + 1]
+        for z in plan["jahre_tabelle"][:jahre]:
+            zeilen.append({"jahr": n_auf // 12 + z["jahr"], "phase": "Entnahme", "anfang": z["anfang"],
+                           "fluss": -z["netto"], "ertrag": z["ertrag"], "steuer": z.get("steuer", 0.0),
+                           "ende": z.get("ende", 0.0)})
+    return aufbau, ent, zeilen, rendite, plan
+
+
 def _b_growth(m, R):
     rahmen = m["rahmen"]
     proj = R["zus"]["projektion"]
     monate = len(proj["monatswerte"]) - 1
     x = [m_ / 12 for m_ in range(monate + 1)]
-    req = R["zus"]["erforderliche_cagr"] or 0.0
-    ziel_pfad = [E.future_value(rahmen["startkapital"], req, t, rahmen.get("sparrate_monat") or 0.0) for t in x]
-    _abschnitt("Projected Growth")
+    ziel = float(rahmen.get("zielvermoegen") or 0.0)
+    aufbau, ent, zeilen, rendite, plan = _gesamtverlauf(m, R)
+    e = _entnahme_daten(m)
+
+    _abschnitt("Vermögensverlauf" if ent else "Projected Growth")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x, y=ziel_pfad, name="Benötigter Pfad", line=dict(color="#8A9099", dash="dot")))
-    fig.add_trace(go.Scatter(x=x, y=proj["monatswerte"], name="Modell", line=dict(color="#4C9AFF", width=3)))
-    fig.add_hline(y=rahmen["zielvermoegen"], line=dict(color="#F5B942", dash="dash", width=1),
-                  annotation_text="Ziel", annotation_font_color="#F5B942")
+    if monate > 0:
+        if ziel > 0 and R["zus"]["erforderliche_cagr"] is not None:
+            req = R["zus"]["erforderliche_cagr"]
+            pfad = [E.future_value(rahmen["startkapital"], req, t, rahmen.get("sparrate_monat") or 0.0) for t in x]
+            fig.add_trace(go.Scatter(x=x, y=pfad, name="Benötigter Pfad", line=dict(color="#8A9099", dash="dot")))
+        fig.add_trace(go.Scatter(x=x, y=aufbau, name="Aufbau", line=dict(color="#4C9AFF", width=3)))
+    if ent:
+        x_ent = [(monate + i) / 12 for i in range(len(ent))]
+        fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahme", line=dict(color="#16C784", width=3)))
+    if ziel > 0 and monate > 0:
+        fig.add_hline(y=ziel, line=dict(color="#F5B942", dash="dash", width=1),
+                      annotation_text="Ziel", annotation_font_color="#F5B942")
     _layout(fig, 360)
-    fig.update_xaxes(title="Jahre")
+    fig.update_xaxes(title="Jahre ab heute", rangemode="tozero")
+    fig.update_yaxes(rangemode="tozero")
     _chart(fig, "pl_growth")
     _hinweis()
+
+    if zeilen:
+        _abschnitt("Jahresübersicht")
+        st.caption("Aufbau: Einzahlung = Sparrate · Entnahme: " + f"{_de(e['monatlich'])} €/Monat netto"
+                   + (f", +{_de(e['dynamik_pa'], 1)} % p.a." if e.get("dynamik_pa") else "")
+                   + (f" bei {_pct(rendite)} p.a." if rendite is not None else ""))
+        steuer = any(z["steuer"] for z in zeilen)
+        kopf = ["Jahr", "Phase", "Anfang", "Ein-/Auszahlung", "Erträge"] + (["Steuer"] if steuer else []) + ["Ende"]
+        _eu = lambda v: _eur(round(v), False)
+        _tabelle(kopf, [[str(z["jahr"]), z["phase"], _eu(z["anfang"]),
+                         ("+" if z["fluss"] > 0 else "") + _eu(z["fluss"]) if z["fluss"] else "–",
+                         _eu(z["ertrag"])] + ([_eu(z["steuer"])] if steuer else []) + [_eu(z["ende"])]
+                        for z in zeilen])
+        if plan is not None and not plan["reicht_dauerhaft"] and plan["dauer_monate"] < int(e["dauer_jahre"]) * 12:
+            st.caption(f"⚠ Das Kapital ist nach {_dauer_text(plan)} Entnahme aufgebraucht.")
+    if monate == 0:
+        st.caption("Keine Aufbauphase (0 Jahre) – Details zur Entnahme unter „Entnahme“.")
+        return
 
     _abschnitt("Wertentwicklung je Baustein")
     fig2 = go.Figure()
