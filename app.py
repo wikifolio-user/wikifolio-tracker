@@ -1919,13 +1919,29 @@ NAV_CSS = """
     0%, 100% { text-shadow: 0 0 2px rgba(255, 255, 255, 0.2); opacity: 0.6; }
     50%      { text-shadow: 0 0 6px rgba(255, 255, 255, 0.9), 0 0 14px rgba(255, 255, 255, 0.5); opacity: 1; }
 }
+/* Rand der Menue-Tasten pulsiert leicht: eigener Leuchtring (::after) ueber
+   dem Rand - der eigentliche Rand ist per !important gesetzt und liesse sich
+   nicht animieren */
+.st-key-nav_menue [data-testid="stButton"] button { border-color: rgba(255, 255, 255, 0.45) !important; }
+.st-key-nav_menue [data-testid="stButton"] button::after {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+    border: 1px solid #FFFFFF;
+    animation: navrandpuls 2s ease-in-out infinite;
+}
+@keyframes navrandpuls {
+    0%, 100% { opacity: 0.35; box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
+    50%      { opacity: 1;    box-shadow: 0 0 5px rgba(255, 255, 255, 0.45); }
+}
+
 /* Titel "FINANZ DASHBOARD" pulsiert ebenfalls dauerhaft */
 .nav-logo { animation: navlogopuls 2s ease-in-out infinite; }
 @keyframes navlogopuls {
     0%, 100% { text-shadow: 0 0 3px rgba(255, 255, 255, 0.25); opacity: 0.72; }
     50%      { text-shadow: 0 0 8px rgba(255, 255, 255, 0.9), 0 0 20px rgba(255, 255, 255, 0.45); opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .nav-wander, .nav-logo { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+    .nav-wander, .nav-logo, .st-key-nav_menue [data-testid="stButton"] button::after { animation: none; }
+}
 
 /* Kacheln "Neon-Taste": dicke 3D-Kante (gestapelte Schatten), weisser
    Neonrand, weiches Bodenleuchten unter der Taste - ruhig, ohne Bewegung */
