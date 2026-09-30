@@ -517,5 +517,29 @@ class IstWerte(unittest.TestCase):
         self.assertGreater(E._szenario_um(-0.1, "bull", regel), -0.1)
 
 
+class AnnahmenAusHistorie(unittest.TestCase):
+    def test_auto_und_eigene(self):
+        m = D.seed_modell()
+        hist = {"etf_allworld": {"historical5Y": 0.09, "stand": "2026-09-29"}, "etf_ndx": {"historical3Y": 0.2},
+                "korb": {"historical5Y": 0.4}, "etf_gold": {"historical1Y": 0.3}}
+        E.setze_annahme(m, "etf_ndx", "manualScenario", 0.12)           # eigene Eingabe -> bleibt
+        n = E.annahmen_aus_historie(m, hist)
+        self.assertEqual(E.annahme(m, "etf_allworld", "manualScenario")["value"], 0.09)
+        self.assertEqual(E.annahme(m, "etf_ndx", "manualScenario")["value"], 0.12)
+        self.assertEqual(E.annahme(m, "korb", "manualScenario")["value"], 0.4)
+        self.assertEqual(E.annahme(m, "etf_gold", "manualScenario")["value"], 0.3)   # vorher leer
+        self.assertEqual(E.annahme(m, "reserve", "manualScenario")["value"], 0.0)     # Cash unveraendert
+        self.assertEqual(n, 3)
+        self.assertEqual(E.annahmen_aus_historie(m, hist), 0)                          # stabil
+        E.annahmen_aus_historie(m, hist, alle=True)
+        self.assertEqual(E.annahme(m, "etf_ndx", "manualScenario")["value"], 0.2)
+        self.assertTrue(E.annahme(m, "etf_ndx", "manualScenario")["auto"])
+
+    def test_ohne_historie_bleibt_startwert(self):
+        m = D.seed_modell()
+        E.annahmen_aus_historie(m, {})
+        self.assertEqual(E.annahme(m, "etf_allworld", "manualScenario")["value"], 0.1108)
+
+
 if __name__ == "__main__":
     unittest.main()
