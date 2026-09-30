@@ -1491,14 +1491,14 @@ def _b_growth(m, R):
     e = _entnahme_daten(m)
 
     _abschnitt("Vermögensverlauf" if ent else "Projected Growth")
-    # Jahrespunkte (Ende jedes Jahres) - mit Beschriftung und deutscher Tooltip-Zahl
-    punkte = [(0.0, "Start", float(aufbau[0]) if aufbau else 0.0)] + \
-        [(float(z["jahr"]), z["phase"], float(z["ende"])) for z in zeilen]
-    entnommen, summe_ent = [], 0.0
-    for z in zeilen:
-        if z["phase"] == "Entnahme":
-            summe_ent += -z["fluss"]
-        entnommen.append(summe_ent)
+    # Jahrespunkte: Start + Ende jedes Jahres - mit Beschriftung und Tooltip
+    start_w = float(aufbau[0]) if aufbau else 0.0
+    punkte = [(0.0, "Start", start_w)] + [(float(z["jahr"]), z["phase"], float(z["ende"])) for z in zeilen]
+    hover = [["Anfangswert", _de(round(start_w)), "", ""]] + \
+        [[f'{z["phase"]} · Anfang {_de(round(z["anfang"]))} €', _de(round(z["ende"])),
+          f'Erträge {"+" if z["ertrag"] >= 0 else "−"}{_de(abs(round(z["ertrag"])))} €',
+          (f'Entnahme −{_de(round(-z["fluss"]))} €' if z["fluss"] < 0 else
+           f'Einzahlung +{_de(round(z["fluss"]))} €' if z["fluss"] > 0 else "")] for z in zeilen]
     log = st.toggle("Logarithmische Skala", value=False, key="pl_growth_log",
                     help="Hilfreich bei hohen Renditen: frühe Jahre werden sichtbar, gleiche prozentuale "
                          "Veränderung = gleicher Abstand")
@@ -1513,8 +1513,11 @@ def _b_growth(m, R):
                                  hoverinfo="skip"))
     if ent:
         x_ent = [(monate + i) / 12 for i in range(len(ent))]
-        fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahme", line=dict(color="#16C784", width=3),
+        fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahmephase", line=dict(color="#16C784", width=3),
                                  hoverinfo="skip"))
+    # Anfangswert als Referenzlinie: darueber = gewachsen, darunter = verzehrt
+    fig.add_hline(y=max(start_w, 1.0), line=dict(color="#8A9099", dash="dot", width=1),
+                  annotation_text=f"Anfangswert {_kurz_eur(start_w)}", annotation_font_color="#B0B5BC")
     # Beschriftung: hoechstens ~6 Werte, damit es auf dem iPhone lesbar bleibt
     n = len(punkte)
     schritt = max(1, math.ceil((n - 1) / 5))
@@ -1526,14 +1529,9 @@ def _b_growth(m, R):
         text=[_kurz_eur(p_[2]) if k in zeige else "" for k, p_ in enumerate(punkte)],
         textposition=["top right" if k == 0 else "top left" if k == n - 1 else "top center" for k in range(n)],
         textfont=dict(size=11, color="#FFFFFF"),
-        customdata=[[p_[1], _de(round(p_[2]))] for p_ in punkte],
-        hovertemplate="Jahr %{x:.0f} · %{customdata[0]}<br><b>%{customdata[1]} €</b><extra></extra>"))
-    if ent:
-        fig.add_trace(go.Scatter(
-            x=[p_[0] for p_ in punkte[1:]], y=[max(v, 1.0) if log else v for v in entnommen],
-            mode="lines", name="Summe Entnahmen", line=dict(color="#F5B942", dash="dot", width=2),
-            customdata=[_de(round(v)) for v in entnommen],
-            hovertemplate="Entnommen gesamt: %{customdata} €<extra></extra>"))
+        customdata=hover,
+        hovertemplate="Jahr %{x:.0f} · %{customdata[0]}<br>%{customdata[2]}<br>%{customdata[3]}"
+                      "<br><b>Ende %{customdata[1]} €</b><extra></extra>"))
     if ziel > 0 and monate > 0:
         fig.add_hline(y=ziel, line=dict(color="#F5B942", dash="dash", width=1),
                       annotation_text="Ziel", annotation_font_color="#F5B942")
@@ -1542,13 +1540,44 @@ def _b_growth(m, R):
     fig.update_xaxes(title="Jahre ab heute", rangemode="tozero", dtick=max(1, math.ceil((n - 1) / 10)))
     if log:
         fig.update_yaxes(type="log")
-    else:
-        fig.update_yaxes(rangemode="tozero")
-    # Platz fuer die Beschriftung ueber dem hoechsten Punkt
-    if not log and punkte:
-        fig.update_yaxes(range=[0, max(p_[2] for p_ in punkte + [(0, "", max(entnommen or [0]))]) * 1.15])
+    elif punkte:
+        fig.update_yaxes(range=[0, max(p_[2] for p_ in punkte) * 1.15])   # Platz fuer die Beschriftung
     _chart(fig, "pl_growth")
     _hinweis()
+
+    # Erträge (nach oben) und Entnahmen (nach unten) je Jahr
+    if zeilen:
+        _abschnitt("Erträge & Entnahmen je Jahr")
+        xs = [z["jahr"] for z in zeilen]
+        ertr = [z["ertrag"] for z in zeilen]
+        aus = [min(z["fluss"], 0.0) - z["steuer"] if z["phase"] == "Entnahme" else 0.0 for z in zeilen]
+        ein = [max(z["fluss"], 0.0) for z in zeilen]
+        fig2 = go.Figure()
+        fig2.add_trace(go.Bar(x=xs, y=ertr, name="Erträge", marker_color="#16C784",
+                              customdata=[_de(round(v)) for v in ertr],
+                              hovertemplate="Jahr %{x} · Erträge %{customdata} €<extra></extra>"))
+        if any(ein):
+            fig2.add_trace(go.Bar(x=xs, y=ein, name="Einzahlungen", marker_color="#4C9AFF",
+                                  customdata=[_de(round(v)) for v in ein],
+                                  hovertemplate="Jahr %{x} · Einzahlung %{customdata} €<extra></extra>"))
+        if any(aus):
+            fig2.add_trace(go.Bar(x=xs, y=aus, name="Entnahmen" + (" inkl. Steuer" if any(z["steuer"] for z in zeilen) else ""),
+                                  marker_color="#EA3943",
+                                  customdata=[_de(round(-v)) for v in aus],
+                                  hovertemplate="Jahr %{x} · Entnahme −%{customdata} €<extra></extra>"))
+        netto = [a_ + b_ + c_ for a_, b_, c_ in zip(ertr, ein, aus)]
+        fig2.add_trace(go.Scatter(x=xs, y=netto, name="Veränderung netto", mode="lines+markers",
+                                  line=dict(color="#FFFFFF", width=1.5), marker=dict(size=5),
+                                  customdata=[("+" if v >= 0 else "−") + _de(abs(round(v))) for v in netto],
+                                  hovertemplate="Jahr %{x} · Vermögen %{customdata} €<extra></extra>"))
+        _layout(fig2, 320)
+        fig2.update_layout(barmode="relative", hovermode="closest", bargap=0.25)
+        fig2.update_xaxes(title="Jahr", dtick=max(1, math.ceil(len(xs) / 10)))
+        fig2.update_yaxes(zeroline=True, zerolinecolor="#8A9099", zerolinewidth=1)
+        _chart(fig2, "pl_flows")
+        if any(aus) and max(abs(v) for v in ertr) > 20 * max(abs(v) for v in aus):
+            st.caption("Die Erträge sind hier viel größer als die Entnahmen – die roten Balken sind deshalb "
+                       "kaum sichtbar. Genaue Werte beim Antippen und in der Tabelle.")
 
     if zeilen:
         _abschnitt("Jahresübersicht")
