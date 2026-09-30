@@ -484,5 +484,38 @@ class Wunschrendite(unittest.TestCase):
         self.assertFalse(E.optimiere(m, r, E.confidence_fuer(m), ziel=E.ziel_aus_rendite(m, 0.40))["erreichbar"])
 
 
+class IstWerte(unittest.TestCase):
+    def test_wikifolios_nutzen_historie(self):
+        m = D.seed_modell()
+        self.assertEqual(next(a for a in m["assets"] if a["id"] == "wf_ff")["renditequelle"], "historisch")
+        self.assertEqual(next(a for a in m["assets"] if a["id"] == "etf_ndx")["renditequelle"], "annahme")
+        hist = {"wf_ff": {"historical3Y": 0.31, "historical1Y": 0.9, "stand": "2026-09-29"},
+                "wf_hig": {"gesamt_cagr": 0.22}, "wf_gwc": {"historical1Y": 0.05}}
+        for methode in ("manual", "historical5Y", "historical10Y", "fundamentalModel"):
+            r = E.alle_renditen(m, hist, methode=methode)
+            self.assertAlmostEqual(r["wf_ff"]["brutto"], 0.31)          # 3 J. vor 1 J.
+            self.assertAlmostEqual(r["wf_hig"]["brutto"], 0.22)
+            self.assertAlmostEqual(r["wf_gwc"]["brutto"], 0.05)
+            self.assertEqual(r["wf_ff"]["herkunft"]["sourceType"], "historisch")
+        bear = E.alle_renditen(m, hist, methode="szenario", szenario="bear")["wf_ff"]["brutto"]
+        bull = E.alle_renditen(m, hist, methode="szenario", szenario="bull")["wf_ff"]["brutto"]
+        self.assertLess(bear, 0.31)
+        self.assertGreater(bull, 0.31)
+
+    def test_fallback_und_abwahl(self):
+        m = D.seed_modell()
+        r = E.alle_renditen(m, {})
+        self.assertEqual(r["wf_ff"]["brutto"], 0.50)                  # keine Historie -> Annahme mit Hinweis
+        self.assertIn("Kurshistorie", r["wf_ff"]["hinweis"])
+        next(a for a in m["assets"] if a["id"] == "wf_ff")["renditequelle"] = "annahme"
+        r = E.alle_renditen(m, {"wf_ff": {"historical5Y": 0.2}})
+        self.assertEqual(r["wf_ff"]["brutto"], 0.50)
+
+    def test_negative_basis_szenario(self):
+        regel = D.SZENARIO_REGEL
+        self.assertLess(E._szenario_um(-0.1, "bear", regel), -0.1)
+        self.assertGreater(E._szenario_um(-0.1, "bull", regel), -0.1)
+
+
 if __name__ == "__main__":
     unittest.main()
