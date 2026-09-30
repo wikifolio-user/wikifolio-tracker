@@ -144,6 +144,18 @@ def _tabelle(kopf, zeilen, links=(0,)):
                 f'<tbody>{"".join(body)}</tbody></table></div>', unsafe_allow_html=True)
 
 
+def _kurz_eur(x):
+    """Kompakte Beschriftung: 349.667 -> 350 T€, 96.420.874 -> 96,4 Mio €."""
+    a = abs(x)
+    if a >= 1e9:
+        return f"{_de(x / 1e9, 1)} Mrd €"
+    if a >= 1e6:
+        return f"{_de(x / 1e6, 1)} Mio €"
+    if a >= 1e4:
+        return f"{_de(x / 1e3)} T€"
+    return f"{_de(x)} €"
+
+
 def _layout(fig, hoehe=360, y_titel=None, legende=True, eur=True):
     fig.update_layout(
         paper_bgcolor="#000000", plot_bgcolor="#000000", height=hoehe, separators=",.",
@@ -1479,22 +1491,62 @@ def _b_growth(m, R):
     e = _entnahme_daten(m)
 
     _abschnitt("Vermögensverlauf" if ent else "Projected Growth")
+    # Jahrespunkte (Ende jedes Jahres) - mit Beschriftung und deutscher Tooltip-Zahl
+    punkte = [(0.0, "Start", float(aufbau[0]) if aufbau else 0.0)] + \
+        [(float(z["jahr"]), z["phase"], float(z["ende"])) for z in zeilen]
+    entnommen, summe_ent = [], 0.0
+    for z in zeilen:
+        if z["phase"] == "Entnahme":
+            summe_ent += -z["fluss"]
+        entnommen.append(summe_ent)
+    log = st.toggle("Logarithmische Skala", value=False, key="pl_growth_log",
+                    help="Hilfreich bei hohen Renditen: frühe Jahre werden sichtbar, gleiche prozentuale "
+                         "Veränderung = gleicher Abstand")
     fig = go.Figure()
     if monate > 0:
         if ziel > 0 and R["zus"]["erforderliche_cagr"] is not None:
             req = R["zus"]["erforderliche_cagr"]
             pfad = [E.future_value(rahmen["startkapital"], req, t, rahmen.get("sparrate_monat") or 0.0) for t in x]
-            fig.add_trace(go.Scatter(x=x, y=pfad, name="Benötigter Pfad", line=dict(color="#8A9099", dash="dot")))
-        fig.add_trace(go.Scatter(x=x, y=aufbau, name="Aufbau", line=dict(color="#4C9AFF", width=3)))
+            fig.add_trace(go.Scatter(x=x, y=pfad, name="Benötigter Pfad", line=dict(color="#8A9099", dash="dot"),
+                                     hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=x, y=aufbau, name="Aufbau", line=dict(color="#4C9AFF", width=3),
+                                 hoverinfo="skip"))
     if ent:
         x_ent = [(monate + i) / 12 for i in range(len(ent))]
-        fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahme", line=dict(color="#16C784", width=3)))
+        fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahme", line=dict(color="#16C784", width=3),
+                                 hoverinfo="skip"))
+    # Beschriftung: hoechstens ~6 Werte, damit es auf dem iPhone lesbar bleibt
+    n = len(punkte)
+    schritt = max(1, math.ceil((n - 1) / 5))
+    zeige = {0, n - 1} | set(range(0, n, schritt))
+    fig.add_trace(go.Scatter(
+        x=[p_[0] for p_ in punkte], y=[max(p_[2], 1.0) if log else p_[2] for p_ in punkte],
+        mode="markers+text", name="Vermögen (Jahresende)", showlegend=False,
+        marker=dict(size=7, color="#FFFFFF", line=dict(color="#16C784" if ent else "#4C9AFF", width=2)),
+        text=[_kurz_eur(p_[2]) if k in zeige else "" for k, p_ in enumerate(punkte)],
+        textposition=["top right" if k == 0 else "top left" if k == n - 1 else "top center" for k in range(n)],
+        textfont=dict(size=11, color="#FFFFFF"),
+        customdata=[[p_[1], _de(round(p_[2]))] for p_ in punkte],
+        hovertemplate="Jahr %{x:.0f} · %{customdata[0]}<br><b>%{customdata[1]} €</b><extra></extra>"))
+    if ent:
+        fig.add_trace(go.Scatter(
+            x=[p_[0] for p_ in punkte[1:]], y=[max(v, 1.0) if log else v for v in entnommen],
+            mode="lines", name="Summe Entnahmen", line=dict(color="#F5B942", dash="dot", width=2),
+            customdata=[_de(round(v)) for v in entnommen],
+            hovertemplate="Entnommen gesamt: %{customdata} €<extra></extra>"))
     if ziel > 0 and monate > 0:
         fig.add_hline(y=ziel, line=dict(color="#F5B942", dash="dash", width=1),
                       annotation_text="Ziel", annotation_font_color="#F5B942")
-    _layout(fig, 360)
-    fig.update_xaxes(title="Jahre ab heute", rangemode="tozero")
-    fig.update_yaxes(rangemode="tozero")
+    _layout(fig, 380)
+    fig.update_layout(hovermode="closest")
+    fig.update_xaxes(title="Jahre ab heute", rangemode="tozero", dtick=max(1, math.ceil((n - 1) / 10)))
+    if log:
+        fig.update_yaxes(type="log")
+    else:
+        fig.update_yaxes(rangemode="tozero")
+    # Platz fuer die Beschriftung ueber dem hoechsten Punkt
+    if not log and punkte:
+        fig.update_yaxes(range=[0, max(p_[2] for p_ in punkte + [(0, "", max(entnommen or [0]))]) * 1.15])
     _chart(fig, "pl_growth")
     _hinweis()
 
