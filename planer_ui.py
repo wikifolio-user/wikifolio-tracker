@@ -60,6 +60,19 @@ CSS = """
 .pl-zeile { font-size: 0.8rem; color: #D6D9DE; margin: 2px 0 12px 2px; line-height: 1.5; }
 .q-kpi-v.pl-klein { font-size: 1.05rem; }
 .pt.ue td.pt-wert.ue-fix { min-width: 110px; max-width: 170px; }
+.pl-formhinweis { font-size: 0.8rem; color: #D6D9DE; background: rgba(76, 154, 255, 0.10);
+                  border: 1px solid rgba(76, 154, 255, 0.35); border-radius: 8px; padding: 7px 10px; margin: 4px 0 8px; }
+/* Formular-Buttons klar beschriftet und farbig statt weisser Flaeche */
+[data-testid="stFormSubmitButton"] button {
+    background: #16305A !important; border: 1px solid #4C9AFF !important; min-height: 44px;
+}
+[data-testid="stFormSubmitButton"] button, [data-testid="stFormSubmitButton"] button * {
+    color: #FFFFFF !important; font-weight: 700 !important;
+}
+[data-testid="stColumn"]:nth-child(2) [data-testid="stFormSubmitButton"] button {
+    background: #1C1F26 !important; border: 1px solid #5A5F69 !important;
+}
+[data-testid="stFormSubmitButton"] button:hover { filter: brightness(1.2); }
 @media (max-width: 700px) { .pl-zeile { font-size: 0.84rem; } }
 </style>
 """
@@ -822,11 +835,16 @@ def _editor_formular(df, key, **kw):
     einzelnen Zelle. Ohne Klick liefert die Funktion die unveraenderte
     Tabelle zurueck, die nachfolgende Uebernahme-Schleife findet dann nichts."""
     with st.form(key + "_form", border=False):
-        st.caption("Werte eintragen, dann „✔ Änderungen übernehmen“ – erst dann wird neu gerechnet.")
+        st.markdown('<div class="pl-formhinweis">✏️ Werte in der Tabelle ändern – gerechnet und gespeichert wird '
+                    'erst mit <b>„Daten aktualisieren“</b>.</div>', unsafe_allow_html=True)
         ed = st.data_editor(df, key=key, **kw)
-        c1, c2 = st.columns(2)
-        ok = c1.form_submit_button("✔ Änderungen übernehmen", type="primary", width="stretch")
-        verwerfen = c2.form_submit_button("↺ Verwerfen", width="stretch")
+        c1, c2 = st.columns([3, 2])
+        # Bewusst ohne type="primary": primaryColor ist in der App Weiss -
+        # ein Primary-Button waere weisse Schrift auf weissem Grund.
+        ok = c1.form_submit_button("🔄 Daten aktualisieren (Änderungen übernehmen)", width="stretch",
+                                   help="Alle geänderten Werte übernehmen, neu berechnen und speichern")
+        verwerfen = c2.form_submit_button("↺ Änderungen verwerfen", width="stretch",
+                                          help="Tabelle auf den zuletzt übernommenen Stand zurücksetzen")
     if verwerfen:
         _neu_zeichnen()
         st.rerun()
