@@ -1813,13 +1813,18 @@ NAV_NAMEN = {
     ANSICHT_EINST: "⚙️ Einstellungen",
     "📝 Trader-Log (Trades & Kommentare)": "📝 Trader-Log",
     "📈 Vermögens- & Substanzaufbau": "📈 Vermögensaufbau",
-    "🔍 Seit 01.01.2026": "🔍 Performance seit 2026",
-    "🔎 Seit 01.01.2021": "🔎 Performance seit 2021",
+    "🔍 Seit 01.01.2026": "🔍 Performance > 2026",
+    "🔎 Seit 01.01.2021": "🔎 Performance > 2021",
     "🕯️ Tages-Candlestick": "🕯️ Candlestick (Tag)",
     "🔮 Zukunfts-Prognose": "🔮 Zukunfts-Prognose",
     "📊 Szenario-Simulator (5 Jahre)": "📊 Szenario-Simulator",
     "💼 Portfolio-Planer": "💼 Portfolio-Planer",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 50",
+}
+# Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
+NAV_TITEL = {
+    "🔍 Seit 01.01.2026": "🔍 Performance seit 01.01.2026",
+    "🔎 Seit 01.01.2021": "🔎 Performance seit 01.01.2021",
 }
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
@@ -1884,7 +1889,7 @@ NAV_CSS = """
 .st-key-nav_menue [data-testid="stButton"] button {
     --neon: #F4F8FF;
     position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
-    padding: 8px 12px !important; overflow: hidden;
+    padding: 8px 6px !important; overflow: hidden;
     background: linear-gradient(165deg, #20232A 0%, #121418 60%, #0C0D10 100%) !important;
     border: 1px solid rgba(255, 255, 255, 0.75) !important;
     box-shadow:
@@ -1897,9 +1902,12 @@ NAV_CSS = """
     transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
 .st-key-nav_menue [data-testid="stButton"] button p {
-    font-size: 0.9rem !important; font-weight: 600 !important; line-height: 1.25 !important;
-    white-space: normal !important; color: #FFFFFF !important; letter-spacing: 0.2px;
+    /* immer einzeilig: Schrift waechst/schrumpft mit der Bildschirmbreite */
+    font-size: clamp(0.7rem, 3.25vw, 0.95rem) !important; font-weight: 600 !important; line-height: 1.2 !important;
+    white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis;
+    color: #FFFFFF !important; letter-spacing: 0.1px;
 }
+.st-key-nav_menue [data-testid="stButton"] button > div { min-width: 0; max-width: 100%; }
 .st-key-nav_menue [data-testid="stButton"] button:hover,
 .st-key-nav_menue [data-testid="stButton"] button:focus-visible {
     transform: translateY(-2px);
@@ -1967,7 +1975,6 @@ NAV_CSS = """
     .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
     .st-key-nav_menue [data-testid="stButton"] button { min-height: 56px !important; }
     .st-key-nav_menue .st-key-nav_refresh button { min-height: 42px !important; }
-    .st-key-nav_menue [data-testid="stButton"] button p { font-size: 0.84rem !important; }
     .nav-titel { font-size: 0.92rem; }
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
@@ -2081,7 +2088,7 @@ def navigation():
         c1, c2, c3 = st.columns([1, 3, 1], vertical_alignment="center")
         c1.button("☰ Menü", key="nav_menue_btn", on_click=_nav_waehle, args=(None,),
                   help="Zurück zur Übersicht aller Ansichten")
-        c2.markdown(f'<div class="nav-titel">{html.escape(NAV_NAMEN.get(aktiv, aktiv))}</div>',
+        c2.markdown(f'<div class="nav-titel">{html.escape(NAV_TITEL.get(aktiv) or NAV_NAMEN.get(aktiv, aktiv))}</div>',
                     unsafe_allow_html=True)
         c3.button("🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren)
     st.markdown(stand_html, unsafe_allow_html=True)
