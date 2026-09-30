@@ -841,9 +841,9 @@ def _editor_formular(df, key, **kw):
         c1, c2 = st.columns([3, 2])
         # Bewusst ohne type="primary": primaryColor ist in der App Weiss -
         # ein Primary-Button waere weisse Schrift auf weissem Grund.
-        ok = c1.form_submit_button("🔄 Daten aktualisieren (Änderungen übernehmen)", width="stretch",
+        ok = c1.form_submit_button("🔄 Daten aktualisieren", width="stretch",
                                    help="Alle geänderten Werte übernehmen, neu berechnen und speichern")
-        verwerfen = c2.form_submit_button("↺ Änderungen verwerfen", width="stretch",
+        verwerfen = c2.form_submit_button("↺ Verwerfen", width="stretch",
                                           help="Tabelle auf den zuletzt übernommenen Stand zurücksetzen")
     if verwerfen:
         _neu_zeichnen()
