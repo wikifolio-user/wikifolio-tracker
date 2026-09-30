@@ -293,7 +293,7 @@ DRAWDOWN_STANDARD = {"index": -35.0, "aktie": -50.0, "wikifolio": -40.0, "hebel"
 #   Steuer vereinfacht: Abgeltungsteuer inkl. Soli auf den Gewinnanteil jeder
 #   Entnahme (Durchschnittseinstand), Sparerpauschbetrag je Kalenderjahr.
 # ---------------------------------------------------------------------------
-ENTNAHME = {"aktiv": True, "monatlich": 1000.0, "dynamik_pa": 2.0, "dauer_jahre": 30, "start": "modell", "startbetrag": None,
+ENTNAHME = {"aktiv": True, "auto_gewichtung": False, "monatlich": 1000.0, "dynamik_pa": 2.0, "dauer_jahre": 30, "start": "modell", "startbetrag": None,
             "rendite_quelle": "eigen", "rendite_pa": 5.0, "steuer": False, "steuersatz": 26.375,
             "freibetrag": 1000.0}
 ENTNAHME_STARTS = {"modell": "Modell-Endwert", "ziel": "Zielvermögen", "eigen": "Eigener Betrag"}
