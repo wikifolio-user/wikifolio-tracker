@@ -915,7 +915,7 @@ def fmt(val, dec=2):
     return f"{s.replace(',', 'X').replace('.', ',').replace('X', '.')}€"
 
 # --- VOLLAUTOMATISCHER LIVE-KURS ABRUF (ls-tc.de, direkter Emittent LS9VFS) ---
-@st.cache_data(ttl=3 * 3600, show_spinner=False)
+@st.cache_data(ttl=26 * 3600, show_spinner=False)
 def get_live_market_data():
     """
     Holt den aktuellen Mid-Kurs direkt von ls-tc.de (Lang & Schwarz
@@ -977,7 +977,7 @@ def get_live_market_data():
 # Instrument, 15 Minuten gehalten und fuer alle Zeitraeume nur zugeschnitten.
 # st.cache_data gilt fuer alle Sitzungen: ein Neuladen der Seite (neue Sitzung)
 # bedient sich ebenfalls aus diesem Speicher.
-HISTORIE_CACHE_SEK = 3 * 3600    # = KURS_CACHE_SEK (siehe Navigation): Kurse alle 3 Std. oder per Knopf
+HISTORIE_CACHE_SEK = 26 * 3600   # Aktualisierung steuert der Zeitplan (siehe Navigation) bzw. der Knopf
 
 
 @st.cache_data(ttl=HISTORIE_CACHE_SEK, show_spinner=False)
@@ -1061,7 +1061,7 @@ def get_historical_market_data(start_date, end_date, live_close_fallback):
 
 
 # --- BENCHMARK-VERGLEICHSDATEN (ls-tc.de, gleiche API wie LS9VFS) ---
-@st.cache_data(ttl=3 * 3600, show_spinner=False)
+@st.cache_data(ttl=26 * 3600, show_spinner=False)
 def get_benchmark_history(instrument_id, start_date, end_date):
     """Holt Tages-Schlusskurse für einen Vergleichswert (ETF) von ls-tc.de.
     Gibt eine Series (Index=Datum, Value=Close) zurück, oder None bei Fehler -
@@ -1229,7 +1229,7 @@ def position_stueckzahl(pos):
     return float(pos.get("startkapital") or 0) / kaufkurs
 
 
-@st.cache_data(ttl=3 * 3600, show_spinner=False)
+@st.cache_data(ttl=26 * 3600, show_spinner=False)
 def get_live_kurs(instrument_id):
     """Wie get_live_market_data(), aber fuer eine beliebige Instrument-ID.
     Gibt (aktueller_kurs, vortageskurs, quelle) zurueck bzw. (None, None, Fehler)."""
@@ -1766,14 +1766,21 @@ def fortschritt_anzeige(platzhalter):
 
 # ---------------------------------------------------------------------------
 # NAVIGATION: App-artige Kacheln statt Dropdown, ganz oben auf der Seite.
-# Kurse werden nur alle 3 Stunden neu geladen (Cache-Dauer) oder sofort per
-# "Aktualisieren" - dazwischen kommt alles aus dem Zwischenspeicher, das
-# Umschalten zwischen Ansichten ist deshalb schnell.
+# Beim Aufruf ist noch nichts gewaehlt (Startseite = nur Kacheln, nichts wird
+# geladen). Kurse werden nach Zeitplan aktualisiert: taeglich ab 9 Uhr alle
+# 2 Stunden (9, 11, 13 ... 23 Uhr) - oder sofort per "Aktualisieren".
 # ---------------------------------------------------------------------------
-KURS_CACHE_SEK = 3 * 3600
+KURS_CACHE_SEK = 26 * 3600          # Obergrenze; den Takt bestimmt der Zeitplan
+AKTUALISIERUNG_START = 9            # erste Aktualisierung am Tag (Uhr)
+AKTUALISIERUNG_TAKT = 2             # danach alle x Stunden
+AKTUALISIERUNG_ENDE = 23            # letzte Aktualisierung am Tag
+NAV_PRUEF_SEK = 15 * 60             # offene Seite prueft alle 15 Min., ob ein Termin faellig ist
+
 ANSICHT_DEPOT = "🏠 Depot"
+ANSICHT_EINST = "⚙️ Einstellungen"
 ANSICHTEN = [
     ANSICHT_DEPOT,
+    ANSICHT_EINST,
     "📈 Vermögens- & Substanzaufbau",
     "🔍 Seit 01.01.2026",
     "🔎 Seit 01.01.2021",
@@ -1786,6 +1793,7 @@ ANSICHTEN = [
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
+    ANSICHT_EINST: "⚙️ Einstellungen",
     "📈 Vermögens- & Substanzaufbau": "📈 Vermögen",
     "🔍 Seit 01.01.2026": "🔍 Seit 2026",
     "🔎 Seit 01.01.2021": "🔎 Seit 2021",
@@ -1796,39 +1804,69 @@ ANSICHT_KURZ = {
     "📝 Trader-Log (Trades & Kommentare)": "📝 Trader-Log",
     "🏆 Watchlist Top 50": "🏆 Watchlist",
 }
+# Kacheln je Zeile (Ueberschrift, Ansichten) - jede Zeile hat 4 Plaetze
+NAV_ZEILEN = [
+    ("Depot", [ANSICHT_DEPOT, ANSICHT_EINST, "📝 Trader-Log (Trades & Kommentare)"]),
+    ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
+                "🕯️ Tages-Candlestick"]),
+    ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Planer",
+                           "🏆 Watchlist Top 50"]),
+]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50"}
 
 NAV_CSS = """
 <style>
-/* Kachel-Raster statt Pillenreihe: 5 Spalten am iPad/Desktop, 3 am Telefon */
-.st-key-ansicht_nav [data-testid="stButtonGroup"] div:has(> button) {
-    display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-    gap: 8px !important; width: 100% !important;
+/* Kachelzeilen bleiben auch am iPhone nebeneinander (Streamlit stapelt
+   Spalten sonst untereinander) */
+.st-key-nav_kacheln [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important; gap: 8px !important;
 }
-.st-key-ansicht_nav [data-testid="stButtonGroup"] button {
-    width: 100% !important; min-height: 56px !important; margin: 0 !important;
-    border-radius: 12px !important; padding: 6px 4px !important;
-    white-space: normal !important; line-height: 1.2 !important;
-    font-size: 0.84rem !important; font-weight: 700 !important; justify-content: center !important;
+.st-key-nav_kacheln [data-testid="stColumn"] {
+    min-width: 0 !important; width: auto !important; flex: 1 1 0 !important;
 }
-.st-key-ansicht_nav [data-testid="stButtonGroup"] button p { white-space: normal !important; text-align: center; }
-@media (max-width: 700px) {
-    .st-key-ansicht_nav [data-testid="stButtonGroup"] div:has(> button) {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    }
-    .st-key-ansicht_nav [data-testid="stButtonGroup"] button { min-height: 52px !important; font-size: 0.8rem !important; }
+.st-key-nav_kacheln [data-testid="stButton"] button {
+    width: 100% !important; min-height: 54px !important; border-radius: 12px !important;
+    padding: 6px 4px !important; white-space: normal !important; line-height: 1.2 !important;
+    background: #131519 !important; border: 1px solid #2A2E36 !important;
 }
+.st-key-nav_kacheln [data-testid="stButton"] button p {
+    font-size: 0.82rem !important; font-weight: 700 !important; white-space: normal !important;
+    text-align: center; color: #E9EBEF !important;
+}
+.nav-zeile { font-size: 0.64rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+             color: var(--label, #9AA0A6); margin: 6px 0 -6px 2px; }
 .nav-stand { font-size: 0.74rem; color: var(--label, #9AA0A6); padding-top: 10px; line-height: 1.35; }
 .nav-stand b { color: #FFFFFF; }
+.nav-start { text-align: center; color: var(--label, #9AA0A6); font-size: 0.9rem; margin: 28px 0; }
+@media (max-width: 700px) {
+    .st-key-nav_kacheln [data-testid="stButton"] button { min-height: 50px !important; }
+    .st-key-nav_kacheln [data-testid="stButton"] button p { font-size: 0.74rem !important; }
+}
 </style>
 """
+
+
+def _termine(tag):
+    return [datetime.datetime.combine(tag, datetime.time(h), tzinfo=BERLIN_TZ)
+            for h in range(AKTUALISIERUNG_START, AKTUALISIERUNG_ENDE + 1, AKTUALISIERUNG_TAKT)]
+
+
+def letzter_termin(jetzt):
+    """Letzter faelliger Aktualisierungstermin (vor 9 Uhr: gestern 23 Uhr)."""
+    heute = [t for t in _termine(jetzt.date()) if t <= jetzt]
+    return heute[-1] if heute else _termine(jetzt.date() - datetime.timedelta(days=1))[-1]
+
+
+def naechster_termin(jetzt):
+    spaeter = [t for t in _termine(jetzt.date()) if t > jetzt]
+    return spaeter[0] if spaeter else _termine(jetzt.date() + datetime.timedelta(days=1))[0]
 
 
 @st.cache_data(ttl=KURS_CACHE_SEK, show_spinner=False)
 def _kurse_stand():
     """Zeitpunkt, seit dem die aktuellen Kursdaten im Zwischenspeicher liegen
-    (gleiche Lebensdauer wie die Kurs-Caches, wird mit ihnen geleert)."""
+    (wird mit den Kurs-Caches geleert, gilt fuer alle Sitzungen)."""
     return datetime.datetime.now(BERLIN_TZ).isoformat()
 
 
@@ -1846,40 +1884,58 @@ def kurse_neu_laden():
         pass
 
 
+def _nav_waehle(ansicht):
+    st.session_state["ansicht_aktiv"] = ansicht
+
+
 def navigation():
-    """Kopfzeile (Kursstand + Aktualisieren) und Ansichts-Kacheln. -> Ansicht"""
+    """Kopfzeile (Kursstand + Aktualisieren) und Ansichts-Kacheln.
+    -> gewaehlte Ansicht oder None (Startseite, noch nichts gewaehlt)."""
     st.markdown(NAV_CSS, unsafe_allow_html=True)
+    jetzt = datetime.datetime.now(BERLIN_TZ)
     try:
         stand = datetime.datetime.fromisoformat(_kurse_stand())
     except Exception:
-        stand = datetime.datetime.now(BERLIN_TZ)
-    naechste = stand + datetime.timedelta(seconds=KURS_CACHE_SEK)
+        stand = jetzt
+    # Zeitplan: ist seit dem letzten Laden ein Termin (9, 11, 13 ... Uhr) vergangen?
+    if stand < letzter_termin(jetzt):
+        kurse_neu_laden()
+        stand = datetime.datetime.fromisoformat(_kurse_stand())
     c1, c2 = st.columns([3, 1], vertical_alignment="center")
-    c1.markdown(f'<div class="nav-stand">Kurse Stand <b>{stand.strftime("%H:%M")} Uhr</b> · '
-                f'automatisch wieder ab {naechste.strftime("%H:%M")} Uhr</div>', unsafe_allow_html=True)
+    c1.markdown(f'<div class="nav-stand">Kurse Stand <b>{stand.strftime("%d.%m. %H:%M")} Uhr</b> · '
+                f'nächste Aktualisierung {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div>',
+                unsafe_allow_html=True)
     if c2.button("🔄 Aktualisieren", key="nav_refresh", width="stretch",
-                 help="Kurse und Historien jetzt neu laden (sonst alle 3 Stunden)"):
+                 help=f"Kurse jetzt neu laden (sonst täglich ab {AKTUALISIERUNG_START} Uhr "
+                      f"alle {AKTUALISIERUNG_TAKT} Stunden)"):
         kurse_neu_laden()
         st.rerun()
 
-    kurz = [ANSICHT_KURZ[a] for a in ANSICHTEN]
-    letzte = st.session_state.get("ansicht_letzte", ANSICHT_DEPOT)
-    if letzte not in ANSICHTEN:
-        letzte = ANSICHT_DEPOT
-    wahl = st.pills("Ansicht", kurz, default=ANSICHT_KURZ[letzte], key="ansicht_nav",
-                    label_visibility="collapsed")
-    # Erneutes Antippen der aktiven Kachel waehlt bei st.pills ab - dann bleibt
-    # die bisherige Ansicht stehen.
-    ansicht = ANSICHTEN[kurz.index(wahl)] if wahl in kurz else letzte
-    st.session_state["ansicht_letzte"] = ansicht
-    return ansicht
+    aktiv = st.session_state.get("ansicht_aktiv")
+    if aktiv not in ANSICHTEN:
+        aktiv = None
+    with st.container(key="nav_kacheln"):
+        for titel, ansichten in NAV_ZEILEN:
+            st.markdown(f'<div class="nav-zeile">{titel}</div>', unsafe_allow_html=True)
+            spalten = st.columns(4)
+            for spalte, ansicht in zip(spalten, ansichten):
+                spalte.button(ANSICHT_KURZ[ansicht], key=f"nav_b{ANSICHTEN.index(ansicht)}", width="stretch",
+                              on_click=_nav_waehle, args=(ansicht,))
+    if aktiv:
+        # aktive Kachel weiss hervorheben
+        st.markdown(f'<style>.st-key-nav_b{ANSICHTEN.index(aktiv)} button {{ background: #FFFFFF !important; '
+                    f'border-color: #FFFFFF !important; }} .st-key-nav_b{ANSICHTEN.index(aktiv)} button p '
+                    f'{{ color: #000000 !important; }}</style>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="nav-start">Bitte oben eine Ansicht wählen.</div>', unsafe_allow_html=True)
+    return aktiv
 
 
 # --- GESAMTE RENDER-LOGIK ALS FRAGMENT ---
 # Vermeidet den harten Full-Page-Rerun von st_autorefresh (sichtbares
 # Aufhellen/Neuzeichnen alle 30s). Ein Fragment aktualisiert sich selbst
 # periodisch, ohne die komplette Seite neu zu bauen/zu scrollen.
-@st.fragment(run_every=KURS_CACHE_SEK)
+@st.fragment(run_every=NAV_PRUEF_SEK)
 def render_dashboard():
     now_berlin = datetime.datetime.now(BERLIN_TZ)
     heute_date = now_berlin.date()
@@ -3174,7 +3230,7 @@ def render_dashboard():
 
     # Watchlist und Portfolio-Planer brauchen keine Depot- oder Kursdaten -
     # dort endet der Aufbau hier, ohne Live-Kurs, Historie und Vergleichswerte.
-    if gewaehlte_ansicht in LEICHTE_ANSICHTEN:
+    if gewaehlte_ansicht is None or gewaehlte_ansicht in LEICHTE_ANSICHTEN:
         lade_fertig()
         return
 
@@ -4304,6 +4360,16 @@ def render_dashboard():
 
 
 
+    # ---------- ANSICHT "EINSTELLUNGEN" ----------
+    # Eingaben und Verwaltung stehen in einer eigenen Ansicht; ausserhalb davon
+    # werden sie weiter aufgebaut (Zustand bleibt erhalten), aber ausgeblendet.
+    _depot_bereich.__exit__(None, None, None)
+    _einst_bereich = st.container(key="einst_bereich")
+    if gewaehlte_ansicht != ANSICHT_EINST:
+        st.markdown('<style>.st-key-einst_bereich { display: none !important; }</style>',
+                    unsafe_allow_html=True)
+    _einst_bereich.__enter__()
+
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
@@ -4656,6 +4722,9 @@ def render_dashboard():
                             st.rerun()
                         else:
                             st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
+
+    _einst_bereich.__exit__(None, None, None)
+    _depot_bereich.__enter__()
 
     # ---------- DATENZEILEN: Sekundaerwerte, eingeklappt ----------
     # Meilenstein und Anfangskapital sind Kontext, keine taeglich relevanten
@@ -5726,7 +5795,7 @@ def render_dashboard():
         _render_scenarios()
         lade_fertig()
 
-    if gewaehlte_ansicht == ANSICHT_DEPOT:
+    if gewaehlte_ansicht == ANSICHT_EINST:
         # --- DIAGNOSE GANZ AM ENDE (statt Sidebar - auf Mobile oft nicht auffindbar).
         # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
         # Systemstatus wird nur im Fehlerfall gebraucht. Faellt der persistente
