@@ -858,7 +858,7 @@ def _wachstumsfaktor(r, jahre, sparrate_rel=0.0):
     return f
 
 
-def optimiere(modell, renditen_netto, confidences, grenzen=None):
+def optimiere(modell, renditen_netto, confidences, grenzen=None, ziel=None):
     """Mathematische Zielgewichtung unter den Grenzen:
       1. Zielwert erreichen (sonst: maximal erreichbarer Endwert)
       2. Konzentration minimieren (kleinstes Hoechstgewicht)
@@ -876,7 +876,7 @@ def optimiere(modell, renditen_netto, confidences, grenzen=None):
     start = float(rahmen["startkapital"])
     spar_rel = float(rahmen.get("sparrate_monat") or 0.0) / start
     f = [_wachstumsfaktor(renditen_netto[i], jahre, spar_rel) for i in ids]
-    ziel_rel = float(rahmen["zielvermoegen"]) / start
+    ziel_rel = float(rahmen["zielvermoegen"] if ziel is None else ziel) / start
 
     A_ub, b_ub = [], []
     einzel = float(grenzen.get("einzelasset_max", 100.0)) / 100.0
@@ -1157,3 +1157,11 @@ def entnahme_fuer(kapital, rendite_pa, *, ziel_restwert=0.0, jahre=30, **kw):
         else:
             hi = mitte
     return lo
+
+
+def ziel_aus_rendite(modell, rendite_pa):
+    """Endwert, der einer gewuenschten Portfoliorendite p.a. entspricht
+    (Startkapital + Sparrate, gleiche Monatsrechnung wie die Projektion)."""
+    r = modell["rahmen"]
+    return future_value(float(r["startkapital"]), float(rendite_pa), int(r["horizont_jahre"]),
+                        float(r.get("sparrate_monat") or 0.0))
