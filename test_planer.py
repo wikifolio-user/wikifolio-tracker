@@ -465,5 +465,24 @@ class Entnahme(unittest.TestCase):
         self.assertEqual(klein["summe_steuer"], 0.0)
 
 
+class Wunschrendite(unittest.TestCase):
+    def test_ziel_und_gewichtung(self):
+        m = D.seed_modell()
+        r = renditen(m)
+        ziel = E.ziel_aus_rendite(m, 0.35)
+        self.assertAlmostEqual(ziel, 15000 * 1.35 ** 5, places=4)
+        o = E.gewichtung_fuer_ziel(m, r, ziel=ziel)
+        for a in m["assets"]:
+            a["targetWeight"] = o["gewichte"].get(a["id"], 0.0)
+        self.assertAlmostEqual(E.required_cagr(15000, E.projektion(m, r)["endwert"], 5), 0.35, places=5)
+
+    def test_optimizer_mit_ziel(self):
+        m = D.seed_modell()
+        r = renditen(m)
+        o = E.optimiere(m, r, E.confidence_fuer(m), ziel=E.ziel_aus_rendite(m, 0.25))
+        self.assertTrue(o["erreichbar"])
+        self.assertFalse(E.optimiere(m, r, E.confidence_fuer(m), ziel=E.ziel_aus_rendite(m, 0.40))["erreichbar"])
+
+
 if __name__ == "__main__":
     unittest.main()
