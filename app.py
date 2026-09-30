@@ -480,7 +480,10 @@ st.markdown("""
         margin: 16px 0 2px 2px;
         padding-bottom: 7px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.45);
-        text-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
+        /* Neon-Weiss wie Titel und Menue */
+        text-shadow: 0 0 4px rgba(255, 255, 255, 0.85), 0 0 10px rgba(255, 255, 255, 0.5),
+                     0 0 22px rgba(255, 255, 255, 0.28);
+        box-shadow: 0 6px 10px -8px rgba(255, 255, 255, 0.55);
     }
 
     /* Jeder Aufklappbereich als eigener Block mit weissem Rand. Bewusst
@@ -1870,11 +1873,12 @@ NAV_CSS = """
 /* Gruppen-Ueberschrift: ruhig, mit Luft nach oben und unten */
 .nav-gruppe {
     display: flex; align-items: center; gap: 12px; padding: 16px 4px 2px;
-    font-size: 0.68rem; font-weight: 600; letter-spacing: 2.2px; text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.62);
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
+    text-shadow: 0 0 4px rgba(255, 255, 255, 0.85), 0 0 10px rgba(255, 255, 255, 0.5), 0 0 22px rgba(255, 255, 255, 0.28);
 }
 .nav-gruppe::after { content: ""; flex: 1; height: 1px;
-                     background: linear-gradient(90deg, rgba(255, 255, 255, 0.28), transparent); }
+                     background: linear-gradient(90deg, rgba(255, 255, 255, 0.75), transparent);
+                     box-shadow: 0 0 6px rgba(255, 255, 255, 0.6); }
 
 /* Kacheln: dunkles Glas, weisser Neonrand, 3D-Kante */
 .st-key-nav_menue [data-testid="stButton"] button {
