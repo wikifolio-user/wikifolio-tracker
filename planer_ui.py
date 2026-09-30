@@ -1481,7 +1481,7 @@ def _gesamtverlauf(m, R):
     return aufbau, ent, zeilen, rendite, plan
 
 
-def _jahres_chart(zeilen, ziel=0.0):
+def _jahres_chart(zeilen, ziel=0.0, rendite=None):
     """Die Jahresuebersicht als reiner Linienchart (ein Punkt je Jahr):
     Vermoegen (Jahr 0 = Anfangswert, danach Endwert = Anfang des Folgejahres),
     Ertraege je Jahr nach oben, Entnahmen je Jahr und in Summe nach unten."""
@@ -1494,36 +1494,65 @@ def _jahres_chart(zeilen, ziel=0.0):
     for v in aus:
         s_ += v
         summe_aus.append(s_)
+    # Vergleich: dasselbe Vermoegen OHNE Entnahme (gleiche Rendite, Einzahlungen bleiben)
+    ohne, w_ = [verm[0]], verm[0]
+    for z in zeilen:
+        if z["phase"] == "Entnahme" and rendite is not None:
+            w_ = w_ * (1.0 + rendite)
+        else:
+            w_ = w_ + z["ertrag"] + max(z["fluss"], 0.0)
+        ohne.append(w_)
+    zeige_ohne = any(aus) and rendite is not None
     n = len(xs)
     schritt = max(1, math.ceil((n - 1) / 5))
     zeige = {0, n - 1} | set(range(0, n, schritt))
     fig = go.Figure()
 
-    def linie(y, name, farbe, breite=2, strich=None, text=False):
+    def linie(y, name, farbe, breite=2, strich=None, text=False, pos="top", marker=5):
         fig.add_trace(go.Scatter(
             x=xs, y=y, name=name, mode="lines+markers+text" if text else "lines+markers",
-            line=dict(color=farbe, width=breite, dash=strich), marker=dict(size=5 if not text else 7, color=farbe),
-            text=[_kurz_eur(v) if k in zeige else "" for k, v in enumerate(y)] if text else None,
-            textposition=["top right" if k == 0 else "top left" if k == n - 1 else "top center" for k in range(n)],
+            line=dict(color=farbe, width=breite, dash=strich), marker=dict(size=marker, color=farbe),
+            text=[_kurz_eur(v).replace("-", "−") if (k in zeige and (k > 0 or pos == "top") and abs(v) > 0.5) else ""
+                  for k, v in enumerate(y)] if text else None,
+            textposition=[f"{pos} right" if k == 0 else f"{pos} left" if k == n - 1 else f"{pos} center"
+                          for k in range(n)],
             textfont=dict(size=11, color=farbe)))
 
-    linie(verm, "Vermögen", "#FFFFFF", 3, text=True)
+    if zeige_ohne:
+        linie(ohne, "Vermögen ohne Entnahme", "#8A9099", 2, "dash", marker=3)
+    linie(verm, "Vermögen", "#FFFFFF", 3, text=True, marker=7)
     linie(ertr, "Erträge je Jahr", "#16C784")
     if any(ein):
         linie(ein, "Einzahlung je Jahr", "#A78BFA")
     if any(aus):
         linie(aus, "Entnahme je Jahr", "#EA3943")
-        linie(summe_aus, "Entnahmen gesamt", "#EA3943", 2, "dot")
+        linie(summe_aus, "Entnahmen gesamt", "#FF6B6B", 2, "dot", text=True, pos="bottom")
     if ziel > 0:
         fig.add_hline(y=ziel, line=dict(color="#F5B942", dash="dash", width=1),
                       annotation_text="Ziel", annotation_font_color="#F5B942")
     _layout(fig, 420)
     fig.update_layout(hovermode="x unified", legend=dict(font=dict(size=11)))
     fig.update_xaxes(title="Jahr (0 = heute, Anfangswert)", dtick=max(1, math.ceil((n - 1) / 10)))
+    lo = min(summe_aus + ertr + [0.0])
+    hi = max(verm + (ohne if zeige_ohne else [])) * 1.12
+    lo = lo * 1.35 if lo < 0 else 0.0                          # Platz fuer die Beschriftung unten
+    # Ticks selbst setzen, damit auch der Minusbereich beschriftet ist
+    stufe = 10 ** math.floor(math.log10(max(hi - lo, 1.0) / 5))
+    stufe = next(f * stufe for f in (1, 2, 2.5, 5, 10) if (hi - lo) / (f * stufe) <= 6)
+    ticks = [stufe * i for i in range(math.floor(lo / stufe), math.ceil(hi / stufe) + 1)]
+    if lo < 0 and not any(t < 0 for t in ticks if t >= lo):
+        ticks.append(lo / 1.35)                                # mindestens ein Wert unter null
     fig.update_yaxes(hoverformat=",.0f", zeroline=True, zerolinecolor="#8A9099", zerolinewidth=1,
-                     range=[min(min(summe_aus), min(ertr)) * 1.15 if min(summe_aus + ertr) < 0 else 0,
-                            max(verm) * 1.15])
+                     range=[lo, hi], tickvals=ticks, ticktext=[_kurz_eur(t).replace("-", "−") for t in ticks])
     _chart(fig, "pl_growth")
+    if zeige_ohne:
+        diff = ohne[-1] - verm[-1]
+        _kacheln([
+            ("Entnommen gesamt", _eur(-summe_aus[-1], False), f"in {n - 1 - sum(1 for z in zeilen if z['phase'] == 'Aufbau')} J. Entnahme"),
+            ("Vermögen am Ende", _eur(verm[-1]), "mit Entnahme"),
+            ("Ohne Entnahme", _eur(ohne[-1]), "gleiche Rendite"),
+            ("Kosten der Entnahme", _eur(diff), "entgangener Zinseszins inkl. Entnahmen"),
+        ], klein=True)
     st.caption("Antippen zeigt alle Werte eines Jahres. Vermögen: Jahr 0 = Anfangswert, danach Stand am "
                "Jahresende (= Anfang des nächsten Jahres). Entnahmen zeigen nach unten.")
 
@@ -1539,7 +1568,7 @@ def _b_growth(m, R):
 
     _abschnitt("Vermögensverlauf je Jahr" if zeilen else "Projected Growth")
     if zeilen:
-        _jahres_chart(zeilen, ziel if monate > 0 else 0.0)
+        _jahres_chart(zeilen, ziel if monate > 0 else 0.0, rendite)
     else:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=x, y=aufbau, name="Aufbau", line=dict(color="#4C9AFF", width=3)))
