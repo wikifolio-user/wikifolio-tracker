@@ -1886,12 +1886,14 @@ NAV_CSS = """
     position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
     padding: 8px 12px !important; overflow: hidden;
     background: linear-gradient(165deg, #20232A 0%, #121418 60%, #0C0D10 100%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.30) !important;
+    border: 1px solid rgba(255, 255, 255, 0.75) !important;
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.16),
+        inset 0 0 8px rgba(255, 255, 255, 0.08),
         inset 0 -2px 0 rgba(0, 0, 0, 0.5),
         0 8px 18px rgba(0, 0, 0, 0.55),
-        0 0 12px rgba(255, 255, 255, 0.10) !important;
+        0 0 6px rgba(255, 255, 255, 0.45),
+        0 0 16px rgba(255, 255, 255, 0.18) !important;
     transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
 .st-key-nav_menue [data-testid="stButton"] button p {
@@ -1901,13 +1903,13 @@ NAV_CSS = """
 .st-key-nav_menue [data-testid="stButton"] button:hover,
 .st-key-nav_menue [data-testid="stButton"] button:focus-visible {
     transform: translateY(-2px);
-    border-color: rgba(255, 255, 255, 0.85) !important;
+    border-color: #FFFFFF !important;
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.2),
         inset 0 -2px 0 rgba(0, 0, 0, 0.5),
         0 12px 24px rgba(0, 0, 0, 0.6),
-        0 0 18px rgba(255, 255, 255, 0.35),
-        0 0 40px rgba(255, 255, 255, 0.12) !important;
+        0 0 10px rgba(255, 255, 255, 0.7),
+        0 0 28px rgba(255, 255, 255, 0.3) !important;
 }
 .st-key-nav_menue [data-testid="stButton"] button:hover p { text-shadow: 0 0 8px rgba(255, 255, 255, 0.7); }
 .st-key-nav_menue [data-testid="stButton"] button:active { transform: translateY(1px) scale(0.99); }
@@ -1915,17 +1917,31 @@ NAV_CSS = """
 /* Aktualisieren: schlanke Neon-Pille */
 .st-key-nav_menue .st-key-nav_refresh button {
     min-height: 42px !important; border-radius: 999px !important;
-    background: rgba(255, 255, 255, 0.04) !important; border-color: rgba(255, 255, 255, 0.45) !important;
-    box-shadow: 0 0 14px rgba(255, 255, 255, 0.14), inset 0 0 10px rgba(255, 255, 255, 0.05) !important;
+    background: rgba(255, 255, 255, 0.04) !important; border-color: rgba(255, 255, 255, 0.8) !important;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.2),
+                inset 0 0 10px rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ================= ALLE BUTTONS: weisser Neonrand ================= */
+[data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
+[data-testid="stDownloadButton"] button {
+    border: 1px solid rgba(255, 255, 255, 0.75) !important;
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.4), 0 0 14px rgba(255, 255, 255, 0.15) !important;
+    transition: box-shadow .15s ease, border-color .15s ease;
+}
+[data-testid="stButton"] button:hover, [data-testid="stFormSubmitButton"] button:hover,
+[data-testid="stDownloadButton"] button:hover {
+    border-color: #FFFFFF !important;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.65), 0 0 22px rgba(255, 255, 255, 0.25) !important;
 }
 
 /* ================= IN EINER ANSICHT: Kopfleiste ================= */
 .st-key-nav_leiste {
     padding: 6px 8px; border-radius: 16px;
     background: linear-gradient(165deg, #1E2127, #0E0F12);
-    border: 1px solid rgba(255, 255, 255, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.6);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 8px 18px rgba(0, 0, 0, 0.5),
-                0 0 14px rgba(255, 255, 255, 0.10);
+                0 0 6px rgba(255, 255, 255, 0.35), 0 0 16px rgba(255, 255, 255, 0.14);
 }
 .st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
                                                        align-items: center !important; }
@@ -1936,7 +1952,8 @@ NAV_CSS = """
 .st-key-nav_leiste [data-testid="stButton"] button {
     min-height: 38px !important; border-radius: 10px !important; padding: 4px 12px !important;
     white-space: nowrap !important; background: rgba(255, 255, 255, 0.04) !important;
-    border: 1px solid rgba(255, 255, 255, 0.45) !important; box-shadow: 0 0 10px rgba(255, 255, 255, 0.14) !important;
+    border: 1px solid rgba(255, 255, 255, 0.8) !important;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 14px rgba(255, 255, 255, 0.2) !important;
 }
 .st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; color: #FFFFFF !important; }
 .nav-titel {
