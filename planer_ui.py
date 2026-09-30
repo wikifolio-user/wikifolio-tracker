@@ -64,13 +64,14 @@ CSS = """
                   border: 1px solid rgba(76, 154, 255, 0.35); border-radius: 8px; padding: 7px 10px; margin: 4px 0 8px; }
 /* Formular-Buttons klar beschriftet und farbig statt weisser Flaeche */
 [data-testid="stFormSubmitButton"] button {
-    background: #16305A !important; border: 1px solid #4C9AFF !important; min-height: 44px;
+    background: #16305A !important; border: 1px solid rgba(255, 255, 255, 0.8) !important; min-height: 44px;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.18) !important;
 }
 [data-testid="stFormSubmitButton"] button, [data-testid="stFormSubmitButton"] button * {
     color: #FFFFFF !important; font-weight: 700 !important;
 }
 [data-testid="stColumn"]:nth-child(2) [data-testid="stFormSubmitButton"] button {
-    background: #1C1F26 !important; border: 1px solid #5A5F69 !important;
+    background: #1C1F26 !important; border: 1px solid rgba(255, 255, 255, 0.6) !important;
 }
 [data-testid="stFormSubmitButton"] button:hover { filter: brightness(1.2); }
 @media (max-width: 700px) { .pl-zeile { font-size: 0.84rem; } }
