@@ -277,6 +277,19 @@ DRAWDOWN_STANDARD = {"index": -35.0, "aktie": -50.0, "wikifolio": -40.0, "hebel"
 # ---------------------------------------------------------------------------
 # Vorschlaege fuer gespeicherte Szenarien (Namen)
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# ENTNAHMEPLAN (monatlich, nach dem Anlagehorizont) - alle Werte Annahmen
+#   start: "modell" (Modell-Endwert) | "ziel" (Zielvermoegen) | "eigen" (startbetrag)
+#   rendite_quelle: "eigen" (rendite_pa) | "modell" (modellierte Rendite der Aufbauphase)
+#   dynamik_pa: jaehrliche Erhoehung der Entnahme (z. B. Inflationsausgleich)
+#   Steuer vereinfacht: Abgeltungsteuer inkl. Soli auf den Gewinnanteil jeder
+#   Entnahme (Durchschnittseinstand), Sparerpauschbetrag je Kalenderjahr.
+# ---------------------------------------------------------------------------
+ENTNAHME = {"monatlich": 1000.0, "dynamik_pa": 2.0, "dauer_jahre": 30, "start": "modell", "startbetrag": None,
+            "rendite_quelle": "eigen", "rendite_pa": 5.0, "steuer": False, "steuersatz": 26.375,
+            "freibetrag": 1000.0}
+ENTNAHME_STARTS = {"modell": "Modell-Endwert", "ziel": "Zielvermögen", "eigen": "Eigener Betrag"}
+
 SZENARIO_NAMEN = ["Aktuelles Modell", "Mehr Indizes", "Mehr Wikifolios", "Defensiver", "Aggressiv",
                   "Ohne Hebel", "100k Target"]
 
@@ -423,7 +436,7 @@ def seed_modell():
         "version": MODELL_VERSION,
         "rahmen": SEED_RAHMEN, "assets": SEED_ASSETS, "korb": SEED_KORB, "annahmen": SEED_ANNAHMEN,
         "szenario_regel": SZENARIO_REGEL, "bewertungsregeln": BEWERTUNGSREGELN, "grenzen": GRENZEN,
-        "nachkauf": NACHKAUF, "rebalancing": REBALANCING, "stress": STRESS,
+        "nachkauf": NACHKAUF, "rebalancing": REBALANCING, "stress": STRESS, "entnahme": ENTNAHME,
         "korb_methode": "manual", "manuell": {},      # manuelle Moat-/Risiko-Punkte je Korbaktie
         "holdings": {},                               # {etf_id: {firma: anteil_%}} - fuer Effective Exposure
     })
