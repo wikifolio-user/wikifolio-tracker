@@ -114,11 +114,14 @@ def annahme(modell, asset_id, quelle):
 
 
 def setze_annahme(modell, asset_id, quelle, wert, notiz=None, source="User assumption", stand=None,
-                  beobachtung=None):
-    """Legt eine Annahme an oder aktualisiert sie (eine je Asset und Quelle)."""
+                  beobachtung=None, auto=False):
+    """Legt eine Annahme an oder aktualisiert sie (eine je Asset und Quelle).
+    auto=True: Wert wird automatisch aus der Kurshistorie nachgefuehrt
+    (siehe annahmen_aus_historie); jede eigene Eingabe setzt auto=False."""
     for a in modell["annahmen"]:
         if a["assetId"] == asset_id and a["sourceType"] == quelle:
             a["value"] = wert
+            a["auto"] = bool(auto)
             if notiz is not None:
                 a["notes"] = notiz
             a["source"] = source
@@ -128,7 +131,7 @@ def setze_annahme(modell, asset_id, quelle, wert, notiz=None, source="User assum
                 a["observationYears"] = beobachtung
             return a
     neu = {"assetId": asset_id, "value": wert, "sourceType": quelle, "observationYears": beobachtung,
-           "dataDate": stand, "source": source, "notes": notiz or ""}
+           "dataDate": stand, "source": source, "notes": notiz or "", "auto": bool(auto)}
     modell["annahmen"].append(neu)
     return neu
 
@@ -1206,3 +1209,32 @@ def ziel_aus_rendite(modell, rendite_pa):
     r = modell["rahmen"]
     return future_value(float(r["startkapital"]), float(rendite_pa), int(r["horizont_jahre"]),
                         float(r.get("sparrate_monat") or 0.0))
+
+
+def annahmen_aus_historie(modell, historie, alle=False):
+    """Traegt die bisherige Rendite p.a. (Kurshistorie: 5 J., sonst 3 J., sonst
+    seit Start, sonst 1 J.) als eigene Annahme ein - fuer alle Bausteine, deren
+    Annahme automatisch gefuehrt wird (auto=True) oder noch fehlt. Selbst
+    eingetragene Werte bleiben unangetastet, ausser alle=True.
+    -> Anzahl geaenderter Annahmen"""
+    historie = historie or {}
+    geaendert = 0
+    for a in modell["assets"]:
+        if _typ(a) == "cash":
+            continue
+        rec = next((x for x in modell["annahmen"] if x["assetId"] == a["id"] and x["sourceType"] == "manualScenario"),
+                   None)
+        if rec is not None and not rec.get("auto") and rec.get("value") is not None and not alle:
+            continue
+        wert, text = ist_rendite(historie.get(a["id"]))
+        if wert is None:
+            if rec is not None and alle:
+                rec["auto"] = True          # sobald Kursdaten da sind, nachfuehren
+            continue
+        h = historie.get(a["id"]) or {}
+        if rec is None or rec.get("value") is None or abs(rec["value"] - wert) > 1e-9 or not rec.get("auto"):
+            setze_annahme(modell, a["id"], "manualScenario", wert, notiz=f"Automatisch: bisherige Rendite {text} "
+                          "laut Kurshistorie – keine Prognose.", source=f"Kurshistorie ({text})",
+                          stand=h.get("stand"), beobachtung=h.get("jahre"), auto=True)
+            geaendert += 1
+    return geaendert
