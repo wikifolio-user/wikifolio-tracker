@@ -133,6 +133,33 @@ def setze_annahme(modell, asset_id, quelle, wert, notiz=None, source="User assum
     return neu
 
 
+HIST_REIHENFOLGE = (("historical5Y", "5 J. p.a."), ("historical3Y", "3 J. p.a."), ("gesamt_cagr", "seit Start p.a."),
+                    ("historical1Y", "1 J."))
+
+
+def ist_rendite(h, methode=None):
+    """Tatsaechliche Rendite aus der Kurshistorie: 5 J. p.a., sonst 3 J., sonst
+    seit Start (ab 1 Jahr Historie), sonst 1 J. Bei Methode "Historische 10
+    Jahre" zuerst 10 J. -> (wert, bezeichnung) oder (None, None)"""
+    h = h or {}
+    reihenfolge = HIST_REIHENFOLGE
+    if methode == "historical10Y":
+        reihenfolge = (("historical10Y", "10 J. p.a."),) + reihenfolge
+    for feld, text in reihenfolge:
+        if h.get(feld) is not None:
+            return h[feld], text
+    return None, None
+
+
+def _szenario_um(wert, sz, regel):
+    """Bear/Bull um einen Basiswert (vorzeichenrichtig, auch bei negativer Basis)."""
+    if sz == "bear":
+        return wert - (1.0 - regel["bear_faktor"]) * abs(wert)
+    if sz == "bull":
+        return wert + (regel["bull_faktor"] - 1.0) * abs(wert)
+    return wert
+
+
 def rendite_fuer(modell, asset, historie=None, methode=None, szenario=None):
     """Rendite eines Assets fuer die aktive Methode.
     -> (wert oder None, herkunft-dict, hinweis oder None)
@@ -146,6 +173,20 @@ def rendite_fuer(modell, asset, historie=None, methode=None, szenario=None):
     eigene = annahme(modell, aid, "manualScenario")
     if _typ(asset) == "cash":
         return (eigene["value"] if eigene else 0.0), (eigene or {"sourceType": "manualScenario"}), None
+
+    # Ist-Werte statt Annahme (Standard fuer Wikifolios): in JEDER Methode die
+    # tatsaechliche Rendite laut Kurshistorie; Bear/Bull nach der Szenario-Regel.
+    hinweis_ist = None
+    if asset.get("renditequelle") == "historisch":
+        h = historie.get(aid) or {}
+        wert, text = ist_rendite(h, methode)
+        if wert is not None:
+            if methode == "szenario":
+                sz = szenario or modell["rahmen"].get("szenario", "base")
+                wert = _szenario_um(wert, sz, modell.get("szenario_regel", D.SZENARIO_REGEL))
+            return wert, {"sourceType": "historisch", "source": f"Kurshistorie ({text})",
+                          "dataDate": h.get("stand")}, None
+        hinweis_ist = "Keine Kurshistorie (≥ 1 Jahr) – Annahme verwendet"
 
     if methode in ("historical5Y", "historical10Y", "fundamentalModel"):
         h = (historie.get(aid) or {}).get(methode)
@@ -171,10 +212,10 @@ def rendite_fuer(modell, asset, historie=None, methode=None, szenario=None):
         if sz == "bull":
             return basis["value"] * regel["bull_faktor"], {"sourceType": "bull", "source": "Standardregel"}, \
                 regel["text"]
-        return basis["value"], basis, None
+        return basis["value"], basis, hinweis_ist
 
     if eigene:
-        return eigene["value"], eigene, None
+        return eigene["value"], eigene, hinweis_ist
     return None, {}, "Keine Annahme vorhanden – bitte eintragen"
 
 
