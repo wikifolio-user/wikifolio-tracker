@@ -433,5 +433,37 @@ class Katalog(unittest.TestCase):
         self.assertEqual(E.treiber({"category": "wikifolio", "id": "wf"}), "wf")
 
 
+class Entnahme(unittest.TestCase):
+    def test_ohne_rendite(self):
+        p = E.entnahmeplan(100000, 0.0, 1000, jahre=30)
+        self.assertEqual(p["dauer_monate"], 100)
+        self.assertAlmostEqual(p["summe_netto"], 100000, places=4)
+        self.assertEqual(p["restwert"], 0.0)
+
+    def test_annuitaet(self):
+        r = 1.05 ** (1 / 12) - 1
+        annuitaet = 100000 * r / (1 - (1 + r) ** -360)
+        self.assertAlmostEqual(E.entnahme_fuer(100000, 0.05, jahre=30), annuitaet, delta=1)
+        self.assertAlmostEqual(E.entnahme_fuer(100000, 0.05, jahre=30, ziel_restwert=100000), 100000 * r, delta=1)
+
+    def test_dauerhaft(self):
+        p = E.entnahmeplan(100000, 0.06, 300, jahre=30)
+        self.assertTrue(p["reicht_dauerhaft"])
+        self.assertGreater(p["restwert"], 100000)
+
+    def test_dynamik_und_steuer_kuerzen(self):
+        basis = E.entnahmeplan(100000, 0.05, 400, jahre=30)["restwert"]
+        dyn = E.entnahmeplan(100000, 0.05, 400, jahre=30, dynamik_pa=0.02)
+        st_ = E.entnahmeplan(100000, 0.05, 400, jahre=30, einstand=30000, steuersatz=0.26375, freibetrag=1000)
+        self.assertLess(dyn["restwert"], basis)
+        self.assertLess(st_["restwert"], basis)
+        self.assertGreater(st_["summe_steuer"], 0)
+        self.assertAlmostEqual(st_["summe_brutto"] - st_["summe_steuer"], st_["summe_netto"], places=4)
+        # Freibetrag deckt kleine Gewinne: keine Steuer
+        klein = E.entnahmeplan(100000, 0.0, 500, jahre=2, max_jahre=2, einstand=99000, steuersatz=0.26375,
+                               freibetrag=1000)
+        self.assertEqual(klein["summe_steuer"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
