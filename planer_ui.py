@@ -198,6 +198,8 @@ def _migriere(m):
                          or str(x.get("notes", "")).startswith(D.VORSCHLAG["text"]))
     seed_assets = {a["id"]: a for a in seed["assets"]}
     for a in m["assets"]:
+        if not a.get("enabled"):
+            a["targetWeight"] = 0.0          # inaktive Bausteine haben keinen Anteil
         if a["id"] in seed_assets and not a.get("ticker") and not a.get("isin"):
             a["ticker"], a["isin"] = seed_assets[a["id"]].get("ticker"), seed_assets[a["id"]].get("isin")
         if "fixiert" not in a:
@@ -521,6 +523,37 @@ def _phase(titel):
     st.markdown(f'<div class="pl-phase">{_esc(titel)}</div>', unsafe_allow_html=True)
 
 
+def _auto_aktiv(m):
+    e = _entnahme_daten(m)
+    return bool(e.get("aktiv", True) and e.get("rendite_quelle", "eigen") == "eigen" and e.get("auto_gewichtung"))
+
+
+def _auto_gewichtung(m, R):
+    """Automatische Gewichtung auf die Entnahme-Rendite (falls eingeschaltet).
+    -> True, wenn Gewichte geaendert wurden"""
+    if not _auto_aktiv(m):
+        st.session_state.pop("planer_autogew", None)
+        return False
+    e = _entnahme_daten(m)
+    erg = E.gewichtung_fuer_rendite(m, R["r"], float(e["rendite_pa"]) / 100.0)
+    st.session_state["planer_autogew"] = erg
+    if erg.get("fehler"):
+        return False
+    geaendert = False
+    for a in m["assets"]:
+        if a["id"] in erg["gewichte"] and abs(float(a.get("targetWeight") or 0) - erg["gewichte"][a["id"]]) > 0.005:
+            a["targetWeight"] = round(erg["gewichte"][a["id"]], 3)
+            geaendert = True
+    return geaendert
+
+
+def _auto_hinweis(m):
+    if _auto_aktiv(m):
+        st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend auf "
+                f"{_de(_entnahme_daten(m)['rendite_pa'], 1)} % p.a. (Rendite in der Entnahme) ausgerichtet – "
+                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 2“.")
+
+
 def _entnahme_daten(m):
     e = m.setdefault("entnahme", copy.deepcopy(D.ENTNAHME))
     for k, v in D.ENTNAHME.items():
@@ -543,11 +576,12 @@ def _rahmen(m):
                                                          float(rahmen.get("sparrate_monat") or 0.0), step=50.0,
                                                          format="%.0f", key=_k("spar")))
         c3, c4 = st.columns(2)
-        rahmen["horizont_jahre"] = int(c3.number_input("Dauer Aufbau (Jahre)", 1, 40, int(rahmen["horizont_jahre"]),
-                                                       key=_k("jahre")))
+        rahmen["horizont_jahre"] = int(c3.number_input("Dauer Aufbau (Jahre)", 0, 40, int(rahmen["horizont_jahre"]),
+                                                       key=_k("jahre"),
+                                                       help="0 = kein Aufbau, die Entnahme startet sofort mit dem Startkapital"))
         rahmen["zielvermoegen"] = float(c4.number_input("Zielvermögen am Ende (€)", 0.0, 1e10,
                                                         float(rahmen["zielvermoegen"]), step=5000.0, format="%.0f",
-                                                        key=_k("ziel")))
+                                                        key=_k("ziel"), help="0 = kein Ziel"))
 
         _phase("Phase 2 · Entnahme (ab Ende des Aufbaus)")
         e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"),
@@ -568,8 +602,15 @@ def _rahmen(m):
             e["rendite_quelle"] = q
             if q == "eigen":
                 e["rendite_pa"] = float(st.number_input(
-                    "Rendite p.a. in der Entnahme (%)", -20.0, 50.0, float(e["rendite_pa"]), step=0.5,
-                    key=_k("en_rendite"), help="Annahme – z. B. nach Umschichtung in ein ruhigeres Portfolio"))
+                    "Rendite p.a. in der Entnahme (%)", -20.0, 200.0, float(e["rendite_pa"]), step=0.5,
+                    key=_k("en_rendite"), help="Ziel-Rendite des Portfolios in der Entnahmephase"))
+                e["auto_gewichtung"] = st.toggle(
+                    "Portfolio automatisch auf diese Rendite gewichten", value=bool(e.get("auto_gewichtung", False)),
+                    key=_k("en_auto"),
+                    help="Verteilt die Prozente im Portfolio automatisch so, dass die gewichtete Rendite p.a. genau "
+                         "diesem Wert entspricht – ausgehend von einer Gleichverteilung, ausgeglichen über die "
+                         "Renditen der Bausteine. Fixierte Bausteine und Reserve bleiben. Manuelle Gewichte werden "
+                         "dabei überschrieben.")
             e["steuer"] = st.toggle("Abgeltungsteuer berücksichtigen (vereinfacht)", value=bool(e["steuer"]),
                                     key=_k("en_st"))
             if e["steuer"]:
@@ -612,36 +653,53 @@ def _rahmen(m):
 def _kpis(platz, m, R):
     z = R["zus"]
     rahmen = m["rahmen"]
+    jahre_n = int(rahmen.get("horizont_jahre") or 0)
+    ziel = float(rahmen.get("zielvermoegen") or 0)
     diff = z["differenz"]
     farbe = "pl-gut" if diff >= 0 else "pl-schlecht"
+    w = E.gewichte(m)
+    port_r = sum(g * R["r"].get(i, 0.0) for i, g in w.items())      # Portfoliorendite p.a. (gewichtet)
     with platz.container():
-        _kacheln([
-            ("Benötigte Rendite p.a.", _pct(z["erforderliche_cagr"]),
-             f'{_de(rahmen["startkapital"])} € → {_de(rahmen["zielvermoegen"])} € in {rahmen["horizont_jahre"]} J.'),
-            ("Modellierte Rendite p.a.", _pct(z["modell_cagr"]), D.METHODEN[rahmen["methode"]]),
-            ("Modell-Endwert", _eur(z["endwert"]), f'Ziel {_de(rahmen["zielvermoegen"])} €'),
-            ("Abstand zum Ziel", f'<span class="{farbe}">{"+" if diff >= 0 else "−"}'
-                                 f'{_de(abs(E.runden_ungefaehr(diff) or 0))} €</span>',
-             "Ziel im Modell erreicht" if z["ziel_erreicht"] else "Ziel im Modell nicht erreicht"),
-        ])
+        if jahre_n <= 0:
+            k1 = ("Aufbau", "–", "keine Aufbauphase (0 Jahre)")
+            k2 = ("Portfolio-Rendite p.a.", _pct(port_r), "gewichtet · " + D.METHODEN[rahmen["methode"]])
+            k3 = ("Startkapital", _eur(z["endwert"]), "Entnahme startet sofort")
+        else:
+            k1 = ("Benötigte Rendite p.a.", _pct(z["erforderliche_cagr"]) if ziel > 0 else "–",
+                  f'{_de(rahmen["startkapital"])} € → {_de(ziel)} € in {jahre_n} J.' if ziel > 0 else "kein Ziel gesetzt")
+            k2 = ("Modellierte Rendite p.a.", _pct(z["modell_cagr"]), D.METHODEN[rahmen["methode"]])
+            k3 = ("Modell-Endwert", _eur(z["endwert"]), f'nach {jahre_n} J.' + (f' · Ziel {_de(ziel)} €' if ziel > 0 else ""))
+        if ziel > 0 and jahre_n > 0:
+            k4 = ("Abstand zum Ziel", f'<span class="{farbe}">{"+" if diff >= 0 else "−"}'
+                                      f'{_de(abs(E.runden_ungefaehr(diff) or 0))} €</span>',
+                  "Ziel im Modell erreicht" if z["ziel_erreicht"] else "Ziel im Modell nicht erreicht")
+        else:
+            k4 = ("Portfolio-Rendite p.a." if jahre_n > 0 else "Positionen", _pct(port_r) if jahre_n > 0
+                  else str(sum(1 for g in w.values() if g > 0)), "gewichtet" if jahre_n > 0 else "mit Gewicht")
+        _kacheln([k1, k2, k3, k4])
         proj = z["projektion"]
-        jahre = " · ".join(f"J{j}: {_eur(v)}" for j, v in enumerate(proj["jahreswerte"]) if j)
-        monat = ""
-        if rahmen.get("sparrate_monat"):
-            monat = f' · Einzahlungen gesamt {_de(proj["eingezahlt"])} €'
-        entnahme = ""
+        zeilen = []
+        if jahre_n > 0:
+            zeilen.append(f'Multiplikator <b>{_de(z["multiplikator"], 2)}×</b>'
+                          + (f' · Einzahlungen gesamt {_de(proj["eingezahlt"])} €' if rahmen.get("sparrate_monat") else ""))
+            zeilen.append(" · ".join(f"J{j}: {_eur(v)}" for j, v in enumerate(proj["jahreswerte"]) if j))
         e = _entnahme_daten(m)
         if e.get("aktiv", True):
             try:
                 _kap, _r, _kw, plan = _entnahme_rechnen(m, R, e)
                 dauer = "dauerhaft" if plan["reicht_dauerhaft"] else _dauer_text(plan)
                 ok = plan["reicht_dauerhaft"] or plan["dauer_monate"] >= int(e["dauer_jahre"]) * 12
-                entnahme = (f'<br>Danach Entnahme <b>{_de(e["monatlich"])} €/Monat</b> aus {_eur(_kap)} · reicht '
-                            f'<b class="{"pl-gut" if ok else "pl-schlecht"}">{dauer}</b> (Plan {e["dauer_jahre"]} J.)')
+                zeilen.append(f'{"Danach" if jahre_n > 0 else "Sofort"} Entnahme <b>{_de(e["monatlich"])} €/Monat</b> '
+                              f'aus {_eur(_kap)} bei {_pct(_r)} p.a. · reicht '
+                              f'<b class="{"pl-gut" if ok else "pl-schlecht"}">{dauer}</b> (Plan {e["dauer_jahre"]} J.)')
             except Exception:
-                entnahme = ""
-        st.markdown(f'<div class="pl-zeile">Multiplikator <b>{_de(z["multiplikator"], 2)}×</b>{monat}<br>'
-                    f'{jahre}{entnahme}</div>', unsafe_allow_html=True)
+                pass
+        auto = st.session_state.get("planer_autogew")
+        if auto and not auto.get("fehler"):
+            zeilen.append(("Gewichte automatisch auf " if auto["erreichbar"] else "⚠ Höchstens erreichbar: ")
+                          + f'<b>{_pct(auto["rendite"])} p.a.</b> ausgerichtet'
+                          + ("" if auto["erreichbar"] else f' (mit diesen Bausteinen max. {_pct(auto["max"])})'))
+        st.markdown(f'<div class="pl-zeile">{"<br>".join(zeilen)}</div>', unsafe_allow_html=True)
         _hinweis()
 
 
@@ -920,7 +978,7 @@ def _editor_formular(df, key, **kw):
         ok = c1.form_submit_button("🔄 Daten aktualisieren", width="stretch",
                                    help="Alle geänderten Werte übernehmen, neu berechnen und speichern")
         verwerfen = c2.form_submit_button("↺ Verwerfen", width="stretch",
-                                          help="Tabelle auf den zuletzt übernommenen Stand zurücksetzen")
+                                          help="Nur noch nicht übernommene Änderungen in dieser Tabelle zurücknehmen")
     if verwerfen:
         _neu_zeichnen()
         st.rerun()
@@ -1005,6 +1063,7 @@ def _ziel_label(ziel):
 
 def _b_bausteine(m, R, h):
     _abschnitt("Bausteine")
+    _auto_hinweis(m)
     start = m["rahmen"]["startkapital"]
     summe = E.gewichte_summe(m) or 1.0
     zeilen = []
@@ -1013,7 +1072,7 @@ def _b_bausteine(m, R, h):
         info = R["info"].get(a["id"]) or {}
         zeilen.append({
             "Aktiv": bool(a.get("enabled")), "Baustein": a["name"],
-            "Gew. %": float(a.get("targetWeight") or 0.0),
+            "Gew. %": float(a.get("targetWeight") or 0.0) if a.get("enabled") else 0.0,
             "Annahme %": None if not eig or eig.get("value") is None else round(eig["value"] * 100, 2),
             "Basis": _basis_text(m, a),
             "Ist": a.get("renditequelle") == "historisch",
@@ -1059,7 +1118,7 @@ def _b_bausteine(m, R, h):
     for i, a in enumerate(m["assets"]):
         z = ed.iloc[i]
         aktiv = bool(z["Aktiv"])
-        gew = 0.0 if pd.isna(z["Gew. %"]) else float(z["Gew. %"])
+        gew = 0.0 if pd.isna(z["Gew. %"]) or not aktiv else float(z["Gew. %"])   # inaktiv = 0 %
         if aktiv != bool(a.get("enabled")) or abs(gew - float(a.get("targetWeight") or 0)) > 1e-9:
             a["enabled"], a["targetWeight"] = aktiv, gew
             geaendert = True
@@ -1116,8 +1175,21 @@ def _b_bausteine(m, R, h):
         _baustein_entfernen(m, weg)
         _neu_zeichnen()
         st.rerun()
-    st.caption("Entfernen löscht den Baustein samt Annahmen aus diesem Modell; nur „Aktiv“ abwählen lässt ihn in "
-               "der Liste. „Startgewichte“ unter „⚖️ Gewichtung“ holt die Bausteine des Ausgangsmodells zurück.")
+    st.caption("Entfernen löscht den Baustein samt Annahmen aus diesem Modell; „Aktiv“ abwählen lässt ihn in "
+               "der Liste, sein Anteil wird 0 %.")
+
+    _abschnitt("Zurücksetzen")
+    st.caption("„↺ Verwerfen“ unter der Tabelle nimmt nur noch nicht übernommene Tabellen-Änderungen zurück. "
+               "Hier wird das komplette Modell auf das Ausgangsmodell zurückgesetzt – Bausteine, Gewichte, "
+               "Annahmen, Planung und Grenzen.")
+    sicher = st.checkbox("Ja, alles auf das Ausgangsmodell zurücksetzen", key=_k("reset_ok"))
+    if st.button("↺ Modell komplett zurücksetzen", key=_k("reset_btn"), width="stretch", disabled=not sicher):
+        st.session_state["planer_modell"] = D.seed_modell()
+        for k in ("planer_vorschlag", "planer_meldung", "planer_autogew"):
+            st.session_state.pop(k, None)
+        st.session_state["planer_meldung"] = ("ok", "Modell auf das Ausgangsmodell zurückgesetzt.", [])
+        _neu_zeichnen()
+        st.rerun()
 
 
 def _meldung_zeigen():
@@ -1216,6 +1288,9 @@ def _vorschlag(m, R, verfahren, ziel_art, wunsch, mit_grenzen):
         return {"gewichte": gew, "art": "ok", "text": "Startgewichte des Ausgangsmodells (Platzhalter).",
                 "start": True}
     # Ziel
+    if int(rahmen.get("horizont_jahre") or 0) <= 0:
+        return {"art": "fehler", "text": "Keine Aufbauphase (0 Jahre) – für eine Zielrendite in der Entnahme die "
+                                         "automatische Gewichtung unter „⚙️ Planung → Phase 2“ nutzen."}
     if ziel_art == "rendite":
         zielwert = E.ziel_aus_rendite(m, wunsch / 100.0)
         ziel_txt = f"{_de(wunsch, 1)} % p.a. (≈ {_de(E.runden_ungefaehr(zielwert))} €)"
@@ -1244,6 +1319,7 @@ def _vorschlag(m, R, verfahren, ziel_art, wunsch, mit_grenzen):
 
 def _b_gewichtung(m, R):
     _abschnitt("Gewichtung")
+    _auto_hinweis(m)
     st.caption("Ein Verfahren wählen → Vorschlag berechnen → vergleichen → übernehmen. Fixierte Bausteine "
                "(Spalte „Fix“) und die Reserve bleiben immer unverändert.")
     keys = list(VERFAHREN)
@@ -2162,6 +2238,8 @@ def render(h):
 
     # Eingaben des Bereichs zuerst (sie aendern das Modell), danach rechnen
     R = _rechne(m, historie, korb_score)
+    if _auto_gewichtung(m, R):
+        R = _rechne(m, historie, korb_score)
     seiten = {
         ("🧩 Portfolio", "Bausteine"): lambda: _b_bausteine(m, R, h),
         ("🧩 Portfolio", "Aufteilung"): lambda: _b_aufteilung(m, R),
@@ -2183,6 +2261,8 @@ def render(h):
     # KPIs mit dem Stand NACH den Eingaben
     je_score, korb_score = _scores(m, fund)
     R = _rechne(m, historie, korb_score)
+    if _auto_gewichtung(m, R):
+        R = _rechne(m, historie, korb_score)
     _kpis(kpi_platz, m, R)
     _gewichtswarnung(warn_platz, m)
 
