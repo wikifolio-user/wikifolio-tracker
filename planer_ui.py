@@ -1482,80 +1482,50 @@ def _gesamtverlauf(m, R):
 
 
 def _jahres_chart(zeilen, ziel=0.0):
-    """Die Jahresuebersicht als Chart: je Jahr Anfangswert + Erträge (+ Einzahlung)
-    nach oben gestapelt, Entnahme nach unten, Endwert als Linie."""
-    xs = [z["jahr"] for z in zeilen]
-    anf = [z["anfang"] for z in zeilen]
-    ertr = [max(z["ertrag"], 0.0) for z in zeilen]
-    verl = [min(z["ertrag"], 0.0) for z in zeilen]
-    ein = [max(z["fluss"], 0.0) for z in zeilen]
-    aus = [min(z["fluss"], 0.0) - z["steuer"] for z in zeilen]
-    ende = [z["ende"] for z in zeilen]
-    oben = max(a_ + b_ + c_ for a_, b_, c_ in zip(anf, ertr, ein)) or 1.0
-    unten = max((-v for v in aus + verl), default=0.0)
-    # Entnahmen sehr klein gegenueber dem Vermoegen (z. B. 60 T€ bei 100 Mio €)?
-    # Dann bekommen sie eine eigene Skala im unteren Band, damit sie sichtbar bleiben.
-    eigene_skala = 0 < unten < 0.08 * oben
-    band = 0.22                                         # Anteil der Hoehe unter der Nulllinie
-    fmt = lambda v: _de(round(v)) + " €"
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=xs, y=anf, name="Anfangswert", marker_color="#4C9AFF",
-                         customdata=[fmt(v) for v in anf],
-                         hovertemplate="Jahr %{x} · Anfang %{customdata}<extra></extra>"))
-    if any(ein):
-        fig.add_trace(go.Bar(x=xs, y=ein, name="Einzahlung", marker_color="#A78BFA",
-                             customdata=[fmt(v) for v in ein],
-                             hovertemplate="Jahr %{x} · Einzahlung +%{customdata}<extra></extra>"))
-    fig.add_trace(go.Bar(x=xs, y=ertr, name="Erträge", marker_color="#16C784",
-                         customdata=[fmt(v) for v in ertr],
-                         hovertemplate="Jahr %{x} · Erträge +%{customdata}<extra></extra>"))
-    if any(verl):
-        fig.add_trace(go.Bar(x=xs, y=verl, name="Verlust", marker_color="#F5B942",
-                             customdata=[fmt(-v) for v in verl],
-                             hovertemplate="Jahr %{x} · Verlust −%{customdata}<extra></extra>"))
-    if any(aus):
-        steuer = any(z["steuer"] for z in zeilen)
-        fig.add_trace(go.Bar(x=xs, y=aus, name="Entnahme" + (" inkl. Steuer" if steuer else ""),
-                             marker_color="#EA3943", yaxis="y2" if eigene_skala else "y",
-                             customdata=[fmt(-v) for v in aus],
-                             hovertemplate="Jahr %{x} · Entnahme −%{customdata}<extra></extra>"))
+    """Die Jahresuebersicht als reiner Linienchart (ein Punkt je Jahr):
+    Vermoegen (Jahr 0 = Anfangswert, danach Endwert = Anfang des Folgejahres),
+    Ertraege je Jahr nach oben, Entnahmen je Jahr und in Summe nach unten."""
+    xs = [0] + [z["jahr"] for z in zeilen]
+    verm = [zeilen[0]["anfang"]] + [z["ende"] for z in zeilen]
+    ertr = [0.0] + [z["ertrag"] for z in zeilen]
+    ein = [0.0] + [max(z["fluss"], 0.0) for z in zeilen]
+    aus = [0.0] + [min(z["fluss"], 0.0) - z["steuer"] for z in zeilen]
+    summe_aus, s_ = [], 0.0
+    for v in aus:
+        s_ += v
+        summe_aus.append(s_)
     n = len(xs)
-    schritt = max(1, math.ceil(n / 6))
+    schritt = max(1, math.ceil((n - 1) / 5))
     zeige = {0, n - 1} | set(range(0, n, schritt))
-    fig.add_trace(go.Scatter(
-        x=xs, y=ende, name="Endwert", mode="lines+markers+text",
-        line=dict(color="#FFFFFF", width=2), marker=dict(size=6, color="#FFFFFF"),
-        text=[_kurz_eur(v) if k in zeige else "" for k, v in enumerate(ende)],
-        textposition=["top right" if k == 0 else "top left" if k == n - 1 else "top center" for k in range(n)],
-        textfont=dict(size=11, color="#FFFFFF"),
-        customdata=[[fmt(z["anfang"]), fmt(z["ertrag"]), fmt(-z["fluss"]) if z["fluss"] < 0 else "–", fmt(z["ende"])]
-                    for z in zeilen],
-        hovertemplate="<b>Jahr %{x}</b><br>Anfang %{customdata[0]}<br>Erträge %{customdata[1]}"
-                      "<br>Entnahme %{customdata[2]}<br><b>Ende %{customdata[3]}</b><extra></extra>"))
+    fig = go.Figure()
+
+    def linie(y, name, farbe, breite=2, strich=None, text=False):
+        fig.add_trace(go.Scatter(
+            x=xs, y=y, name=name, mode="lines+markers+text" if text else "lines+markers",
+            line=dict(color=farbe, width=breite, dash=strich), marker=dict(size=5 if not text else 7, color=farbe),
+            text=[_kurz_eur(v) if k in zeige else "" for k, v in enumerate(y)] if text else None,
+            textposition=["top right" if k == 0 else "top left" if k == n - 1 else "top center" for k in range(n)],
+            textfont=dict(size=11, color=farbe)))
+
+    linie(verm, "Vermögen", "#FFFFFF", 3, text=True)
+    linie(ertr, "Erträge je Jahr", "#16C784")
+    if any(ein):
+        linie(ein, "Einzahlung je Jahr", "#A78BFA")
+    if any(aus):
+        linie(aus, "Entnahme je Jahr", "#EA3943")
+        linie(summe_aus, "Entnahmen gesamt", "#EA3943", 2, "dot")
     if ziel > 0:
         fig.add_hline(y=ziel, line=dict(color="#F5B942", dash="dash", width=1),
                       annotation_text="Ziel", annotation_font_color="#F5B942")
     _layout(fig, 420)
-    fig.update_layout(barmode="relative", bargap=0.2, hovermode="closest")
-    fig.update_xaxes(title="Jahr", dtick=max(1, math.ceil(n / 10)))
-    top = max(oben, max(ende)) * 1.15
-    if eigene_skala:
-        # Nulllinie beider Achsen auf gleicher Hoehe: unten 'band' der Hoehe fuer die Entnahme
-        stufe = 10 ** math.floor(math.log10(top / 4))
-        stufe = next(f * stufe for f in (1, 2, 2.5, 5, 10) if top / (f * stufe) <= 5)
-        fig.update_yaxes(range=[-top * band / (1 - band), top], zeroline=True, zerolinecolor="#8A9099",
-                         tickvals=[stufe * i for i in range(0, int(top / stufe) + 1)])   # nur positive Ticks
-        u = unten * 1.1
-        fig.update_layout(yaxis2=dict(overlaying="y", side="left", range=[-u, u * (1 - band) / band],
-                                      showgrid=False, zeroline=False, tickformat=",.0f",
-                                      tickvals=[-u / 1.1, -u / 2.2], tickfont=dict(color="#EA3943", size=10)),
-                          barmode="relative")
-    else:
-        fig.update_yaxes(range=[-unten * 1.15 if unten else 0, top], zeroline=True, zerolinecolor="#8A9099")
+    fig.update_layout(hovermode="x unified", legend=dict(font=dict(size=11)))
+    fig.update_xaxes(title="Jahr (0 = heute, Anfangswert)", dtick=max(1, math.ceil((n - 1) / 10)))
+    fig.update_yaxes(hoverformat=",.0f", zeroline=True, zerolinecolor="#8A9099", zerolinewidth=1,
+                     range=[min(min(summe_aus), min(ertr)) * 1.15 if min(summe_aus + ertr) < 0 else 0,
+                            max(verm) * 1.15])
     _chart(fig, "pl_growth")
-    if eigene_skala:
-        st.caption("Die Entnahmen sind viel kleiner als das Vermögen – sie haben deshalb eine eigene Skala "
-                   "(rote Zahlen links) im unteren Bereich. Genaue Werte beim Antippen.")
+    st.caption("Antippen zeigt alle Werte eines Jahres. Vermögen: Jahr 0 = Anfangswert, danach Stand am "
+               "Jahresende (= Anfang des nächsten Jahres). Entnahmen zeigen nach unten.")
 
 
 def _b_growth(m, R):
