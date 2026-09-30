@@ -72,7 +72,7 @@ METHODEN = {
 # ---------------------------------------------------------------------------
 def _asset(id, name, kategorie, gewicht, *, ticker=None, isin=None, sub=None, region="Global",
            sektor="Diversifiziert", hebel=1.0, hebel_typ=None, ter=None, perf_fee=None,
-           emittent=None, tech=None, semi=None, aktiv=True, bias=False, notiz="", fix=False):
+           emittent=None, tech=None, semi=None, aktiv=True, bias=False, notiz="", fix=False, quelle=None):
     return {
         "id": id, "name": name, "ticker": ticker, "isin": isin, "category": kategorie,
         "subCategory": sub, "region": region, "sector": sektor, "targetWeight": gewicht,
@@ -80,6 +80,8 @@ def _asset(id, name, kategorie, gewicht, *, ticker=None, isin=None, sub=None, re
         "emittent": emittent, "techAnteil": tech, "semiAnteil": semi, "enabled": aktiv,
         "historicalWinnerBias": bias, "notes": notiz,
         "fixiert": fix,                 # bei "Gewichtung 100k" unveraendert lassen
+        # "historisch" = tatsaechliche Rendite laut Kurshistorie statt Annahme (Standard bei Wikifolios)
+        "renditequelle": quelle or ("historisch" if kategorie == "wikifolio" else "annahme"),
     }
 
 
@@ -148,7 +150,8 @@ KORB_TECH = {"Halbleiter", "Netzwerktechnik", "E-Commerce/Fintech"}
 # historical5Y/10Y werden NICHT hier gesetzt, sondern zur Laufzeit aus der
 # echten Kurshistorie berechnet (Historical Layer).
 # ---------------------------------------------------------------------------
-_SZENARIO_WIKI = "Frei gewählte Szenarioannahme – keine Prognose, keine historische Erwartungsrendite."
+_SZENARIO_WIKI = ("Nur Ersatzwert: Wikifolios rechnen mit der tatsächlichen Rendite laut Kurshistorie; diese "
+                  "Annahme gilt nur, wenn keine Historie ≥ 1 Jahr vorliegt oder „Ist“ abgewählt ist.")
 _AUSGANGSWERT = "Historischer / modellierter Ausgangswert aus dem bisherigen Modell – keine Zukunftsrendite."
 
 
