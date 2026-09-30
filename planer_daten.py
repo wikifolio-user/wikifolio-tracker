@@ -155,9 +155,14 @@ _SZENARIO_WIKI = ("Nur Ersatzwert: Wikifolios rechnen mit der tatsächlichen Ren
 _AUSGANGSWERT = "Historischer / modellierter Ausgangswert aus dem bisherigen Modell – keine Zukunftsrendite."
 
 
-def _annahme(asset_id, wert, quelle, notiz, stand="2026-09-28", beobachtung=None):
+def _annahme(asset_id, wert, quelle, notiz, stand="2026-09-28", beobachtung=None, auto=None):
+    # auto: eigene Annahme (manualScenario) wird automatisch mit der bisherigen
+    # Rendite p.a. laut Kurshistorie ueberschrieben, solange sie niemand aendert.
+    # Standard: ja fuer alle eigenen Annahmen ausser Cash.
+    if auto is None:
+        auto = quelle == "manualScenario" and asset_id != "reserve"
     return {"assetId": asset_id, "value": wert, "sourceType": quelle, "observationYears": beobachtung,
-            "dataDate": stand, "source": "User assumption", "notes": notiz}
+            "dataDate": stand, "source": "User assumption", "notes": notiz, "auto": auto}
 
 
 SEED_ANNAHMEN = [
