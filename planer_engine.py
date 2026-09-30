@@ -660,7 +660,14 @@ def asset_merkmal(asset, modell, merkmal):
 
 
 TREIBER_GRUPPEN = {"technology": "US-Tech", "semiconductor": "US-Tech", "leveraged_etf": "US-Tech",
-                   "factor": "Welt-Aktien", "global_equity": "Welt-Aktien", "small_cap": "Welt-Aktien"}
+                   "factor": "Welt-Aktien", "global_equity": "Welt-Aktien", "small_cap": "Welt-Aktien",
+                   "regional_equity": "Welt-Aktien"}
+
+
+def treiber(asset):
+    """Renditetreiber eines Bausteins: eigenes Feld "treiber", sonst nach Kategorie,
+    sonst eigener Treiber (Wikifolios, Einzelaktien, Korb, Rohstoffe ...)."""
+    return asset.get("treiber") or TREIBER_GRUPPEN.get(asset["category"], asset["id"])
 
 
 def risiko_kennzahlen(modell, renditen_netto, confidences, historie=None):
@@ -675,7 +682,7 @@ def risiko_kennzahlen(modell, renditen_netto, confidences, historie=None):
         a = assets[i]
         if _typ(a) == "cash":
             continue
-        grp = TREIBER_GRUPPEN.get(a["category"], a["id"])      # Wikifolios/Korb je eigener Treiber
+        grp = treiber(a)
         gruppen[grp] = gruppen.get(grp, 0.0) + g
     summe_risiko = sum(gruppen.values()) or 1.0
     hhi_treiber = sum((g / summe_risiko) ** 2 for g in gruppen.values())
@@ -1030,3 +1037,40 @@ def grenzen_verletzungen(modell, gewichte_pct=None):
         if gr.get("min") is not None and summe < gr["min"] - 0.05:
             aus.append(f"{gr['titel']} {summe:.1f} % < {gr['min']:.0f} %")
     return [t.replace(".", ",") for t in aus]
+
+
+# ===========================================================================
+# Katalog: Risk Score und Rendite-Vorschlag
+# ===========================================================================
+def risiko_score(vola, maxdd, hebel=1.0, profil="", params=None):
+    """Risk Score 0-100 (hoeher = riskanter), Formel in planer_daten.RISIKO.
+    vola als Anteil (0.3 = 30 %), maxdd in % (negativ). Ohne Kursdaten None."""
+    p = params or D.RISIKO
+    if vola is None and maxdd is None:
+        return None
+    s_vola = min(max((vola or 0.0) * 100.0 / p["vola_max"], 0.0), 1.0) * 100.0
+    s_dd = min(max(-(maxdd or 0.0) / p["dd_max"], 0.0), 1.0) * 100.0
+    s_hebel = max(float(hebel or 1.0) - 1.0, 0.0) * p["hebel_je_faktor"]
+    if any(t in (profil or "").lower() for t in p["hebel_texte"]):
+        s_hebel += p["hebel_text_zuschlag"]
+    s_hebel = min(s_hebel, 100.0)
+    g = p["gewichte"]
+    return int(round(g["vola"] * s_vola + g["dd"] * s_dd + g["hebel"] * s_hebel))
+
+
+def vorschlag_renditen(kennz, typ, params=None):
+    """Base/Bear/Bull-Vorschlag aus der Historie (planer_daten.VORSCHLAG).
+    -> {"base", "bear", "bull", "hist", "quelle", "confidence"} oder None"""
+    p = params or D.VORSCHLAG
+    if not kennz:
+        return None
+    for feld, quelle in (("historical5Y", "5 J."), ("historical3Y", "3 J."), ("gesamt_cagr", "seit Start")):
+        hist = kennz.get(feld)
+        if hist is not None:
+            break
+    else:
+        return None
+    conf = confidence_score(kennz.get("jahre"), typ)
+    base = conf / 100.0 * hist + (1.0 - conf / 100.0) * p["anker"]
+    return {"base": base, "bear": base - p["bear_abschlag"] * abs(base), "bull": base + p["bull_zuschlag"] * abs(base),
+            "hist": hist, "quelle": quelle, "confidence": conf}
