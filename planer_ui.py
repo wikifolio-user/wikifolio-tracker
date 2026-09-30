@@ -32,9 +32,17 @@ PFAD_SZENARIEN = "state/planer/szenarien.json"
 QUALITAET_DETAIL_TEILE = 32          # wie qualitaet_agent.DETAIL_TEILE
 HIST_CACHE_SEK = 6 * 3600
 
-BEREICHE = ["🧩 Allocation", "📈 Projected Growth", "🎯 Zielerreichung", "🧺 Fundamental Basket",
-            "🧪 Wikifolio Analyse", "🎲 Szenariovergleich", "⚠️ Risiko & Konzentration",
-            "🛟 Nachkaufreserve", "🌪️ Sensitivität", "🧾 Annahmen & Datenqualität", "💶 Entnahmeplan"]
+# Navigation: 6 Hauptbereiche in Arbeitsreihenfolge, darunter Unterseiten
+HAUPT = ["🧩 Portfolio", "⚖️ Gewichtung", "📈 Ergebnis", "⚠️ Risiko", "🔬 Analyse", "🗂️ Daten"]
+UNTER = {
+    "🧩 Portfolio": ["Bausteine", "Aufteilung"],
+    "⚖️ Gewichtung": [],
+    "📈 Ergebnis": ["Wachstum", "Ziel", "Szenarien", "Entnahme"],
+    "⚠️ Risiko": ["Konzentration", "Sensitivität", "Stress & Reserve"],
+    "🔬 Analyse": ["Aktienkorb", "Wikifolios"],
+    "🗂️ Daten": ["Annahmen & Quellen", "Gespeicherte Modelle"],
+}
+BEREICHE = HAUPT      # Kompatibilitaet
 
 FARBEN = ["#4C9AFF", "#16C784", "#F5B942", "#EA3943", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C",
           "#A3E635", "#94A3B8", "#FDE047", "#2DD4BF", "#C084FC", "#F87171"]
@@ -587,24 +595,19 @@ def _rahmen(m):
                 "Band (± % relativ zum Zielgewicht)", 1.0, 100.0,
                 float(m["rebalancing"].get("schwelle_relativ", 25.0)), step=2.5, key=_k("band"),
                 help="25 % relativ: Zielgewicht 10 % → Band 7,5–12,5 %"))
+        methoden = list(D.METHODEN)
+        wahl = st.selectbox("Renditequelle der Rechnung", methoden, index=methoden.index(rahmen["methode"]),
+                            format_func=D.METHODEN.get, key=_k("methode"),
+                            help="Standard „Meine Annahmen“ = Spalte „Annahme %“ bzw. Ist-Werte im Portfolio")
+        rahmen["methode"] = wahl
+        if rahmen["methode"] == "szenario":
+            sz = ["bear", "base", "bull", "custom"]
+            rahmen["szenario"] = st.selectbox("Szenario", sz, index=sz.index(rahmen.get("szenario", "base")),
+                                              format_func=str.capitalize, key=_k("szenario"))
+        if rahmen["methode"] in ("historical5Y", "historical10Y", "fundamentalModel"):
+            st.caption("Wo für diese Quelle keine Daten vorliegen, gilt die eigene Annahme.")
         st.caption("Renditen sind effektive Jahresrenditen vor Steuern. Die Nachkaufreserve nimmt am "
                    "Rebalancing nicht teil.")
-
-    methoden = list(D.METHODEN)
-    wahl = st.pills("Renditequelle", [D.METHODEN[x] for x in methoden],
-                    default=D.METHODEN[rahmen["methode"]], key=_k("methode"))
-    if wahl:
-        rahmen["methode"] = methoden[[D.METHODEN[x] for x in methoden].index(wahl)]
-    if rahmen["methode"] == "szenario":
-        sz = ["bear", "base", "bull", "custom"]
-        w2 = st.pills("Szenario", [x.capitalize() for x in sz], default=rahmen.get("szenario", "base").capitalize(),
-                      key=_k("szenario"))
-        if w2:
-            rahmen["szenario"] = w2.lower()
-    if rahmen["methode"] in ("historical5Y", "historical10Y", "fundamentalModel"):
-        st.caption("Wo für diese Quelle keine Daten vorliegen, gilt die eigene Annahme – markiert unter "
-                   "„Annahmen & Datenqualität“.")
-
 
 def _kpis(platz, m, R):
     z = R["zus"]
@@ -854,7 +857,7 @@ def _katalog(m, h):
                     E.setze_annahme(m, aid, sz, vs[sz], notiz="Vorschlag aus Katalog – keine Prognose")
         st.session_state["planer_kat_wahl"] = []
         if doppelt:
-            st.session_state["planer_100k"] = ("warnung", "Schon im Portfolio, nicht doppelt angelegt: "
+            st.session_state["planer_meldung"] = ("warnung", "Schon im Portfolio, nicht doppelt angelegt: "
                                                + ", ".join(doppelt), [])
         _neu_zeichnen()
         st.rerun()
@@ -897,7 +900,7 @@ def _suche_hinzufuegen(m, h):
                 _neu_zeichnen()
                 st.rerun()
             st.caption("Ohne Annahme rechnet der Baustein mit 0 % – die historische Rendite erscheint nach dem "
-                       "Hinzufügen unter „Annahmen & Datenqualität“.")
+                       "Hinzufügen unter „🗂️ Daten → Annahmen & Quellen“.")
 
 
 
@@ -1000,8 +1003,8 @@ def _ziel_label(ziel):
     return f"{_de(ziel / 1000)}k" if ziel >= 1000 and ziel % 1000 == 0 else _de(ziel) + " €"
 
 
-def _b_allocation(m, R, h):
-    _abschnitt("Portfolio Builder")
+def _b_bausteine(m, R, h):
+    _abschnitt("Bausteine")
     start = m["rahmen"]["startkapital"]
     summe = E.gewichte_summe(m) or 1.0
     zeilen = []
@@ -1044,7 +1047,8 @@ def _b_allocation(m, R, h):
                 "Ist", width=breite("small"),
                 help="Tatsächliche Rendite laut Kurshistorie statt der Annahme verwenden (Standard bei Wikifolios)"),
             "Fix": st.column_config.CheckboxColumn(
-                "Fix", width=breite("small"), help="Fixierte Gewichte ändert „Gewichtung 100k“ nicht"),
+                "Fix", width=breite("small"),
+                help="Fixierte Gewichte bleiben bei allen Verfahren unter „Gewichtung“ unverändert"),
             "Betrag €": st.column_config.NumberColumn("Betrag €", format="%d"),
             "Genutzt %": st.column_config.NumberColumn("Genutzt %", format="%.1f",
                                                        help="In der Rechnung verwendet (aktive Quelle, ggf. netto)"),
@@ -1077,149 +1081,26 @@ def _b_allocation(m, R, h):
     if geaendert:
         st.rerun()
 
-    if st.button("⚖️ Gewichte nach Rendite p.a. verteilen", key=_k("nach_rendite"), width="stretch",
-                 help="Verteilt 100 % auf alle aktiven Bausteine im Verhältnis ihrer Rendite p.a. (Spalte "
-                      "„Genutzt %“). Fixierte Bausteine und die Reserve behalten ihr Gewicht; Bausteine mit "
-                      "Rendite ≤ 0 bekommen 0 %."):
-        erg = E.gewichte_nach_rendite(m, R["r"])
-        if erg.get("fehler"):
-            st.session_state["planer_100k"] = ("fehler", erg["fehler"], [])
-        else:
-            for a in m["assets"]:
-                if a["id"] in erg["gewichte"]:
-                    a["targetWeight"] = round(erg["gewichte"][a["id"]], 2)
-            E.normalisieren(m)
-            n = sum(1 for v in erg["gewichte"].values() if v > 0)
-            st.session_state["planer_100k"] = (
-                "ok", f"Gewichte nach Rendite p.a. verteilt ({n} Bausteine mit Anteil).",
-                E.grenzen_verletzungen(m))
+    summe = E.gewichte_summe(m)
+    c1, c2 = st.columns(2)
+    c1.markdown(f'<div class="pl-zeile">Summe aktiver Gewichte: <b class="{"pl-gut" if abs(summe - 100) <= 0.05 else "pl-schlecht"}">'
+                f'{_de(summe, 1)} %</b></div>', unsafe_allow_html=True)
+    if c2.button("Auf 100 % normalisieren", key=_k("norm"), width="stretch", disabled=abs(summe - 100) <= 0.05):
+        E.normalisieren(m)
         _neu_zeichnen()
         st.rerun()
-
     if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
                  help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
                       "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J.)"):
         n = E.annahmen_aus_historie(m, st.session_state.get("planer_historie") or {}, alle=True)
-        st.session_state["planer_100k"] = ("ok", f"{n} Annahmen aus der bisherigen Rendite p.a. übernommen.", [])
+        st.session_state["planer_meldung"] = ("ok", f"{n} Annahmen aus der bisherigen Rendite p.a. übernommen.", [])
         _neu_zeichnen()
         st.rerun()
+    _meldung_zeigen()
+    st.caption("Spalten: Gew. % = Anteil · Annahme % = Rendite p.a. (Basis zeigt die Herkunft) · Ist = tatsächliche "
+               "Rendite laut Kurshistorie statt Annahme · Fix = bleibt beim Gewichten unverändert · Genutzt % = "
+               "damit wird gerechnet. Gewichte automatisch verteilen: Bereich „⚖️ Gewichtung“.")
 
-    summe = E.gewichte_summe(m)
-    ziel = m["rahmen"]["zielvermoegen"]
-    st.markdown(f'<div class="pl-zeile">Summe aktiver Gewichte: <b class="{"pl-gut" if abs(summe - 100) <= 0.05 else "pl-schlecht"}">'
-                f'{_de(summe, 1)} %</b></div>', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    if c1.button(f"🎯 Gewichtung {_ziel_label(ziel)}", key=_k("g100k"), width="stretch",
-                 help=f"Gewichte so verschieben, dass nach {m['rahmen']['horizont_jahre']} Jahren "
-                      f"{_de(ziel)} € herauskommen (fixierte Zeilen bleiben unverändert)"):
-        erg = E.gewichtung_fuer_ziel(m, R["r"], rebalancing=R["reb"])
-        if erg.get("fehler"):
-            st.session_state["planer_100k"] = ("fehler", erg["fehler"], [])
-        elif not erg["erreichbar"]:
-            st.session_state["planer_100k"] = (
-                "warnung", f"{_de(ziel)} € sind mit den aktuellen Annahmen auch bei maximaler Verschiebung nicht "
-                           f"erreichbar (höchstens {_eur(erg['max_endwert'])}). Nichts geändert – Fixierungen lösen "
-                           "oder Annahmen prüfen.", [])
-        else:
-            for a in m["assets"]:
-                if a["id"] in erg["gewichte"]:
-                    a["targetWeight"] = erg["gewichte"][a["id"]]      # ungerundet: Ziel exakt
-            st.session_state["planer_100k"] = (
-                "ok", f"Gewichte angepasst: Modell-Endwert {_eur(erg['endwert'])} nach "
-                      f"{m['rahmen']['horizont_jahre']} Jahren.", E.grenzen_verletzungen(m, erg["gewichte"]))
-            _neu_zeichnen()
-            st.rerun()
-    if c2.button("Gewichte normalisieren", key=_k("norm"), width="stretch"):
-        E.normalisieren(m)
-        _neu_zeichnen()
-        st.rerun()
-    if c3.button("Startgewichte", key=_k("seed_gew"), width="stretch",
-                 help="Platzhalter-Gewichte des Ausgangsmodells wiederherstellen (gelöschte Bausteine kommen zurück)"):
-        vorhanden = {a["id"] for a in m["assets"]}
-        for a in D.seed_modell()["assets"]:
-            if a["id"] not in vorhanden:
-                m["assets"].append(a)
-                for x in D.seed_modell()["annahmen"]:
-                    if x["assetId"] == a["id"]:
-                        m["annahmen"].append(x)
-        seed = {a["id"]: a for a in D.SEED_ASSETS}
-        for a in m["assets"]:
-            if a["id"] in seed:
-                a["targetWeight"], a["enabled"] = seed[a["id"]]["targetWeight"], seed[a["id"]]["enabled"]
-        _neu_zeichnen()
-        st.rerun()
-    # --- Gewichtung nach Wunschrendite ---
-    _abschnitt("Gewichtung nach Wunschrendite")
-    req = R["zus"]["erforderliche_cagr"] or 0.0
-    c7, c8 = st.columns(2)
-    wunsch = c7.number_input("Wunschrendite p.a. (%)", -20.0, 200.0,
-                             float(m["rahmen"].get("wunschrendite") if m["rahmen"].get("wunschrendite") is not None
-                                   else round(req * 100, 1)), step=1.0, key=_k("wunsch"),
-                             help="Die Gewichte werden so verteilt, dass das Portfolio diese Rendite p.a. erreicht")
-    m["rahmen"]["wunschrendite"] = float(wunsch)
-    wege = {"stufenlos": "Stufenlos (Fix beachten)", "optimizer": "Mit Optimizer-Grenzen"}
-    weg_w = c8.selectbox("Verfahren", list(wege), format_func=wege.get, key=_k("wunsch_weg"),
-                         help="Stufenlos: verschiebt die bisherigen Gewichte, Fix-Häkchen bleiben. "
-                              "Optimizer: hält alle Grenzen ein (Wikifolios ≤ 40 %, Einzelwert ≤ 20 % …) "
-                              "und verteilt möglichst breit.")
-    ziel_w = E.ziel_aus_rendite(m, wunsch / 100.0)
-    st.caption(f"{_de(wunsch, 1)} % p.a. entsprechen nach {m['rahmen']['horizont_jahre']} Jahren "
-               f"{_eur(ziel_w)} (benötigt für das Ziel: {_pct(req)} p.a.).")
-    if st.button(f"🎯 Auf {_de(wunsch, 1)} % p.a. gewichten", key=_k("wunsch_btn"), width="stretch"):
-        if weg_w == "stufenlos":
-            erg = E.gewichtung_fuer_ziel(m, R["r"], ziel=ziel_w, rebalancing=R["reb"])
-            if erg.get("fehler"):
-                st.session_state["planer_100k"] = ("fehler", erg["fehler"], [])
-            elif not erg["erreichbar"]:
-                max_r = E.required_cagr(m["rahmen"]["startkapital"], erg["max_endwert"],
-                                        m["rahmen"]["horizont_jahre"]) if not m["rahmen"].get("sparrate_monat") else None
-                st.session_state["planer_100k"] = (
-                    "warnung", f"{_de(wunsch, 1)} % p.a. sind mit den aktuellen Annahmen nicht erreichbar – höchstens "
-                               + (f"{_pct(max_r)} p.a." if max_r is not None else _eur(erg["max_endwert"]))
-                               + ". Nichts geändert.", [])
-            else:
-                for a in m["assets"]:
-                    if a["id"] in erg["gewichte"]:
-                        a["targetWeight"] = erg["gewichte"][a["id"]]
-                st.session_state["planer_100k"] = (
-                    "ok", f"Auf {_de(wunsch, 1)} % p.a. gewichtet – Modell-Endwert {_eur(erg['endwert'])}.",
-                    E.grenzen_verletzungen(m, erg["gewichte"]))
-                _neu_zeichnen()
-                st.rerun()
-        else:
-            o = E.optimiere(m, R["r"], R["conf"], ziel=ziel_w)
-            if not o or o.get("fehler"):
-                st.session_state["planer_100k"] = ("fehler", (o or {}).get("fehler") or "Keine Lösung.", [])
-            elif not o["erreichbar"]:
-                max_r = E.required_cagr(m["rahmen"]["startkapital"], o["max_endwert"], m["rahmen"]["horizont_jahre"]) \
-                    if not m["rahmen"].get("sparrate_monat") else None
-                st.session_state["planer_100k"] = (
-                    "warnung", f"Unter den Optimizer-Grenzen sind höchstens "
-                               + (f"{_pct(max_r)} p.a." if max_r is not None else _eur(o["max_endwert"]))
-                               + f" erreichbar, nicht {_de(wunsch, 1)} %. Nichts geändert – Grenzen unter "
-                                 "„Zielerreichung“ anpassen oder stufenlos gewichten.", [])
-            else:
-                for a in m["assets"]:
-                    if a.get("enabled"):
-                        a["targetWeight"] = o["gewichte"].get(a["id"], 0.0)
-                st.session_state["planer_100k"] = (
-                    "ok", f"Auf {_de(wunsch, 1)} % p.a. gewichtet (innerhalb aller Grenzen) – Modell-Endwert "
-                          f"{_eur(o['endwert'])}.", [])
-                _neu_zeichnen()
-                st.rerun()
-
-    meldung = st.session_state.get("planer_100k")
-    if meldung:
-        art, text, verletzt = meldung
-        {"ok": st.success, "warnung": st.warning, "fehler": st.error}[art](text)
-        if verletzt:
-            st.caption("Hinweis – über den Optimizer-Grenzen: " + " · ".join(verletzt) + ". Die Gewichtung ist eine "
-                       "reine Rückrechnung aus den Annahmen, keine Empfehlung.")
-    st.caption("„Gewichtung“ verschiebt die bisherigen Gewichte stufenlos zu den Bausteinen mit höherer Annahme, "
-               "bis das Ziel exakt erreicht ist. Fix-Häkchen (z. B. Reserve oder ein Wikifolio mit manuell "
-               "gesetztem Anteil) bleiben unverändert. Startgewichte sind Platzhalter. „Ist“ = Rendite laut Kurshistorie statt Annahme (bei Wikifolios Standard) – die Spalte „Genutzt %“ zeigt, womit gerechnet wird.")
-
-    # --- Bausteine hinzufuegen / entfernen ---
     _abschnitt("Baustein hinzufügen")
     weg_ = st.pills("Hinzufügen über", ["📋 Katalog", "🔎 WKN / ISIN"], default="📋 Katalog", key="pl_add_art")
     if weg_ == "🔎 WKN / ISIN":
@@ -1235,10 +1116,23 @@ def _b_allocation(m, R, h):
         _baustein_entfernen(m, weg)
         _neu_zeichnen()
         st.rerun()
-    st.caption("Entfernen löscht den Baustein samt Annahmen aus diesem Modell. „Startgewichte“ holt die "
-               "Bausteine des Ausgangsmodells zurück; nur „Aktiv“ abwählen lässt ihn in der Liste.")
+    st.caption("Entfernen löscht den Baustein samt Annahmen aus diesem Modell; nur „Aktiv“ abwählen lässt ihn in "
+               "der Liste. „Startgewichte“ unter „⚖️ Gewichtung“ holt die Bausteine des Ausgangsmodells zurück.")
 
-    _abschnitt("Allocation")
+
+def _meldung_zeigen():
+    meldung = st.session_state.get("planer_meldung")
+    if meldung:
+        art, text, verletzt = meldung
+        {"ok": st.success, "warnung": st.warning, "fehler": st.error}[art](text)
+        if verletzt:
+            st.caption("Hinweis – über den Optimizer-Grenzen: " + " · ".join(verletzt) + ". Reine Rückrechnung aus "
+                       "den Annahmen, keine Empfehlung.")
+
+
+def _b_aufteilung(m, R):
+    _abschnitt("Aufteilung")
+    start = m["rahmen"]["startkapital"]
     w = E.gewichte(m)
     namen = {a["id"]: a["name"] for a in m["assets"]}
     ids = [i for i in w if w[i] > 0]
@@ -1257,6 +1151,198 @@ def _b_allocation(m, R, h):
     _tabelle(["Kategorie", "Anteil", "Betrag"],
              [[_esc(k), _pct(v, anteil=False), _eur(start * v / 100, False)] for k, v in
               sorted(kat.items(), key=lambda x: -x[1])])
+
+
+
+
+# --- Gewichtung: EIN Assistent statt verstreuter Knoepfe ----------------------
+VERFAHREN = {"rendite": "⚖️ Nach Rendite p.a.", "gleich": "🟰 Gleich verteilt", "ziel": "🎯 Auf Ziel rechnen",
+             "start": "↺ Startgewichte"}
+VERFAHREN_TEXT = {
+    "rendite": "Verteilt die freien Prozente im Verhältnis der Rendite p.a. (Spalte „Genutzt %“). Bausteine mit "
+               "Rendite ≤ 0 bekommen 0 %. Bezieht auch neue Bausteine mit bisher 0 % ein.",
+    "gleich": "Alle aktiven, nicht fixierten Bausteine bekommen denselben Anteil – die neutrale Ausgangsbasis.",
+    "ziel": "Rechnet die Gewichte so, dass das Modell ein Ziel trifft: Zielvermögen oder Wunschrendite p.a. "
+            "Ohne Grenzen werden die bisherigen Gewichte stufenlos zu den renditestärkeren Bausteinen verschoben "
+            "(Bausteine mit 0 % bleiben außen vor). Mit Grenzen verteilt ein Optimizer so breit wie möglich.",
+    "start": "Stellt die Platzhalter-Gewichte des Ausgangsmodells wieder her; gelöschte Start-Bausteine kommen zurück.",
+}
+
+
+def _mit_gewichten(m, gew):
+    m2 = dict(m)
+    m2["assets"] = [dict(a, targetWeight=gew[a["id"]]) if a["id"] in gew else a for a in m["assets"]]
+    return m2
+
+
+def _grenzen_editor(m):
+    g = m["grenzen"]
+    g["einzelasset_max"] = float(st.number_input("Max. Gewicht je Baustein (%)", 1.0, 100.0,
+                                                 float(g["einzelasset_max"]), step=1.0, key=_k("g_einzel")))
+    df = pd.DataFrame([{"Grenze": x["titel"], "Max %": x.get("max"), "Min %": x.get("min")} for x in g["gruppen"]])
+    ed = st.data_editor(df, key=_k("grenzen"), hide_index=True, height=_hoehe(len(df)), width="stretch",
+                        disabled=["Grenze"],
+                        column_config={"Max %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=1.0),
+                                       "Min %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=1.0)})
+    for i, x in enumerate(g["gruppen"]):
+        mx, mn = ed.iloc[i]["Max %"], ed.iloc[i]["Min %"]
+        x["max"] = None if pd.isna(mx) else float(mx)
+        x["min"] = None if pd.isna(mn) else float(mn)
+    st.caption("Halbleiter zählt den Halbleiteranteil je Baustein (VanEck Semiconductor 100 %, Korb nach "
+               "Zusammensetzung); Indizes ohne hinterlegten Anteil zählen 0 – ergänzbar unter „🗂️ Daten“.")
+
+
+def _vorschlag(m, R, verfahren, ziel_art, wunsch, mit_grenzen):
+    """-> dict(gewichte, art, text) - noch NICHT uebernommen."""
+    rahmen = m["rahmen"]
+    if verfahren == "rendite":
+        erg = E.gewichte_nach_rendite(m, R["r"])
+        if erg.get("fehler"):
+            return {"art": "fehler", "text": erg["fehler"]}
+        return {"gewichte": erg["gewichte"], "art": "ok", "text": "Verteilung nach Rendite p.a."}
+    if verfahren == "gleich":
+        aktiv = E.aktive_assets(m)
+        fest = {a["id"]: float(a.get("targetWeight") or 0) for a in aktiv
+                if a.get("fixiert") or a["category"] == "cash"}
+        frei = [a["id"] for a in aktiv if a["id"] not in fest]
+        rest = 100.0 - sum(fest.values())
+        if not frei or rest <= 0:
+            return {"art": "fehler", "text": "Keine freien Bausteine zum Verteilen."}
+        return {"gewichte": {**fest, **{i: rest / len(frei) for i in frei}}, "art": "ok",
+                "text": f"Gleich verteilt: {len(frei)} Bausteine je {_pct(rest / len(frei), 1, anteil=False)}."}
+    if verfahren == "start":
+        seed = {a["id"]: a["targetWeight"] for a in D.SEED_ASSETS}
+        gew = {a["id"]: seed.get(a["id"], 0.0) for a in m["assets"]}
+        return {"gewichte": gew, "art": "ok", "text": "Startgewichte des Ausgangsmodells (Platzhalter).",
+                "start": True}
+    # Ziel
+    if ziel_art == "rendite":
+        zielwert = E.ziel_aus_rendite(m, wunsch / 100.0)
+        ziel_txt = f"{_de(wunsch, 1)} % p.a. (≈ {_de(E.runden_ungefaehr(zielwert))} €)"
+    else:
+        zielwert = float(rahmen["zielvermoegen"])
+        ziel_txt = f"{_de(zielwert)} €"
+    if mit_grenzen:
+        o = E.optimiere(m, R["r"], R["conf"], ziel=zielwert)
+        if not o or o.get("fehler"):
+            return {"art": "fehler", "text": (o or {}).get("fehler") or "Keine Lösung."}
+        voll = {a["id"]: o["gewichte"].get(a["id"], 0.0) for a in E.aktive_assets(m)}
+        if o["erreichbar"]:
+            return {"gewichte": voll, "art": "ok", "text": f"Ziel {ziel_txt} innerhalb aller Grenzen erreichbar."}
+        return {"gewichte": voll, "art": "warnung",
+                "text": f"Ziel {ziel_txt} ist unter den Grenzen nicht erreichbar. Vorschlag = höchster möglicher "
+                        f"Endwert unter den Grenzen ({_eur(o['max_endwert'])})."}
+    erg = E.gewichtung_fuer_ziel(m, R["r"], ziel=zielwert, rebalancing=R["reb"])
+    if erg.get("fehler"):
+        return {"art": "fehler", "text": erg["fehler"]}
+    if not erg["erreichbar"]:
+        return {"art": "fehler", "text": f"Ziel {ziel_txt} ist mit den aktuellen Annahmen auch bei maximaler "
+                                         f"Verschiebung nicht erreichbar (höchstens {_eur(erg['max_endwert'])}). "
+                                         "Fixierungen lösen, Annahmen prüfen oder Grenzen nutzen."}
+    return {"gewichte": erg["gewichte"], "art": "ok", "text": f"Ziel {ziel_txt} exakt erreicht."}
+
+
+def _b_gewichtung(m, R):
+    _abschnitt("Gewichtung")
+    st.caption("Ein Verfahren wählen → Vorschlag berechnen → vergleichen → übernehmen. Fixierte Bausteine "
+               "(Spalte „Fix“) und die Reserve bleiben immer unverändert.")
+    keys = list(VERFAHREN)
+    wahl = st.pills("Verfahren", [VERFAHREN[k] for k in keys], default=VERFAHREN["rendite"], key="pl_verfahren") \
+        or VERFAHREN["rendite"]
+    verfahren = keys[[VERFAHREN[k] for k in keys].index(wahl)]
+    st.markdown(f'<div class="pl-zeile">{_esc(VERFAHREN_TEXT[verfahren])}</div>', unsafe_allow_html=True)
+
+    ziel_art, wunsch, mit_grenzen = "vermoegen", None, False
+    if verfahren == "ziel":
+        rahmen = m["rahmen"]
+        req = R["zus"]["erforderliche_cagr"] or 0.0
+        ziel_art = st.radio("Ziel", ["vermoegen", "rendite"], horizontal=True, key=_k("ziel_art"),
+                            format_func=lambda x: (f"Zielvermögen {_ziel_label(rahmen['zielvermoegen'])}"
+                                                   if x == "vermoegen" else "Wunschrendite p.a."))
+        if ziel_art == "rendite":
+            wunsch = float(st.number_input("Wunschrendite p.a. (%)", -20.0, 200.0,
+                                           float(rahmen.get("wunschrendite") if rahmen.get("wunschrendite") is not None
+                                                 else round(req * 100, 1)), step=1.0, key=_k("wunsch")))
+            rahmen["wunschrendite"] = wunsch
+        else:
+            st.caption(f"Benötigt für das Zielvermögen: {_pct(req)} p.a. (Zielvermögen und Dauer unter "
+                       "„⚙️ Planung“).")
+        mit_grenzen = st.toggle("Optimizer-Grenzen einhalten (breit streuen)", value=False, key=_k("mit_grenzen"))
+        with st.expander("Optimizer-Grenzen bearbeiten", expanded=False):
+            _grenzen_editor(m)
+
+    sig = (verfahren, ziel_art, wunsch, mit_grenzen)
+    if st.button("🔍 Vorschlag berechnen", key=_k("vorschlag_btn"), width="stretch"):
+        v = _vorschlag(m, R, verfahren, ziel_art, wunsch, mit_grenzen)
+        v["sig"] = sig
+        st.session_state["planer_vorschlag"] = v
+    v = st.session_state.get("planer_vorschlag")
+    if not v or v.get("sig") != sig:
+        _meldung_zeigen()
+        return
+    {"ok": st.success, "warnung": st.warning, "fehler": st.error}[v["art"]](v["text"])
+    gew = v.get("gewichte")
+    if not gew:
+        return
+
+    # Vergleich vorher / nachher
+    summe = E.gewichte_summe(m) or 1.0
+    vorher = R["zus"]["endwert"]
+    try:
+        nachher = E.projektion(_mit_gewichten(m, gew), R["r"], rebalancing=R["reb"])["endwert"]
+    except Exception:
+        nachher = None
+    jahre = m["rahmen"]["horizont_jahre"]
+    ohne_spar = not m["rahmen"].get("sparrate_monat")
+    _kacheln([
+        ("Endwert vorher", _eur(vorher), _pct(E.required_cagr(m["rahmen"]["startkapital"], vorher, jahre)) + " p.a."
+         if ohne_spar else None),
+        ("Endwert nachher", _eur(nachher), (_pct(E.required_cagr(m["rahmen"]["startkapital"], nachher, jahre))
+                                            + " p.a.") if ohne_spar and nachher else None),
+    ], klein=True)
+    namen = {a["id"]: a["name"] for a in m["assets"]}
+    zeilen = []
+    for aid, neu in sorted(gew.items(), key=lambda x: -x[1]):
+        a = _asset(m, aid)
+        if a is None:
+            continue
+        alt = float(a.get("targetWeight") or 0) * 100 / summe if a.get("enabled") else 0.0
+        if neu < 0.005 and alt < 0.005:
+            continue
+        d = neu - alt
+        zeilen.append([_esc(namen[aid]), _pct(alt, 1, anteil=False), f"<b>{_pct(neu, 1, anteil=False)}</b>",
+                       f'<span class="{"pl-gut" if d > 0.05 else "pl-schlecht" if d < -0.05 else ""}">'
+                       f'{_pct(d, 1, vorzeichen=True, anteil=False)}</span>'])
+    _tabelle(["Baustein", "Aktuell", "Neu", "Δ"], zeilen)
+    verletzt = E.grenzen_verletzungen(m, {i: g for i, g in gew.items() if g > 0})
+    if verletzt:
+        st.caption("Über den Optimizer-Grenzen: " + " · ".join(verletzt) + ".")
+    c1, c2 = st.columns(2)
+    if c1.button("✔ Vorschlag übernehmen", key=_k("vorschlag_ok"), width="stretch"):
+        if v.get("start"):
+            vorhanden = {a["id"] for a in m["assets"]}
+            seed_m = D.seed_modell()
+            for a in seed_m["assets"]:
+                if a["id"] not in vorhanden:
+                    m["assets"].append(a)
+                    m["annahmen"] += [x for x in seed_m["annahmen"] if x["assetId"] == a["id"]]
+            seed = {a["id"]: a for a in D.SEED_ASSETS}
+            for a in m["assets"]:
+                a["targetWeight"] = seed[a["id"]]["targetWeight"] if a["id"] in seed else 0.0
+                if a["id"] in seed:
+                    a["enabled"] = seed[a["id"]]["enabled"]
+        else:
+            for a in m["assets"]:
+                if a["id"] in gew:
+                    a["targetWeight"] = gew[a["id"]]
+        st.session_state["planer_meldung"] = ("ok", f"Gewichtung übernommen: {v['text']}", verletzt)
+        st.session_state.pop("planer_vorschlag", None)
+        _neu_zeichnen()
+        st.rerun()
+    if c2.button("✖ Verwerfen", key=_k("vorschlag_weg"), width="stretch"):
+        st.session_state.pop("planer_vorschlag", None)
+        st.rerun()
+    st.caption("Reine Rückrechnung aus den Annahmen – keine Renditeprognose, keine Anlageempfehlung.")
 
 
 # --- 2 Projected Growth -----------------------------------------------------
@@ -1308,7 +1394,7 @@ def _b_growth(m, R):
     _tabelle(["Variante", "Endwert glatt", "Endwert Stresspfad", "Max. Verlust", "Rebal."], zeilen)
     st.caption("Glatte Rechnung: konstante Renditen – Rebalancing verschiebt dort nur Gewicht von stärkeren zu "
                "schwächeren Bausteinen. Stresspfad: zusätzlicher Markteinbruch (Einstellungen unter "
-               "„Nachkaufreserve“), in dem Rebalancing antizyklisch wirkt.")
+               "„⚠️ Risiko → Stress & Reserve“), in dem Rebalancing antizyklisch wirkt.")
 
 
 # --- 3 Zielerreichung -------------------------------------------------------
@@ -1334,48 +1420,7 @@ def _b_ziel(m, R):
     fig.update_layout(title=dict(text="Gewinnbeitrag je Baustein (€)", font=dict(size=13)), margin=dict(t=40))
     _chart(fig, "pl_beitrag")
 
-    _abschnitt("Zieloptimierung")
-    st.caption("Mathematische Zielgewichtung unter den gesetzten Grenzen – keine Renditeprognose, keine "
-               "Anlageempfehlung. Reihenfolge: 1. Ziel erreichen, 2. Konzentration minimieren, "
-               "3. Datenqualität (Confidence) maximieren. Grenzen werden nie verletzt.")
-    g = m["grenzen"]
-    g["einzelasset_max"] = float(st.number_input("Max. Gewicht je Baustein (%)", 1.0, 100.0,
-                                                 float(g["einzelasset_max"]), step=1.0, key=_k("g_einzel")))
-    df = pd.DataFrame([{"Grenze": x["titel"], "Max %": x.get("max"), "Min %": x.get("min")} for x in g["gruppen"]])
-    ed = st.data_editor(df, key=_k("grenzen"), hide_index=True, height=_hoehe(len(df)), width="stretch", disabled=["Grenze"],
-                        column_config={"Max %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=1.0),
-                                       "Min %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=1.0)})
-    for i, x in enumerate(g["gruppen"]):
-        mx, mn = ed.iloc[i]["Max %"], ed.iloc[i]["Min %"]
-        x["max"] = None if pd.isna(mx) else float(mx)
-        x["min"] = None if pd.isna(mn) else float(mn)
-    st.caption("Halbleiter-Grenze zählt den Halbleiteranteil je Baustein (VanEck Semiconductor 100 %, Korb nach "
-               "Zusammensetzung). Für Indizes ohne hinterlegten Anteil wird 0 angesetzt – unter "
-               "„Annahmen & Datenqualität“ ergänzbar.")
-    if st.button("Zielgewichtung berechnen", key=_k("opt"), width="stretch"):
-        st.session_state["planer_opt"] = E.optimiere(m, R["r"], R["conf"])
-    o = st.session_state.get("planer_opt")
-    if o:
-        if o.get("fehler"):
-            st.error(o["fehler"])
-        else:
-            if o["erreichbar"]:
-                st.success(f"Ziel unter diesen Regeln modellierbar – Endwert {_eur(o['endwert'])}.")
-            else:
-                st.warning(f"Ziel unter diesen Regeln nicht erreichbar. Maximal modellierter Endwert: "
-                           f"{_eur(o['max_endwert'])}.")
-            zeilen = []
-            for aid, gew in sorted(o["gewichte"].items(), key=lambda x: -x[1]):
-                alt = float(_asset(m, aid).get("targetWeight") or 0) * 100 / (E.gewichte_summe(m) or 1)
-                zeilen.append([_esc(namen[aid]), _pct(gew, anteil=False), _pct(alt, anteil=False),
-                               _pct(gew - alt, vorzeichen=True, anteil=False)])
-            _tabelle(["Baustein", "Zielgewicht", "Aktuell", "Differenz"], zeilen)
-            if st.button("Diese Gewichtung übernehmen", key=_k("opt_ok"), width="stretch"):
-                for aid, gew in o["gewichte"].items():
-                    _asset(m, aid)["targetWeight"] = round(gew, 2)
-                st.session_state.pop("planer_opt", None)
-                _neu_zeichnen()
-                st.rerun()
+    st.caption("Gewichte auf ein Ziel ausrichten: Bereich „⚖️ Gewichtung“ → „🎯 Auf Ziel rechnen“.")
 
 
 # --- 4 Fundamental Basket ---------------------------------------------------
@@ -1540,7 +1585,7 @@ def _b_wiki(m, R, hist_assets):
                "sonst 1 J.). Die eigene Annahme gilt nur, wenn keine Historie ≥ 1 Jahr vorliegt oder im Portfolio "
                "Builder „Ist“ abgewählt ist. Vergangene Renditen sind keine Zukunftserwartung. Confidence misst nur, wie lang und belastbar die investierbare Historie ist – z. B. "
                "„Expected Return 50 % / Data Confidence 22/100“. Performance Fee und Kosten nur, soweit unter "
-               "„Annahmen & Datenqualität“ eingetragen.")
+               "„🗂️ Daten → Annahmen & Quellen“ eingetragen.")
     fig = go.Figure()
     for n, a in enumerate(wikis):
         mon = (hist_assets.get(a["id"]) or {}).get("monat") or []
@@ -1574,7 +1619,7 @@ def _b_szenarien(m, R, historie, h):
                        '<span class="pl-gut">ja</span>' if v["ziel_erreicht"] else '<span class="pl-schlecht">nein</span>',
                        ("+" if v["abstand"] >= 0 else "−") + _de(abs(E.runden_ungefaehr(v["abstand"]) or 0)) + " €"])
     _tabelle(["Szenario", "Endwert", "CAGR", "Max. Verlust*", "Einzahlungen", "Ziel", "Abstand"], zeilen)
-    st.caption("* im Stresspfad (Markteinbruch laut „Nachkaufreserve“). Custom = eigene Custom-Annahmen, "
+    st.caption("* im Stresspfad (Markteinbruch unter „⚠️ Risiko → Stress & Reserve“). Custom = eigene Custom-Annahmen, "
                "sonst Base. " + m["szenario_regel"]["text"])
     fig = go.Figure(go.Bar(x=["Bear", "Base", "Bull", "Custom"], y=[s[x]["endwert"] for x in ("bear", "base", "bull", "custom")],
                            marker_color=["#EA3943", "#4C9AFF", "#16C784", "#A78BFA"],
@@ -1584,7 +1629,12 @@ def _b_szenarien(m, R, historie, h):
     _layout(fig, 320, legende=False)
     _chart(fig, "pl_szen")
 
-    _abschnitt("Gespeicherte Szenarien")
+
+
+def _b_modelle(m, R, historie, h):
+    _abschnitt("Gespeicherte Modelle")
+    st.caption(f"Aktives Modell: „{st.session_state.get('planer_name') or 'Aktuelles Modell'}“ – Änderungen werden "
+               "automatisch darin gespeichert. Für eine Variante erst unter neuem Namen speichern, dann ändern.")
     daten = _lade_gespeichert(h)
     vorhanden = list(daten["szenarien"])
     c1, c2 = st.columns([2, 1])
@@ -1606,7 +1656,7 @@ def _b_szenarien(m, R, historie, h):
             st.error("Speichern nicht möglich (GitHub-Speicher nicht verfügbar).")
     if vorhanden:
         c3, c4, c5 = st.columns([2, 1, 1])
-        laden = c3.selectbox("Gespeichertes Szenario", vorhanden, key=_k("sz_laden"))
+        laden = c3.selectbox("Gespeichertes Modell", vorhanden, key=_k("sz_laden"))
         if c4.button("Laden", key=_k("sz_load"), width="stretch"):
             st.session_state["planer_modell"] = _migriere(daten["szenarien"][laden]["modell"])
             st.session_state["planer_name"] = laden
@@ -1637,10 +1687,8 @@ def _b_szenarien(m, R, historie, h):
                                _datum(e.get("gespeichert"))])
             except Exception as ex:
                 zeilen.append([_esc(n), f"Fehler: {_esc(ex)}"] + ["–"] * 6)
-        _tabelle(["Szenario", "Endwert", "p.a.", "Wikifolios", "Hebel", "Max. Gew.", "Conf.", "Gespeichert"], zeilen)
-        st.caption("Alle gespeicherten Szenarien mit den heutigen historischen Daten neu gerechnet. Änderungen "
-               "werden automatisch in das zuletzt geladene bzw. gespeicherte Szenario geschrieben – für eine "
-               "Variante erst unter neuem Namen speichern, dann ändern.")
+        _tabelle(["Modell", "Endwert", "p.a.", "Wikifolios", "Hebel", "Max. Gew.", "Conf.", "Gespeichert"], zeilen)
+        st.caption("Alle gespeicherten Modelle mit den heutigen Kursdaten neu gerechnet.")
 
 
 # --- 7 Risiko & Konzentration -----------------------------------------------
@@ -1711,7 +1759,7 @@ def _b_reserve(m, R):
     nk, stress = m["nachkauf"], m["stress"]
     res = _asset(m, "reserve")
     if res is None or not res.get("enabled"):
-        st.info("Die Nachkaufreserve ist deaktiviert (Portfolio Builder).")
+        st.info("Die Nachkaufreserve ist deaktiviert (🧩 Portfolio → Bausteine).")
     c1, c2 = st.columns(2)
     if res is not None:
         neu = c1.number_input("Reserve (% des Portfolios)", 0.0, 60.0, float(res.get("targetWeight") or 0), step=1.0,
@@ -1973,20 +2021,6 @@ def _b_annahmen(m, R, historie, hist_assets):
     st.caption("WKN/ISIN steuern die Kurssuche für den Historical Layer. Wikifolios ohne WKN werden per Name "
                "gesucht – bitte den gefundenen Namen oben prüfen.")
 
-    with st.expander("➕ Baustein hinzufügen", expanded=False):
-        c1, c2 = st.columns(2)
-        name = c1.text_input("Name", key=_k("neu_name"))
-        kat = c2.selectbox("Kategorie", kats, format_func=lambda k: D.KATEGORIEN[k]["titel"], key=_k("neu_kat"))
-        c3, c4, c5 = st.columns(3)
-        kennung = c3.text_input("WKN / ISIN", key=_k("neu_id"))
-        gew = c4.number_input("Gewicht %", 0.0, 100.0, 0.0, step=0.5, key=_k("neu_w"))
-        rendite = c5.number_input("Annahme % p.a.", -50.0, 200.0, 0.0, step=0.5, key=_k("neu_r"))
-        if st.button("Hinzufügen", key=_k("neu_ok"), disabled=not name.strip()):
-            kennung = kennung.strip().upper()
-            _baustein_neu(m, name.strip(), kat, isin=kennung if len(kennung) == 12 else None,
-                          wkn=kennung if kennung and len(kennung) != 12 else None, gewicht=gew, rendite=rendite)
-            _neu_zeichnen()
-            st.rerun()
 
 
 # --- 11 Entnahmeplan --------------------------------------------------------
@@ -2079,7 +2113,7 @@ def _b_entnahme(m, R):
                        _de(E.entnahme_fuer(kapital, r, jahre=jahre, **kw)) + " €"])
     _tabelle(["Rendite p.a.", "Reicht", f"Rest nach {jahre} J.", "Verzehr/Monat"], zeilen)
     st.caption("Konstante Renditen – echte Märkte schwanken. Verluste gleich zu Beginn der Entnahme wiegen deutlich "
-               "schwerer (Reihenfolge-Risiko); der Stresspfad unter „Nachkaufreserve“ zeigt die Aufbauphase.")
+               "schwerer (Reihenfolge-Risiko); der Stresspfad unter „⚠️ Risiko → Stress & Reserve“ zeigt die Aufbauphase.")
 
     _abschnitt("Jahresübersicht")
     tab = plan["jahre_tabelle"][:max(jahre, 1)]
@@ -2107,7 +2141,11 @@ def render(h):
     _rahmen(m)
     kpi_platz = st.empty()
     warn_platz = st.empty()
-    bereich = st.pills("Bereich", BEREICHE, default=BEREICHE[0], key="pl_bereich") or BEREICHE[0]
+    haupt = st.pills("Bereich", HAUPT, default=HAUPT[0], key="pl_haupt") or HAUPT[0]
+    unter = None
+    if UNTER[haupt]:
+        unter = st.pills("Unterseite", UNTER[haupt], default=UNTER[haupt][0], key=f"pl_unter_{HAUPT.index(haupt)}",
+                         label_visibility="collapsed") or UNTER[haupt][0]
 
     with st.spinner("Lade historische Daten …"):
         try:
@@ -2124,28 +2162,23 @@ def render(h):
 
     # Eingaben des Bereichs zuerst (sie aendern das Modell), danach rechnen
     R = _rechne(m, historie, korb_score)
-    if bereich == BEREICHE[0]:
-        _b_allocation(m, R, h)
-    elif bereich == BEREICHE[1]:
-        _b_growth(m, R)
-    elif bereich == BEREICHE[2]:
-        _b_ziel(m, R)
-    elif bereich == BEREICHE[3]:
-        _b_korb(m, R, fund, fund_stand, je_score, korb_score, hist_korb)
-    elif bereich == BEREICHE[4]:
-        _b_wiki(m, R, hist_assets)
-    elif bereich == BEREICHE[5]:
-        _b_szenarien(m, R, historie, h)
-    elif bereich == BEREICHE[6]:
-        _b_risiko(m, R, historie)
-    elif bereich == BEREICHE[7]:
-        _b_reserve(m, R)
-    elif bereich == BEREICHE[8]:
-        _b_sensitiv(m, R)
-    elif bereich == BEREICHE[10]:
-        _b_entnahme(m, R)
-    else:
-        _b_annahmen(m, R, historie, hist_assets)
+    seiten = {
+        ("🧩 Portfolio", "Bausteine"): lambda: _b_bausteine(m, R, h),
+        ("🧩 Portfolio", "Aufteilung"): lambda: _b_aufteilung(m, R),
+        ("⚖️ Gewichtung", None): lambda: _b_gewichtung(m, R),
+        ("📈 Ergebnis", "Wachstum"): lambda: _b_growth(m, R),
+        ("📈 Ergebnis", "Ziel"): lambda: _b_ziel(m, R),
+        ("📈 Ergebnis", "Szenarien"): lambda: _b_szenarien(m, R, historie, h),
+        ("📈 Ergebnis", "Entnahme"): lambda: _b_entnahme(m, R),
+        ("⚠️ Risiko", "Konzentration"): lambda: _b_risiko(m, R, historie),
+        ("⚠️ Risiko", "Sensitivität"): lambda: _b_sensitiv(m, R),
+        ("⚠️ Risiko", "Stress & Reserve"): lambda: _b_reserve(m, R),
+        ("🔬 Analyse", "Aktienkorb"): lambda: _b_korb(m, R, fund, fund_stand, je_score, korb_score, hist_korb),
+        ("🔬 Analyse", "Wikifolios"): lambda: _b_wiki(m, R, hist_assets),
+        ("🗂️ Daten", "Annahmen & Quellen"): lambda: _b_annahmen(m, R, historie, hist_assets),
+        ("🗂️ Daten", "Gespeicherte Modelle"): lambda: _b_modelle(m, R, historie, h),
+    }
+    seiten[(haupt, unter)]()
 
     # KPIs mit dem Stand NACH den Eingaben
     je_score, korb_score = _scores(m, fund)
