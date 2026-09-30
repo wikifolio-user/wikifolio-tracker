@@ -1919,7 +1919,13 @@ NAV_CSS = """
     0%, 100% { text-shadow: 0 0 2px rgba(255, 255, 255, 0.2); opacity: 0.6; }
     50%      { text-shadow: 0 0 6px rgba(255, 255, 255, 0.9), 0 0 14px rgba(255, 255, 255, 0.5); opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .nav-wander { animation: none; } }
+/* Titel "FINANZ DASHBOARD" pulsiert ebenfalls dauerhaft */
+.nav-logo { animation: navlogopuls 2s ease-in-out infinite; }
+@keyframes navlogopuls {
+    0%, 100% { text-shadow: 0 0 3px rgba(255, 255, 255, 0.25); opacity: 0.72; }
+    50%      { text-shadow: 0 0 8px rgba(255, 255, 255, 0.9), 0 0 20px rgba(255, 255, 255, 0.45); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .nav-wander, .nav-logo { animation: none; } }
 
 /* Kacheln "Neon-Taste": dicke 3D-Kante (gestapelte Schatten), weisser
    Neonrand, weiches Bodenleuchten unter der Taste - ruhig, ohne Bewegung */
