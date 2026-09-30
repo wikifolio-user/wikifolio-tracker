@@ -1864,10 +1864,11 @@ NAV_CSS = """
 }
 .nav-logo .nav-lauf > span { font-weight: 300; }
 .nav-chip {
-    display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 14px;
-    border-radius: 999px; font-size: 0.74rem; color: #FFFFFF; font-weight: 600;
-    border: 1px solid rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0.03);
-    box-shadow: 0 0 5px rgba(255, 255, 255, 0.4), 0 0 14px rgba(255, 255, 255, 0.15);
+    /* gleicher Tasten-Look wie die Kacheln: klarer Rand, 3D-Kante, kein Leuchten */
+    display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 6px; padding: 7px 16px;
+    border-radius: 999px; font-size: 0.76rem; color: #FFFFFF; font-weight: 700;
+    border: 1px solid rgba(255, 255, 255, 0.85); background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%);
+    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30);
 }
 .nav-chip b { color: #FFFFFF; font-weight: 700; }
 .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
@@ -1893,15 +1894,26 @@ NAV_CSS = """
 @keyframes navschimmer { 0% { background-position: 100% 0; } 55%, 100% { background-position: 0% 0; } }
 @media (prefers-reduced-motion: reduce) { .nav-lauf { animation: none; } }
 
-/* Gruppen-Ueberschrift: ruhig, mit Luft nach oben und unten */
+/* Gruppen-Ueberschrift: laeuft einmal von links nach rechts ueber die Linie,
+   springt dann an den Anfang zurueck und beginnt von vorn */
 .nav-gruppe {
-    display: flex; align-items: center; gap: 12px; padding: 16px 4px 2px;
+    position: relative; height: 38px; margin: 0 4px; overflow: hidden;
     font-size: 0.7rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
     text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
 }
-.nav-gruppe::after { content: ""; flex: 1; height: 1px;
-                     background: linear-gradient(90deg, rgba(255, 255, 255, 0.75), transparent);
-                     box-shadow: 0 0 4px rgba(255, 255, 255, 0.3); }
+.nav-gruppe::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.12));
+}
+.nav-wander {
+    position: absolute; bottom: 12px; left: 0; white-space: nowrap;
+    animation: navwander 10s linear infinite;
+}
+@keyframes navwander {
+    0%, 6%    { left: 0;    transform: translateX(0); }
+    94%, 100% { left: 100%; transform: translateX(-100%); }
+}
+@media (prefers-reduced-motion: reduce) { .nav-wander { animation: none; } }
 
 /* Kacheln "Neon-Taste": dicke 3D-Kante (gestapelte Schatten), weisser
    Neonrand, weiches Bodenleuchten unter der Taste - ruhig, ohne Bewegung */
@@ -1947,7 +1959,7 @@ NAV_CSS = """
         0 6px 12px rgba(0, 0, 0, 0.6),
         inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
 }
-.st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.74rem !important; font-weight: 600 !important; }
+.st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.76rem !important; font-weight: 700 !important; }
 
 /* Aktualisieren: schlanke Neon-Pille */
 /* klein und mittig direkt unter der Kurs-Pille */
@@ -1961,15 +1973,18 @@ NAV_CSS = """
     width: auto !important; display: flex !important; justify-content: center !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button {
-    width: auto !important; min-height: 32px !important; padding: 2px 16px !important; border-radius: 999px !important;
-    transform: none !important; border: 1px solid rgba(255, 255, 255, 0.8) !important;
-    background: rgba(255, 255, 255, 0.04) !important; border-color: rgba(255, 255, 255, 0.8) !important;
-    box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.2),
-                inset 0 0 10px rgba(255, 255, 255, 0.08) !important;
+    width: auto !important; min-height: 34px !important; padding: 2px 18px !important; border-radius: 999px !important;
+    transform: translateY(-2px) !important; border: 1px solid rgba(255, 255, 255, 0.85) !important;
+    background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%) !important;
+    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30) !important;
 }
-.st-key-nav_menue .st-key-nav_refresh button:hover, .st-key-nav_menue .st-key-nav_refresh button:active {
-    transform: none !important; border-color: #FFFFFF !important;
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.7), 0 0 22px rgba(255, 255, 255, 0.28) !important;
+.st-key-nav_menue .st-key-nav_refresh button:hover {
+    transform: translateY(-3px) !important; border-color: #FFFFFF !important;
+    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30), 0 0 3px rgba(255, 255, 255, 0.25) !important;
+}
+.st-key-nav_menue .st-key-nav_refresh button:active {
+    transform: translateY(1px) !important;
+    box-shadow: 0 1px 0 #282B31, 0 4px 8px rgba(0, 0, 0, 0.6), inset 0 2px 6px rgba(0, 0, 0, 0.55) !important;
 }
 
 /* ================= ALLE BUTTONS: weisser Neonrand ================= */
@@ -2113,7 +2128,7 @@ def navigation():
             for titel, ansichten in NAV_ZEILEN:
                 farbe = NAV_FARBEN.get(titel, "#F4F8FF")
                 verzug = f"{NAV_ZEILEN.index((titel, ansichten)) * 0.8 + 0.8:.1f}s"
-                st.markdown(f'<div class="nav-gruppe"><span class="nav-lauf" style="animation-delay:{verzug}">'
+                st.markdown(f'<div class="nav-gruppe"><span class="nav-wander" style="animation-delay:{verzug}">'
                             f'{titel}</span></div>', unsafe_allow_html=True)
                 for i in range(0, len(ansichten), 2):
                     spalten = st.columns(2)
