@@ -562,5 +562,41 @@ class NachRendite(unittest.TestCase):
         self.assertIn("fehler", E.gewichte_nach_rendite(m, {i: 0.0 for i in E.gewichte(m)}))
 
 
+class RenditeGewichtung(unittest.TestCase):
+    def test_trifft_rendite(self):
+        m = D.seed_modell()
+        r = renditen(m)
+        for ziel in (0.10, 0.25, 0.30):
+            o = E.gewichtung_fuer_rendite(m, r, ziel)
+            self.assertTrue(o["erreichbar"])
+            self.assertAlmostEqual(o["rendite"], ziel, places=6)
+            self.assertAlmostEqual(sum(o["gewichte"].values()), 100.0, places=6)
+            self.assertAlmostEqual(o["gewichte"]["reserve"], 10.0)
+
+    def test_nicht_erreichbar_und_gleichverteilung(self):
+        m = D.seed_modell()
+        r = renditen(m)
+        o = E.gewichtung_fuer_rendite(m, r, 0.9)
+        self.assertFalse(o["erreichbar"])
+        self.assertAlmostEqual(o["rendite"], o["max"], places=4)
+        frei = [i for i in E.gewichte(m) if i != "reserve"]
+        mittel = 0.1 * r["reserve"] + 0.9 * sum(r[i] for i in frei) / len(frei)
+        g = E.gewichtung_fuer_rendite(m, r, mittel)["gewichte"]
+        for i in frei:
+            self.assertAlmostEqual(g[i], 90.0 / len(frei), places=3)       # ausgeglichen = gleich verteilt
+
+    def test_ohne_aufbau(self):
+        m = D.seed_modell()
+        m["rahmen"]["horizont_jahre"] = 0
+        r = renditen(m)
+        z = E.zusammenfassung(m, r)
+        self.assertEqual(z["endwert"], 15000)
+        self.assertIsNone(z["modell_cagr"])
+        self.assertIn("fehler", E.gewichtung_fuer_ziel(m, r))
+        m["rahmen"]["horizont_jahre"] = 5
+        m["rahmen"]["zielvermoegen"] = 0
+        self.assertIn("fehler", E.gewichtung_fuer_ziel(m, r))
+
+
 if __name__ == "__main__":
     unittest.main()
