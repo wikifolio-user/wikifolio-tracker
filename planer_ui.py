@@ -1018,6 +1018,66 @@ def _b_allocation(m, R, h):
                 a["targetWeight"], a["enabled"] = seed[a["id"]]["targetWeight"], seed[a["id"]]["enabled"]
         _neu_zeichnen()
         st.rerun()
+    # --- Gewichtung nach Wunschrendite ---
+    _abschnitt("Gewichtung nach Wunschrendite")
+    req = R["zus"]["erforderliche_cagr"] or 0.0
+    c7, c8 = st.columns(2)
+    wunsch = c7.number_input("Wunschrendite p.a. (%)", -20.0, 200.0,
+                             float(m["rahmen"].get("wunschrendite") if m["rahmen"].get("wunschrendite") is not None
+                                   else round(req * 100, 1)), step=1.0, key=_k("wunsch"),
+                             help="Die Gewichte werden so verteilt, dass das Portfolio diese Rendite p.a. erreicht")
+    m["rahmen"]["wunschrendite"] = float(wunsch)
+    wege = {"stufenlos": "Stufenlos (Fix beachten)", "optimizer": "Mit Optimizer-Grenzen"}
+    weg_w = c8.selectbox("Verfahren", list(wege), format_func=wege.get, key=_k("wunsch_weg"),
+                         help="Stufenlos: verschiebt die bisherigen Gewichte, Fix-Häkchen bleiben. "
+                              "Optimizer: hält alle Grenzen ein (Wikifolios ≤ 40 %, Einzelwert ≤ 20 % …) "
+                              "und verteilt möglichst breit.")
+    ziel_w = E.ziel_aus_rendite(m, wunsch / 100.0)
+    st.caption(f"{_de(wunsch, 1)} % p.a. entsprechen nach {m['rahmen']['horizont_jahre']} Jahren "
+               f"{_eur(ziel_w)} (benötigt für das Ziel: {_pct(req)} p.a.).")
+    if st.button(f"🎯 Auf {_de(wunsch, 1)} % p.a. gewichten", key=_k("wunsch_btn"), width="stretch"):
+        if weg_w == "stufenlos":
+            erg = E.gewichtung_fuer_ziel(m, R["r"], ziel=ziel_w, rebalancing=R["reb"])
+            if erg.get("fehler"):
+                st.session_state["planer_100k"] = ("fehler", erg["fehler"], [])
+            elif not erg["erreichbar"]:
+                max_r = E.required_cagr(m["rahmen"]["startkapital"], erg["max_endwert"],
+                                        m["rahmen"]["horizont_jahre"]) if not m["rahmen"].get("sparrate_monat") else None
+                st.session_state["planer_100k"] = (
+                    "warnung", f"{_de(wunsch, 1)} % p.a. sind mit den aktuellen Annahmen nicht erreichbar – höchstens "
+                               + (f"{_pct(max_r)} p.a." if max_r is not None else _eur(erg["max_endwert"]))
+                               + ". Nichts geändert.", [])
+            else:
+                for a in m["assets"]:
+                    if a["id"] in erg["gewichte"]:
+                        a["targetWeight"] = erg["gewichte"][a["id"]]
+                st.session_state["planer_100k"] = (
+                    "ok", f"Auf {_de(wunsch, 1)} % p.a. gewichtet – Modell-Endwert {_eur(erg['endwert'])}.",
+                    E.grenzen_verletzungen(m, erg["gewichte"]))
+                _neu_zeichnen()
+                st.rerun()
+        else:
+            o = E.optimiere(m, R["r"], R["conf"], ziel=ziel_w)
+            if not o or o.get("fehler"):
+                st.session_state["planer_100k"] = ("fehler", (o or {}).get("fehler") or "Keine Lösung.", [])
+            elif not o["erreichbar"]:
+                max_r = E.required_cagr(m["rahmen"]["startkapital"], o["max_endwert"], m["rahmen"]["horizont_jahre"]) \
+                    if not m["rahmen"].get("sparrate_monat") else None
+                st.session_state["planer_100k"] = (
+                    "warnung", f"Unter den Optimizer-Grenzen sind höchstens "
+                               + (f"{_pct(max_r)} p.a." if max_r is not None else _eur(o["max_endwert"]))
+                               + f" erreichbar, nicht {_de(wunsch, 1)} %. Nichts geändert – Grenzen unter "
+                                 "„Zielerreichung“ anpassen oder stufenlos gewichten.", [])
+            else:
+                for a in m["assets"]:
+                    if a.get("enabled"):
+                        a["targetWeight"] = o["gewichte"].get(a["id"], 0.0)
+                st.session_state["planer_100k"] = (
+                    "ok", f"Auf {_de(wunsch, 1)} % p.a. gewichtet (innerhalb aller Grenzen) – Modell-Endwert "
+                          f"{_eur(o['endwert'])}.", [])
+                _neu_zeichnen()
+                st.rerun()
+
     meldung = st.session_state.get("planer_100k")
     if meldung:
         art, text, verletzt = meldung
