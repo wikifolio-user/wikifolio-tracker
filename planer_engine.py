@@ -1238,3 +1238,26 @@ def annahmen_aus_historie(modell, historie, alle=False):
                           stand=h.get("stand"), beobachtung=h.get("jahre"), auto=True)
             geaendert += 1
     return geaendert
+
+
+def gewichte_nach_rendite(modell, renditen_netto):
+    """Verteilt die Gewichte proportional zur Rendite p.a. (die in der Rechnung
+    verwendete: Annahme bzw. Ist-Wert). Fixierte Bausteine und Cash behalten
+    ihr Gewicht, Bausteine mit Rendite <= 0 bekommen 0 %. Alle aktiven, nicht
+    fixierten Bausteine werden beruecksichtigt - auch solche mit bisher 0 %.
+    -> {"gewichte": {id: %}} oder {"fehler": text}"""
+    aktiv = aktive_assets(modell)
+    fest = {a["id"]: float(a.get("targetWeight") or 0.0) for a in aktiv
+            if a.get("fixiert") or _typ(a) == "cash"}
+    rest = 100.0 - sum(fest.values())
+    if rest <= 0:
+        return {"fehler": "Fixierte Bausteine und Reserve belegen bereits 100 % – nichts zu verteilen."}
+    frei = [a["id"] for a in aktiv if a["id"] not in fest]
+    roh = {i: max(float(renditen_netto.get(i) or 0.0), 0.0) for i in frei}
+    summe = sum(roh.values())
+    if summe <= 0:
+        return {"fehler": "Kein freier Baustein hat eine positive Rendite p.a."}
+    g = dict(fest)
+    for i in frei:
+        g[i] = roh[i] / summe * rest
+    return {"gewichte": g}
