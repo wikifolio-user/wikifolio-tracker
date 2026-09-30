@@ -1817,31 +1817,36 @@ LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50"}
 
 NAV_CSS = """
 <style>
-/* Kachelzeilen bleiben auch am iPhone nebeneinander (Streamlit stapelt
-   Spalten sonst untereinander) */
-.st-key-nav_kacheln [data-testid="stHorizontalBlock"] {
-    flex-wrap: nowrap !important; gap: 8px !important;
-}
-.st-key-nav_kacheln [data-testid="stColumn"] {
-    min-width: 0 !important; width: auto !important; flex: 1 1 0 !important;
-}
-.st-key-nav_kacheln [data-testid="stButton"] button {
-    width: 100% !important; min-height: 54px !important; border-radius: 12px !important;
-    padding: 6px 4px !important; white-space: normal !important; line-height: 1.2 !important;
+/* ---------- Startseite: Menue als Liste (Kacheln untereinander) ---------- */
+.st-key-nav_menue { max-width: 560px; margin: 0 auto; }
+.st-key-nav_menue [data-testid="stButton"] button {
+    width: 100% !important; min-height: 50px !important; border-radius: 12px !important;
+    justify-content: flex-start !important; padding: 8px 16px !important;
     background: #131519 !important; border: 1px solid #2A2E36 !important;
 }
-.st-key-nav_kacheln [data-testid="stButton"] button p {
-    font-size: 0.82rem !important; font-weight: 700 !important; white-space: normal !important;
-    text-align: center; color: #E9EBEF !important;
+.st-key-nav_menue [data-testid="stButton"] button p {
+    font-size: 0.95rem !important; font-weight: 600 !important; text-align: left !important;
+    color: #E9EBEF !important;
 }
-.nav-zeile { font-size: 0.64rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
-             color: var(--label, #9AA0A6); margin: 6px 0 -6px 2px; }
-.nav-stand { font-size: 0.74rem; color: var(--label, #9AA0A6); padding-top: 10px; line-height: 1.35; }
+.st-key-nav_menue [data-testid="stButton"] button:hover { border-color: #FFFFFF !important; }
+.nav-gruppe { font-size: 0.68rem; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+              color: var(--label, #9AA0A6); margin: 18px 0 2px 4px; }
+/* ---------- In einer Ansicht: schmale Kopfleiste (Menue | Titel | Aktualisieren) ---------- */
+.st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
+                                                       align-items: center !important; }
+.st-key-nav_leiste [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+.st-key-nav_leiste [data-testid="stColumn"]:nth-child(1),
+.st-key-nav_leiste [data-testid="stColumn"]:nth-child(3) { flex: 0 0 auto !important; }
+.st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
+.st-key-nav_leiste [data-testid="stButton"] button { min-height: 42px !important; border-radius: 10px !important;
+                                                    padding: 4px 12px !important; white-space: nowrap !important; }
+.nav-titel { font-size: 1.02rem; font-weight: 800; color: #FFFFFF; white-space: nowrap; overflow: hidden;
+             text-overflow: ellipsis; text-align: center; }
+.nav-stand { font-size: 0.74rem; color: var(--label, #9AA0A6); line-height: 1.35; margin: 4px 0 6px 2px; }
 .nav-stand b { color: #FFFFFF; }
-.nav-start { text-align: center; color: var(--label, #9AA0A6); font-size: 0.9rem; margin: 28px 0; }
 @media (max-width: 700px) {
-    .st-key-nav_kacheln [data-testid="stButton"] button { min-height: 50px !important; }
-    .st-key-nav_kacheln [data-testid="stButton"] button p { font-size: 0.74rem !important; }
+    .nav-titel { font-size: 0.92rem; }
+    .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
 </style>
 """
@@ -1888,9 +1893,15 @@ def _nav_waehle(ansicht):
     st.session_state["ansicht_aktiv"] = ansicht
 
 
+def _nav_aktualisieren():
+    kurse_neu_laden()
+
+
 def navigation():
-    """Kopfzeile (Kursstand + Aktualisieren) und Ansichts-Kacheln.
-    -> gewaehlte Ansicht oder None (Startseite, noch nichts gewaehlt)."""
+    """Startseite: Menue als Liste (untereinander, nach Gruppen). In einer
+    Ansicht: schmale Kopfleiste mit "☰ Menü", Titel und Aktualisieren - der
+    Inhalt beginnt direkt darunter, wie in einer App.
+    -> gewaehlte Ansicht oder None (Startseite)."""
     st.markdown(NAV_CSS, unsafe_allow_html=True)
     jetzt = datetime.datetime.now(BERLIN_TZ)
     try:
@@ -1901,33 +1912,35 @@ def navigation():
     if stand < letzter_termin(jetzt):
         kurse_neu_laden()
         stand = datetime.datetime.fromisoformat(_kurse_stand())
-    c1, c2 = st.columns([3, 1], vertical_alignment="center")
-    c1.markdown(f'<div class="nav-stand">Kurse Stand <b>{stand.strftime("%d.%m. %H:%M")} Uhr</b> · '
-                f'nächste Aktualisierung {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div>',
-                unsafe_allow_html=True)
-    if c2.button("🔄 Aktualisieren", key="nav_refresh", width="stretch",
-                 help=f"Kurse jetzt neu laden (sonst täglich ab {AKTUALISIERUNG_START} Uhr "
-                      f"alle {AKTUALISIERUNG_TAKT} Stunden)"):
-        kurse_neu_laden()
-        st.rerun()
+    stand_html = (f'<div class="nav-stand">Kurse Stand <b>{stand.strftime("%d.%m. %H:%M")} Uhr</b> · '
+                  f'nächste Aktualisierung {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div>')
+    hilfe = f"Kurse jetzt neu laden (sonst täglich ab {AKTUALISIERUNG_START} Uhr alle {AKTUALISIERUNG_TAKT} Stunden)"
 
     aktiv = st.session_state.get("ansicht_aktiv")
     if aktiv not in ANSICHTEN:
         aktiv = None
-    with st.container(key="nav_kacheln"):
-        for titel, ansichten in NAV_ZEILEN:
-            st.markdown(f'<div class="nav-zeile">{titel}</div>', unsafe_allow_html=True)
-            spalten = st.columns(4)
-            for spalte, ansicht in zip(spalten, ansichten):
-                spalte.button(ANSICHT_KURZ[ansicht], key=f"nav_b{ANSICHTEN.index(ansicht)}", width="stretch",
+
+    if aktiv is None:
+        # ---- Startseite: Menue ----
+        with st.container(key="nav_menue"):
+            st.markdown(stand_html, unsafe_allow_html=True)
+            st.button("🔄 Kurse aktualisieren", key="nav_refresh", width="stretch", help=hilfe,
+                      on_click=_nav_aktualisieren)
+            for titel, ansichten in NAV_ZEILEN:
+                st.markdown(f'<div class="nav-gruppe">{titel}</div>', unsafe_allow_html=True)
+                for ansicht in ansichten:
+                    st.button(ansicht, key=f"nav_b{ANSICHTEN.index(ansicht)}", width="stretch",
                               on_click=_nav_waehle, args=(ansicht,))
-    if aktiv:
-        # aktive Kachel weiss hervorheben
-        st.markdown(f'<style>.st-key-nav_b{ANSICHTEN.index(aktiv)} button {{ background: #FFFFFF !important; '
-                    f'border-color: #FFFFFF !important; }} .st-key-nav_b{ANSICHTEN.index(aktiv)} button p '
-                    f'{{ color: #000000 !important; }}</style>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="nav-start">Bitte oben eine Ansicht wählen.</div>', unsafe_allow_html=True)
+        return None
+
+    # ---- In einer Ansicht: Kopfleiste ----
+    with st.container(key="nav_leiste"):
+        c1, c2, c3 = st.columns([1, 3, 1], vertical_alignment="center")
+        c1.button("☰ Menü", key="nav_menue_btn", on_click=_nav_waehle, args=(None,),
+                  help="Zurück zur Übersicht aller Ansichten")
+        c2.markdown(f'<div class="nav-titel">{html.escape(aktiv)}</div>', unsafe_allow_html=True)
+        c3.button("🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren)
+    st.markdown(stand_html, unsafe_allow_html=True)
     return aktiv
 
 
