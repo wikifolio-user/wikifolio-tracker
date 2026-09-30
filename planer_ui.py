@@ -164,7 +164,10 @@ def _migriere(m):
         m.setdefault(k, v)
     for k, v in seed["rahmen"].items():
         m["rahmen"].setdefault(k, v)
+    seed_assets = {a["id"]: a for a in seed["assets"]}
     for a in m["assets"]:
+        if a["id"] in seed_assets and not a.get("ticker") and not a.get("isin"):
+            a["ticker"], a["isin"] = seed_assets[a["id"]].get("ticker"), seed_assets[a["id"]].get("isin")
         if "fixiert" not in a:
             a["fixiert"] = a["category"] == "cash"
         for k, v in D._asset("x", "x", "cash", 0).items():
@@ -284,13 +287,17 @@ def _reihen_kennzahlen(s):
     log_r = (s / s.shift(1)).dropna().apply(math.log)
     vola = float(log_r.std() * math.sqrt(je_jahr)) if len(log_r) > 5 else None
     maxdd = float((s / s.cummax() - 1.0).min() * 100.0)
+    s1 = s[s.index >= letzt - pd.DateOffset(years=1)]
+    log1 = (s1 / s1.shift(1)).dropna().apply(math.log)
+    vola1 = float(log1.std() * math.sqrt(je_jahr)) if len(log1) > 5 and jahre >= 0.95 else None
     try:
         monat = s.resample("ME").last()
     except Exception:
         monat = s.resample("M").last()
     return {
         "jahre": round(jahre, 2), "start": erst.date().isoformat(), "stand": letzt.date().isoformat(),
-        "historical5Y": cagr(5), "historical10Y": cagr(10),
+        "historical1Y": cagr(1), "historical3Y": cagr(3), "historical5Y": cagr(5), "historical10Y": cagr(10),
+        "vola1y": vola1,
         "gesamt_cagr": float((s.iloc[-1] / s.iloc[0]) ** (1.0 / jahre) - 1.0) if jahre >= 1 else None,
         "vola": vola, "maxdd": maxdd,
         "monat": [(d.date().isoformat(), float(v)) for d, v in monat.dropna().items()],
@@ -559,7 +566,254 @@ def _gewichtswarnung(platz, m):
                 st.rerun()
 
 
+# --- Katalog: Bausteine nach Kennzahlen auswaehlen ---------------------------
+PFAD_KATALOG = "state/planer/katalog.json"
+KATALOG_GRUPPEN = {
+    "Rendite": ["1J %", "3J p.a.", "5J p.a.", "10J p.a."],
+    "Risiko": ["Vola 1J", "Max DD", "Risk", "Hebel"],
+    "Annahmen": ["Base", "Bear", "Bull", "Conf."],
+    "Kosten & Daten": ["Perf.-Fee", "TER", "Historie ab", "Profil", "Gefunden"],
+}
+KATALOG_SORT = ["5J p.a.", "3J p.a.", "1J %", "10J p.a.", "Vola 1J", "Max DD", "Risk", "Conf.", "Base",
+                "Historie ab", "Name"]
+
+
+def _katalog_daten(h):
+    d = st.session_state.get("planer_katalog")
+    if d is None:
+        try:
+            d = h["gh_read"](PFAD_KATALOG, {}) or {}
+        except Exception:
+            d = {}
+        st.session_state["planer_katalog"] = d
+    return d
+
+
+def _katalog_laden(h):
+    """Kennzahlen aller Katalogwerte aus der echten Kurshistorie (ls-tc.de) -
+    parallel geladen und als Tagesstand im GitHub-Speicher abgelegt, damit
+    der naechste Aufruf (auch auf einem anderen Geraet) sofort da ist."""
+    heute = h["heute"].isoformat()
+    aufgaben = [(k["wkn"], _hist_eines,
+                 (tuple(x for x in (k["wkn"], k["isin"]) if x), k["typ"] == "wikifolio", heute,
+                  h["suche_instrument"], h["get_kurshistorie"], None)) for k in D.KATALOG]
+    werte = {}
+    for wkn, k in _parallel(aufgaben).items():
+        if k and not k.get("fehler"):
+            werte[wkn] = {x: v for x, v in k.items() if x != "monat"}
+        else:
+            werte[wkn] = {"fehler": (k or {}).get("fehler") or "keine Daten"}
+    d = {"stand": heute, "berechnet": datetime.datetime.now().strftime("%d.%m.%Y %H:%M"), "werte": werte}
+    st.session_state["planer_katalog"] = d
+    try:
+        h["gh_write"](PFAD_KATALOG, d, message="planer: katalog-kennzahlen [skip ci]")
+    except Exception:
+        pass
+    return d
+
+
+def _im_portfolio(m, k):
+    return any((a.get("ticker") or "").upper() == k["wkn"] or (k["isin"] and a.get("isin") == k["isin"])
+               for a in m["assets"])
+
+
+def _katalog_zeilen(m, werte):
+    zeilen = []
+    for k in D.KATALOG:
+        kz = werte.get(k["wkn"]) or {}
+        ok = bool(kz) and not kz.get("fehler")
+        typ = D.KATEGORIEN[k["category"]]["typ"]
+        vs = E.vorschlag_renditen(kz, typ) if ok else None
+
+        def pct(feld, _kz=kz):
+            v = _kz.get(feld) if ok else None
+            return None if v is None else round(v * 100, 1)
+
+        zeilen.append({
+            "wkn": k["wkn"], "Name": k["name"], "Typ": D.KATALOG_TYPEN[k["typ"]],
+            "1J %": pct("historical1Y"), "3J p.a.": pct("historical3Y"), "5J p.a.": pct("historical5Y"),
+            "10J p.a.": pct("historical10Y"),
+            "Vola 1J": pct("vola1y") if ok and kz.get("vola1y") is not None else pct("vola"),
+            "Max DD": round(kz["maxdd"], 1) if ok and kz.get("maxdd") is not None else None,
+            "Risk": E.risiko_score(kz.get("vola1y") or kz.get("vola"), kz.get("maxdd"), k["hebel"], k["profil"])
+            if ok else None,
+            "Hebel": k["hebel"],
+            "Base": None if not vs else round(vs["base"] * 100, 1),
+            "Bear": None if not vs else round(vs["bear"] * 100, 1),
+            "Bull": None if not vs else round(vs["bull"] * 100, 1),
+            "Conf.": E.confidence_score(kz.get("jahre"), typ) if ok else None,
+            "Perf.-Fee": None if k["perf_fee"] is None else k["perf_fee"] * 100,
+            "TER": None if k["ter"] is None else k["ter"] * 100,
+            "Historie ab": _datum(kz.get("start")) if ok and kz.get("start") else "",
+            "Profil": k["profil"],
+            "Gefunden": (kz.get("instrument") or "") if ok else (kz.get("fehler") or ""),
+            "Im Portf.": _im_portfolio(m, k),
+            "_k": k, "_vs": vs,
+        })
+    return zeilen
+
+
+def _spalte(name, pinned=False, **kw):
+    """Spaltenkonfiguration; 'pinned' (Name bleibt beim Wischen stehen) nur,
+    wenn die Streamlit-Version es kennt."""
+    typ = kw.pop("typ", "zahl")
+    f = {"zahl": st.column_config.NumberColumn, "text": st.column_config.TextColumn,
+         "check": st.column_config.CheckboxColumn}[typ]
+    if pinned:
+        try:
+            return f(name, pinned=True, **kw)
+        except TypeError:
+            pass
+    return f(name, **kw)
+
+
+def _katalog(m, h):
+    d = _katalog_daten(h)
+    werte = d.get("werte") or {}
+    heute = h["heute"].isoformat()
+    if not werte:
+        st.info("Für den Katalog sind noch keine Kennzahlen berechnet. Das Laden der Kurshistorien "
+                f"({len(D.KATALOG)} Werte) dauert einmalig etwa eine halbe Minute – danach steht der Tagesstand "
+                "gespeichert bereit.")
+    c1, c2 = st.columns([3, 1])
+    if werte:
+        c1.caption(f"Kennzahlen Stand {d.get('berechnet', '–')} · Quelle ls-tc.de Kurshistorie"
+                   + ("" if d.get("stand") == heute else " · nicht von heute"))
+    if c2.button("📊 Kennzahlen laden" if not werte else "Aktualisieren", key="pl_kat_laden", width="stretch"):
+        with st.spinner(f"Lade Kurshistorien für {len(D.KATALOG)} Werte …"):
+            d = _katalog_laden(h)
+        werte = d["werte"]
+
+    typen = ["Alle"] + list(D.KATALOG_TYPEN.values())
+    typ = st.pills("Art", typen, default="Alle", key="pl_kat_typ") or "Alle"
+    gruppen = st.pills("Spalten", list(KATALOG_GRUPPEN), default=["Rendite", "Risiko"], selection_mode="multi",
+                       key="pl_kat_spalten") or []
+    c3, c4 = st.columns([3, 2])
+    sortierung = c3.selectbox("Sortieren nach", KATALOG_SORT, key="pl_kat_sort")
+    absteigend = c4.toggle("Absteigend", value=sortierung not in ("Risk", "Vola 1J", "Name"), key=f"pl_kat_ab_{sortierung}")
+
+    zeilen = [z for z in _katalog_zeilen(m, werte) if typ == "Alle" or z["Typ"] == typ]
+
+    def wert(z):
+        if sortierung == "Historie ab":
+            return (werte.get(z["wkn"]) or {}).get("start")
+        return z[sortierung].lower() if sortierung == "Name" else z[sortierung]
+    mit = [z for z in zeilen if wert(z) not in (None, "")]
+    mit.sort(key=wert, reverse=absteigend)
+    zeilen = mit + [z for z in zeilen if wert(z) in (None, "")]
+
+    wahl = st.session_state.setdefault("planer_kat_wahl", [])
+    spalten = [s_ for g in KATALOG_GRUPPEN if g in gruppen for s_ in KATALOG_GRUPPEN[g]]
+    kopf = ["＋", "Name"] + ([] if typ != "Alle" else ["Typ"]) + spalten + ["Im Portf."]
+    df = pd.DataFrame([{**{c: z[c] for c in kopf if c != "＋"}, "＋": z["wkn"] in wahl} for z in zeilen])[kopf] \
+        if zeilen else pd.DataFrame(columns=kopf)
+    cfg = {"＋": _spalte("＋", typ="check", width="small", help="Zum Hinzufügen auswählen"),
+           "Name": _spalte("Name", pinned=True, typ="text", width="medium"),
+           "Im Portf.": _spalte("Im Portf.", typ="check", width="small")}
+    for c in spalten:
+        if c in ("Historie ab", "Profil", "Gefunden"):
+            cfg[c] = _spalte(c, typ="text")
+        elif c == "Hebel":
+            cfg[c] = _spalte(c, format="%.0f×", width="small")
+        elif c in ("Risk", "Conf."):
+            cfg[c] = _spalte(c, format="%d", width="small",
+                             help="Risk Score 0–100 (höher = riskanter)" if c == "Risk" else "Datenbasis 0–100")
+        else:
+            cfg[c] = _spalte(c, format="%.1f", width="small")
+    signatur = zlib.crc32(("|".join(df["Name"].astype(str)) + "|".join(kopf)).encode()) if len(df) else 0
+    ed = st.data_editor(df, key=_k(f"kat_{signatur}"), hide_index=True, width="stretch", height=_hoehe(len(df)),
+                        disabled=[c for c in kopf if c != "＋"], column_config=cfg)
+    for i, z in enumerate(zeilen):
+        an = bool(ed.iloc[i]["＋"])
+        if an and z["wkn"] not in wahl:
+            wahl.append(z["wkn"])
+        elif not an and z["wkn"] in wahl:
+            wahl.remove(z["wkn"])
+
+    st.caption("Renditen = Kursentwicklung (1 J.) bzw. p.a. über 3/5/10 J., Vola = Schwankung der letzten 12 Monate, "
+               "Max DD = größter Rückgang seit Beginn der Historie. Risk Score 0–100: 45 % Vola, 35 % Drawdown, "
+               "20 % Hebel. Base/Bear/Bull: " + D.VORSCHLAG["text"] + " Performance Fee und TER nur, soweit "
+               "hinterlegt. Hohe Vergangenheitsrenditen sind keine Zukunftserwartung (Winner Bias).")
+
+    gewaehlt = [k for k in D.KATALOG if k["wkn"] in wahl]
+    c5, c6 = st.columns(2)
+    gew = c5.number_input("Startgewicht je Baustein %", 0.0, 100.0, 0.0, step=0.5, key="pl_kat_gew",
+                          help="Danach mit „Gewichtung 100k“ oder „Normalisieren“ verteilen")
+    vorschlag = c6.toggle("Base/Bear/Bull-Vorschlag als Annahme", value=True, key="pl_kat_vs")
+    if st.button(f"➕ {len(gewaehlt)} ausgewählte hinzufügen", key="pl_kat_add", width="stretch",
+                 disabled=not gewaehlt):
+        doppelt = []
+        for k in gewaehlt:
+            if _im_portfolio(m, k):
+                doppelt.append(k["name"])
+                continue
+            kz = werte.get(k["wkn"]) or {}
+            vs = E.vorschlag_renditen(kz, D.KATEGORIEN[k["category"]]["typ"]) if kz and not kz.get("fehler") else None
+            extra = {"subCategory": k["profil"], "sector": k["sektor"], "region": k["region"],
+                     "leverage": k["hebel"], "leverageType": k["hebel_typ"], "techAnteil": k["tech"],
+                     "semiAnteil": k["semi"], "treiber": k["treiber"], "expenseRatio": k["ter"],
+                     "performanceFee": k["perf_fee"],
+                     "emittent": "Lang & Schwarz" if k["typ"] == "wikifolio" else None,
+                     "historicalWinnerBias": bool(vs and vs["hist"] >= 0.20)}
+            nutzen = vorschlag and vs is not None
+            aid = _baustein_neu(
+                m, k["name"], k["category"], wkn=k["wkn"], isin=k["isin"], gewicht=gew,
+                rendite=vs["base"] * 100 if nutzen else None, extra=extra,
+                notiz=(D.VORSCHLAG["text"] + f" Historisch {vs['quelle']}: {_pct(vs['hist'])} p.a., "
+                       f"Confidence {vs['confidence']}/100.") if nutzen else None)
+            if nutzen:
+                for sz in ("bear", "base", "bull"):
+                    E.setze_annahme(m, aid, sz, vs[sz], notiz="Vorschlag aus Katalog – keine Prognose")
+        st.session_state["planer_kat_wahl"] = []
+        if doppelt:
+            st.session_state["planer_100k"] = ("warnung", "Schon im Portfolio, nicht doppelt angelegt: "
+                                               + ", ".join(doppelt), [])
+        _neu_zeichnen()
+        st.rerun()
+    if any(k["typ"] == "aktie" for k in gewaehlt) and any(a["category"] == "stock_basket" and a.get("enabled")
+                                                           for a in m["assets"]):
+        st.caption("Hinweis: Einige Aktien (z. B. NVIDIA, Broadcom, Quanta, Comfort Systems, Arista) stecken auch im "
+                   "Fundamental Growth Basket – einzeln hinzugefügt, zählen sie doppelt.")
+
+
 # --- 1 Allocation -----------------------------------------------------------
+def _suche_hinzufuegen(m, h):
+    c4, c5 = st.columns([3, 1])
+    suchtext = c4.text_input("WKN oder ISIN", key=_k("add_such"), placeholder="z. B. A1JX52 oder IE00B4L5Y983")
+    if c5.button("Suchen", key=_k("add_btn"), width="stretch", disabled=not suchtext.strip()):
+        try:
+            st.session_state["planer_treffer"] = h["suche_instrument"](suchtext.strip()) or []
+        except Exception:
+            st.session_state["planer_treffer"] = []
+        st.session_state["planer_treffer_q"] = suchtext.strip()
+    treffer = st.session_state.get("planer_treffer")
+    if treffer is not None and st.session_state.get("planer_treffer_q"):
+        if not treffer:
+            st.warning(f"Kein Treffer für „{st.session_state['planer_treffer_q']}“.")
+        else:
+            wahl = st.selectbox("Treffer", list(range(len(treffer))), key=_k("add_wahl"),
+                                format_func=lambda i: f'{treffer[i]["name"]} · {treffer[i].get("wkn") or "–"} · '
+                                                      f'{treffer[i].get("isin") or ""}'.strip(" ·"))
+            t = treffer[wahl]
+            kats = list(D.KATEGORIEN)
+            c6, c7, c8 = st.columns(3)
+            kat = c6.selectbox("Kategorie", kats, index=kats.index(_kategorie_raten(t)),
+                               format_func=lambda k: D.KATEGORIEN[k]["titel"], key=_k("add_kat"))
+            gew = c7.number_input("Gewicht %", 0.0, 100.0, 0.0, step=0.5, key=_k("add_gew"))
+            ren = c8.number_input("Annahme % p.a.", -50.0, 300.0, value=None, step=0.5, key=_k("add_ren"),
+                                  placeholder="leer = später")
+            if st.button("➕ Zum Portfolio hinzufügen", key=_k("add_ok"), width="stretch"):
+                _baustein_neu(m, t["name"], kat, wkn=t.get("wkn"), isin=t.get("isin"), gewicht=gew, rendite=ren)
+                st.session_state.pop("planer_treffer", None)
+                st.session_state.pop("planer_treffer_q", None)
+                _neu_zeichnen()
+                st.rerun()
+            st.caption("Ohne Annahme rechnet der Baustein mit 0 % – die historische Rendite erscheint nach dem "
+                       "Hinzufügen unter „Annahmen & Datenqualität“.")
+
+
+
+
 def _hoehe(zeilen):
     """Tabellenhoehe fuer st.data_editor: alle Zeilen sichtbar, kein inneres Scrollen."""
     return int(35 * (zeilen + 1) + 3)
@@ -583,14 +837,17 @@ def _kategorie_raten(t):
     return next((k for bed, k in regeln if bed), "single_stock")
 
 
-def _baustein_neu(m, name, kategorie, *, wkn=None, isin=None, gewicht=0.0, rendite=None):
-    aid = "u_" + str(abs(zlib.crc32((name + datetime.datetime.now().isoformat()).encode())))
-    m["assets"].append(D._asset(aid, name, kategorie, float(gewicht), isin=isin or None, ticker=wkn or None,
-                                hebel=2.0 if kategorie == "leveraged_etf" else 1.0,
-                                hebel_typ="daily" if kategorie == "leveraged_etf" else None,
-                                notiz="Über den Portfolio Builder hinzugefügt."))
+def _baustein_neu(m, name, kategorie, *, wkn=None, isin=None, gewicht=0.0, rendite=None, extra=None,
+                  notiz=None):
+    aid = "u_" + str(abs(zlib.crc32((name + (wkn or "") + datetime.datetime.now().isoformat()).encode())))
+    a = D._asset(aid, name, kategorie, float(gewicht), isin=isin or None, ticker=wkn or None,
+                 hebel=2.0 if kategorie == "leveraged_etf" else 1.0,
+                 hebel_typ="daily" if kategorie == "leveraged_etf" else None,
+                 notiz="Über den Portfolio Builder hinzugefügt.")
+    a.update(extra or {})
+    m["assets"].append(a)
     E.setze_annahme(m, aid, "manualScenario", None if rendite is None else float(rendite) / 100.0,
-                    notiz="Eigene Annahme" if rendite is not None else "Noch keine Annahme – bitte eintragen.")
+                    notiz=notiz or ("Eigene Annahme" if rendite is not None else "Noch keine Annahme – bitte eintragen."))
     return aid
 
 
@@ -720,39 +977,12 @@ def _b_allocation(m, R, h):
                "gesetztem Anteil) bleiben unverändert. Startgewichte sind Platzhalter.")
 
     # --- Bausteine hinzufuegen / entfernen ---
-    _abschnitt("Baustein hinzufügen (WKN / ISIN)")
-    c4, c5 = st.columns([3, 1])
-    suchtext = c4.text_input("WKN oder ISIN", key=_k("add_such"), placeholder="z. B. A1JX52 oder IE00B4L5Y983")
-    if c5.button("Suchen", key=_k("add_btn"), width="stretch", disabled=not suchtext.strip()):
-        try:
-            st.session_state["planer_treffer"] = h["suche_instrument"](suchtext.strip()) or []
-        except Exception:
-            st.session_state["planer_treffer"] = []
-        st.session_state["planer_treffer_q"] = suchtext.strip()
-    treffer = st.session_state.get("planer_treffer")
-    if treffer is not None and st.session_state.get("planer_treffer_q"):
-        if not treffer:
-            st.warning(f"Kein Treffer für „{st.session_state['planer_treffer_q']}“.")
-        else:
-            wahl = st.selectbox("Treffer", list(range(len(treffer))), key=_k("add_wahl"),
-                                format_func=lambda i: f'{treffer[i]["name"]} · {treffer[i].get("wkn") or "–"} · '
-                                                      f'{treffer[i].get("isin") or ""}'.strip(" ·"))
-            t = treffer[wahl]
-            kats = list(D.KATEGORIEN)
-            c6, c7, c8 = st.columns(3)
-            kat = c6.selectbox("Kategorie", kats, index=kats.index(_kategorie_raten(t)),
-                               format_func=lambda k: D.KATEGORIEN[k]["titel"], key=_k("add_kat"))
-            gew = c7.number_input("Gewicht %", 0.0, 100.0, 0.0, step=0.5, key=_k("add_gew"))
-            ren = c8.number_input("Annahme % p.a.", -50.0, 300.0, value=None, step=0.5, key=_k("add_ren"),
-                                  placeholder="leer = später")
-            if st.button("➕ Zum Portfolio hinzufügen", key=_k("add_ok"), width="stretch"):
-                _baustein_neu(m, t["name"], kat, wkn=t.get("wkn"), isin=t.get("isin"), gewicht=gew, rendite=ren)
-                st.session_state.pop("planer_treffer", None)
-                st.session_state.pop("planer_treffer_q", None)
-                _neu_zeichnen()
-                st.rerun()
-            st.caption("Ohne Annahme rechnet der Baustein mit 0 % – die historische Rendite erscheint nach dem "
-                       "Hinzufügen unter „Annahmen & Datenqualität“.")
+    _abschnitt("Baustein hinzufügen")
+    weg_ = st.pills("Hinzufügen über", ["📋 Katalog", "🔎 WKN / ISIN"], default="📋 Katalog", key="pl_add_art")
+    if weg_ == "🔎 WKN / ISIN":
+        _suche_hinzufuegen(m, h)
+    else:
+        _katalog(m, h)
 
     _abschnitt("Baustein entfernen")
     c9, c10 = st.columns([3, 1])
