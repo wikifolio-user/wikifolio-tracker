@@ -1862,7 +1862,7 @@ NAV_CSS = """
     letter-spacing: 5px; color: #FFFFFF; text-transform: uppercase;
     text-shadow: 0 0 8px rgba(255, 255, 255, 0.45), 0 0 20px rgba(255, 255, 255, 0.15);
 }
-.nav-logo span { font-weight: 300; }
+.nav-logo .nav-lauf > span { font-weight: 300; }
 .nav-chip {
     display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 14px;
     border-radius: 999px; font-size: 0.74rem; color: #FFFFFF; font-weight: 600;
@@ -1873,6 +1873,25 @@ NAV_CSS = """
 .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
            box-shadow: 0 0 8px #16C784; animation: navpuls 2.4s ease-in-out infinite; }
 @keyframes navpuls { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* Lichtschimmer, der langsam durch die Ueberschriften laeuft (alle 6 s,
+   dazwischen Ruhe). Text = Verlauf, per background-clip auf die Schrift begrenzt. */
+.nav-lauf {
+    background: linear-gradient(100deg,
+        rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.8) 40%, #FFFFFF 47%, #FFFFFF 53%,
+        rgba(255, 255, 255, 0.8) 60%, rgba(255, 255, 255, 0.8) 100%);
+    background-size: 300% 100%; background-position: 100% 0;
+    -webkit-background-clip: text; background-clip: text; color: transparent !important;
+    -webkit-text-fill-color: transparent;
+    animation: navschimmer 6s ease-in-out infinite;
+}
+.nav-logo .nav-lauf {
+    background-image: linear-gradient(100deg,
+        rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.82) 40%, #FFFFFF 47%, #FFFFFF 53%,
+        rgba(255, 255, 255, 0.82) 60%, rgba(255, 255, 255, 0.82) 100%);
+}
+@keyframes navschimmer { 0% { background-position: 100% 0; } 55%, 100% { background-position: 0% 0; } }
+@media (prefers-reduced-motion: reduce) { .nav-lauf { animation: none; } }
 
 /* Gruppen-Ueberschrift: ruhig, mit Luft nach oben und unten */
 .nav-gruppe {
@@ -2083,7 +2102,7 @@ def navigation():
         # ---- Startseite: Menue ----
         with st.container(key="nav_menue"):
             st.markdown(
-                '<div class="nav-kopf"><div class="nav-logo">FINANZ <span>DASHBOARD</span></div>'
+                '<div class="nav-kopf"><div class="nav-logo"><span class="nav-lauf">FINANZ <span>DASHBOARD</span></span></div>'
                 '<div class="nav-credit">created by MarsTech</div>'
                 f'<div class="nav-chip"><span class="nav-dot"></span>Kurse vom <b>{stand.strftime("%d.%m. %H:%M")} Uhr</b>'
                 f' · nächste {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div></div>',
@@ -2093,7 +2112,9 @@ def navigation():
             farb_css = []
             for titel, ansichten in NAV_ZEILEN:
                 farbe = NAV_FARBEN.get(titel, "#F4F8FF")
-                st.markdown(f'<div class="nav-gruppe">{titel}</div>', unsafe_allow_html=True)
+                verzug = f"{NAV_ZEILEN.index((titel, ansichten)) * 0.8 + 0.8:.1f}s"
+                st.markdown(f'<div class="nav-gruppe"><span class="nav-lauf" style="animation-delay:{verzug}">'
+                            f'{titel}</span></div>', unsafe_allow_html=True)
                 for i in range(0, len(ansichten), 2):
                     spalten = st.columns(2)
                     for spalte, ansicht in zip(spalten, ansichten[i:i + 2]):
