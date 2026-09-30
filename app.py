@@ -1804,7 +1804,21 @@ ANSICHT_KURZ = {
     "📝 Trader-Log (Trades & Kommentare)": "📝 Trader-Log",
     "🏆 Watchlist Top 50": "🏆 Watchlist",
 }
-# Kacheln je Zeile (Ueberschrift, Ansichten) - jede Zeile hat 4 Plaetze
+# Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
+NAV_NAMEN = {
+    ANSICHT_DEPOT: "🏠 Test-Depot",
+    ANSICHT_EINST: "⚙️ Einstellungen",
+    "📝 Trader-Log (Trades & Kommentare)": "📝 Trader-Log",
+    "📈 Vermögens- & Substanzaufbau": "📈 Vermögensaufbau",
+    "🔍 Seit 01.01.2026": "🔍 Performance seit 2026",
+    "🔎 Seit 01.01.2021": "🔎 Performance seit 2021",
+    "🕯️ Tages-Candlestick": "🕯️ Candlestick (Tag)",
+    "🔮 Zukunfts-Prognose": "🔮 Zukunfts-Prognose",
+    "📊 Szenario-Simulator (5 Jahre)": "📊 Szenario-Simulator",
+    "💼 Portfolio-Planer": "💼 Portfolio-Planer",
+    "🏆 Watchlist Top 50": "🏆 Watchlist Top 50",
+}
+# Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_ZEILEN = [
     ("Depot", [ANSICHT_DEPOT, ANSICHT_EINST, "📝 Trader-Log (Trades & Kommentare)"]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
@@ -1817,20 +1831,22 @@ LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50"}
 
 NAV_CSS = """
 <style>
-/* ---------- Startseite: Menue als Liste (Kacheln untereinander) ---------- */
-.st-key-nav_menue { max-width: 560px; margin: 0 auto; }
+/* ---------- Startseite: kompaktes Menue, zwei Buttons je Zeile ---------- */
+.st-key-nav_menue { max-width: 620px; margin: 0 auto; }
+.st-key-nav_menue [data-testid="stVerticalBlock"] { gap: 6px !important; }
+.st-key-nav_menue [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 6px !important; }
+.st-key-nav_menue [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
 .st-key-nav_menue [data-testid="stButton"] button {
-    width: 100% !important; min-height: 50px !important; border-radius: 12px !important;
-    justify-content: flex-start !important; padding: 8px 16px !important;
-    background: #131519 !important; border: 1px solid #2A2E36 !important;
+    width: 100% !important; min-height: 44px !important; border-radius: 10px !important;
+    padding: 4px 8px !important; background: #131519 !important; border: 1px solid #2A2E36 !important;
 }
 .st-key-nav_menue [data-testid="stButton"] button p {
-    font-size: 0.95rem !important; font-weight: 600 !important; text-align: left !important;
-    color: #E9EBEF !important;
+    font-size: 0.86rem !important; font-weight: 600 !important; line-height: 1.2 !important;
+    white-space: normal !important; color: #E9EBEF !important;
 }
 .st-key-nav_menue [data-testid="stButton"] button:hover { border-color: #FFFFFF !important; }
-.nav-gruppe { font-size: 0.68rem; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
-              color: var(--label, #9AA0A6); margin: 18px 0 2px 4px; }
+.nav-gruppe { font-size: 0.64rem; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+              color: var(--label, #9AA0A6); margin: 8px 0 0 3px; }
 /* ---------- In einer Ansicht: schmale Kopfleiste (Menue | Titel | Aktualisieren) ---------- */
 .st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
                                                        align-items: center !important; }
@@ -1838,13 +1854,14 @@ NAV_CSS = """
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(1),
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(3) { flex: 0 0 auto !important; }
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
-.st-key-nav_leiste [data-testid="stButton"] button { min-height: 42px !important; border-radius: 10px !important;
+.st-key-nav_leiste [data-testid="stButton"] button { min-height: 40px !important; border-radius: 10px !important;
                                                     padding: 4px 12px !important; white-space: nowrap !important; }
 .nav-titel { font-size: 1.02rem; font-weight: 800; color: #FFFFFF; white-space: nowrap; overflow: hidden;
              text-overflow: ellipsis; text-align: center; }
-.nav-stand { font-size: 0.74rem; color: var(--label, #9AA0A6); line-height: 1.35; margin: 4px 0 6px 2px; }
+.nav-stand { font-size: 0.72rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 2px 0 4px 2px; }
 .nav-stand b { color: #FFFFFF; }
 @media (max-width: 700px) {
+    .st-key-nav_menue [data-testid="stButton"] button p { font-size: 0.8rem !important; }
     .nav-titel { font-size: 0.92rem; }
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
@@ -1928,9 +1945,11 @@ def navigation():
                       on_click=_nav_aktualisieren)
             for titel, ansichten in NAV_ZEILEN:
                 st.markdown(f'<div class="nav-gruppe">{titel}</div>', unsafe_allow_html=True)
-                for ansicht in ansichten:
-                    st.button(ansicht, key=f"nav_b{ANSICHTEN.index(ansicht)}", width="stretch",
-                              on_click=_nav_waehle, args=(ansicht,))
+                for i in range(0, len(ansichten), 2):
+                    spalten = st.columns(2)
+                    for spalte, ansicht in zip(spalten, ansichten[i:i + 2]):
+                        spalte.button(NAV_NAMEN.get(ansicht, ansicht), key=f"nav_b{ANSICHTEN.index(ansicht)}",
+                                      width="stretch", on_click=_nav_waehle, args=(ansicht,))
         return None
 
     # ---- In einer Ansicht: Kopfleiste ----
@@ -1938,7 +1957,8 @@ def navigation():
         c1, c2, c3 = st.columns([1, 3, 1], vertical_alignment="center")
         c1.button("☰ Menü", key="nav_menue_btn", on_click=_nav_waehle, args=(None,),
                   help="Zurück zur Übersicht aller Ansichten")
-        c2.markdown(f'<div class="nav-titel">{html.escape(aktiv)}</div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="nav-titel">{html.escape(NAV_NAMEN.get(aktiv, aktiv))}</div>',
+                    unsafe_allow_html=True)
         c3.button("🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren)
     st.markdown(stand_html, unsafe_allow_html=True)
     return aktiv
