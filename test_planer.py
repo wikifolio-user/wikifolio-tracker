@@ -541,5 +541,26 @@ class AnnahmenAusHistorie(unittest.TestCase):
         self.assertEqual(E.annahme(m, "etf_allworld", "manualScenario")["value"], 0.1108)
 
 
+class NachRendite(unittest.TestCase):
+    def test_proportional(self):
+        m = D.seed_modell()
+        for a in m["assets"]:
+            if a["id"] == "etf_gold":
+                a["enabled"], a["targetWeight"] = True, 0.0             # neu, 0 % -> wird beruecksichtigt
+        r = renditen(m)
+        r["etf_gold"] = 0.30
+        r["etf_momentum"] = -0.05                                         # negativ -> 0 %
+        g = E.gewichte_nach_rendite(m, r)["gewichte"]
+        self.assertAlmostEqual(sum(g.values()), 100.0, places=6)
+        self.assertEqual(g["reserve"], 10.0)                               # fixiert
+        self.assertEqual(g["etf_momentum"], 0.0)
+        self.assertAlmostEqual(g["etf_gold"] / g["korb"], 0.30 / 0.25, places=6)
+        self.assertAlmostEqual(g["wf_ff"] / g["etf_allworld"], 0.50 / 0.1108, places=6)
+
+    def test_nichts_zu_verteilen(self):
+        m = D.seed_modell()
+        self.assertIn("fehler", E.gewichte_nach_rendite(m, {i: 0.0 for i in E.gewichte(m)}))
+
+
 if __name__ == "__main__":
     unittest.main()
