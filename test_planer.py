@@ -529,7 +529,7 @@ class AnnahmenAusHistorie(unittest.TestCase):
         self.assertEqual(E.annahme(m, "korb", "manualScenario")["value"], 0.4)
         self.assertEqual(E.annahme(m, "etf_gold", "manualScenario")["value"], 0.3)   # vorher leer
         self.assertEqual(E.annahme(m, "reserve", "manualScenario")["value"], 0.0)     # Cash unveraendert
-        self.assertEqual(n, 3)
+        self.assertEqual(n, 5)       # 3 aus Historie + 2 leere Seed-Werte mit Kategorie-Standard
         self.assertEqual(E.annahmen_aus_historie(m, hist), 0)                          # stabil
         E.annahmen_aus_historie(m, hist, alle=True)
         self.assertEqual(E.annahme(m, "etf_ndx", "manualScenario")["value"], 0.2)
@@ -596,6 +596,30 @@ class RenditeGewichtung(unittest.TestCase):
         m["rahmen"]["horizont_jahre"] = 5
         m["rahmen"]["zielvermoegen"] = 0
         self.assertIn("fehler", E.gewichtung_fuer_ziel(m, r))
+
+
+class LueckenFuellen(unittest.TestCase):
+    def test_junge_historie_seit_start(self):
+        w, t = E.ist_rendite({"jahre": 0.5, "seit_start": 0.4})
+        self.assertAlmostEqual(w, 0.4)                     # nicht hochgerechnet
+        self.assertIn("6 Mon.", t)
+        self.assertEqual(E.ist_rendite({"jahre": 0.02, "seit_start": 0.1}), (None, None))
+
+    def test_ohne_kursdaten_standardwert(self):
+        m = D.seed_modell()
+        aid = "neu_x"
+        m["assets"].append(D._asset(aid, "Neu", "wikifolio", 0.0))
+        E.setze_annahme(m, aid, "manualScenario", None, auto=True)
+        E.annahmen_aus_historie(m, {})
+        a = E.annahme(m, aid, "manualScenario")
+        self.assertAlmostEqual(a["value"], E.STANDARD_RENDITE["wikifolio"])
+        self.assertTrue(a["auto"])
+        # sobald Kursdaten da sind, wird der Standard ersetzt
+        E.annahmen_aus_historie(m, {aid: {"jahre": 0.5, "seit_start": 0.3}})
+        self.assertAlmostEqual(E.annahme(m, aid, "manualScenario")["value"], 0.3)
+        for x in m["assets"]:
+            if x["category"] != "cash":
+                self.assertIsNotNone(E.annahme(m, x["id"], "manualScenario")["value"], x["id"])
 
 
 if __name__ == "__main__":
