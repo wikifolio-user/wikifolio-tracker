@@ -1867,8 +1867,9 @@ NAV_CSS = """
 .nav-logo span { font-weight: 300; }
 .nav-chip {
     display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 14px;
-    border-radius: 999px; font-size: 0.74rem; color: #C9CED6;
-    border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.03);
+    border-radius: 999px; font-size: 0.74rem; color: #FFFFFF; font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0.03);
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.4), 0 0 14px rgba(255, 255, 255, 0.15);
 }
 .nav-chip b { color: #FFFFFF; font-weight: 700; }
 .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
@@ -1920,11 +1921,15 @@ NAV_CSS = """
         0 0 28px rgba(255, 255, 255, 0.3) !important;
 }
 .st-key-nav_menue [data-testid="stButton"] button:hover p { text-shadow: 0 0 8px rgba(255, 255, 255, 0.7); }
+.st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.74rem !important; font-weight: 600 !important; }
 .st-key-nav_menue [data-testid="stButton"] button:active { transform: translateY(1px) scale(0.99); }
 
 /* Aktualisieren: schlanke Neon-Pille */
+/* klein und mittig direkt unter der Kurs-Pille */
+.st-key-nav_menue .st-key-nav_refresh { display: flex; justify-content: center; margin-top: -4px; }
+.st-key-nav_menue .st-key-nav_refresh [data-testid="stButton"] { width: auto !important; }
 .st-key-nav_menue .st-key-nav_refresh button {
-    min-height: 42px !important; border-radius: 999px !important;
+    width: auto !important; min-height: 32px !important; padding: 2px 16px !important; border-radius: 999px !important;
     background: rgba(255, 255, 255, 0.04) !important; border-color: rgba(255, 255, 255, 0.8) !important;
     box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.2),
                 inset 0 0 10px rgba(255, 255, 255, 0.08) !important;
@@ -1974,7 +1979,7 @@ NAV_CSS = """
 @media (max-width: 700px) {
     .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
     .st-key-nav_menue [data-testid="stButton"] button { min-height: 56px !important; }
-    .st-key-nav_menue .st-key-nav_refresh button { min-height: 42px !important; }
+    .st-key-nav_menue .st-key-nav_refresh button { min-height: 32px !important; }
     .nav-titel { font-size: 0.92rem; }
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
@@ -2062,10 +2067,10 @@ def navigation():
             st.markdown(
                 '<div class="nav-kopf"><div class="nav-logo">FINANZ <span>DASHBOARD</span></div>'
                 '<div class="nav-credit">created by MarsTech</div>'
-                f'<div class="nav-chip"><span class="nav-dot"></span>Kurse <b>{stand.strftime("%d.%m. %H:%M")}</b>'
+                f'<div class="nav-chip"><span class="nav-dot"></span>Kurse vom <b>{stand.strftime("%d.%m. %H:%M")} Uhr</b>'
                 f' · nächste {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div></div>',
                 unsafe_allow_html=True)
-            st.button("🔄 Kurse aktualisieren", key="nav_refresh", width="stretch", help=hilfe,
+            st.button("🔄 Kurse aktualisieren", key="nav_refresh", width="content", help=hilfe,
                       on_click=_nav_aktualisieren)
             farb_css = []
             for titel, ansichten in NAV_ZEILEN:
