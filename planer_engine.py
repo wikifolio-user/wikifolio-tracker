@@ -1409,3 +1409,28 @@ def gewichtung_fuer_zielvermoegen(modell, renditen_netto, rebalancing=None):
             break
     return {"gewichte": erg["gewichte"], "benoetigt": benoetigt, "rendite": erg["rendite"], "endwert": ew,
             "erreichbar": True, "min": basis["min"], "max": basis["max"]}
+
+
+def rendite_fuer_restwert(kapital, monatlich, ziel_restwert, *, jahre=30, **kw):
+    """Benoetigte Rendite p.a. in der Entnahme, damit nach 'jahre' Jahren
+    (monatliche Entnahme wie entnahmeplan) genau ziel_restwert uebrig ist.
+    -> Rendite (Anteil) oder None (nicht berechenbar)"""
+    if kapital is None or kapital <= 0 or ziel_restwert is None or ziel_restwert <= 0 or jahre <= 0:
+        return None
+
+    def rest(r):
+        p = entnahmeplan(kapital, r, monatlich, jahre=jahre, max_jahre=jahre, **kw)
+        return p["restwert"] if p["dauer_monate"] is None or p["dauer_monate"] >= jahre * 12 else 0.0
+
+    lo, hi = -0.9, 0.5
+    while rest(hi) < ziel_restwert and hi < 50.0:
+        hi *= 2.0
+    if rest(hi) < ziel_restwert:
+        return None
+    for _ in range(80):
+        mitte = (lo + hi) / 2.0
+        if rest(mitte) >= ziel_restwert:
+            hi = mitte
+        else:
+            lo = mitte
+    return hi
