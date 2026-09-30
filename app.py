@@ -1894,12 +1894,11 @@ NAV_CSS = """
 @keyframes navschimmer { 0% { background-position: 100% 0; } 55%, 100% { background-position: 0% 0; } }
 @media (prefers-reduced-motion: reduce) { .nav-lauf { animation: none; } }
 
-/* Gruppen-Ueberschrift: laeuft einmal von links nach rechts ueber die Linie,
-   springt dann an den Anfang zurueck und beginnt von vorn */
+/* Gruppen-Ueberschrift: schiesst alle 8 s blitzschnell nach rechts aus dem
+   Bild, kommt links wieder herein, bleibt stehen und pulsiert leicht */
 .nav-gruppe {
     position: relative; height: 38px; margin: 0 4px; overflow: hidden;
     font-size: 0.7rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
-    text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
 }
 .nav-gruppe::after {
     content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
@@ -1907,11 +1906,18 @@ NAV_CSS = """
 }
 .nav-wander {
     position: absolute; bottom: 12px; left: 0; white-space: nowrap;
-    animation: navwander 10s linear infinite;
+    animation: navblitz 8s infinite, navpulsieren 2.6s ease-in-out infinite;
 }
-@keyframes navwander {
-    0%, 6%    { left: 0;    transform: translateX(0); }
-    94%, 100% { left: 100%; transform: translateX(-100%); }
+@keyframes navblitz {
+    0%     { left: 0;    transform: translateX(0);     animation-timing-function: cubic-bezier(.7, 0, 1, .6); filter: none; }
+    3.5%   { left: 100%; transform: translateX(0);     filter: blur(1.2px); }
+    3.51%  { left: 0;    transform: translateX(-100%); animation-timing-function: cubic-bezier(0, .5, .3, 1); filter: blur(1.2px); }
+    7%     { left: 0;    transform: translateX(0);     filter: none; }
+    100%   { left: 0;    transform: translateX(0);     filter: none; }
+}
+@keyframes navpulsieren {
+    0%, 100% { text-shadow: 0 0 3px rgba(255, 255, 255, 0.25); opacity: 0.88; }
+    50%      { text-shadow: 0 0 8px rgba(255, 255, 255, 0.55); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .nav-wander { animation: none; } }
 
