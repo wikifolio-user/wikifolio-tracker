@@ -1819,7 +1819,7 @@ NAV_NAMEN = {
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 50",
 }
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
-NAV_FARBEN = {"Depot": "#22D3EE", "Charts": "#CBD5E1", "Planung & Analyse": "#34D399"}   # Neonfarbe je Gruppe
+NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
 NAV_ZEILEN = [
     ("Depot", [ANSICHT_DEPOT, ANSICHT_EINST, "📝 Trader-Log (Trades & Kommentare)"]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
@@ -1832,106 +1832,93 @@ LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50"}
 
 NAV_CSS = """
 <style>
-/* ================= STARTSEITE: Neon-Menue ================= */
+/* ================= STARTSEITE: Neon-Weiss ================= */
 .st-key-nav_menue { max-width: 640px; margin: 0 auto; position: relative; }
-/* weiches Farbleuchten hinter dem Menue */
 .st-key-nav_menue::before {
-    content: ""; position: absolute; inset: -40px -20px; z-index: -1; pointer-events: none;
-    background:
-        radial-gradient(420px 220px at 15% 10%, rgba(34, 211, 238, 0.16), transparent 70%),
-        radial-gradient(420px 260px at 90% 45%, rgba(203, 213, 225, 0.16), transparent 70%),
-        radial-gradient(420px 240px at 20% 90%, rgba(52, 211, 153, 0.13), transparent 70%);
-    filter: blur(8px);
+    content: ""; position: absolute; inset: -30px -10px; z-index: -1; pointer-events: none;
+    background: radial-gradient(520px 320px at 50% 0%, rgba(255, 255, 255, 0.07), transparent 70%);
 }
-.st-key-nav_menue [data-testid="stVerticalBlock"] { gap: 8px !important; }
-.st-key-nav_menue [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 10px !important; }
+.st-key-nav_menue [data-testid="stVerticalBlock"] { gap: 12px !important; }
+.st-key-nav_menue [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 12px !important; }
 .st-key-nav_menue [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
+/* Streamlit zieht Markdown-Bloecke unten um 1rem hoch - hier nicht (sonst
+   rutschen die Ueberschriften unter die Kacheln) */
+.st-key-nav_menue [data-testid="stMarkdown"], .st-key-nav_menue .stMarkdown,
+.st-key-nav_menue [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
 
-/* Kopf: Titel mit Neonschrift + Statuszeile */
-.nav-kopf { text-align: center; margin: 4px 0 6px; }
+/* Kopf */
+.nav-kopf { text-align: center; padding: 10px 0 4px; }
 .nav-logo {
-    font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.45rem; font-weight: 800;
-    letter-spacing: 4px; color: #F4FDFF;
-    text-shadow: 0 0 6px rgba(34, 211, 238, 0.9), 0 0 18px rgba(34, 211, 238, 0.55), 0 0 36px rgba(203, 213, 225, 0.45);
+    font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
+    letter-spacing: 5px; color: #FFFFFF; text-transform: uppercase;
+    text-shadow: 0 0 4px rgba(255, 255, 255, 0.9), 0 0 14px rgba(255, 255, 255, 0.55), 0 0 32px rgba(255, 255, 255, 0.25);
 }
-.nav-logo span { color: #22D3EE; }
+.nav-logo span { font-weight: 300; }
 .nav-chip {
-    display: inline-flex; align-items: center; gap: 7px; margin-top: 8px; padding: 5px 12px;
-    border-radius: 999px; font-size: 0.72rem; color: #C9D1DA;
-    background: rgba(19, 21, 25, 0.8); border: 1px solid rgba(34, 211, 238, 0.35);
-    box-shadow: 0 0 12px rgba(34, 211, 238, 0.18) inset, 0 0 10px rgba(34, 211, 238, 0.12);
+    display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 14px;
+    border-radius: 999px; font-size: 0.74rem; color: #C9CED6;
+    border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.03);
 }
-.nav-chip b { color: #FFFFFF; }
+.nav-chip b { color: #FFFFFF; font-weight: 700; }
 .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
-           box-shadow: 0 0 8px #16C784, 0 0 14px rgba(22, 199, 132, 0.8); animation: navpuls 2.4s ease-in-out infinite; }
+           box-shadow: 0 0 8px #16C784; animation: navpuls 2.4s ease-in-out infinite; }
 @keyframes navpuls { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-/* Gruppen-Ueberschrift: Neonpunkt + auslaufende Linie */
+/* Gruppen-Ueberschrift: ruhig, mit Luft nach oben und unten */
 .nav-gruppe {
-    display: flex; align-items: center; gap: 8px; margin: 12px 2px 0;
-    font-size: 0.66rem; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: var(--neon);
-    text-shadow: 0 0 8px var(--neon);
+    display: flex; align-items: center; gap: 12px; padding: 16px 4px 2px;
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 2.2px; text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.62);
 }
-.nav-gruppe::before { content: ""; width: 7px; height: 7px; border-radius: 2px; background: var(--neon);
-                      box-shadow: 0 0 8px var(--neon), 0 0 16px var(--neon); }
-.nav-gruppe::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--neon), transparent);
-                     opacity: 0.55; }
+.nav-gruppe::after { content: ""; flex: 1; height: 1px;
+                     background: linear-gradient(90deg, rgba(255, 255, 255, 0.28), transparent); }
 
-/* Kacheln: Glas + 3D-Kante + Neonrand, beim Tippen/Hover leuchtend und angehoben */
+/* Kacheln: dunkles Glas, weisser Neonrand, 3D-Kante */
 .st-key-nav_menue [data-testid="stButton"] button {
-    --neon: #22D3EE;
-    position: relative; width: 100% !important; min-height: 50px !important; border-radius: 14px !important;
-    padding: 6px 10px !important; overflow: hidden;
-    background: linear-gradient(160deg, rgba(40, 44, 54, 0.95) 0%, rgba(16, 18, 23, 0.98) 55%, rgba(10, 11, 14, 1) 100%) !important;
-    border: 1px solid color-mix(in srgb, var(--neon) 55%, transparent) !important;
+    --neon: #F4F8FF;
+    position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
+    padding: 8px 12px !important; overflow: hidden;
+    background: linear-gradient(165deg, #20232A 0%, #121418 60%, #0C0D10 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.30) !important;
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.10),
-        inset 0 -3px 0 rgba(0, 0, 0, 0.45),
-        0 6px 14px rgba(0, 0, 0, 0.55),
-        0 0 14px color-mix(in srgb, var(--neon) 28%, transparent) !important;
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        inset 0 -2px 0 rgba(0, 0, 0, 0.5),
+        0 8px 18px rgba(0, 0, 0, 0.55),
+        0 0 12px rgba(255, 255, 255, 0.10) !important;
     transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
-/* Glanzstreifen oben (3D) */
-.st-key-nav_menue [data-testid="stButton"] button::after {
-    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 50%; border-radius: 14px 14px 0 0;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent); pointer-events: none;
-}
-/* Neon-Akzent links */
-.st-key-nav_menue [data-testid="stButton"] button::before {
-    content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 3px; border-radius: 0 3px 3px 0;
-    background: var(--neon); box-shadow: 0 0 10px var(--neon), 0 0 18px var(--neon);
-}
 .st-key-nav_menue [data-testid="stButton"] button p {
-    font-size: 0.88rem !important; font-weight: 700 !important; line-height: 1.2 !important;
-    white-space: normal !important; color: #F2F5F8 !important; letter-spacing: 0.2px;
+    font-size: 0.9rem !important; font-weight: 600 !important; line-height: 1.25 !important;
+    white-space: normal !important; color: #FFFFFF !important; letter-spacing: 0.2px;
 }
 .st-key-nav_menue [data-testid="stButton"] button:hover,
 .st-key-nav_menue [data-testid="stButton"] button:focus-visible {
     transform: translateY(-2px);
-    border-color: var(--neon) !important;
+    border-color: rgba(255, 255, 255, 0.85) !important;
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.14),
-        inset 0 -3px 0 rgba(0, 0, 0, 0.45),
-        0 10px 22px rgba(0, 0, 0, 0.6),
-        0 0 22px color-mix(in srgb, var(--neon) 55%, transparent),
-        0 0 44px color-mix(in srgb, var(--neon) 25%, transparent) !important;
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        inset 0 -2px 0 rgba(0, 0, 0, 0.5),
+        0 12px 24px rgba(0, 0, 0, 0.6),
+        0 0 18px rgba(255, 255, 255, 0.35),
+        0 0 40px rgba(255, 255, 255, 0.12) !important;
 }
+.st-key-nav_menue [data-testid="stButton"] button:hover p { text-shadow: 0 0 8px rgba(255, 255, 255, 0.7); }
 .st-key-nav_menue [data-testid="stButton"] button:active { transform: translateY(1px) scale(0.99); }
 
-/* Aktualisieren: Neon-Pille */
+/* Aktualisieren: schlanke Neon-Pille */
 .st-key-nav_menue .st-key-nav_refresh button {
-    --neon: #22D3EE; min-height: 40px !important; border-radius: 999px !important;
-    background: rgba(34, 211, 238, 0.08) !important;
+    min-height: 42px !important; border-radius: 999px !important;
+    background: rgba(255, 255, 255, 0.04) !important; border-color: rgba(255, 255, 255, 0.45) !important;
+    box-shadow: 0 0 14px rgba(255, 255, 255, 0.14), inset 0 0 10px rgba(255, 255, 255, 0.05) !important;
 }
-.st-key-nav_menue .st-key-nav_refresh button::before { display: none; }
 
 /* ================= IN EINER ANSICHT: Kopfleiste ================= */
 .st-key-nav_leiste {
     padding: 6px 8px; border-radius: 16px;
-    background: linear-gradient(160deg, rgba(34, 38, 48, 0.9), rgba(12, 13, 17, 0.95));
-    border: 1px solid rgba(34, 211, 238, 0.35);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.5),
-                0 0 16px rgba(34, 211, 238, 0.18);
+    background: linear-gradient(165deg, #1E2127, #0E0F12);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 8px 18px rgba(0, 0, 0, 0.5),
+                0 0 14px rgba(255, 255, 255, 0.10);
 }
 .st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
                                                        align-items: center !important; }
@@ -1941,20 +1928,22 @@ NAV_CSS = """
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
 .st-key-nav_leiste [data-testid="stButton"] button {
     min-height: 38px !important; border-radius: 10px !important; padding: 4px 12px !important;
-    white-space: nowrap !important; background: rgba(34, 211, 238, 0.08) !important;
-    border: 1px solid rgba(34, 211, 238, 0.55) !important; box-shadow: 0 0 10px rgba(34, 211, 238, 0.25) !important;
+    white-space: nowrap !important; background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.45) !important; box-shadow: 0 0 10px rgba(255, 255, 255, 0.14) !important;
 }
-.st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; color: #E9FBFF !important; }
+.st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; color: #FFFFFF !important; }
 .nav-titel {
-    font-size: 1.02rem; font-weight: 800; color: #FFFFFF; white-space: nowrap; overflow: hidden;
+    font-size: 1.02rem; font-weight: 700; color: #FFFFFF; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; text-align: center; letter-spacing: 0.3px;
-    text-shadow: 0 0 8px rgba(34, 211, 238, 0.6), 0 0 18px rgba(203, 213, 225, 0.35);
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.55), 0 0 16px rgba(255, 255, 255, 0.2);
 }
 .nav-stand { font-size: 0.72rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
 .nav-stand b { color: #FFFFFF; }
 @media (max-width: 700px) {
-    .nav-logo { font-size: 1.25rem; letter-spacing: 3px; }
-    .st-key-nav_menue [data-testid="stButton"] button p { font-size: 0.8rem !important; }
+    .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
+    .st-key-nav_menue [data-testid="stButton"] button { min-height: 56px !important; }
+    .st-key-nav_menue .st-key-nav_refresh button { min-height: 42px !important; }
+    .st-key-nav_menue [data-testid="stButton"] button p { font-size: 0.84rem !important; }
     .nav-titel { font-size: 0.92rem; }
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
@@ -2042,15 +2031,17 @@ def navigation():
                       on_click=_nav_aktualisieren)
             farb_css = []
             for titel, ansichten in NAV_ZEILEN:
-                farbe = NAV_FARBEN.get(titel, "#22D3EE")
-                st.markdown(f'<div class="nav-gruppe" style="--neon:{farbe}">{titel}</div>', unsafe_allow_html=True)
+                farbe = NAV_FARBEN.get(titel, "#F4F8FF")
+                st.markdown(f'<div class="nav-gruppe">{titel}</div>', unsafe_allow_html=True)
                 for i in range(0, len(ansichten), 2):
                     spalten = st.columns(2)
                     for spalte, ansicht in zip(spalten, ansichten[i:i + 2]):
                         idx = ANSICHTEN.index(ansicht)
                         spalte.button(NAV_NAMEN.get(ansicht, ansicht), key=f"nav_b{idx}",
                                       width="stretch", on_click=_nav_waehle, args=(ansicht,))
-                        farb_css.append(f".st-key-nav_menue .st-key-nav_b{idx} button {{ --neon: {farbe}; }}")
+                        if titel in NAV_FARBEN:
+                            farb_css.append(f".st-key-nav_menue .st-key-nav_b{idx} button {{ border-color: {farbe} !important; "
+                                            f"box-shadow: 0 8px 18px rgba(0,0,0,.55), 0 0 14px {farbe}55 !important; }}")
             st.markdown("<style>" + "\n".join(farb_css) + "</style>", unsafe_allow_html=True)
         return None
 
