@@ -1848,8 +1848,9 @@ NAV_CSS = """
 
 /* Kopf */
 .nav-kopf { text-align: center; padding: 0 0 4px; margin-top: -26px; }
-.nav-credit { font-size: 0.7rem; letter-spacing: 1px; color: rgba(255, 255, 255, 0.5);
-              margin-top: 2px; }
+.nav-credit { font-size: 0.72rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
+              text-shadow: 0 0 4px rgba(255, 255, 255, 0.9), 0 0 10px rgba(255, 255, 255, 0.55),
+                           0 0 22px rgba(255, 255, 255, 0.3); }
 .nav-logo {
     font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
     letter-spacing: 5px; color: #FFFFFF; text-transform: uppercase;
