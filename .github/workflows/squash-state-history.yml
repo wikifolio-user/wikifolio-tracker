@@ -1,0 +1,31 @@
+name: State-Branch Historie komprimieren (monatlich)
+
+# Loescht NICHT den Dateiinhalt (auch nicht die Preis-Historie-CSVs!) -
+# fasst nur die tausenden Einzel-Commits (alle 5 Min ein Commit) zu EINEM
+# Commit zusammen. Der aktuelle Stand aller Dateien bleibt exakt erhalten.
+on:
+  schedule:
+    - cron: "0 3 1 * *"  # 1. jedes Monats, 03:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  squash:
+    runs-on: ubuntu-latest
+    steps:
+      - name: State-Branch auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: app-state
+          fetch-depth: 0
+
+      - name: Historie auf einen Commit komprimieren
+        run: |
+          git config user.name "state-squash-bot"
+          git config user.email "actions@users.noreply.github.com"
+          TREE=$(git write-tree)
+          NEW_COMMIT=$(echo "Squashed state history $(date -u +%Y-%m-%d)" | git commit-tree "$TREE")
+          git reset --soft "$NEW_COMMIT"
+          git push --force origin app-state
