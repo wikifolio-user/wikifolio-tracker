@@ -2313,26 +2313,35 @@ def render_dashboard():
 
     def _index_auswahl(prefix, indizes, regionen):
         """Region + Index als Knoepfe. indizes = {key: {"titel","region","s"}}.
-        -> index_schluessel oder None"""
-        # Indizes ohne zugeordnete Aktien (Quelle gerade nicht lesbar) ausblenden
-        indizes = {k: v for k, v in indizes.items() if v.get("s")}
-        vorhanden = [r for r in regionen if any(v.get("region") == r for v in indizes.values())]
-        if not vorhanden:
+        Indizes ohne zugeordnete Aktien (Quelle beim letzten Lauf nicht lesbar)
+        bleiben sichtbar – mit "(–)" und dem Grund. -> index_schluessel oder None"""
+        if not any(v.get("s") for v in indizes.values()):
             st.info("Die Indexzuordnung liegt noch nicht vor – sie entsteht beim nächsten Lauf der Agenten.")
             return None
+        regionen = list(regionen) + sorted({v.get("region") for v in indizes.values()
+                                            if v.get("region") and v.get("region") not in regionen})
+        vorhanden = [r for r in regionen if any(v.get("region") == r for v in indizes.values())]
         region = st.pills("Region", vorhanden, default=vorhanden[0], key=f"{prefix}_region") or vorhanden[0]
         keys = [k for k, v in indizes.items() if v.get("region") == region]
-        titel = [f'{indizes[k]["titel"]} ({len(indizes[k].get("s") or [])})' for k in keys]
+        keys = [k for k in keys if indizes[k].get("s")] + [k for k in keys if not indizes[k].get("s")]
+        titel = [f'{indizes[k]["titel"]} ({len(indizes[k]["s"])})' if indizes[k].get("s")
+                 else f'{indizes[k]["titel"]} (–)' for k in keys]
         wahl = st.pills("Index", titel, default=titel[0], key=f"{prefix}_index_{region}")
         # Die Anzahl im Namen kann sich ueber Nacht aendern - eine gespeicherte,
         # nicht mehr vorhandene Auswahl faellt dann auf den ersten Index zurueck
-        return keys[titel.index(wahl)] if wahl in titel else keys[0]
+        key = keys[titel.index(wahl)] if wahl in titel else keys[0]
+        if not indizes[key].get("s"):
+            grund = indizes[key].get("hinweis") or "Quelle beim letzten Lauf nicht lesbar"
+            st.info(f'Für {indizes[key]["titel"]} liegt noch keine Mitgliederliste vor ({grund}). '
+                    "Der nächste Lauf der Agenten versucht es erneut.")
+            return None
+        return key
 
     def _auswahl_art(prefix):
         return st.pills("Auswahl nach", ["Kategorie", "Index"], default="Kategorie",
                         key=f"{prefix}_auswahl_art") or "Kategorie"
 
-    INDEX_REGIONEN_APP = ["Deutschland", "USA", "Europa", "Asien/Pazifik & Kanada"]
+    INDEX_REGIONEN_APP = ["Deutschland", "USA", "Europa", "Asien/Pazifik & Kanada", "Schwellenländer"]
 
     def _p_index_kat(idx_key, info, daten):
         """Baut aus den Gesamtdaten eine Rangliste im Format einer Kategorie
