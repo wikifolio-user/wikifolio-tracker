@@ -900,7 +900,7 @@ def lade_dividende_isin(isin, name, ymap):
 # ---------------------------------------------------------------------------
 INDEX_CACHE_MITGLIEDER_TAGE = 7
 WIKI_UA = "wikifolio-tracker/1.0 (privates Depot-Dashboard; Abruf 1x woechentlich)"
-BEKANNTE_ENDUNG = re.compile(r"\.(DE|F|PA|AS|MI|MC|BR|HE|IR|LS|VI|L|SW|ST|CO|OL|T|HK|AX|TO|V|NZ|SI|KS|KQ|TW|NS|SA|MX)$")
+BEKANNTE_ENDUNG = re.compile(r"\.(DE|F|PA|AS|MI|MC|BR|HE|IR|LS|VI|L|SW|ST|CO|OL|T|HK|AX|TO|V|NZ|SI|KS|KQ|TW|NS|BO|SA|MX|SS|SZ|JO|WA)$")
 
 
 class _TabellenLeser(HTMLParser):
@@ -1002,8 +1002,14 @@ def name_norm(name):
 def ticker_kandidaten(zelle, endungen):
     """'SEHK: 5' -> ['0005.HK'], 'AIXA' -> ['AIXA.DE'], 'ADS.DE' -> ['ADS.DE'],
     'BRK.B' (USA) -> ['BRK-B'], '7203' -> ['7203.T']."""
-    t = re.sub(r"^[A-Za-z]+\s*:\s*", "", (zelle or "").strip())          # 'SEHK: 5', 'NYSE: MMM'
-    t = t.split()[0] if t.split() else ""
+    # Boersenpraefix weg: 'SEHK: 5', 'NYSE: MMM', 'Euronext Brussels: ABI'
+    t = re.sub(r"^[A-Za-z][A-Za-z .&-]*?\s*:\s*", "", (zelle or "").strip())
+    teile = t.split()
+    # Aktiengattung als eigener Buchstabe: 'MAERSK A' / 'NOVO B' -> 'MAERSK-A' (Yahoo-Schreibweise)
+    if len(teile) >= 2 and re.fullmatch(r"[A-Za-z]", teile[1]) and not BEKANNTE_ENDUNG.search(teile[0].upper()):
+        t = teile[0] + "-" + teile[1]
+    else:
+        t = teile[0] if teile else ""
     t = t.upper().strip(".,;*")
     if not t or t in ("-", "–"):
         return []
@@ -1012,7 +1018,9 @@ def ticker_kandidaten(zelle, endungen):
         basis, endung = t[:m.start()], m.group(0)
         if endung == ".HK" and basis.isdigit():
             basis = basis.zfill(4)
-        return [re.sub(r"[./ ]+", "-", basis) + endung]
+        basis = re.sub(r"[./ ]+", "-", basis)
+        # Tabelle nennt z.B. '.BO', das Universum fuehrt die Aktie aber unter '.NS'
+        return [basis + endung] + [basis + e for e in endungen if e and e != endung]
     basis = re.sub(r"[./ ]+", "-", t).strip("-")
     aus = []
     for e in endungen:
@@ -1041,10 +1049,13 @@ def _namens_spalte(kopf):
 
 
 def index_aus_wiki(cfg, universum_namen):
-    """-> (liste zugeordneter Symbole, anzahl tabellenzeilen)"""
+    """-> (liste zugeordneter Symbole, anzahl tabellenzeilen, hinweis)"""
     sprache, titel = cfg["wiki"]
     kandidaten = []
-    for tab in wiki_tabellen(sprache, titel):
+    tabellen = wiki_tabellen(sprache, titel)
+    if not tabellen:
+        return [], 0, f"Wikipedia {sprache}:{titel} nicht lesbar"
+    for tab in tabellen:
         if len(tab) < 2:
             continue
         kopf = tab[0]
@@ -1057,7 +1068,7 @@ def index_aus_wiki(cfg, universum_namen):
         guete = (t_sp is not None or not cfg.get("ticker_spalte"), -abs(len(zeilen) - cfg["anzahl"]))
         kandidaten.append((guete, t_sp, n_sp, zeilen))
     if not kandidaten:
-        return [], 0
+        return [], 0, f"Wikipedia {sprache}:{titel}: keine Mitgliedertabelle gefunden"
     _, t_sp, n_sp, zeilen = max(kandidaten, key=lambda k: k[0])
 
     endungen = cfg["endungen"]
@@ -1089,7 +1100,8 @@ def index_aus_wiki(cfg, universum_namen):
                         sym = passend[0]
         if sym:
             treffer.append(sym)
-    return list(dict.fromkeys(treffer)), len(zeilen)
+    treffer = list(dict.fromkeys(treffer))
+    return treffer, len(zeilen), f"Wikipedia {sprache}:{titel}: {len(zeilen)} Zeilen, {len(treffer)} zugeordnet"
 
 
 def index_mitgliedschaften(universum_namen, index_cache, heute, erzwingen=False):
@@ -1100,11 +1112,18 @@ def index_mitgliedschaften(universum_namen, index_cache, heute, erzwingen=False)
         alter = (heute - datetime.date.fromisoformat(gespeichert.get("stand", "2000-01-01"))).days
     except Exception:
         alter = 9999
-    if gespeichert.get("indizes") and alter < INDEX_CACHE_MITGLIEDER_TAGE and not erzwingen:
+    # Neu konfigurierte Indizes sofort laden (nicht erst nach Ablauf der Woche)
+    # ... und Indizes ohne Zuordnung (Quelle beim letzten Mal nicht lesbar) erneut versuchen
+    fehlt = any(not ((gespeichert.get("indizes") or {}).get(k) or {}).get("s") for k, *_ in INDEX_LISTEN)
+    if gespeichert.get("indizes") and alter < INDEX_CACHE_MITGLIEDER_TAGE and not erzwingen and not fehlt:
         return gespeichert["indizes"]
     ergebnis = {}
     for key, titel, region, cfg in INDEX_LISTEN:
         alt = (gespeichert.get("indizes") or {}).get(key) or {}
+        hinweis = ""
+        if fehlt and alt and alter < INDEX_CACHE_MITGLIEDER_TAGE and not erzwingen and alt.get("s"):
+            ergebnis[key] = dict(alt, titel=titel, region=region)       # vorhandene Indizes: Wochenstand behalten
+            continue
         if "kategorie" in cfg:
             liste, _ = index_mitglieder(KATEGORIEN[cfg["kategorie"]], index_cache, heute)
             syms = [e[0] if e[2] == "YAHOO" else yahoo_symbol(e[0], e[2], e[3])[0] for e in liste]
@@ -1119,14 +1138,14 @@ def index_mitgliedschaften(universum_namen, index_cache, heute, erzwingen=False)
                     syms.append(sym)
             anzahl = len(eintrag.get("liste") or [])
         else:
-            syms, anzahl = index_aus_wiki(cfg, universum_namen)
+            syms, anzahl, hinweis = index_aus_wiki(cfg, universum_namen)
         # Faellt eine Quelle aus (oder liefert Unsinn), gilt die letzte Zuordnung weiter
         if len(syms) < 0.5 * len(alt.get("s") or []):
             log.warning(f"Index {titel}: nur {len(syms)} zugeordnet - behalte {len(alt.get('s') or [])} vom {alt.get('stand')}")
-            ergebnis[key] = alt
+            ergebnis[key] = dict(alt, titel=titel, region=region, hinweis=hinweis + " – letzter Stand behalten")
             continue
         ergebnis[key] = {"titel": titel, "region": region, "s": syms, "tabelle": anzahl,
-                         "stand": heute.isoformat()}
+                         "stand": heute.isoformat(), "hinweis": hinweis}
         log.info(f"Index {titel}: {len(syms)} von {anzahl} Mitgliedern zugeordnet")
     speichere_state(STATE_INDEXMITGLIEDER, {"stand": heute.isoformat(), "indizes": ergebnis},
                     "top50: indexmitglieder [skip ci]")
