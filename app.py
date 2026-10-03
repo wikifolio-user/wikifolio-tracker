@@ -1818,7 +1818,7 @@ NAV_NAMEN = {
     "🔮 Zukunfts-Prognose": "🔮 Zukunfts-Prognose",
     "📊 Szenario-Simulator (5 Jahre)": "📊 Szenario-Simulator",
     "💼 Portfolio-Planer": "💼 Portfolio-Planer",
-    "🏆 Watchlist Top 50": "🏆 Watchlist Top 50",
+    "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
 NAV_TITEL = {
@@ -2221,7 +2221,9 @@ def render_dashboard():
     Q_KLASSEN_KURZ = {"prio": "Priorität", "beobachten": "Beobachten", "nicht": "Nicht weiterv."}
 
     def _trend(vor, jetzt):
-        """-> (text, art) - ▲ 3 / ▼ 2 / o / NEU"""
+        """-> (text, art) - ▲ 3 / ▼ 2 / o / NEU; ab Platz 51 kein Vergleich ("·")"""
+        if jetzt > TREND_BIS:
+            return "·", "gleich"
         if vor is None:
             return "NEU", "neu"
         d = vor - jetzt
@@ -2248,6 +2250,7 @@ def render_dashboard():
         if not seit_txt:
             st.caption("Wochenvergleich: startet mit dem nächsten Lauf (es gibt noch keinen früheren Stand).")
             return
+        eintraege = [e for e in eintraege if e[0] <= TREND_BIS]
         neu = [(p, n, k) for p, n, k, v in eintraege if v is None]
         bewegt = [(v - p, p, n, k) for p, n, k, v in eintraege if v is not None and v != p]
         auf = sorted([b for b in bewegt if b[0] > 0], reverse=True)[:5]
@@ -2337,13 +2340,22 @@ def render_dashboard():
             return None
         return key
 
+    LISTEN_LAENGEN = [50, 100, 250, 500]
+    TREND_BIS = 50              # Wochenvergleich (Pfeile/NEU) gibt es fuer die ersten 50 Plaetze
+
+    def _listen_laenge(prefix):
+        """Wie viele Plaetze die Rangliste zeigt (Standard: Top 500)."""
+        titel = [f"Top {n}" for n in LISTEN_LAENGEN]
+        wahl = st.pills("Länge", titel, default="Top 500", key=f"{prefix}_laenge") or "Top 500"
+        return LISTEN_LAENGEN[titel.index(wahl)] if wahl in titel else 500
+
     def _auswahl_art(prefix):
         return st.pills("Auswahl nach", ["Kategorie", "Index"], default="Kategorie",
                         key=f"{prefix}_auswahl_art") or "Kategorie"
 
     INDEX_REGIONEN_APP = ["Deutschland", "USA", "Europa", "Asien/Pazifik & Kanada", "Schwellenländer"]
 
-    def _p_index_kat(idx_key, info, daten):
+    def _p_index_kat(idx_key, info, daten, laenge=50):
         """Baut aus den Gesamtdaten eine Rangliste im Format einer Kategorie
         (top/mit_daten/vergleich), damit dieselbe Anzeige genutzt werden kann."""
         alle, _ = _p_alle()
@@ -2360,7 +2372,7 @@ def render_dashboard():
             mit_daten[zr] = len(mit)
             v = (iv.get("listen") or {}).get(f"{idx_key}|{zr}")
             eintraege = []
-            for z in mit[:50]:
+            for z in mit[:laenge]:
                 e = {"name": z["name"], "wkn": z["kennung"], "div": z.get(div_key),
                      "perf": z.get("1J") if zr == div_key else z[zr]}
                 if v is not None:
@@ -2401,7 +2413,8 @@ def render_dashboard():
                 idx_key = _index_auswahl("top50", mitglieder_idx, INDEX_REGIONEN_APP)
                 if not idx_key:
                     return
-                kat, vergleich_seit = _p_index_kat(idx_key, mitglieder_idx[idx_key], daten)
+                laenge = _listen_laenge("top50")
+                kat, vergleich_seit = _p_index_kat(idx_key, mitglieder_idx[idx_key], daten, laenge)
                 if not kat:
                     st.info("Für diesen Index liegen noch keine Kursdaten vor – sie entstehen beim nächsten Lauf.")
                     return
@@ -2409,6 +2422,26 @@ def render_dashboard():
                 gewaehlt = st.pills("Kategorie", kat_titel, default=kat_titel[0], key="top50_kategorie")
                 kat_key = kat_keys[kat_titel.index(gewaehlt)] if gewaehlt in kat_titel else kat_keys[0]
                 kat = kategorien[kat_key]
+                laenge = _listen_laenge("top50")
+                if laenge > TREND_BIS:
+                    # Plaetze ab 51 aus der Langliste des Agenten (eine Datei je Kategorie);
+                    # die ersten 50 bleiben aus top50.json (mit Wochenvergleich)
+                    lang = gh_read_taeglich(f"state/top50_lang_{kat_key}.json", None) or {}
+                    if lang.get("top"):
+                        def _verlaengern(kurz, lang_zeilen):
+                            kurz = list(kurz or [])
+                            gesehen = {e.get("wkn") for e in kurz}
+                            for z in lang_zeilen or []:
+                                if len(kurz) >= laenge:
+                                    break
+                                if z[1] not in gesehen:
+                                    gesehen.add(z[1])
+                                    kurz.append({"name": z[0], "wkn": z[1], "perf": z[2], "div": z[3]})
+                            return kurz
+                        kat = dict(kat, top={zr: _verlaengern(kat.get("top", {}).get(zr), lang["top"].get(zr))
+                                             for zr in set(kat.get("top", {})) | set(lang["top"])})
+                elif laenge < TREND_BIS:
+                    kat = dict(kat, top={zr: v[:laenge] for zr, v in (kat.get("top") or {}).items()})
 
             # Kategorien mit Dividende bekommen zusaetzlich die Rangliste nach
             # laufender Dividendenrendite als eigene "Zeitraum"-Pille
@@ -2783,7 +2816,7 @@ def render_dashboard():
             info = gruppen["indizes"][idx_key]
             mitglieder = [s for s in info.get("s", []) if s in alle]
             werte = {s: alle[s] for s in mitglieder}
-            n = daten.get("top_n", 50)
+            n = _listen_laenge("q")
 
             def rang(liste):
                 return sorted(liste, key=lambda s: (-werte[s]["gesamt"], -(werte[s]["b_ant"] or 0)))[:n]
@@ -2797,6 +2830,24 @@ def render_dashboard():
             wahl = st.pills("Kategorie", titel, default=titel[0], key="q_kategorie")
             kat_key = keys[titel.index(wahl)] if wahl in titel else keys[0]
             kat = kats[kat_key]
+            n = _listen_laenge("q")
+            if n > len(kat.get("top") or []):
+                # Laengere Liste aus den Gesamtdaten - gleiche Sortierung wie der Agent
+                gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
+                alle, _ = _q_alle()
+                g = (gruppen.get("kategorien") or {}).get(kat_key) or {}
+                if alle and (kat_key == "alle" or g.get("s")):
+                    mitglieder = list(alle) if kat_key == "alle" else [s_ for s_ in g["s"] if s_ in alle]
+                    werte = {**werte, **{s_: alle[s_] for s_ in mitglieder}}
+
+                    def rang_k(liste):
+                        return sorted(liste, key=lambda s_: (-werte[s_]["gesamt"], -(werte[s_]["b_ant"] or 0)))[:n]
+
+                    kat = dict(kat, top=rang_k(mitglieder),
+                               je_klasse={kl: rang_k([s_ for s_ in mitglieder if werte[s_]["klasse"] == kl])
+                                          for kl in Q_KLASSEN})
+            else:
+                kat = dict(kat, top=kat["top"][:n], je_klasse={k: v[:n] for k, v in kat["je_klasse"].items()})
         a_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="q_klasse") or ansichten[0]
         if a_wahl == ansichten[0]:
             symbole, liste_key = kat["top"], f"{kat_key}|top"
@@ -3020,7 +3071,7 @@ def render_dashboard():
         f_wahl = st.pills("Feld", f_titel, default=f_titel[0], key="qk_feld")
         f_key, _, f_text = QK_FELDER[f_titel.index(f_wahl) if f_wahl in f_titel else 0]
         st.caption(f_text)
-        liste = felder[f_key][:50]
+        liste = felder[f_key][:_listen_laenge("qk")]
         if not liste:
             st.info("In diesem Feld liegt derzeit keine Aktie.")
             return
