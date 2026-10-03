@@ -365,41 +365,94 @@ KATEGORIEN = {
 # Ticker, die nicht passen, werden ersatzweise ueber den Firmennamen gesucht.
 # ---------------------------------------------------------------------------
 EUROZONE_ENDUNGEN = [".DE", ".PA", ".AS", ".MI", ".MC", ".BR", ".HE", ".IR", ".LS", ".VI"]
+EUROPA_ENDUNGEN = EUROZONE_ENDUNGEN + [".L", ".SW", ".CO", ".ST", ".OL"]
 INDEX_LISTEN = [
     # (schluessel, titel, region, quelle)
+    # --- Deutschland ---
     ("dax", "DAX", "Deutschland", {"wiki": ("en", "DAX"), "ticker_spalte": "Ticker", "endungen": [".DE"], "anzahl": 40}),
     ("mdax", "MDAX", "Deutschland", {"wiki": ("en", "MDAX"), "ticker_spalte": "Symbol", "endungen": [".DE"], "anzahl": 50}),
     ("sdax", "SDAX", "Deutschland", {"wiki": ("en", "SDAX"), "ticker_spalte": None, "endungen": [".DE"], "anzahl": 70}),
     ("tecdax", "TecDAX", "Deutschland", {"wiki": ("de", "TecDAX"), "ticker_spalte": "Symbol", "endungen": [".DE"], "anzahl": 30}),
+    # --- USA ---
+    ("dow", "Dow Jones", "USA", {"wiki": ("en", "List_of_Dow_Jones_Industrial_Average_companies"),
+                                 "ticker_spalte": "Symbol", "endungen": [""], "anzahl": 30}),
+    ("sp100", "S&P 100", "USA", {"wiki": ("en", "S&P_100"), "ticker_spalte": "Symbol", "endungen": [""], "anzahl": 101}),
     ("sp500", "S&P 500", "USA", {"wiki": ("en", "List_of_S&P_500_companies"), "ticker_spalte": "Symbol",
                                  "endungen": [""], "anzahl": 503}),
+    ("ndx", "Nasdaq-100", "USA", {"wiki": ("en", "Nasdaq-100"), "ticker_spalte": "Ticker", "endungen": [""], "anzahl": 100}),
     ("sp400", "S&P MidCap 400", "USA", {"wiki": ("en", "List_of_S&P_400_companies"), "ticker_spalte": "Symbol",
                                         "endungen": [""], "anzahl": 400}),
-    # Fuer Russell-Indizes gibt es keine frei zugaengliche Mitgliederliste -
+    ("sp600", "S&P SmallCap 600", "USA", {"wiki": ("en", "List_of_S&P_600_companies"), "ticker_spalte": "Symbol",
+                                          "endungen": [""], "anzahl": 600}),
+    ("r1000", "Russell 1000", "USA", {"wiki": ("en", "List_of_Russell_1000_companies"), "ticker_spalte": "Symbol",
+                                      "endungen": [""], "anzahl": 1000}),
+    # Fuer Russell 2000 / Microcap gibt es keine frei zugaengliche Mitgliederliste -
     # Naeherung ueber die gleichnamige Groessenklasse (daher das "≈")
     ("r2000", "≈ Russell 2000", "USA", {"kategorie": "nebenwerte"}),
     ("rmicro", "≈ Russell Microcap", "USA", {"kategorie": "us_micro"}),
-    ("ndx", "Nasdaq-100", "USA", {"wiki": ("en", "Nasdaq-100"), "ticker_spalte": "Ticker", "endungen": [""], "anzahl": 100}),
-    ("dow", "Dow Jones", "USA", {"wiki": ("en", "List_of_Dow_Jones_Industrial_Average_companies"),
-                                 "ticker_spalte": "Symbol", "endungen": [""], "anzahl": 30}),
+    ("djt", "Dow Jones Transport", "USA", {"wiki": ("en", "Dow_Jones_Transportation_Average"), "ticker_spalte": "Ticker",
+                                           "endungen": [""], "anzahl": 20}),
+    ("dju", "Dow Jones Versorger", "USA", {"wiki": ("en", "Dow_Jones_Utility_Average"), "ticker_spalte": "Ticker",
+                                          "endungen": [""], "anzahl": 15}),
+    # --- Europa ---
     ("sx5e", "Euro Stoxx 50", "Europa", {"wiki": ("en", "EURO_STOXX_50"), "ticker_spalte": "Ticker",
                                          "endungen": EUROZONE_ENDUNGEN, "anzahl": 50}),
+    ("sx50", "STOXX Europe 50", "Europa", {"wiki": ("de", "Dow_Jones_Stoxx_50"), "ticker_spalte": None,
+                                           "endungen": EUROPA_ENDUNGEN, "anzahl": 50}),
     ("ftse", "FTSE 100", "Europa", {"wiki": ("en", "FTSE_100_Index"), "ticker_spalte": "Ticker", "endungen": [".L"], "anzahl": 100}),
+    ("ftse250", "FTSE 250", "Europa", {"wiki": ("en", "FTSE_250_Index"), "ticker_spalte": "Ticker", "endungen": [".L"],
+                                       "anzahl": 250}),
     ("cac", "CAC 40", "Europa", {"wiki": ("en", "CAC_40"), "ticker_spalte": "Ticker", "endungen": [".PA", ".AS"], "anzahl": 40}),
+    ("cacn20", "CAC Next 20", "Europa", {"wiki": ("en", "CAC_Next_20"), "ticker_spalte": "Ticker",
+                                         "endungen": [".PA", ".AS"], "anzahl": 20}),
     ("smi", "SMI", "Europa", {"wiki": ("en", "Swiss_Market_Index"), "ticker_spalte": "Ticker", "endungen": [".SW"], "anzahl": 20}),
+    ("smim", "SMI MID", "Europa", {"wiki": ("en", "SMI_MID"), "ticker_spalte": "Ticker", "endungen": [".SW"], "anzahl": 30}),
     ("aex", "AEX", "Europa", {"wiki": ("en", "AEX_index"), "ticker_spalte": "Ticker", "endungen": [".AS"], "anzahl": 25}),
+    ("bel20", "BEL 20", "Europa", {"wiki": ("en", "BEL_20"), "ticker_spalte": "Ticker", "endungen": [".BR"], "anzahl": 20}),
     ("ibex", "IBEX 35", "Europa", {"wiki": ("en", "IBEX_35"), "ticker_spalte": "Ticker", "endungen": [".MC"], "anzahl": 35}),
     ("mib", "FTSE MIB", "Europa", {"wiki": ("en", "FTSE_MIB"), "ticker_spalte": "Ticker", "endungen": [".MI"], "anzahl": 40}),
+    ("psi", "PSI (Portugal)", "Europa", {"wiki": ("en", "PSI-20"), "ticker_spalte": "Ticker", "endungen": [".LS"], "anzahl": 18}),
+    ("atx", "ATX (Österreich)", "Europa", {"wiki": ("en", "Austrian_Traded_Index"), "ticker_spalte": None,
+                                           "endungen": [".VI"], "anzahl": 20}),
+    ("omxs30", "OMX Stockholm 30", "Europa", {"wiki": ("en", "OMX_Stockholm_30"), "ticker_spalte": "Ticker",
+                                              "endungen": [".ST"], "anzahl": 30}),
+    ("omxc25", "OMX Kopenhagen 25", "Europa", {"wiki": ("en", "OMX_Copenhagen_25"), "ticker_spalte": "Ticker",
+                                               "endungen": [".CO"], "anzahl": 25}),
+    ("omxh25", "OMX Helsinki 25", "Europa", {"wiki": ("en", "OMX_Helsinki_25"), "ticker_spalte": "Ticker",
+                                             "endungen": [".HE"], "anzahl": 25}),
+    ("obx", "OBX (Oslo)", "Europa", {"wiki": ("en", "OBX_Index"), "ticker_spalte": "Ticker", "endungen": [".OL"], "anzahl": 25}),
+    ("wig20", "WIG20 (Polen)", "Europa", {"wiki": ("de", "WIG_20"), "ticker_spalte": None, "endungen": [".WA"], "anzahl": 20}),
+    # --- Asien/Pazifik & Kanada ---
     ("n225", "Nikkei 225", "Asien/Pazifik & Kanada", {"wiki": ("de", "Nikkei_225"), "ticker_spalte": "Code",
                                                       "endungen": [".T"], "anzahl": 225}),
     ("hsi", "Hang Seng", "Asien/Pazifik & Kanada", {"wiki": ("en", "Hang_Seng_Index"), "ticker_spalte": "Ticker",
                                                     "endungen": [".HK"], "anzahl": 80}),
+    ("hscei", "Hang Seng China Enterprises", "Asien/Pazifik & Kanada",
+     {"wiki": ("en", "Hang_Seng_China_Enterprises_Index"), "ticker_spalte": "Ticker", "endungen": [".HK"], "anzahl": 50}),
     ("asx200", "S&P/ASX 200", "Asien/Pazifik & Kanada", {"wiki": ("en", "S&P/ASX_200"), "ticker_spalte": "Code",
                                                           "endungen": [".AX"], "anzahl": 200}),
     ("tsx60", "S&P/TSX 60", "Asien/Pazifik & Kanada", {"wiki": ("en", "S&P/TSX_60"), "ticker_spalte": "Symbol",
                                                         "endungen": [".TO"], "anzahl": 60}),
+    ("tsx", "S&P/TSX Composite", "Asien/Pazifik & Kanada", {"wiki": ("en", "S&P/TSX_Composite_Index"),
+                                                             "ticker_spalte": "Symbol", "endungen": [".TO"], "anzahl": 220}),
+    ("sti", "Straits Times (Singapur)", "Asien/Pazifik & Kanada", {"wiki": ("en", "Straits_Times_Index"),
+                                                                    "ticker_spalte": "Stock symbol", "endungen": [".SI"],
+                                                                    "anzahl": 30}),
+    # --- Schwellenlaender ---
+    ("nifty50", "NIFTY 50 (Indien)", "Schwellenländer", {"wiki": ("en", "NIFTY_50"), "ticker_spalte": "Symbol",
+                                                         "endungen": [".NS", ".BO"], "anzahl": 50}),
+    ("sensex", "BSE SENSEX (Indien)", "Schwellenländer", {"wiki": ("en", "BSE_SENSEX"), "ticker_spalte": "Symbol",
+                                                          "endungen": [".NS", ".BO"], "anzahl": 30}),
+    ("kospi200", "KOSPI 200 (Korea)", "Schwellenländer", {"wiki": ("en", "KOSPI_200"), "ticker_spalte": "Symbol",
+                                                          "endungen": [".KS"], "anzahl": 200}),
+    ("csi300", "CSI 300 (China)", "Schwellenländer", {"wiki": ("en", "CSI_300_Index"), "ticker_spalte": "Ticker",
+                                                      "endungen": [".SS", ".SZ"], "anzahl": 300}),
+    ("sse50", "SSE 50 (Shanghai)", "Schwellenländer", {"wiki": ("en", "SSE_50_Index"), "ticker_spalte": "Ticker",
+                                                       "endungen": [".SS"], "anzahl": 50}),
+    ("jse40", "FTSE/JSE Top 40 (Südafrika)", "Schwellenländer", {"wiki": ("en", "FTSE/JSE_Top_40_Index"),
+                                                                 "ticker_spalte": None, "endungen": [".JO"], "anzahl": 40}),
 ]
-INDEX_REGIONEN = ["Deutschland", "USA", "Europa", "Asien/Pazifik & Kanada"]
+INDEX_REGIONEN = ["Deutschland", "USA", "Europa", "Asien/Pazifik & Kanada", "Schwellenländer"]
 
 # Zeitraeume der Ranglisten: (Schluessel, Anzeige, Kalendertage).
 # "1T" nutzt die letzten beiden Handelstage statt Kalendertagen.
