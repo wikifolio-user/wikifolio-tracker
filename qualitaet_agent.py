@@ -1017,7 +1017,8 @@ def main():
         for key, info in indizes.items():
             mitglieder_idx = [s_ for s_ in info.get("s", []) if s_ in ergebnisse]
             gruppen["indizes"][key] = {"titel": info["titel"], "region": info["region"], "s": mitglieder_idx,
-                                       "tabelle": info.get("tabelle"), "zugeordnet": len(info.get("s", []))}
+                                       "tabelle": info.get("tabelle"), "zugeordnet": len(info.get("s", [])),
+                                       "hinweis": info.get("hinweis", "")}
             volle_idx[f"i:{key}|top"] = rangliste(mitglieder_idx, len(mitglieder_idx))
             for kl in ("prio", "beobachten", "nicht"):
                 volle_idx[f"i:{key}|{kl}"] = rangliste([s_ for s_ in mitglieder_idx
