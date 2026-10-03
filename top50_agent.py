@@ -63,7 +63,9 @@ STATE_WIKIFOLIOS = "state/top50_wikifolios.json"
 STATE_INDIZES = "state/top50_indizes.json"     # Mitgliederlisten der US-Indizes
 STATE_YAHOO = "state/top50_yahoo.json"         # Symbol-Zuordnung + letzte Dividendenrenditen
 STATE_VERLAUF = "state/top50_verlauf.json"     # Tagesstaende der Ranglisten (Wochenvergleich)
-STATE_INDEXMITGLIEDER = "state/top50_indexmitglieder.json"   # Index -> Yahoo-Symbole (woechentlich)
+STATE_INDEXMITGLIEDER = "state/top50_indexmitglieder.json"
+STATE_LANG = "state/top50_lang_{}.json"     # Top 500 je Kategorie (die App laedt sie nur bei Bedarf)
+TOP_LANG = 500   # Index -> Yahoo-Symbole (woechentlich)
 STATE_ALLE = "state/top50_alle_{}.json"        # Performance ALLER Aktien (fuer den Index-Filter)
 STATE_INDEX_VERGLEICH = "state/top50_index_vergleich.json"
 STATE_VERLAUF_REGION = "state/top50_verlauf_{}.json"
@@ -1431,12 +1433,20 @@ def main():
                 z["div"] = p.get("_div")
             return z
 
-        top, mit_daten = {}, {}
+        top, mit_daten, lang = {}, {}, {}
+
+        def kompakt(e, schluessel):
+            p = e[4]
+            perf = p.get(schluessel)
+            return [str(e[1])[:40], e[2], round(perf, 2) if perf is not None else None,
+                    round(p["_div"], 2) if kat.get("dividende") and p.get("_div") is not None else None]
+
         for schluessel, _, _ in ZEITRAEUME:
             mit_wert = [e for e in eintraege if e[4].get(schluessel) is not None]
             mit_daten[schluessel] = len(mit_wert)
             mit_wert.sort(key=lambda e: e[4][schluessel], reverse=True)
             top[schluessel] = [zeile(e, schluessel) for e in mit_wert[:TOP_N]]
+            lang[schluessel] = [kompakt(e, schluessel) for e in mit_wert[:TOP_LANG]]
             volle_listen[f"{key}|{schluessel}"] = [e[2] for e in mit_wert]
         if kat.get("dividende"):
             # Rangliste nach laufender Rendite; "perf" zeigt dort das 1-Jahres-Kursplus
@@ -1444,6 +1454,7 @@ def main():
             mit_daten[div_key] = len(mit_div)
             mit_div.sort(key=lambda e: e[4]["_div"], reverse=True)
             top[div_key] = [zeile(e, "1J") for e in mit_div[:TOP_N]]
+            lang[div_key] = [kompakt(e, "1J") for e in mit_div[:TOP_LANG]]
             volle_listen[f"{key}|{div_key}"] = [e[2] for e in mit_div]
         for _, name, wkn, _ in mitglieder.get(key, []):
             alle_namen.setdefault(wkn, name)
@@ -1467,6 +1478,10 @@ def main():
             log.warning(f"{kat['titel']}: nur {neu['aktiv']} Werte geladen - behalte Vortagesliste.")
             alt["veraltet_seit"] = alt.get("veraltet_seit") or vorher.get("stand")
             neu = alt
+        elif any(lang.values()):
+            # Langliste nur mit frischen Daten schreiben (sonst bleibt die vom Vortag)
+            speichere_state(STATE_LANG.format(key), {"stand": ergebnis["stand"], "top": lang},
+                            f"top50: top {TOP_LANG} {key} [skip ci]")
         ergebnis["kategorien"][key] = neu
         log.info(f"{kat['titel']}: {neu['aktiv']} aktive Werte, "
                  f"mit 10-Jahres-Daten: {neu['mit_daten'].get('10J', 0)}")
