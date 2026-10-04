@@ -1580,8 +1580,19 @@ def produkt_rendite_pa(instrument_id, heute, daempfung=False,
         return None, []
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def suche_instrument(suchbegriff):
+    """Instrumentensuche auf ls-tc.de -> Trefferliste, [] bei Fehler. Fehler
+    (Zeitueberschreitung, Sperre der Kursquelle) werden NICHT zwischengespeichert -
+    sonst lieferte die Suche eine Stunde lang "nicht gefunden"."""
+    try:
+        return _suche_instrument_cache(suchbegriff)
+    except Exception as e:
+        logging.warning(f"Instrumentensuche für '{suchbegriff}' fehlgeschlagen: {e}")
+        return []
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _suche_instrument_cache(suchbegriff):
     """Sucht auf ls-tc.de nach WKN, ISIN oder Name und gibt eine Liste von
     Treffern zurueck: [{"instrument_id", "name", "wkn", "isin", "kategorie"}].
 
@@ -1618,7 +1629,7 @@ def suche_instrument(suchbegriff):
         return treffer
     except Exception as e:
         logging.warning(f"Instrumentensuche für '{suchbegriff}' fehlgeschlagen: {e}")
-        return []
+        raise          # Fehler nicht zwischenspeichern
 
 
 def check_and_alert_fetch_failure(is_live_data, is_live_history):
