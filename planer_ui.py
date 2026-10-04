@@ -35,7 +35,7 @@ HIST_CACHE_SEK = 6 * 3600
 # Navigation: 6 Hauptbereiche in Arbeitsreihenfolge, darunter Unterseiten
 HAUPT = ["🧩 Portfolio", "⚖️ Gewichtung", "📈 Ergebnis", "⚠️ Risiko", "🔬 Analyse", "🗂️ Daten"]
 UNTER = {
-    "🧩 Portfolio": ["Bausteine", "Aufteilung"],
+    "🧩 Portfolio": ["Bausteine", "Aufteilung", "Kaufplan"],
     "⚖️ Gewichtung": [],
     "📈 Ergebnis": ["Wachstum", "Ziel", "Szenarien", "Entnahme"],
     "⚠️ Risiko": ["Konzentration", "Sensitivität", "Stress & Reserve"],
@@ -398,8 +398,12 @@ def _hist_eines_cache(begriffe, wiki, heute_iso, _suche, _kurse, inst_id=None):
     k = _reihen_kennzahlen(pd.Series(s).astype(float))
     if not k:
         raise _KeineDaten("Kurshistorie zu kurz.")
+    reihe = pd.Series(s).astype(float).dropna()
+    reihe = reihe[reihe > 0]
     k.update({"quelle": "ls-tc.de Kurshistorie", "instrument": gefunden.get("name"),
               "wkn": gefunden.get("wkn"), "isin": gefunden.get("isin"),
+              "instrument_id": gefunden.get("instrument_id"),
+              "kurs": float(reihe.iloc[-1]) if len(reihe) else None,   # letzter Schlusskurs (fuer den Kaufplan)
               "abgerufen": datetime.datetime.now().strftime("%d.%m.%Y %H:%M")})
     return k
 
@@ -2466,6 +2470,197 @@ def _b_entnahme(m, R):
 
 
 # ===========================================================================
+# Kaufplan (Stueckzahlen) und Musterdepot
+# ===========================================================================
+PFAD_MUSTERDEPOT = "state/musterdepot.json"
+
+
+def _kauf_positionen(m, hist_assets, hist_korb):
+    """Kaufbare Einzelpositionen mit Anteil am Gesamtbetrag und aktuellem Kurs.
+    Der Aktienkorb wird in seine Aktien aufgeteilt (nach Korbgewichten)."""
+    pos = []
+    for aid, w in E.gewichte(m).items():
+        if w <= 0:
+            continue
+        a = _asset(m, aid)
+        if a["category"] == "cash":
+            pos.append({"id": aid, "name": a["name"], "anteil": w, "cash": True, "wkn": "", "kurs": None})
+            continue
+        if a["category"] == "stock_basket":
+            korb = m.get("korb") or []
+            summe = sum(float(k.get("gewicht") or 0) for k in korb) or 1.0
+            for k in korb:
+                hk = hist_korb.get(k["id"]) or {}
+                pos.append({"id": f"{aid}:{k['id']}", "name": k["name"], "teil_von": a["name"],
+                            "anteil": w * float(k.get("gewicht") or 0) / summe, "kurs": hk.get("kurs"),
+                            "wkn": hk.get("wkn") or "", "isin": k.get("isin") or hk.get("isin") or "",
+                            "instrument_id": hk.get("instrument_id")})
+            continue
+        ha = hist_assets.get(aid) or {}
+        pos.append({"id": aid, "name": a["name"], "anteil": w, "kurs": ha.get("kurs"),
+                    "wkn": ha.get("wkn") or a.get("ticker") or "", "isin": ha.get("isin") or a.get("isin") or "",
+                    "instrument_id": ha.get("instrument_id"), "kategorie": a["category"]})
+    return pos
+
+
+def _b_kaufplan(m, R, h, hist_assets, hist_korb):
+    _abschnitt("Kaufplan – Stückzahlen")
+    kp = m.setdefault("kaufplan", {"betrag": float(m["rahmen"]["startkapital"]), "bruch": False})
+    c1, c2 = st.columns(2)
+    kp["betrag"] = float(c1.number_input("Kaufwert gesamt (€)", 0.0, 1e9, float(kp.get("betrag") or 0.0),
+                                         step=500.0, format="%.0f", key=_k("kp_betrag"),
+                                         help="Betrag, der nach den aktuellen Gewichten investiert werden soll"))
+    kp["bruch"] = c2.toggle("Bruchstücke erlauben", value=bool(kp.get("bruch")), key=_k("kp_bruch"),
+                            help="Aus: nur ganze Stücke (Rest bleibt Cash). An: exakte Stückzahl, z. B. für "
+                                 "Sparpläne oder Broker mit Bruchteilshandel")
+    pos = _kauf_positionen(m, hist_assets, hist_korb)
+    if not pos:
+        st.info("Keine aktiven Bausteine mit Gewicht – erst unter „Bausteine“ Gewichte vergeben.")
+        return
+    erg = E.kaufplan(pos, kp["betrag"], bool(kp["bruch"]))
+    st.session_state["planer_kaufplan"] = erg
+
+    _kacheln([
+        ("Kaufwert", f'{_de(kp["betrag"])} €', "nach aktuellen Gewichten"),
+        ("Investiert", f'{_de(erg["investiert"], 2)} €', f'{len([z for z in erg["zeilen"] if z["stueck"]])} Positionen'),
+        ("Reserve (Cash)", f'{_de(erg["cash_soll"], 2)} €', "laut Gewichtung"),
+        ("Rest (Cash)", f'{_de(erg["rest"], 2)} €', "durch Stückelung übrig"),
+    ], klein=True)
+    zeilen = []
+    for z in sorted(erg["zeilen"], key=lambda z: -z["soll"]):
+        name = f'<b>{_esc(z["name"])}</b><br><span class="pt-sub">' + _esc(
+            " · ".join(x for x in (z.get("wkn"), ("aus " + z["teil_von"]) if z.get("teil_von") else "") if x)) + "</span>"
+        if z.get("cash"):
+            zeilen.append([name, _pct(z["anteil"]), _de(z["soll"], 2) + " €", "–", "Cash", _de(z["ist"], 2) + " €", "–"])
+            continue
+        stueck = (_de(z["stueck"], 4).rstrip("0").rstrip(",") if kp["bruch"] else _de(z["stueck"])) if z["kurs"] else "–"
+        abw = z["abweichung"]
+        zeilen.append([name, _pct(z["anteil"]), _de(z["soll"], 2) + " €",
+                       (_de(z["kurs"], 2) + " €") if z["kurs"] else '<span class="pl-schlecht">kein Kurs</span>',
+                       f"<b>{stueck}</b>", _de(z["ist"], 2) + " €",
+                       f'<span class="{"pl-gut" if abs(abw) < max(z["kurs"] or 0, 1) else "pl-schlecht"}">'
+                       f'{"+" if abw >= 0 else "−"}{_de(abs(abw), 2)} €</span>'])
+    _tabelle(["Position", "Gewicht", "Soll", "Kurs", "Stück", "Ist", "Abw."], zeilen)
+    st.caption("Kurs = letzter Schlusskurs laut ls-tc.de (Kurshistorie) – beim echten Kauf weichen Kurse, "
+               "Spreads und Gebühren ab. Ganze Stücke: abgerundet, der Rest wird stückweise auf die Positionen "
+               "mit dem größten Rückstand verteilt.")
+    if erg["ohne_kurs"]:
+        st.warning("Ohne aktuellen Kurs (nicht gekauft, Betrag bleibt Cash): " + ", ".join(erg["ohne_kurs"]))
+
+    _abschnitt("Musterdepot erstellen")
+    st.caption("Legt aus diesem Kaufplan ein Musterdepot an (Kaufkurs = Kurs von heute). Es erscheint im Menü "
+               "unter „Depot“ als eigener Button „📦 Musterdepot“ und zeigt die Entwicklung seit heute.")
+    vorhanden = (h["gh_read"](PFAD_MUSTERDEPOT, {}) or {}).get("depots") or {}
+    name = st.text_input("Name des Musterdepots", value="Portfolio Builder Musterdepot", key=_k("md_name")).strip()
+    ueber = True
+    if name in vorhanden:
+        ueber = st.checkbox(f"„{name}“ gibt es schon – überschreiben", key=_k("md_ueber"))
+    kaufbar = [z for z in erg["zeilen"] if not z.get("cash") and z["stueck"] > 0 and z.get("instrument_id")]
+    if st.button("📦 Musterdepot erstellen", key=_k("md_los"), width="stretch",
+                 disabled=not name or not ueber or not kaufbar):
+        heute = h["heute"].isoformat() if h.get("heute") else datetime.date.today().isoformat()
+        depot = {
+            "name": name, "erstellt": heute, "kaufwert": float(kp["betrag"]),
+            # alles, was nicht als Stueck im Depot liegt, ist Cash (Reserve, Rest, Werte ohne Kurs)
+            "cash": round(float(kp["betrag"]) - sum(z["ist"] for z in kaufbar), 2),
+            "positionen": [{"name": z["name"], "wkn": z.get("wkn") or "", "isin": z.get("isin") or "",
+                            "instrument_id": z["instrument_id"], "stueck": z["stueck"], "kaufkurs": z["kurs"],
+                            "kaufwert": round(z["ist"], 2), "gewicht_soll": round(z["anteil"] * 100, 3),
+                            "teil_von": z.get("teil_von")} for z in kaufbar],
+            "quelle": st.session_state.get("planer_name") or "Aktuelles Modell",
+        }
+        daten = h["gh_read"](PFAD_MUSTERDEPOT, {}) or {}
+        daten.setdefault("depots", {})[name] = depot
+        daten["aktiv"] = name
+        try:
+            ok = h["gh_write"](PFAD_MUSTERDEPOT, daten, message=f"planer: musterdepot {name} [skip ci]")
+        except Exception:
+            ok = False
+        if ok:
+            st.success(f"✓ Musterdepot „{name}“ erstellt ({len(kaufbar)} Positionen). Zu finden im Menü unter "
+                       "„Depot“ → „📦 Musterdepot“.")
+        else:
+            st.error("Speichern nicht möglich – GitHub-Speicher nicht erreichbar.")
+
+
+def render_musterdepot(h):
+    """Eigene Ansicht im Menue (Depot): Entwicklung der Musterdepots seit Erstellung."""
+    st.markdown(CSS, unsafe_allow_html=True)
+    daten = h["gh_read"](PFAD_MUSTERDEPOT, {}) or {}
+    depots = daten.get("depots") or {}
+    if not depots:
+        st.info("Noch kein Musterdepot vorhanden. Anlegen im Portfolio-Planer unter „🧩 Portfolio → Kaufplan“.")
+        return
+    namen = list(depots)
+    wahl = namen[0] if len(namen) == 1 else (
+        st.pills("Musterdepot", namen, default=daten.get("aktiv") if daten.get("aktiv") in namen else namen[0],
+                 key="md_wahl") or namen[0])
+    d = depots[wahl]
+    pos = d.get("positionen") or []
+    with st.spinner("Lade Kurse …"):
+        kurse = _parallel([(i, h["get_live_kurs"], (p["instrument_id"],)) for i, p in enumerate(pos)])
+    zeilen, wert, kauf, heute_diff = [], 0.0, 0.0, 0.0
+    berechnet = []
+    for i, p in enumerate(pos):
+        k = kurse.get(i)
+        akt = vor = None
+        if isinstance(k, (tuple, list)) and k and k[0]:
+            akt, vor = float(k[0]), (float(k[1]) if k[1] else None)
+        akt_w = (akt or p["kaufkurs"]) * p["stueck"]
+        wert += akt_w
+        kauf += p["kaufwert"]
+        if akt and vor:
+            heute_diff += (akt - vor) * p["stueck"]
+        berechnet.append((p, akt, akt_w))
+    cash = float(d.get("cash") or 0.0)
+    gesamt = wert + cash
+    basis = kauf + cash
+    gv = gesamt - basis
+    try:
+        seit = datetime.date.fromisoformat(d["erstellt"]).strftime("%d.%m.%Y")
+    except Exception:
+        seit = d.get("erstellt", "–")
+    st.markdown(f'<div class="abschnitt">📦 {_esc(wahl)}</div>', unsafe_allow_html=True)
+    _hinweis(f"Musterdepot aus dem Portfolio-Planer („{d.get('quelle', '–')}“) · erstellt am {seit} · "
+             "Kaufkurse = Schlusskurse vom Erstellungstag · ohne Gebühren und Steuern")
+    farbe = "pl-gut" if gv >= 0 else "pl-schlecht"
+    _kacheln([
+        ("Depotwert", f"{_de(gesamt, 2)} €", f"davon Cash {_de(cash, 2)} €"),
+        ("Gewinn/Verlust", f'<span class="{farbe}">{"+" if gv >= 0 else "−"}{_de(abs(gv), 2)} €</span>',
+         f'{"+" if gv >= 0 else "−"}{_de(abs(gv) / basis * 100 if basis else 0, 2)} % seit {seit}'),
+        ("Heute", f'<span class="{"pl-gut" if heute_diff >= 0 else "pl-schlecht"}">'
+                  f'{"+" if heute_diff >= 0 else "−"}{_de(abs(heute_diff), 2)} €</span>', "gegenüber Vortag"),
+        ("Positionen", str(len(pos)), f"Kaufwert {_de(basis, 2)} €"),
+    ])
+    for p, akt, akt_w in sorted(berechnet, key=lambda x: -x[2]):
+        g = (akt / p["kaufkurs"] - 1) * 100 if akt and p["kaufkurs"] else None
+        name = f'<b>{_esc(p["name"])}</b><br><span class="pt-sub">' + _esc(
+            " · ".join(x for x in (p.get("wkn"), ("aus " + p["teil_von"]) if p.get("teil_von") else "") if x)) + "</span>"
+        stueck = _de(p["stueck"], 4).rstrip("0").rstrip(",") if p["stueck"] % 1 else _de(p["stueck"])
+        zeilen.append([name, stueck, _de(p["kaufkurs"], 2) + " €",
+                       (_de(akt, 2) + " €") if akt else "–", _de(akt_w, 2) + " €",
+                       (f'<span class="{"pl-gut" if g >= 0 else "pl-schlecht"}">{"+" if g >= 0 else "−"}'
+                        f'{_de(abs(g), 2)} %</span>') if g is not None else "–",
+                       _de(akt_w / gesamt * 100 if gesamt else 0, 1) + " %"])
+    if cash:
+        zeilen.append(["<b>Cash</b><br><span class=\"pt-sub\">Reserve und Rest</span>", "–", "–", "–",
+                       _de(cash, 2) + " €", "–", _de(cash / gesamt * 100 if gesamt else 0, 1) + " %"])
+    _tabelle(["Position", "Stück", "Kaufkurs", "Kurs", "Wert", "G/V", "Anteil"], zeilen)
+    st.caption("Kurse von ls-tc.de, aktualisiert mit den übrigen Kursen der App.")
+    with st.expander("Musterdepot löschen", expanded=False):
+        sicher = st.checkbox(f"Ja, „{wahl}“ endgültig löschen", key="md_loeschen_ok")
+        if st.button("🗑️ Löschen", key="md_loeschen", disabled=not sicher, width="stretch"):
+            depots.pop(wahl, None)
+            daten["depots"] = depots
+            daten["aktiv"] = next(iter(depots), None)
+            if h["gh_write"](PFAD_MUSTERDEPOT, daten, message=f"planer: musterdepot {wahl} geloescht [skip ci]"):
+                st.success("Gelöscht.")
+                st.rerun()
+            else:
+                st.error("Löschen nicht möglich – GitHub-Speicher nicht erreichbar.")
+
+
+# ===========================================================================
 # Einstieg
 # ===========================================================================
 def render(h):
@@ -2507,6 +2702,7 @@ def render(h):
     seiten = {
         ("🧩 Portfolio", "Bausteine"): lambda: _b_bausteine(m, R, h),
         ("🧩 Portfolio", "Aufteilung"): lambda: _b_aufteilung(m, R),
+        ("🧩 Portfolio", "Kaufplan"): lambda: _b_kaufplan(m, R, h, hist_assets, hist_korb),
         ("⚖️ Gewichtung", None): lambda: _b_gewichtung(m, R),
         ("📈 Ergebnis", "Wachstum"): lambda: _b_growth(m, R),
         ("📈 Ergebnis", "Ziel"): lambda: _b_ziel(m, R),
