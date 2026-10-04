@@ -1461,7 +1461,7 @@ def kaufplan(positionen, betrag, bruchstuecke=False, nachkommastellen=4):
                 f = 10 ** nachkommastellen
                 z["stueck"] = math.floor(soll / kurs * f) / f
             else:
-                z["stueck"] = float(math.floor(soll / kurs + 1e-9))
+                z["stueck"] = float(math.floor(soll / kurs + 1e-6))
             z["ist"] = z["stueck"] * kurs
         else:
             ohne_kurs.append(p.get("name"))
