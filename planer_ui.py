@@ -985,12 +985,15 @@ def _katalog(m, h):
                    f"(häufigster Grund: {haeufig}). Bitte „Aktualisieren“ tippen – fehlgeschlagene Werte werden "
                    "dabei einzeln nachgeladen.")
     if not werte:
-        st.info("Für den Katalog sind noch keine Kennzahlen berechnet. Das Laden der Kurshistorien "
+        st.info("Für den Katalog sind noch keine Kennzahlen berechnet. Sie entstehen beim nächsten Lauf des "
+                "Watchlist-Agenten (täglich, oder auf GitHub unter Actions → Watchlist Top 50 → Run workflow). "
+                "Alternativ hier direkt laden: Das Laden der Kurshistorien "
                 f"({len(D.KATALOG)} Werte) dauert einmalig etwa eine halbe Minute – danach steht der Tagesstand "
                 "gespeichert bereit.")
     c1, c2 = st.columns([3, 1])
     if werte:
         c1.caption(f"Kennzahlen Stand {d.get('berechnet', '–')} · Quelle ls-tc.de Kurshistorie"
+                   + (" · täglich berechnet vom Watchlist-Agenten" if d.get("quelle") == "Agent" else "")
                    + ("" if d.get("stand") == heute else " · nicht von heute"))
     if c2.button("📊 Kennzahlen laden" if not werte else "Aktualisieren", key="pl_kat_laden", width="stretch"):
         with st.spinner(f"Lade Kurshistorien für {len(D.KATALOG)} Werte …"):
@@ -999,6 +1002,38 @@ def _katalog(m, h):
         if d.get("ok", 0) < len(D.KATALOG) / 2:
             st.error(f"Nur {d.get('ok', 0)} von {len(D.KATALOG)} Werten geladen – die Kursquelle antwortet gerade "
                      "nicht zuverlässig. Bitte später erneut „Aktualisieren“ tippen.")
+
+    with st.expander("🔧 Diagnose Kursquelle", expanded=bool(werte) and len(fehler) > len(werte) / 2):
+        ok_n = sum(1 for v in werte.values() if not v.get("fehler"))
+        st.caption(f"Gespeicherter Stand: {ok_n} von {len(werte)} Werten mit Kennzahlen · berechnet "
+                   f"{d.get('berechnet', '–')}")
+        gruende = {}
+        for w, v in werte.items():
+            if v.get("fehler"):
+                gruende.setdefault(v["fehler"], []).append(w)
+        for g, ws in sorted(gruende.items(), key=lambda x: -len(x[1]))[:5]:
+            st.caption(f"• {len(ws)}× {g} (z. B. {', '.join(ws[:3])})")
+        if st.button("Verbindung testen (NVIDIA, Vanguard All-World)", key="pl_kat_test", width="stretch"):
+            for begriff, wiki in (("918422", False), ("IE00BK5BQT80", False)):
+                try:
+                    treffer = h["suche_instrument"](begriff) or []
+                except Exception as e:
+                    treffer, fehler_s = [], str(e)
+                else:
+                    fehler_s = ""
+                st.write(f"**Suche „{begriff}“:** {len(treffer)} Treffer {fehler_s}")
+                if treffer:
+                    t = _waehle_treffer(treffer, begriff, wiki) or treffer[0]
+                    st.write(f"→ {t.get('name')} · WKN {t.get('wkn')} · ID {t.get('instrument_id')}")
+                    try:
+                        reihe = h["get_kurshistorie"](t["instrument_id"], datetime.date(2000, 1, 1), h["heute"])
+                        n = 0 if reihe is None else len(reihe)
+                        st.write(f"→ Kurshistorie: {n} Kurse" + (f", letzter {float(reihe.iloc[-1]):.2f} €" if n else ""))
+                    except Exception as e:
+                        st.write(f"→ Kurshistorie: Fehler {e}")
+                r = _hist_eines((begriff,), wiki, h["heute"].isoformat(), h["suche_instrument"], h["get_kurshistorie"])
+                st.write("→ Kennzahlen: " + (f"Fehler: {r['fehler']}" if r.get("fehler") else
+                                            f"ok, 5 J. p.a. {_pct(r.get('historical5Y'))}"))
 
     typen = ["Alle"] + list(D.KATALOG_TYPEN.values())
     typ = st.pills("Art", typen, default="Alle", key="pl_kat_typ") or "Alle"
