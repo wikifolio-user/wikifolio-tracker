@@ -309,6 +309,24 @@ def performance(reihe, heute):
                 continue
             ref = reihe[pos][1]
         ergebnis[schluessel] = round((letzter / ref - 1) * 100, 2) if ref > 0 else None
+    # Risiko-Kennzahlen fuer den Planer-Katalog: Vola (1 Jahr, annualisiert) und
+    # groesster Rueckgang seit Beginn der Historie
+    try:
+        grenze = letzter_tag - datetime.timedelta(days=365)
+        jahr = [k for t, k in reihe if t >= grenze]
+        r = [math.log(jahr[i] / jahr[i - 1]) for i in range(1, len(jahr)) if jahr[i - 1] > 0 and jahr[i] > 0]
+        if len(r) > 20:
+            mw = sum(r) / len(r)
+            ergebnis["_vola"] = round((sum((x - mw) ** 2 for x in r) / (len(r) - 1)) ** 0.5 * math.sqrt(252) * 100, 1)
+        hoch, dd = 0.0, 0.0
+        for _, k in reihe:
+            hoch = max(hoch, k)
+            if hoch > 0:
+                dd = min(dd, k / hoch - 1.0)
+        ergebnis["_maxdd"] = round(dd * 100, 1)
+        ergebnis["_jahre"] = round((letzter_tag - reihe[0][0]).days / 365.25, 1)
+    except Exception:
+        pass
     return ergebnis
 
 
@@ -1411,7 +1429,8 @@ def katalog_kennzahlen(id_cache, jetzt):
 
 STATE_KATALOG_GROSS = "state/planer/katalog_gross_{}.json"
 KATALOG_TEILE = 4
-KATALOG_FELDER = ["typ", "kat", "name", "kennung", "isin", "1J", "3J", "5J", "10J", "kurs", "div"]
+KATALOG_FELDER = ["typ", "kat", "name", "kennung", "isin", "1J", "3J", "5J", "10J", "kurs", "div", "vola", "maxdd",
+                  "jahre"]
 
 
 def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
@@ -1427,7 +1446,8 @@ def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
             gesehen.add(uid)
             zeile = [typ, key, str(name)[:45], wkn, isin or "", p.get("1J"), p.get("3J"), p.get("5J"), p.get("10J"),
                      round(p["_kurs"], 4) if p.get("_kurs") else None,
-                     round(p["_div"], 2) if p.get("_div") is not None else None]
+                     round(p["_div"], 2) if p.get("_div") is not None else None,
+                     p.get("_vola"), p.get("_maxdd"), p.get("_jahre")]
             teile[zlib.crc32(str(uid).encode()) % KATALOG_TEILE].append(zeile)
     titel = {k: v["titel"] for k, v in KATEGORIEN.items()}
     for i, zeilen in teile.items():
