@@ -1434,3 +1434,55 @@ def rendite_fuer_restwert(kapital, monatlich, ziel_restwert, *, jahre=30, **kw):
         else:
             lo = mitte
     return hi
+
+
+def kaufplan(positionen, betrag, bruchstuecke=False, nachkommastellen=4):
+    """Stueckzahlen fuer einen Kaufbetrag.
+
+    positionen: [{"id", "name", "anteil" (0..1 vom Gesamtbetrag), "kurs" (€ oder None),
+                  "cash": bool}]
+    - Cash-Positionen (Reserve) bleiben als Geld stehen.
+    - Ganze Stuecke (Standard): abrunden, danach wird der Rest stueckweise auf
+      die Positionen verteilt, die am weitesten unter ihrem Soll liegen und
+      deren Kurs noch in den Rest passt.
+    - bruchstuecke=True: exakte Stueckzahl (gerundet auf 'nachkommastellen').
+    -> {"zeilen": [{..., "soll", "stueck", "ist", "abweichung"}], "investiert",
+        "cash_soll", "rest", "ohne_kurs": [namen]}"""
+    betrag = max(float(betrag or 0.0), 0.0)
+    zeilen, ohne_kurs = [], []
+    for p in positionen:
+        soll = betrag * float(p.get("anteil") or 0.0)
+        z = dict(p, soll=soll, stueck=0.0, ist=0.0)
+        kurs = p.get("kurs")
+        if p.get("cash"):
+            z["ist"] = soll
+        elif kurs and kurs > 0:
+            if bruchstuecke:
+                f = 10 ** nachkommastellen
+                z["stueck"] = math.floor(soll / kurs * f) / f
+            else:
+                z["stueck"] = float(math.floor(soll / kurs + 1e-9))
+            z["ist"] = z["stueck"] * kurs
+        else:
+            ohne_kurs.append(p.get("name"))
+        zeilen.append(z)
+    handelbar = [z for z in zeilen if not z.get("cash") and z.get("kurs")]
+    rest = betrag - sum(z["ist"] for z in zeilen)
+    if not bruchstuecke:
+        for _ in range(100000):
+            # nur Kaeufe, die naeher ans Soll fuehren (Rueckstand >= halber Kurs)
+            kandidaten = [z for z in handelbar if z["kurs"] <= rest + 1e-9 and z["soll"] > 0
+                          and z["soll"] - z["ist"] >= z["kurs"] / 2]
+            if not kandidaten:
+                break                     # Rest bleibt Cash
+            # groesster relativer Rueckstand zum Soll zuerst
+            z = max(kandidaten, key=lambda z: (z["soll"] - z["ist"]) / z["soll"])
+            z["stueck"] += 1
+            z["ist"] += z["kurs"]
+            rest -= z["kurs"]
+    for z in zeilen:
+        z["abweichung"] = z["ist"] - z["soll"]
+    investiert = sum(z["ist"] for z in zeilen if not z.get("cash"))
+    cash_soll = sum(z["ist"] for z in zeilen if z.get("cash"))
+    return {"zeilen": zeilen, "investiert": investiert, "cash_soll": cash_soll,
+            "rest": max(betrag - investiert - cash_soll, 0.0), "ohne_kurs": ohne_kurs}
