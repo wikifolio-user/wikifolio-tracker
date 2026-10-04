@@ -2651,6 +2651,92 @@ def render_dashboard():
     ]
     Q_KLASSE_CSS = {"prio": "q-prio", "beobachten": "q-beob", "nicht": "q-nicht"}
 
+    Q_FARBE_CSS = {"pt-up": "color: #16C784; font-weight: 600", "pt-down": "color: #EA3943; font-weight: 600"}
+
+    def _q_vergleich(werte, symbole):
+        """Alle Kennzahlen nebeneinander (sortierbar per Tipp auf die Spalte, als CSV
+        herunterladbar) + Direktvergleich ausgewaehlter Aktien Kennzahl fuer Kennzahl."""
+        zeilen = []
+        for rang, sym in enumerate(symbole, 1):
+            e = werte.get(sym)
+            if not e:
+                continue
+            z = {"#": rang, "Unternehmen": e.get("name") or sym, "Symbol": sym, "Punkte": e.get("gesamt"),
+                 "Einordnung": Q_KLASSEN.get(e.get("klasse"), "")}
+            for key, titel, _, _ in Q_SPALTEN:
+                z[titel] = e.get(key)
+            zeilen.append(z)
+        if not zeilen:
+            st.info("Keine Daten.")
+            return
+        df = pd.DataFrame(zeilen)
+
+        def faerben(spalte):
+            regel = next((f for k, t, _, f in Q_SPALTEN if t == spalte.name), None)
+            if regel is None:
+                return [""] * len(spalte)
+            aus = []
+            for x in spalte:
+                try:
+                    aus.append(Q_FARBE_CSS.get(regel(None if pd.isna(x) else x), ""))
+                except Exception:
+                    aus.append("")
+            return aus
+
+        try:
+            ansicht = df.style.apply(faerben, axis=0)
+        except Exception:
+            ansicht = df
+        cfg = {"#": st.column_config.NumberColumn("#", width="small"),
+               "Unternehmen": st.column_config.TextColumn("Unternehmen", width="medium", pinned=True),
+               "Punkte": st.column_config.NumberColumn("Punkte", format="%d", width="small")}
+        for key, titel, _, _ in Q_SPALTEN:
+            if key in ("moat", "mgmt", "bew", "risiko"):
+                continue
+            prozent = key not in ("fkgv", "ev_ebit", "nde", "mcap")
+            cfg[titel] = st.column_config.NumberColumn(titel, format="%.1f %%" if prozent else "%.1f")
+        try:
+            st.dataframe(ansicht, hide_index=True, width="stretch", column_config=cfg,
+                         height=min(36 * (len(df) + 1) + 4, 720))
+        except TypeError:                       # aeltere Streamlit-Version ohne "pinned"
+            cfg["Unternehmen"] = st.column_config.TextColumn("Unternehmen", width="medium")
+            st.dataframe(ansicht, hide_index=True, width="stretch", column_config=cfg,
+                         height=min(36 * (len(df) + 1) + 4, 720))
+        st.caption("Tipp auf einen Spaltenkopf sortiert nach dieser Kennzahl · grün/rot = günstig/ungünstig "
+                   "nach denselben Schwellen wie in der Einzelansicht · ⤓ oben rechts lädt die Tabelle als CSV.")
+
+        # Direktvergleich: Kennzahlen als Zeilen, ausgewaehlte Aktien als Spalten
+        namen = {z["Symbol"]: z["Unternehmen"] for z in zeilen}
+        auswahl = st.multiselect("Aktien direkt vergleichen (bis 6)", list(namen), max_selections=6,
+                                 default=list(namen)[:3], key="q_vergleich_wahl",
+                                 format_func=lambda s_: f"{namen[s_]} ({s_})")
+        if auswahl:
+            kennzahlen = [("Punkte", "gesamt", lambda x: "–" if x is None else f"{x}")] + \
+                         [(t, k, f) for k, t, f, _ in Q_SPALTEN]
+            tab = {"Kennzahl": [t for t, _, _ in kennzahlen]}
+            for s_ in auswahl:
+                e = werte.get(s_) or {}
+                kopf = namen[s_][:22] if namen[s_][:22] not in tab else f"{namen[s_][:16]} ({s_})"
+                tab[kopf] = [fmt(e.get(k)) if e.get(k) is not None else "–" for _, k, fmt in kennzahlen]
+            vdf = pd.DataFrame(tab)
+
+            def faerben_v(zeile):
+                k = next((k for t, k, _ in kennzahlen if t == zeile["Kennzahl"]), None)
+                regel = next((f for kk, _, _, f in Q_SPALTEN if kk == k), None)
+                aus = [""]
+                for s_ in auswahl:
+                    try:
+                        aus.append(Q_FARBE_CSS.get(regel((werte.get(s_) or {}).get(k)), "") if regel else "")
+                    except Exception:
+                        aus.append("")
+                return aus
+
+            try:
+                vansicht = vdf.style.apply(faerben_v, axis=1)
+            except Exception:
+                vansicht = vdf
+            st.dataframe(vansicht, hide_index=True, width="stretch", height=36 * (len(vdf) + 1) + 4)
+
     def _q_tabelle(werte, symbole, vergleich=None, fokus="roic"):
         """HTML-Tabelle. Am Desktop alle Kennzahlen (seitlich scrollbar), auf
         dem iPhone nur Rang, Trend, Name, die gewaehlte Kennzahl und Punkte -
@@ -2896,10 +2982,13 @@ def render_dashboard():
             st.info("In dieser Einordnung gibt es hier derzeit keine Aktie.")
             return
 
-        titel_fokus = [t for _, t, _, _ in Q_SPALTEN]
+        titel_fokus = ["📊 Alle Kennzahlen"] + [t for _, t, _, _ in Q_SPALTEN]
         f_wahl = st.pills("Kennzahl in der Tabelle", titel_fokus, default="ROIC", key="q_fokus") or "ROIC"
-        fokus = Q_SPALTEN[titel_fokus.index(f_wahl)][0] if f_wahl in titel_fokus else "roic"
-        _q_tabelle(werte, symbole, vergleich, fokus)
+        if f_wahl == titel_fokus[0]:
+            _q_vergleich(werte, symbole)
+        else:
+            fokus = next((k for k, t, _, _ in Q_SPALTEN if t == f_wahl), "roic")
+            _q_tabelle(werte, symbole, vergleich, fokus)
         if vergleich is not None or daten.get("vergleich_seit") is None:
             _wochen_bilanz([(r, werte[s]["name"] if s in werte else s, s, (vergleich or {}).get("vor", {}).get(s))
                             for r, s in enumerate(symbole, 1)],
