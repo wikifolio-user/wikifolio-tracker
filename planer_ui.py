@@ -1668,6 +1668,9 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     if not runden and _auto_modus(m):
         st.caption("Die automatische Gewichtung ist aktiv – für Stückzahlen den Schalter oben einschalten, dann "
                    "werden ihre Prozente jeweils auf ganze Stücke gerundet.")
+    if investiert > 0:
+        with st.expander("📦 Diese Stückzahlen als Musterdepot übernehmen", expanded=False):
+            _musterdepot_formular(h, kp, float(start), "bs")
     if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
                  help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
                       "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J., bei jungen Werten "
@@ -2933,22 +2936,29 @@ def _b_kaufplan(m, R, h, hist_assets, hist_korb):
     if erg["ohne_kurs"]:
         st.warning("Ohne aktuellen Kurs (nicht gekauft, Betrag bleibt Cash): " + ", ".join(erg["ohne_kurs"]))
 
-    _abschnitt("Musterdepot erstellen")
-    st.caption("Legt aus diesem Kaufplan ein Musterdepot an (Kaufkurs = Kurs von heute). Es erscheint im Menü "
-               "unter „Depot“ als eigener Button „📦 Musterdepot“ und zeigt die Entwicklung seit heute.")
+    _musterdepot_formular(h, erg, float(kp["betrag"]), "kp")
+
+
+def _musterdepot_formular(h, erg, betrag, prefix):
+    """Name + Button: legt aus einem Kaufplan (E.kaufplan) ein Musterdepot an."""
+    _abschnitt("Als Musterdepot übernehmen")
+    st.caption(f"Legt aus diesen Stückzahlen ({_de(betrag)} €) ein Musterdepot an – Kaufkurs = Kurs von heute. "
+               "Es erscheint im Menü unter „Depot“ als eigener Button „📦 Musterdepot“ und zeigt die Entwicklung "
+               "seit heute.")
     vorhanden = (h["gh_read"](PFAD_MUSTERDEPOT, {}) or {}).get("depots") or {}
-    name = st.text_input("Name des Musterdepots", value="Portfolio Builder Musterdepot", key=_k("md_name")).strip()
+    name = st.text_input("Name des Musterdepots", value="Portfolio Builder Musterdepot",
+                         key=_k(f"md_name_{prefix}")).strip()
     ueber = True
     if name in vorhanden:
-        ueber = st.checkbox(f"„{name}“ gibt es schon – überschreiben", key=_k("md_ueber"))
+        ueber = st.checkbox(f"„{name}“ gibt es schon – überschreiben", key=_k(f"md_ueber_{prefix}"))
     kaufbar = [z for z in erg["zeilen"] if not z.get("cash") and z["stueck"] > 0 and z.get("instrument_id")]
-    if st.button("📦 Musterdepot erstellen", key=_k("md_los"), width="stretch",
+    if st.button("📦 Musterdepot erstellen", key=_k(f"md_los_{prefix}"), width="stretch",
                  disabled=not name or not ueber or not kaufbar):
         heute = h["heute"].isoformat() if h.get("heute") else datetime.date.today().isoformat()
         depot = {
-            "name": name, "erstellt": heute, "kaufwert": float(kp["betrag"]),
+            "name": name, "erstellt": heute, "kaufwert": float(betrag),
             # alles, was nicht als Stueck im Depot liegt, ist Cash (Reserve, Rest, Werte ohne Kurs)
-            "cash": round(float(kp["betrag"]) - sum(z["ist"] for z in kaufbar), 2),
+            "cash": round(float(betrag) - sum(z["ist"] for z in kaufbar), 2),
             "positionen": [{"name": z["name"], "wkn": z.get("wkn") or "", "isin": z.get("isin") or "",
                             "instrument_id": z["instrument_id"], "stueck": z["stueck"], "kaufkurs": z["kurs"],
                             "kaufwert": round(z["ist"], 2), "gewicht_soll": round(z["anteil"] * 100, 3),
@@ -2963,8 +2973,8 @@ def _b_kaufplan(m, R, h, hist_assets, hist_korb):
         except Exception:
             ok = False
         if ok:
-            st.success(f"✓ Musterdepot „{name}“ erstellt ({len(kaufbar)} Positionen). Zu finden im Menü unter "
-                       "„Depot“ → „📦 Musterdepot“.")
+            st.success(f"✓ Musterdepot „{name}“ erstellt ({len(kaufbar)} Positionen, Cash {_de(depot['cash'], 2)} €). "
+                       "Zu finden im Menü unter „Depot“ → „📦 Musterdepot“.")
         else:
             st.error("Speichern nicht möglich – GitHub-Speicher nicht erreichbar.")
 
