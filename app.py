@@ -1780,9 +1780,12 @@ NAV_PRUEF_SEK = 15 * 60             # offene Seite prueft alle 15 Min., ob ein T
 
 ANSICHT_DEPOT = "🏠 Depot"
 ANSICHT_EINST = "⚙️ Einstellungen"
+ANSICHT_MUSTER = "📦 Musterdepot"    # aus dem Portfolio-Planer erstellt - Button nur, wenn eines existiert
+PFAD_MUSTERDEPOT = "state/musterdepot.json"
 ANSICHTEN = [
     ANSICHT_DEPOT,
     ANSICHT_EINST,
+    ANSICHT_MUSTER,
     "📈 Vermögens- & Substanzaufbau",
     "🔍 Seit 01.01.2026",
     "🔎 Seit 01.01.2021",
@@ -1805,6 +1808,7 @@ ANSICHT_KURZ = {
     "💼 Portfolio-Planer": "💼 Planer",
     "📝 Trader-Log (Trades & Kommentare)": "📝 Trader-Log",
     "🏆 Watchlist Top 50": "🏆 Watchlist",
+    ANSICHT_MUSTER: "📦 Muster",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1819,6 +1823,7 @@ NAV_NAMEN = {
     "📊 Szenario-Simulator (5 Jahre)": "📊 Szenario-Simulator",
     "💼 Portfolio-Planer": "💼 Portfolio-Planer",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
+    ANSICHT_MUSTER: "📦 Musterdepot",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
 NAV_TITEL = {
@@ -1828,14 +1833,14 @@ NAV_TITEL = {
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
 NAV_ZEILEN = [
-    ("Depot", [ANSICHT_DEPOT, ANSICHT_EINST, "📝 Trader-Log (Trades & Kommentare)"]),
+    ("Depot", [ANSICHT_DEPOT, ANSICHT_EINST, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_MUSTER]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Planer",
                            "🏆 Watchlist Top 50"]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50"}
+LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER}
 
 NAV_CSS = """
 <style>
@@ -2153,9 +2158,14 @@ def navigation():
             st.button("🔄 Kurse aktualisieren", key="nav_refresh", width="content", help=hilfe,
                       on_click=_nav_aktualisieren)
             farb_css = []
+            try:
+                hat_muster = bool((gh_read_cached(PFAD_MUSTERDEPOT, {}) or {}).get("depots"))
+            except Exception:
+                hat_muster = False
             for titel, ansichten in NAV_ZEILEN:
+                ansichten = [a for a in ansichten if a != ANSICHT_MUSTER or hat_muster]
                 farbe = NAV_FARBEN.get(titel, "#F4F8FF")
-                verzug = f"{NAV_ZEILEN.index((titel, ansichten)) * 0.25 + 0.3:.2f}s"
+                verzug = f"{[t for t, _ in NAV_ZEILEN].index(titel) * 0.25 + 0.3:.2f}s"
                 st.markdown(f'<div class="nav-gruppe"><span class="nav-wander" style="animation-delay:{verzug}">'
                             f'{titel}</span></div>', unsafe_allow_html=True)
                 for i in range(0, len(ansichten), 2):
@@ -3538,6 +3548,16 @@ def render_dashboard():
             notify_app_error("Tab-Portfolio-Planer", e)
         lade_fertig()
 
+
+    if gewaehlte_ansicht == ANSICHT_MUSTER:
+        melde("ansicht", 0.3, "Lade Musterdepot …")
+        try:
+            import planer_ui
+            planer_ui.render_musterdepot({"gh_read": gh_read, "gh_write": gh_write, "get_live_kurs": get_live_kurs})
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Musterdepot: {e}")
+            notify_app_error("Tab-Musterdepot", e)
+        lade_fertig()
 
     # Watchlist und Portfolio-Planer brauchen keine Depot- oder Kursdaten -
     # dort endet der Aufbau hier, ohne Live-Kurs, Historie und Vergleichswerte.
