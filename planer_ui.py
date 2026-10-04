@@ -873,23 +873,46 @@ def _katalog_daten(h):
 def _katalog_laden(h):
     """Kennzahlen aller Katalogwerte aus der echten Kurshistorie (ls-tc.de) -
     parallel geladen und als Tagesstand im GitHub-Speicher abgelegt, damit
-    der naechste Aufruf (auch auf einem anderen Geraet) sofort da ist."""
+    der naechste Aufruf (auch auf einem anderen Geraet) sofort da ist.
+    Fehlgeschlagene Werte werden einmal einzeln nachgeladen; klappt es dann
+    immer noch nicht, bleibt der letzte gute Stand dieses Werts erhalten."""
     heute = h["heute"].isoformat()
-    aufgaben = [(k["wkn"], _hist_eines,
-                 (tuple(x for x in (k["wkn"], k["isin"]) if x), k["typ"] == "wikifolio", heute,
-                  h["suche_instrument"], h["get_kurshistorie"], None)) for k in D.KATALOG]
+    alt = (_katalog_daten(h).get("werte") or {})
+
+    def aufgabe(k):
+        return (k["wkn"], _hist_eines,
+                (tuple(x for x in (k["wkn"], k["isin"]) if x), k["typ"] == "wikifolio", heute,
+                 h["suche_instrument"], h["get_kurshistorie"], None))
+
+    erg = _parallel([aufgabe(k) for k in D.KATALOG])
+    # zweiter Versuch einzeln (die Kursquelle bremst bei vielen parallelen Abrufen)
+    for k in D.KATALOG:
+        r = erg.get(k["wkn"])
+        if not r or r.get("fehler"):
+            _, f, args = aufgabe(k)
+            try:
+                erg[k["wkn"]] = f(*args)
+            except Exception as e:
+                erg[k["wkn"]] = {"fehler": str(e)}
     werte = {}
-    for wkn, k in _parallel(aufgaben).items():
-        if k and not k.get("fehler"):
-            werte[wkn] = {x: v for x, v in k.items() if x != "monat"}
+    for k in D.KATALOG:
+        r = erg.get(k["wkn"]) or {}
+        if r and not r.get("fehler"):
+            werte[k["wkn"]] = {x: v for x, v in r.items() if x != "monat"}
+        elif (alt.get(k["wkn"]) or {}) and not alt[k["wkn"]].get("fehler"):
+            werte[k["wkn"]] = dict(alt[k["wkn"]], veraltet=True)          # letzter guter Stand
         else:
-            werte[wkn] = {"fehler": (k or {}).get("fehler") or "keine Daten"}
-    d = {"stand": heute, "berechnet": datetime.datetime.now().strftime("%d.%m.%Y %H:%M"), "werte": werte}
+            werte[k["wkn"]] = {"fehler": r.get("fehler") or "keine Daten"}
+    ok = sum(1 for v in werte.values() if not v.get("fehler"))
+    d = {"stand": heute, "berechnet": datetime.datetime.now().strftime("%d.%m.%Y %H:%M"), "werte": werte,
+         "ok": ok}
     st.session_state["planer_katalog"] = d
-    try:
-        h["gh_write"](PFAD_KATALOG, d, message="planer: katalog-kennzahlen [skip ci]")
-    except Exception:
-        pass
+    # nur speichern, wenn wenigstens die Haelfte Daten hat - sonst bleibt der alte Stand
+    if ok >= len(D.KATALOG) / 2:
+        try:
+            h["gh_write"](PFAD_KATALOG, d, message="planer: katalog-kennzahlen [skip ci]")
+        except Exception:
+            pass
     return d
 
 
@@ -952,6 +975,13 @@ def _katalog(m, h):
     d = _katalog_daten(h)
     werte = d.get("werte") or {}
     heute = h["heute"].isoformat()
+    fehler = [v.get("fehler") for v in werte.values() if v.get("fehler")]
+    if werte and len(fehler) > len(werte) / 2:
+        # gespeicherter Stand ist (fast) leer - z. B. weil die Kursquelle beim Laden nicht antwortete
+        haeufig = max(set(fehler), key=fehler.count)
+        st.warning(f"Für {len(fehler)} von {len(werte)} Werten liegen keine Kennzahlen vor "
+                   f"(häufigster Grund: {haeufig}). Bitte „Aktualisieren“ tippen – fehlgeschlagene Werte werden "
+                   "dabei einzeln nachgeladen.")
     if not werte:
         st.info("Für den Katalog sind noch keine Kennzahlen berechnet. Das Laden der Kurshistorien "
                 f"({len(D.KATALOG)} Werte) dauert einmalig etwa eine halbe Minute – danach steht der Tagesstand "
@@ -964,6 +994,9 @@ def _katalog(m, h):
         with st.spinner(f"Lade Kurshistorien für {len(D.KATALOG)} Werte …"):
             d = _katalog_laden(h)
         werte = d["werte"]
+        if d.get("ok", 0) < len(D.KATALOG) / 2:
+            st.error(f"Nur {d.get('ok', 0)} von {len(D.KATALOG)} Werten geladen – die Kursquelle antwortet gerade "
+                     "nicht zuverlässig. Bitte später erneut „Aktualisieren“ tippen.")
 
     typen = ["Alle"] + list(D.KATALOG_TYPEN.values())
     typ = st.pills("Art", typen, default="Alle", key="pl_kat_typ") or "Alle"
@@ -988,6 +1021,9 @@ def _katalog(m, h):
     kopf = ["＋", "Name"] + ([] if typ != "Alle" else ["Typ"]) + spalten + ["Im Portf."]
     df = pd.DataFrame([{**{c: z[c] for c in kopf if c != "＋"}, "＋": z["wkn"] in wahl} for z in zeilen])[kopf] \
         if zeilen else pd.DataFrame(columns=kopf)
+    for c in spalten:
+        if c not in ("Historie ab", "Profil", "Gefunden"):
+            df[c] = pd.to_numeric(df[c], errors="coerce")       # fehlende Werte leer statt "None"
     cfg = {"＋": _spalte("＋", typ="check", width="small", help="Zum Hinzufügen auswählen"),
            "Name": _spalte("Name", pinned=True, typ="text", width="medium"),
            "Im Portf.": _spalte("Im Portf.", typ="check", width="small")}
