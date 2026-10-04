@@ -19,6 +19,7 @@ import hashlib
 import html
 import json
 import math
+import time
 import zlib
 
 import pandas as pd
@@ -890,6 +891,7 @@ def _katalog_laden(h):
         r = erg.get(k["wkn"])
         if not r or r.get("fehler"):
             _, f, args = aufgabe(k)
+            time.sleep(0.3)               # der Kursquelle kurz Luft lassen
             try:
                 erg[k["wkn"]] = f(*args)
             except Exception as e:
