@@ -2110,7 +2110,7 @@ def kurse_neu_laden():
             pass
     try:
         import planer_ui
-        planer_ui._hist_eines.clear()
+        planer_ui._hist_eines_cache.clear()
     except Exception:
         pass
 
