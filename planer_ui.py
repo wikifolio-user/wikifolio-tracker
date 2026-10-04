@@ -862,8 +862,13 @@ KATALOG_SORT = ["5J p.a.", "3J p.a.", "1J %", "10J p.a.", "Vola 1J", "Max DD", "
 
 
 def _katalog_daten(h):
+    # spaetestens alle 10 Minuten neu lesen - sonst sieht eine offene Sitzung den
+    # neuen Stand des Agenten erst nach dem Neuladen der Seite
     d = st.session_state.get("planer_katalog")
+    if d is not None and time.time() - st.session_state.get("planer_katalog_zeit", 0) > 600:
+        d = None
     if d is None:
+        st.session_state["planer_katalog_zeit"] = time.time()
         try:
             d = h["gh_read"](PFAD_KATALOG, {}) or {}
         except Exception:
