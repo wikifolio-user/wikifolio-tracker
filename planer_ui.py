@@ -1484,22 +1484,81 @@ def _ziel_label(ziel):
     return f"{_de(ziel / 1000)}k" if ziel >= 1000 and ziel % 1000 == 0 else _de(ziel) + " €"
 
 
-def _b_bausteine(m, R, h):
+def _stueck_je_baustein(m, betrag, hist_assets, hist_korb):
+    """Kaufplan fuer 'betrag', je Baustein zusammengefasst (Aktienkorb = Summe
+    seiner Aktien). -> ({asset_id: {"stueck", "ist", "kurs", "korb": n}}, kaufplan)"""
+    erg = E.kaufplan(_kauf_positionen(m, hist_assets or {}, hist_korb or {}), betrag,
+                     bool((m.get("kaufplan") or {}).get("bruch")))
+    je = {}
+    for z in erg["zeilen"]:
+        aid = z["id"].split(":")[0]
+        e = je.setdefault(aid, {"stueck": 0.0, "ist": 0.0, "kurs": None, "korb": 0, "cash": bool(z.get("cash")),
+                                "ohne_kurs": False})
+        e["ist"] += z["ist"]
+        if ":" in z["id"]:
+            e["korb"] += 1 if z["stueck"] else 0
+        else:
+            e["stueck"], e["kurs"] = z["stueck"], z.get("kurs")
+        if not z.get("cash") and not z.get("kurs"):
+            e["ohne_kurs"] = True
+    return je, erg
+
+
+def _auf_stuecke(m, hist_assets, hist_korb):
+    """Setzt jedes Gewicht auf den tatsaechlich gekauften Anteil (Stueck x Kurs
+    fuer das Startkapital); der Rest der Stueckelung kommt zur Reserve.
+    -> (geaendert, rest_prozent, reserve_name oder None)"""
+    start = float(m["rahmen"]["startkapital"] or 0)
+    if start <= 0:
+        return False, 0.0, None
+    stueck, _ = _stueck_je_baustein(m, start, hist_assets, hist_korb)
+    vorher = {a["id"]: float(a.get("targetWeight") or 0) for a in m["assets"]}
+    for a in m["assets"]:
+        v = stueck.get(a["id"])
+        if a.get("enabled") and v and not v["cash"] and not v["ohne_kurs"]:
+            a["targetWeight"] = v["ist"] / start * 100     # ungerundet - sonst kippt die Stueckzahl
+    rest = 100.0 - sum(float(a.get("targetWeight") or 0) for a in m["assets"]
+                       if a.get("enabled") and a["category"] != "cash")
+    cash_assets = [a for a in m["assets"] if a.get("enabled") and a["category"] == "cash"]
+    if cash_assets:
+        cash_assets[0]["targetWeight"] = max(rest, 0.0)
+        for a in cash_assets[1:]:
+            a["targetWeight"] = 0.0
+    geaendert = any(abs(float(a.get("targetWeight") or 0) - vorher[a["id"]]) > 0.005 for a in m["assets"])
+    return geaendert, max(rest, 0.0), cash_assets[0]["name"] if cash_assets else None
+
+
+def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     _abschnitt("Bausteine")
     _auto_hinweis(m)
     start = m["rahmen"]["startkapital"]
     summe = E.gewichte_summe(m) or 1.0
+    bruch = bool((m.get("kaufplan") or {}).get("bruch"))
+    stueck, kp = _stueck_je_baustein(m, start, hist_assets, hist_korb)
     zeilen = []
     for a in m["assets"]:
         eig = E.annahme(m, a["id"], "manualScenario")
         info = R["info"].get(a["id"]) or {}
+        sz = stueck.get(a["id"]) if a.get("enabled") else None
+        if not sz or sz["cash"]:
+            stk_txt = "Cash" if sz and sz["cash"] else "–"
+        elif sz["korb"]:
+            stk_txt = f'Korb ({sz["korb"]} Akt.)'
+        elif sz["ohne_kurs"]:
+            stk_txt = "kein Kurs"
+        else:
+            stk_txt = (_de(sz["stueck"], 4).rstrip("0").rstrip(",") if bruch else _de(sz["stueck"]))
         zeilen.append({
             "Aktiv": bool(a.get("enabled")), "Baustein": a["name"],
             "Gew. %": float(a.get("targetWeight") or 0.0) if a.get("enabled") else 0.0,
+            "Stück": stk_txt,
+            "Kauf €": round(sz["ist"]) if sz else 0,
+            "Real %": round(sz["ist"] / start * 100, 1) if sz and start else 0.0,
             "Annahme %": None if not eig or eig.get("value") is None else round(eig["value"] * 100, 2),
             "Basis": _basis_text(m, a),
             "Ist": a.get("renditequelle") == "historisch",
             "Fix": bool(a.get("fixiert")),
+            "Kurs €": round(sz["kurs"], 2) if sz and sz.get("kurs") else None,
             "Betrag €": round(start * float(a.get("targetWeight") or 0) / summe) if a.get("enabled") else 0,
             "Genutzt %": None if info.get("netto") is None else round(info["netto"] * 100, 2),
             "Conf.": R["conf"].get(a["id"]),
@@ -1511,7 +1570,7 @@ def _b_bausteine(m, R, h):
     breite = (lambda w: w) if schmal else (lambda w: None)
     ed = _editor_formular(
         df, key=_k("builder"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
-        disabled=["Baustein", "Basis", "Betrag €", "Genutzt %", "Conf."],
+        disabled=["Baustein", "Basis", "Betrag €", "Genutzt %", "Conf.", "Stück", "Kauf €", "Real %", "Kurs €"],
         column_config={
             "Basis": st.column_config.TextColumn(
                 "Basis", width=breite("small"),
@@ -1533,7 +1592,17 @@ def _b_bausteine(m, R, h):
             "Fix": st.column_config.CheckboxColumn(
                 "Fix", width=breite("small"),
                 help="Fixierte Gewichte bleiben bei allen Verfahren unter „Gewichtung“ unverändert"),
-            "Betrag €": st.column_config.NumberColumn("Betrag €", format="%d"),
+            "Betrag €": st.column_config.NumberColumn("Soll €", format="%d",
+                                                      help="Startkapital × Gewicht (ohne Rücksicht auf Stückelung)"),
+            "Stück": st.column_config.TextColumn("Stück", width=breite("small"),
+                                                 help="Ganze Stücke zum aktuellen Kurs für das Startkapital "
+                                                      "(Bruchstücke, wenn im Kaufplan eingeschaltet)"),
+            "Kauf €": st.column_config.NumberColumn("Kauf €", format="%d", width=breite("small"),
+                                                    help="Tatsächlicher Kaufbetrag = Stück × Kurs"),
+            "Real %": st.column_config.NumberColumn("Real %", format="%.1f", width=breite("small"),
+                                                    help="Tatsächlicher Anteil nach Stückelung"),
+            "Kurs €": st.column_config.NumberColumn("Kurs €", format="%.2f",
+                                                    help="Letzter Schlusskurs laut ls-tc.de"),
             "Genutzt %": st.column_config.NumberColumn("Genutzt %", format="%.1f",
                                                        help="In der Rechnung verwendet (aktive Quelle, ggf. netto)"),
             "Conf.": st.column_config.NumberColumn("Conf.", format="%d",
@@ -1573,6 +1642,32 @@ def _b_bausteine(m, R, h):
         E.normalisieren(m)
         _neu_zeichnen()
         st.rerun()
+    # Stueckelung: was fuer das Startkapital wirklich gekauft wird
+    investiert = sum(v["ist"] for v in stueck.values() if not v["cash"])
+    cash = start - investiert
+    st.markdown(f'<div class="pl-zeile">Für <b>{_de(start)} €</b> Startkapital: gekauft '
+                f'<b>{_de(investiert, 2)} €</b> in {"Bruchstücken" if bruch else "ganzen Stücken"} · '
+                f'Cash (Reserve + Rest) <b>{_de(cash, 2)} €</b></div>', unsafe_allow_html=True)
+    if kp["ohne_kurs"]:
+        st.caption("Ohne aktuellen Kurs (Stückzahl nicht berechenbar): " + ", ".join(kp["ohne_kurs"]))
+    kpe = m.setdefault("kaufplan", {"betrag": float(start), "bruch": False})
+    runden = st.toggle("Gewichte immer auf ganze Stücke ausrichten", value=bool(kpe.get("runden")), key=_k("stk_runden"),
+                       help="Prozente = tatsächlich gekaufter Anteil (Stück × Kurs) für das Startkapital, der Rest der "
+                            "Stückelung geht in die Reserve. Gilt auch nach der automatischen Gewichtung – das Ziel "
+                            "wird dann bis auf die Rundung erreicht.")
+    if runden != bool(kpe.get("runden")):
+        kpe["runden"] = runden
+        st.rerun()
+    if not runden and st.button("🧮 Einmalig: Gewichte auf die Stückzahlen übernehmen", key=_k("stk_ueber"),
+                                width="stretch", disabled=bool(_auto_modus(m)) or not start or not investiert):
+        _, rest, res = _auf_stuecke(m, hist_assets, hist_korb)
+        st.session_state["planer_meldung"] = ("ok", f"Gewichte auf die Stückzahlen gesetzt – Rest {_de(rest, 1)} % "
+                                              + (f"in „{res}“." if res else "unverteilt (keine Reserve aktiv)."), [])
+        _neu_zeichnen()
+        st.rerun()
+    if not runden and _auto_modus(m):
+        st.caption("Die automatische Gewichtung ist aktiv – für Stückzahlen den Schalter oben einschalten, dann "
+                   "werden ihre Prozente jeweils auf ganze Stücke gerundet.")
     if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
                  help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
                       "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J., bei jungen Werten "
@@ -1582,7 +1677,9 @@ def _b_bausteine(m, R, h):
         _neu_zeichnen()
         st.rerun()
     _meldung_zeigen()
-    st.caption("Spalten: Gew. % = Anteil · Annahme % = Rendite p.a. (Basis zeigt die Herkunft) · Ist = tatsächliche "
+    st.caption("Spalten: Gew. % = Anteil · Stück / Kauf € / Real % = was für das Startkapital zum aktuellen Kurs "
+               "wirklich gekauft wird (Kurs € = letzter Schlusskurs) · Soll € = Startkapital × Gewicht · "
+               "Annahme % = Rendite p.a. (Basis zeigt die Herkunft) · Ist = tatsächliche "
                "Rendite laut Kurshistorie statt Annahme · Fix = bleibt beim Gewichten unverändert · Genutzt % = "
                "damit wird gerechnet. Gewichte automatisch verteilen: Bereich „⚖️ Gewichtung“.")
 
@@ -2988,8 +3085,10 @@ def render(h):
     R = _rechne(m, historie, korb_score)
     if _auto_gewichtung(m, R):
         R = _rechne(m, historie, korb_score)
+    if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
+        R = _rechne(m, historie, korb_score)
     seiten = {
-        ("🧩 Portfolio", "Bausteine"): lambda: _b_bausteine(m, R, h),
+        ("🧩 Portfolio", "Bausteine"): lambda: _b_bausteine(m, R, h, hist_assets, hist_korb),
         ("🧩 Portfolio", "Aufteilung"): lambda: _b_aufteilung(m, R),
         ("🧩 Portfolio", "Kaufplan"): lambda: _b_kaufplan(m, R, h, hist_assets, hist_korb),
         ("⚖️ Gewichtung", None): lambda: _b_gewichtung(m, R),
@@ -3011,6 +3110,8 @@ def render(h):
     je_score, korb_score = _scores(m, fund)
     R = _rechne(m, historie, korb_score)
     if _auto_gewichtung(m, R):
+        R = _rechne(m, historie, korb_score)
+    if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
         R = _rechne(m, historie, korb_score)
     _kpis(kpi_platz, m, R)
     _gewichtswarnung(warn_platz, m)
