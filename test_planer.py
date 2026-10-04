@@ -644,5 +644,24 @@ class ZielNachEntnahme(unittest.TestCase):
         self.assertIsNone(E.rendite_fuer_restwert(300000, 3500, 0, jahre=10))
 
 
+class Kaufplan(unittest.TestCase):
+    def test_ganze_stuecke_und_cash(self):
+        pos = [{"id": "a", "name": "A", "anteil": 0.5, "kurs": 330.0},
+               {"id": "b", "name": "B", "anteil": 0.4, "kurs": 47.3},
+               {"id": "r", "name": "Reserve", "anteil": 0.1, "cash": True},
+               {"id": "x", "name": "X", "anteil": 0.0, "kurs": None}]
+        o = E.kaufplan(pos, 10000)
+        z = {r["id"]: r for r in o["zeilen"]}
+        for r in z.values():
+            self.assertEqual(r["stueck"], int(r["stueck"]))
+        self.assertAlmostEqual(o["investiert"] + o["cash_soll"] + o["rest"], 10000, places=6)
+        self.assertEqual(z["r"]["ist"], 1000)
+        self.assertLessEqual(abs(z["b"]["abweichung"]), 47.3 / 2 + 1e-9)
+
+    def test_bruchstuecke(self):
+        o = E.kaufplan([{"id": "a", "name": "A", "anteil": 1.0, "kurs": 333.0}], 1000, bruchstuecke=True)
+        self.assertAlmostEqual(o["zeilen"][0]["ist"], 1000, delta=0.04)
+
+
 if __name__ == "__main__":
     unittest.main()
