@@ -1409,6 +1409,34 @@ def katalog_kennzahlen(id_cache, jetzt):
                         "top50: katalog-kennzahlen planer [skip ci]")
 
 
+STATE_KATALOG_GROSS = "state/planer/katalog_gross_{}.json"
+KATALOG_TEILE = 4
+KATALOG_FELDER = ["typ", "kat", "name", "kennung", "isin", "1J", "3J", "5J", "10J", "kurs", "div"]
+
+
+def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
+    """Alle aktiven Werte der Watchlist als Baustein-Katalog fuer den Planer.
+    Performance = Kursentwicklung gesamt in % (die App rechnet p.a. um)."""
+    gesehen, teile = set(), {i: [] for i in range(KATALOG_TEILE)}
+    for key, kat in KATEGORIEN.items():
+        typ = "etf" if key == "etf" else "wikifolio" if key == "wikifolios" else "aktie"
+        for uid, name, wkn, isin in mitglieder.get(key, []):
+            p = perf_je_id.get(uid) or {}
+            if not p or uid in gesehen:
+                continue
+            gesehen.add(uid)
+            zeile = [typ, key, str(name)[:45], wkn, isin or "", p.get("1J"), p.get("3J"), p.get("5J"), p.get("10J"),
+                     round(p["_kurs"], 4) if p.get("_kurs") else None,
+                     round(p["_div"], 2) if p.get("_div") is not None else None]
+            teile[zlib.crc32(str(uid).encode()) % KATALOG_TEILE].append(zeile)
+    titel = {k: v["titel"] for k, v in KATEGORIEN.items()}
+    for i, zeilen in teile.items():
+        speichere_state(STATE_KATALOG_GROSS.format(i), {"stand": ergebnis["stand"], "felder": KATALOG_FELDER,
+                                                        "kategorien": titel, "zeilen": zeilen},
+                        f"top50: planer-katalog {i} [skip ci]")
+    log.info(f"Grosser Katalog: {sum(len(z) for z in teile.values())} Werte")
+
+
 def main():
     start = time.monotonic()
     jetzt = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
@@ -1598,6 +1626,13 @@ def main():
         ergebnis["kategorien"][key] = neu
         log.info(f"{kat['titel']}: {neu['aktiv']} aktive Werte, "
                  f"mit 10-Jahres-Daten: {neu['mit_daten'].get('10J', 0)}")
+
+    # 6b) Grosser Baustein-Katalog fuer den Portfolio-Planer: ALLE aktiven Werte
+    #     (Aktien, ETFs, wikifolios) kompakt, verteilt auf KATALOG_TEILE Dateien
+    try:
+        katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis)
+    except Exception as e:
+        log.error(f"Grosser Katalog fehlgeschlagen: {e}", exc_info=True)
 
     # 7) Wochenvergleich: Pfeile (Platz vor 7 Tagen), Neuaufnahmen, Rausgeflogene.
     #    Kategorien, fuer die heute die Vortagesliste gezeigt wird, bleiben
