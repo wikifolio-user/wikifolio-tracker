@@ -929,6 +929,89 @@ def _im_portfolio(m, k):
                for a in m["assets"])
 
 
+def _name_norm(n):
+    n = re.sub(r"[^a-z0-9 ]+", " ", (n or "").lower())
+    weg = {"inc", "corp", "corporation", "plc", "ag", "se", "group", "holdings", "holding", "co", "ltd", "the",
+           "nv", "sa", "class", "a", "company", "ucits", "etf", "acc", "dist"}
+    return "".join(t for t in n.split() if t not in weg)
+
+
+def _watchlist_kennzahlen(h):
+    """Kennzahlen der 72 Katalogwerte aus den Daten der Watchlist (Top 500) -
+    dieselben Dateien, die dort angezeigt werden, also ohne eigenen Kursabruf.
+    Performance gesamt in % -> p.a. -> {wkn: kennzahlen}"""
+    def lies(pfad):
+        try:
+            return h["gh_read_taeglich"](pfad, None) or {}
+        except Exception:
+            return {}
+
+    je_wkn, je_name = {}, {}
+
+    def merken(wkn, name, felder):
+        felder = {k: v for k, v in felder.items() if v is not None}
+        if not felder:
+            return
+        if wkn:
+            je_wkn.setdefault(str(wkn).upper(), {}).update({k: v for k, v in felder.items()
+                                                            if k not in je_wkn.get(str(wkn).upper(), {})})
+        nn = _name_norm(name)
+        if nn:
+            alt = je_name.get(nn)
+            if alt is None or len(felder) > len(alt):
+                je_name[nn] = felder
+
+    # 1) alle Aktien (Index-/Laenderlisten) mit voller Performance je Zeitraum
+    for i in range(4):
+        d = lies(f"state/top50_alle_{i}.json")
+        f = d.get("felder") or []
+        if "name" not in f:
+            continue
+        idx = {k: f.index(k) for k in ("name", "kennung", "1J", "3J", "5J", "10J") if k in f}
+        for z in d.get("zeilen") or []:
+            merken(z[idx["kennung"]] if "kennung" in idx else None, z[idx["name"]],
+                   {zr: z[idx[zr]] for zr in ("1J", "3J", "5J", "10J") if zr in idx})
+    # 2) grosser Katalog des Agenten (falls schon vorhanden): alle Werte inkl. ETFs/wikifolios
+    for i in range(KATALOG_GROSS_TEILE):
+        d = lies(PFAD_KATALOG_GROSS.format(i))
+        f = d.get("felder") or []
+        for z in d.get("zeilen") or []:
+            e = dict(zip(f, z))
+            merken(e.get("kennung"), e.get("name"), {zr: e.get(zr) for zr in ("1J", "3J", "5J", "10J")})
+    # 3) Ranglisten je Kategorie (Top 50 und Top 500 je Zeitraum) - ETFs, wikifolios, Aktien
+    top = lies("state/top50.json")
+    for key, kat in (top.get("kategorien") or {}).items():
+        quellen = [(zr, [(e.get("name"), e.get("wkn"), e.get("perf")) for e in liste])
+                   for zr, liste in (kat.get("top") or {}).items()]
+        lang = lies(f"state/top50_lang_{key}.json")
+        quellen += [(zr, [(r[0], r[1], r[2]) for r in liste]) for zr, liste in (lang.get("top") or {}).items()]
+        for zr, liste in quellen:
+            if zr not in ("1J", "3J", "5J", "10J"):
+                continue
+            for name, wkn, perf in liste:
+                merken(wkn, name, {zr: perf})
+
+    aus = {}
+    for k in D.KATALOG:
+        p = je_wkn.get(k["wkn"].upper()) or (je_wkn.get(k["isin"].upper()) if k.get("isin") else None)
+        if not p:
+            nn = _name_norm(k["name"])
+            p = je_name.get(nn)
+            if p is None and len(nn) >= 4:
+                # Praefix nur bei eindeutigem Treffer ("rollsroyce" <-> "rollsroyceholdings")
+                kand = [v for n, v in je_name.items() if n.startswith(nn)]
+                p = kand[0] if len(kand) == 1 else None
+        if not p:
+            continue
+        pa = {n: None if p.get(zr) is None or p[zr] <= -100 else (1 + p[zr] / 100.0) ** (1.0 / n) - 1
+              for zr, n in (("3J", 3), ("5J", 5), ("10J", 10))}
+        jahre = 10 if pa[10] is not None else 5 if pa[5] is not None else 3 if pa[3] is not None else 1
+        aus[k["wkn"]] = {"historical1Y": None if p.get("1J") is None else p["1J"] / 100.0,
+                         "historical3Y": pa[3], "historical5Y": pa[5], "historical10Y": pa[10],
+                         "jahre": jahre, "quelle": "Watchlist (Top 500)", "instrument": k["name"]}
+    return aus
+
+
 def _katalog_zeilen(m, werte):
     zeilen = []
     for k in D.KATALOG:
@@ -1264,6 +1347,19 @@ def _katalog(m, h):
     sortierung = c3.selectbox("Sortieren nach", KATALOG_SORT, key="pl_kat_sort")
     absteigend = c4.toggle("Absteigend", value=sortierung not in ("Risk", "Vola 1J", "Name"), key=f"pl_kat_ab_{sortierung}")
 
+    # Fehlt fuer einen Wert die eigene Kurshistorie, gelten die Zahlen der Watchlist (Top 500)
+    fehlend = [k["wkn"] for k in D.KATALOG if not (werte.get(k["wkn"]) or {}) or werte[k["wkn"]].get("fehler")]
+    if fehlend:
+        wl = _watchlist_kennzahlen(h)
+        ersetzt = 0
+        werte = dict(werte)
+        for w in fehlend:
+            if w in wl:
+                werte[w] = wl[w]
+                ersetzt += 1
+        if ersetzt:
+            st.caption(f"{ersetzt} Werte mit Renditen aus der Watchlist (Top 500) ergänzt – Vola, Max DD und Risk "
+                       "gibt es dort nicht, die stehen leer.")
     zeilen = [z for z in _katalog_zeilen(m, werte) if typ == "Alle" or z["Typ"] == typ]
 
     def wert(z):
