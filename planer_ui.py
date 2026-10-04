@@ -977,7 +977,8 @@ def _watchlist_kennzahlen(h):
         f = d.get("felder") or []
         for z in d.get("zeilen") or []:
             e = dict(zip(f, z))
-            merken(e.get("kennung"), e.get("name"), {zr: e.get(zr) for zr in ("1J", "3J", "5J", "10J")})
+            merken(e.get("kennung"), e.get("name"), {zr: e.get(zr) for zr in ("1J", "3J", "5J", "10J", "vola", "maxdd",
+                                                                                 "jahre")})
     # 3) Ranglisten je Kategorie (Top 50 und Top 500 je Zeitraum) - ETFs, wikifolios, Aktien
     top = lies("state/top50.json")
     for key, kat in (top.get("kategorien") or {}).items():
@@ -1005,9 +1006,11 @@ def _watchlist_kennzahlen(h):
             continue
         pa = {n: None if p.get(zr) is None or p[zr] <= -100 else (1 + p[zr] / 100.0) ** (1.0 / n) - 1
               for zr, n in (("3J", 3), ("5J", 5), ("10J", 10))}
-        jahre = 10 if pa[10] is not None else 5 if pa[5] is not None else 3 if pa[3] is not None else 1
+        jahre = p.get("jahre") or (10 if pa[10] is not None else 5 if pa[5] is not None else 3 if pa[3] is not None
+                                   else 1)
         aus[k["wkn"]] = {"historical1Y": None if p.get("1J") is None else p["1J"] / 100.0,
                          "historical3Y": pa[3], "historical5Y": pa[5], "historical10Y": pa[10],
+                         "vola1y": None if p.get("vola") is None else p["vola"] / 100.0, "maxdd": p.get("maxdd"),
                          "jahre": jahre, "quelle": "Watchlist (Top 500)", "instrument": k["name"]}
     return aus
 
@@ -1066,7 +1069,7 @@ def _spalte(name, pinned=False, **kw):
 PFAD_KATALOG_GROSS = "state/planer/katalog_gross_{}.json"
 KATALOG_GROSS_TEILE = 4
 GROSS_TYPEN = {"aktie": "Aktien", "etf": "ETFs & ETPs", "wikifolio": "Wikifolios"}
-GROSS_SORT = ["5J p.a.", "3J p.a.", "1J %", "10J p.a.", "Q-Score", "Div. %", "Name"]
+GROSS_SORT = ["5J p.a.", "3J p.a.", "1J %", "10J p.a.", "Q-Score", "Div. %", "Vola 1J", "Max DD", "Name"]
 Q_KLASSEN_TXT = {"prio": "Hohe Analysepriorität", "beobachten": "Beobachtungsliste", "nicht": "Nicht weiterverfolgen"}
 
 
@@ -1167,7 +1170,7 @@ def _katalog_gross(m, h):
     kat_key = next((k for k in kats if titel.get(k, k) == kat_wahl), None)
     min_jahre = {"egal": 0, "≥ 3 Jahre": 3, "≥ 5 Jahre": 5, "≥ 10 Jahre": 10}[hist]
     feld_sort = {"1J %": "r1", "3J p.a.": "r3", "5J p.a.": "r5", "10J p.a.": "r10", "Q-Score": "q", "Div. %": "div",
-                 "Name": "name"}[sortierung]
+                 "Vola 1J": "vola", "Max DD": "maxdd", "Name": "name"}[sortierung]
     feld_min = feld_sort if feld_sort in ("r1", "r3", "r5", "r10") else "r5"
     zeilen = []
     for z in roh:
@@ -1197,7 +1200,8 @@ def _katalog_gross(m, h):
     if feld_sort == "name":
         zeilen.sort(key=lambda z: (z["name"] or "").lower())
     else:
-        zeilen.sort(key=lambda z: (z.get(feld_sort) is None, -(z.get(feld_sort) or 0)))
+        richtung = 1 if feld_sort == "vola" else -1          # Vola: niedrigste zuerst
+        zeilen.sort(key=lambda z: (z.get(feld_sort) is None, richtung * (z.get(feld_sort) or 0)))
     treffer = len(zeilen)
     zeilen = zeilen[:int(laenge)]
     st.caption(f"{_de(treffer)} Treffer" + (f" · angezeigt die ersten {len(zeilen)}" if treffer > len(zeilen) else ""))
@@ -1209,16 +1213,17 @@ def _katalog_gross(m, h):
     df = pd.DataFrame([{
         "＋": z["kennung"] in wahl, "Name": z["name"], "Typ": GROSS_TYPEN[z["typ"]].split(" ")[0],
         "Kategorie": titel.get(z["kat"], z["kat"]), "1J %": z["r1"], "3J p.a.": z["r3"], "5J p.a.": z["r5"],
-        "10J p.a.": z["r10"], "Q-Score": z["q"], "Div. %": z.get("div"), "WKN/Symbol": z["kennung"],
+        "10J p.a.": z["r10"], "Vola 1J": z.get("vola"), "Max DD": z.get("maxdd"), "Q-Score": z["q"],
+        "Div. %": z.get("div"), "WKN/Symbol": z["kennung"],
         "Im Portf.": _im_portfolio_gross(m, z)} for z in zeilen])
-    for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Q-Score", "Div. %"):
+    for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Vola 1J", "Max DD", "Q-Score", "Div. %"):
         df[c] = pd.to_numeric(df[c], errors="coerce")
     cfg = {"＋": _spalte("＋", typ="check", width="small", help="Zum Hinzufügen auswählen"),
            "Name": _spalte("Name", pinned=True, typ="text", width="medium"),
            "Typ": _spalte("Typ", typ="text", width="small"), "Kategorie": _spalte("Kategorie", typ="text"),
            "WKN/Symbol": _spalte("WKN/Symbol", typ="text"), "Im Portf.": _spalte("Im Portf.", typ="check", width="small"),
            "Q-Score": _spalte("Q-Score", format="%d", width="small", help="Qualitäts-Score 0–100 (nur Aktien)")}
-    for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Div. %"):
+    for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Vola 1J", "Max DD", "Div. %"):
         cfg[c] = _spalte(c, format="%.1f", width="small")
     signatur = zlib.crc32(("|".join(df["WKN/Symbol"].astype(str))).encode())
     ed = st.data_editor(df, key=_k(f"gk_{signatur}"), hide_index=True, width="stretch", height=_hoehe(len(df)),
@@ -1358,8 +1363,9 @@ def _katalog(m, h):
                 werte[w] = wl[w]
                 ersetzt += 1
         if ersetzt:
-            st.caption(f"{ersetzt} Werte mit Renditen aus der Watchlist (Top 500) ergänzt – Vola, Max DD und Risk "
-                       "gibt es dort nicht, die stehen leer.")
+            st.caption(f"{ersetzt} von {len(fehlend)} fehlenden Werten aus den Daten der Watchlist ergänzt"
+                       + (" – Vola, Max DD und Risk kommen mit dem nächsten Lauf des Watchlist-Agenten dazu."
+                          if not any(v.get("vola1y") is not None for v in wl.values()) else "."))
     zeilen = [z for z in _katalog_zeilen(m, werte) if typ == "Alle" or z["Typ"] == typ]
 
     def wert(z):
