@@ -33,6 +33,7 @@ import zlib
 import datetime
 import io
 import logging
+import math
 import os
 import re
 import sys
@@ -1296,6 +1297,118 @@ def speichere_state(pfad, daten, nachricht):
                                  GITHUB_TOKEN, message=nachricht)
 
 
+# ---------------------------------------------------------------------------
+# Kennzahlen fuer den Baustein-Katalog des Portfolio-Planers
+# (state/planer/katalog.json) - hier im Agenten, weil die Kursquelle aus
+# GitHub Actions zuverlaessig antwortet; die App liest nur noch die Datei.
+# ---------------------------------------------------------------------------
+STATE_KATALOG = "state/planer/katalog.json"
+
+
+def reihen_kennzahlen(reihe):
+    """[(datum, kurs)] -> Kennzahlen wie im Planer (planer_ui._reihen_kennzahlen):
+    historical1Y/3Y/5Y/10Y (p.a.), gesamt_cagr, seit_start, vola, vola1y, maxdd ..."""
+    reihe = [(d, k) for d, k in reihe if k and k > 0]
+    if len(reihe) < 10:
+        return None
+    erst, letzt = reihe[0][0], reihe[-1][0]
+    jahre = (letzt - erst).days / 365.25
+    if jahre <= 0:
+        return None
+    tage = [d for d, _ in reihe]
+    letzter = reihe[-1][1]
+
+    def kurs_am(stichtag):
+        i = bisect.bisect_right(tage, stichtag) - 1
+        return reihe[i][1] if i >= 0 else reihe[0][1]
+
+    def cagr(n):
+        if jahre < n - 0.05:
+            return None
+        try:
+            stichtag = letzt.replace(year=letzt.year - n)
+        except ValueError:                      # 29. Februar
+            stichtag = letzt.replace(year=letzt.year - n, day=28)
+        return (letzter / kurs_am(stichtag)) ** (1.0 / n) - 1.0
+
+    def vola(teil):
+        r = [math.log(teil[i][1] / teil[i - 1][1]) for i in range(1, len(teil))]
+        if len(r) <= 5:
+            return None
+        m = sum(r) / len(r)
+        return (sum((x - m) ** 2 for x in r) / (len(r) - 1)) ** 0.5 * math.sqrt(252)
+
+    try:
+        vor_einem_jahr = letzt.replace(year=letzt.year - 1)
+    except ValueError:
+        vor_einem_jahr = letzt.replace(year=letzt.year - 1, day=28)
+    hoch, maxdd = 0.0, 0.0
+    for _, k in reihe:
+        hoch = max(hoch, k)
+        maxdd = min(maxdd, k / hoch - 1.0)
+    return {
+        "jahre": round(jahre, 2), "start": erst.isoformat(), "stand": letzt.isoformat(),
+        "historical1Y": cagr(1), "historical3Y": cagr(3), "historical5Y": cagr(5), "historical10Y": cagr(10),
+        "gesamt_cagr": (letzter / reihe[0][1]) ** (1.0 / jahre) - 1.0 if jahre >= 1 else None,
+        "seit_start": letzter / reihe[0][1] - 1.0,
+        "vola": vola(reihe), "vola1y": vola([x for x in reihe if x[0] >= vor_einem_jahr]) if jahre >= 0.95 else None,
+        "maxdd": maxdd * 100.0, "kurs": letzter,
+    }
+
+
+def katalog_kennzahlen(id_cache, jetzt):
+    """Kennzahlen aller Katalogwerte des Portfolio-Planers -> state/planer/katalog.json."""
+    try:
+        import planer_daten
+        katalog = planer_daten.KATALOG
+    except Exception as e:
+        log.warning(f"Katalog: planer_daten nicht ladbar ({e}) - uebersprungen")
+        return
+
+    def finde(k):
+        schluessel = "KAT:" + k["wkn"]
+        if schluessel in id_cache:
+            return id_cache[schluessel]
+        treffer = None
+        for begriff in (k["wkn"], k.get("isin")):
+            if not begriff:
+                continue
+            for t in suche(begriff):
+                if begriff.upper() in (t["wkn"].upper(), t["isin"].upper()):
+                    treffer = t
+                    break
+            if treffer:
+                break
+        if treffer:
+            id_cache[schluessel] = {"id": treffer["id"], "wkn": treffer["wkn"], "isin": treffer["isin"],
+                                    "name": treffer["name"]}
+        return id_cache.get(schluessel)
+
+    with ThreadPoolExecutor(PARALLEL) as pool:
+        ids = list(pool.map(finde, katalog))
+        reihen = list(pool.map(lambda i: historie(i["id"]) if i else [], ids))
+    vorher = (lade_state(STATE_KATALOG, {}) or {}).get("werte") or {}
+    werte, ok = {}, 0
+    for k, i, reihe in zip(katalog, ids, reihen):
+        kz = reihen_kennzahlen(reihe) if reihe else None
+        if kz:
+            kz.update({"quelle": "ls-tc.de Kurshistorie", "instrument": i.get("name"), "wkn": i.get("wkn"),
+                       "isin": i.get("isin"), "instrument_id": i.get("id"),
+                       "abgerufen": jetzt.strftime("%d.%m.%Y %H:%M")})
+            werte[k["wkn"]] = kz
+            ok += 1
+        elif vorher.get(k["wkn"]) and not vorher[k["wkn"]].get("fehler"):
+            werte[k["wkn"]] = dict(vorher[k["wkn"]], veraltet=True)
+        else:
+            werte[k["wkn"]] = {"fehler": "Instrument nicht gefunden" if not i else "Keine Kurshistorie"}
+    log.info(f"Katalog: Kennzahlen fuer {ok} von {len(katalog)} Werten")
+    if ok >= len(katalog) / 2:
+        speichere_state(STATE_KATALOG, {"stand": jetzt.date().isoformat(),
+                                        "berechnet": jetzt.strftime("%d.%m.%Y %H:%M"),
+                                        "werte": werte, "ok": ok, "quelle": "Agent"},
+                        "top50: katalog-kennzahlen planer [skip ci]")
+
+
 def main():
     start = time.monotonic()
     jetzt = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
@@ -1524,6 +1637,12 @@ def main():
         sys.exit(1)
 
     speichere_state(STATE_TOP50, ergebnis, "top50: taegliche ranglisten [skip ci]")
+    # Baustein-Katalog des Portfolio-Planers (darf die Ranglisten nie verhindern)
+    try:
+        katalog_kennzahlen(id_cache, jetzt)
+        speichere_state(STATE_IDS, id_cache, "top50: id-cache [skip ci]")
+    except Exception as e:
+        log.error(f"Katalog-Kennzahlen fehlgeschlagen: {e}", exc_info=True)
     log.info(f"Fertig in {dauer:.0f}s - ls-tc {ZAEHLER['anfragen']} Anfragen ({ZAEHLER['fehler']} "
              f"fehlgeschlagen), Yahoo {ZAEHLER['yahoo']} ({ZAEHLER['yahoo_fehler']} fehlgeschlagen, "
              f"{ZAEHLER['yahoo_429']}x gebremst), {len(nicht_gefunden)} nicht gefunden.")
