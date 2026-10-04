@@ -1278,8 +1278,12 @@ def _katalog_gross(m, h):
 
 
 def _katalog(m, h):
-    quelle = st.pills("Katalog", [f"⭐ Auswahl ({len(D.KATALOG)})", "🌐 Alle Werte (Watchlist)"],
-                      default=f"⭐ Auswahl ({len(D.KATALOG)})", key="pl_kat_quelle") or "⭐"
+    gross_n = len(_gross_daten(h)[0])
+    optionen = [f"⭐ Auswahl ({len(D.KATALOG)})",
+                f"🌐 Alle Werte ({_de(gross_n)})" if gross_n else "🌐 Alle Werte (Watchlist)"]
+    # sobald die grosse Liste da ist, ist sie die Standardansicht
+    quelle = st.pills("Katalog", optionen, default=optionen[1] if gross_n else optionen[0],
+                      key=f"pl_kat_quelle_{bool(gross_n)}") or optionen[0]
     if quelle.startswith("🌐"):
         _katalog_gross(m, h)
         return
