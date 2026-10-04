@@ -19,6 +19,7 @@ import hashlib
 import html
 import json
 import math
+import re
 import time
 import zlib
 
@@ -973,7 +974,222 @@ def _spalte(name, pinned=False, **kw):
     return f(name, **kw)
 
 
+# --- Grosser Katalog: alle Werte der Watchlist (vom Agenten berechnet) -------
+PFAD_KATALOG_GROSS = "state/planer/katalog_gross_{}.json"
+KATALOG_GROSS_TEILE = 4
+GROSS_TYPEN = {"aktie": "Aktien", "etf": "ETFs & ETPs", "wikifolio": "Wikifolios"}
+GROSS_SORT = ["5J p.a.", "3J p.a.", "1J %", "10J p.a.", "Q-Score", "Div. %", "Name"]
+Q_KLASSEN_TXT = {"prio": "Hohe Analysepriorität", "beobachten": "Beobachtungsliste", "nicht": "Nicht weiterverfolgen"}
+
+
+def _ist_wkn(kennung):
+    return bool(re.fullmatch(r"[A-Z0-9]{6}", kennung or "")) and any(c.isdigit() for c in kennung)
+
+
+def _gross_daten(h):
+    """-> (zeilen, kategorie_titel, stand) - alle Werte, Performance gesamt in %."""
+    zeilen, titel, stand, felder = [], {}, None, None
+    for i in range(KATALOG_GROSS_TEILE):
+        try:
+            d = h["gh_read_taeglich"](PFAD_KATALOG_GROSS.format(i), None) or {}
+        except Exception:
+            d = {}
+        felder = d.get("felder") or felder
+        titel.update(d.get("kategorien") or {})
+        stand = d.get("stand") or stand
+        zeilen += d.get("zeilen") or []
+    if not felder:
+        return [], {}, None
+    return [dict(zip(felder, z)) for z in zeilen], titel, stand
+
+
+def _q_daten(h):
+    """{yahoo_symbol: (punkte, klasse)} aus dem Qualitaets-Score (falls vorhanden)."""
+    aus = {}
+    for i in range(6):
+        try:
+            d = h["gh_read_taeglich"](f"state/qualitaet/alle_{i}.json", None) or {}
+        except Exception:
+            d = {}
+        f = d.get("felder") or []
+        if "gesamt" not in f:
+            continue
+        i_s, i_g, i_k = f.index("s"), f.index("gesamt"), f.index("klasse")
+        for z in d.get("zeilen") or []:
+            aus[z[i_s]] = (z[i_g], z[i_k])
+    return aus
+
+
+def _pa(gesamt_pct, jahre):
+    """Gesamtperformance in % -> Rendite p.a. in %."""
+    if gesamt_pct is None or gesamt_pct <= -100:
+        return None
+    return round(((1 + gesamt_pct / 100.0) ** (1.0 / jahre) - 1) * 100, 1)
+
+
+def _etf_kategorie(name):
+    n = (name or "").lower()
+    for muster, kat in ((r"2x|3x|lever|daily|hebel", "leveraged_etf"), (r"semicon|halbleiter", "semiconductor"),
+                        (r"crypto|bitcoin|ethereum|krypto", "crypto"), (r"gold|silver|silber|miner|copper|metal|rohstoff", "mining"),
+                        (r"nasdaq|tech|information|cyber|robot|ai\b|artificial", "technology"),
+                        (r"small ?cap|nebenwerte", "small_cap"), (r"momentum|quality|value|factor|min(imum)? vol", "factor"),
+                        (r"s&p 500|usa|\bus\b|europe|euro|japan|emerging|china|india|dax|stoxx", "regional_equity"),
+                        (r"energy|health|defen|bank|financ|util|real estate|reit", "sector")):
+        if re.search(muster, n):
+            return kat
+    return "global_equity"
+
+
+def _im_portfolio_gross(m, z):
+    k = (z["kennung"] or "").upper()
+    return any((a.get("ticker") or "").upper() == k or (z.get("isin") and a.get("isin") == z["isin"])
+               or (a.get("yahoo") and a["yahoo"] == z["kennung"]) for a in m["assets"])
+
+
+def _katalog_gross(m, h):
+    roh, titel, stand = _gross_daten(h)
+    if not roh:
+        st.info("Die Liste aller Werte entsteht beim nächsten Lauf des Watchlist-Agenten (täglich morgens, oder "
+                "auf GitHub unter Actions → Watchlist Top 50 → Run workflow).")
+        return
+    qd = _q_daten(h)
+    try:
+        stand_txt = datetime.datetime.fromisoformat(stand).strftime("%d.%m.%Y")
+    except Exception:
+        stand_txt = stand or "–"
+    st.caption(f"{_de(len(roh))} Werte aus der Watchlist · Stand {stand_txt} · Kurse ls-tc.de / Yahoo Finance, "
+               "in Euro")
+
+    such = st.text_input("Suche (Name, WKN, Symbol)", key="pl_gk_such", placeholder="z. B. Nvidia, A2PKXG, LS9…").strip().lower()
+    typ = st.pills("Art", ["Alle"] + list(GROSS_TYPEN.values()), default="Alle", key="pl_gk_typ") or "Alle"
+    typ_key = next((k for k, v in GROSS_TYPEN.items() if v == typ), None)
+    kats = sorted({z["kat"] for z in roh if typ_key in (None, z["typ"])}, key=lambda k: titel.get(k, k))
+    c1, c2 = st.columns(2)
+    kat_wahl = c1.selectbox("Kategorie", ["Alle"] + [titel.get(k, k) for k in kats], key=f"pl_gk_kat_{typ}")
+    hist = c2.selectbox("Mindest-Historie", ["egal", "≥ 3 Jahre", "≥ 5 Jahre", "≥ 10 Jahre"], key="pl_gk_hist")
+    c3, c4 = st.columns(2)
+    sortierung = c3.selectbox("Sortieren nach", GROSS_SORT, key="pl_gk_sort")
+    min_r = c4.number_input("Mind. Rendite p.a. (%)", -100.0, 1000.0, -100.0, step=1.0, key="pl_gk_minr",
+                            help="Gilt für die Rendite, nach der sortiert wird (sonst 5 J. p.a.)")
+    c5, c6 = st.columns(2)
+    q_filter = c5.selectbox("Qualitäts-Score (Aktien)", ["egal", "Hohe Analysepriorität", "mind. Beobachtungsliste",
+                                                         "mind. 60 Punkte", "mind. 70 Punkte"], key="pl_gk_q")
+    laenge = c6.selectbox("Anzahl", [50, 100, 250, 500], index=1, key="pl_gk_n")
+
+    kat_key = next((k for k in kats if titel.get(k, k) == kat_wahl), None)
+    min_jahre = {"egal": 0, "≥ 3 Jahre": 3, "≥ 5 Jahre": 5, "≥ 10 Jahre": 10}[hist]
+    feld_sort = {"1J %": "r1", "3J p.a.": "r3", "5J p.a.": "r5", "10J p.a.": "r10", "Q-Score": "q", "Div. %": "div",
+                 "Name": "name"}[sortierung]
+    feld_min = feld_sort if feld_sort in ("r1", "r3", "r5", "r10") else "r5"
+    zeilen = []
+    for z in roh:
+        if typ_key and z["typ"] != typ_key:
+            continue
+        if kat_key and z["kat"] != kat_key:
+            continue
+        if such and such not in (z["name"] or "").lower() and such not in (z["kennung"] or "").lower() \
+                and such not in (z.get("isin") or "").lower():
+            continue
+        r = {"r1": z.get("1J"), "r3": _pa(z.get("3J"), 3), "r5": _pa(z.get("5J"), 5), "r10": _pa(z.get("10J"), 10)}
+        if min_jahre and r[{3: "r3", 5: "r5", 10: "r10"}[min_jahre]] is None:
+            continue
+        q = qd.get(z["kennung"]) if z["typ"] == "aktie" else None
+        if q_filter != "egal":
+            if not q:
+                continue
+            if q_filter == "Hohe Analysepriorität" and q[1] != "prio":
+                continue
+            if q_filter == "mind. Beobachtungsliste" and q[1] not in ("prio", "beobachten"):
+                continue
+            if q_filter.startswith("mind. ") and q_filter.endswith("Punkte") and q[0] < int(q_filter.split()[1]):
+                continue
+        if min_r > -100 and (r[feld_min] is None or r[feld_min] < min_r):
+            continue
+        zeilen.append(dict(z, **r, q=q[0] if q else None, klasse=q[1] if q else None))
+    if feld_sort == "name":
+        zeilen.sort(key=lambda z: (z["name"] or "").lower())
+    else:
+        zeilen.sort(key=lambda z: (z.get(feld_sort) is None, -(z.get(feld_sort) or 0)))
+    treffer = len(zeilen)
+    zeilen = zeilen[:int(laenge)]
+    st.caption(f"{_de(treffer)} Treffer" + (f" · angezeigt die ersten {len(zeilen)}" if treffer > len(zeilen) else ""))
+    if not zeilen:
+        st.info("Keine Werte für diese Filter.")
+        return
+
+    wahl = st.session_state.setdefault("planer_gk_wahl", {})
+    df = pd.DataFrame([{
+        "＋": z["kennung"] in wahl, "Name": z["name"], "Typ": GROSS_TYPEN[z["typ"]].split(" ")[0],
+        "Kategorie": titel.get(z["kat"], z["kat"]), "1J %": z["r1"], "3J p.a.": z["r3"], "5J p.a.": z["r5"],
+        "10J p.a.": z["r10"], "Q-Score": z["q"], "Div. %": z.get("div"), "WKN/Symbol": z["kennung"],
+        "Im Portf.": _im_portfolio_gross(m, z)} for z in zeilen])
+    for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Q-Score", "Div. %"):
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    cfg = {"＋": _spalte("＋", typ="check", width="small", help="Zum Hinzufügen auswählen"),
+           "Name": _spalte("Name", pinned=True, typ="text", width="medium"),
+           "Typ": _spalte("Typ", typ="text", width="small"), "Kategorie": _spalte("Kategorie", typ="text"),
+           "WKN/Symbol": _spalte("WKN/Symbol", typ="text"), "Im Portf.": _spalte("Im Portf.", typ="check", width="small"),
+           "Q-Score": _spalte("Q-Score", format="%d", width="small", help="Qualitäts-Score 0–100 (nur Aktien)")}
+    for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Div. %"):
+        cfg[c] = _spalte(c, format="%.1f", width="small")
+    signatur = zlib.crc32(("|".join(df["WKN/Symbol"].astype(str))).encode())
+    ed = st.data_editor(df, key=_k(f"gk_{signatur}"), hide_index=True, width="stretch", height=_hoehe(len(df)),
+                        disabled=[c for c in df.columns if c != "＋"], column_config=cfg)
+    for i, z in enumerate(zeilen):
+        an = bool(ed.iloc[i]["＋"])
+        if an:
+            wahl[z["kennung"]] = z
+        else:
+            wahl.pop(z["kennung"], None)
+    st.caption("Rendite = reine Kursentwicklung in Euro (1 J. gesamt, 3/5/10 J. p.a.), ohne Dividenden. "
+               "Hohe Vergangenheitsrenditen sind keine Zukunftserwartung (Winner Bias).")
+
+    c7, c8 = st.columns(2)
+    gew = c7.number_input("Startgewicht je Baustein %", 0.0, 100.0, 0.0, step=0.5, key="pl_gk_gew",
+                          help="Danach unter „⚖️ Gewichtung“ verteilen oder normalisieren")
+    vorschlag = c8.toggle("Base/Bear/Bull-Vorschlag als Annahme", value=True, key="pl_gk_vs")
+    if wahl:
+        st.caption("Ausgewählt: " + ", ".join(z["name"] for z in list(wahl.values())[:10])
+                   + (" …" if len(wahl) > 10 else ""))
+    if st.button(f"➕ {len(wahl)} ausgewählte hinzufügen", key="pl_gk_add", width="stretch", disabled=not wahl):
+        doppelt = []
+        for z in list(wahl.values()):
+            if _im_portfolio_gross(m, z):
+                doppelt.append(z["name"])
+                continue
+            kategorie = {"aktie": "single_stock", "wikifolio": "wikifolio"}.get(z["typ"]) or _etf_kategorie(z["name"])
+            jahre = 10 if z.get("r10") is not None else 5 if z.get("r5") is not None else 3 if z.get("r3") is not None else 1
+            kz = {"historical5Y": None if z.get("r5") is None else z["r5"] / 100,
+                  "historical3Y": None if z.get("r3") is None else z["r3"] / 100, "jahre": jahre}
+            vs = E.vorschlag_renditen(kz, D.KATEGORIEN[kategorie]["typ"])
+            wkn = z["kennung"] if _ist_wkn(z["kennung"]) else None
+            extra = {"emittent": "Lang & Schwarz" if z["typ"] == "wikifolio" else None,
+                     "subCategory": titel.get(z["kat"], z["kat"]),
+                     "historicalWinnerBias": bool(vs and vs["hist"] >= 0.20)}
+            if not wkn:
+                extra["yahoo"] = z["kennung"]          # Yahoo-Symbol (Kurssuche dann ueber den Namen)
+            nutzen = vorschlag and vs is not None
+            aid = _baustein_neu(
+                m, z["name"], kategorie, wkn=wkn, isin=z.get("isin") or None, gewicht=gew,
+                rendite=vs["base"] * 100 if nutzen else None, extra=extra, auto=True,
+                notiz=(D.VORSCHLAG["text"] + f" Historisch {vs['quelle']}: {_pct(vs['hist'])} p.a.") if nutzen else None)
+            if nutzen:
+                for sz in ("bear", "base", "bull"):
+                    E.setze_annahme(m, aid, sz, vs[sz], notiz="Vorschlag aus dem Katalog – keine Prognose")
+        st.session_state["planer_gk_wahl"] = {}
+        if doppelt:
+            st.session_state["planer_meldung"] = ("warnung", "Schon im Portfolio, nicht doppelt angelegt: "
+                                               + ", ".join(doppelt), [])
+        _neu_zeichnen()
+        st.rerun()
+
+
 def _katalog(m, h):
+    quelle = st.pills("Katalog", [f"⭐ Auswahl ({len(D.KATALOG)})", "🌐 Alle Werte (Watchlist)"],
+                      default=f"⭐ Auswahl ({len(D.KATALOG)})", key="pl_kat_quelle") or "⭐"
+    if quelle.startswith("🌐"):
+        _katalog_gross(m, h)
+        return
     d = _katalog_daten(h)
     werte = d.get("werte") or {}
     heute = h["heute"].isoformat()
