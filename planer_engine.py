@@ -1599,3 +1599,23 @@ def kredit_break_even(betrag, zins_pa, jahre_kredit, art, rate_aus, horizont_jah
         else:
             lo = mitte
     return hi
+
+
+def kredit_zins_aus_rate(betrag, rate, jahre):
+    """Effektiver Sollzins p.a. (nominal, monatlich) aus Betrag, Monatsrate und
+    Laufzeit einer Annuitaet. -> Anteil (0.065 = 6,5 %) oder None, wenn die Rate
+    den Kredit in der Laufzeit nicht tilgt."""
+    n = max(int(round(jahre * 12)), 1)
+    if betrag <= 0 or rate <= 0 or rate * n < betrag - 1e-6:
+        return None
+    lo, hi = 0.0, 0.05                       # Monatszins 0 .. 5 %
+    if betrag * hi / (1 - (1 + hi) ** -n) < rate:
+        return None
+    for _ in range(100):
+        mitte = (lo + hi) / 2
+        r = betrag / n if mitte == 0 else betrag * mitte / (1 - (1 + mitte) ** -n)
+        if r < rate:
+            lo = mitte
+        else:
+            hi = mitte
+    return (lo + hi) / 2 * 12
