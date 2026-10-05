@@ -1503,7 +1503,7 @@ def kredit_rate(betrag, zins_pa, jahre, art="annuitaet"):
 
 
 def kredit_simulation(betrag, zins_pa, jahre_kredit, art, rate_aus, rendite_pa, horizont_jahre,
-                      alt_rendite_pa=None, crash=0.0, steuersatz=0.0, beleihung=0.0):
+                      alt_rendite_pa=None, crash=0.0, steuersatz=0.0, beleihung=0.0, rate=None):
     """Ein kreditfinanziertes Investment gegen die Alternative ohne Kredit.
 
     - Mit Kredit: 'betrag' wird sofort investiert (Rendite 'rendite_pa', optional
@@ -1522,7 +1522,10 @@ def kredit_simulation(betrag, zins_pa, jahre_kredit, art, rate_aus, rendite_pa, 
     zm = zins_pa / 12.0
     rm = (1 + rendite_pa) ** (1 / 12) - 1 if rendite_pa > -1 else -1.0
     ra = (1 + alt_rendite_pa) ** (1 / 12) - 1 if alt_rendite_pa > -1 else -1.0
-    rate = kredit_rate(betrag, zins_pa, jahre_kredit, art)
+    # eigene Rate (laut Vertrag) - tilgt sie nicht vollstaendig, bleibt am Laufzeitende
+    # eine Schlussrate, die aus dem Depot bezahlt wird
+    rate = kredit_rate(betrag, zins_pa, jahre_kredit, art) if rate is None else float(rate)
+    schlussrate = 0.0
     P = betrag * (1 - crash)
     basis = float(betrag)
     S = float(betrag)
@@ -1546,6 +1549,15 @@ def kredit_simulation(betrag, zins_pa, jahre_kredit, art, rate_aus, rendite_pa, 
                 tilg = zahlung - zins
             zinsen += zins
             S = max(S - tilg, 0.0)
+            if mon == n_kredit and S > 1e-6 and art != "endfaellig":
+                schlussrate = S                 # Rest am Laufzeitende: aus dem Depot getilgt
+                if P > 0:
+                    basis -= basis * min(S / P, 1.0)
+                P -= S
+                verkauft += S
+                S = 0.0
+                if P < 0 and pleite_monat is None:
+                    pleite_monat = mon
         if zahlung:
             if rate_aus == "einkommen":
                 eigene += zahlung
@@ -1578,7 +1590,8 @@ def kredit_simulation(betrag, zins_pa, jahre_kredit, art, rate_aus, rendite_pa, 
     return {"rate": rate, "zinsen": zinsen, "eigene": eigene, "verkauft": verkauft, "wert": P, "schuld": S,
             "netto_mit": netto_b, "netto_ohne": netto_a, "vorteil": netto_b - netto_a,
             "steuer_mit": steuer_b, "steuer_ohne": steuer_a, "max_ltv": max_ltv, "warn_monat": warn_monat,
-            "pleite_monat": pleite_monat, "verlauf": verlauf, "monate": n, "p_mon": p_mon, "s_mon": s_mon}
+            "pleite_monat": pleite_monat, "verlauf": verlauf, "monate": n, "p_mon": p_mon, "s_mon": s_mon,
+            "schlussrate": schlussrate}
 
 
 def kredit_break_even(betrag, zins_pa, jahre_kredit, art, rate_aus, horizont_jahre, alt_rendite_pa=None,
