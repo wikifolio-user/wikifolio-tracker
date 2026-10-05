@@ -1643,3 +1643,31 @@ def kredit_restschuld(betrag, rate, zins_pa, monate):
         return max(betrag - rate * monate, 0.0)
     q = (1 + zm) ** monate
     return max(betrag * q - rate * (q - 1) / zm, 0.0)
+
+
+def zeit_bis_ziel(start, rendite_pa, ziel, sparrate=0.0, entnahme=0.0, dynamik_pa=0.0, max_jahre=60):
+    """Monate, bis das Vermoegen 'ziel' erreicht - bei gleichzeitiger monatlicher
+    Entnahme (steigt jaehrlich um dynamik_pa) und Sparrate. Verzinsung monatlich.
+    -> (monate oder None, jahresverlauf [(jahr, wert, ertraege, entnahmen)])"""
+    rm = (1 + rendite_pa) ** (1 / 12) - 1 if rendite_pa > -1 else -1.0
+    wert = float(start)
+    verlauf, ertr_j, ent_j = [(0, wert, 0.0, 0.0)], 0.0, 0.0
+    if ziel and wert >= ziel:
+        return 0, verlauf
+    for mon in range(1, int(max_jahre * 12) + 1):
+        ertrag = wert * rm
+        ent = entnahme * (1 + dynamik_pa) ** ((mon - 1) // 12)
+        wert += ertrag + sparrate - ent
+        ertr_j += ertrag
+        ent_j += ent
+        if mon % 12 == 0:
+            verlauf.append((mon // 12, wert, ertr_j, ent_j))
+            ertr_j = ent_j = 0.0
+        if ziel and wert >= ziel:
+            if mon % 12:
+                verlauf.append((mon / 12, wert, ertr_j, ent_j))
+            return mon, verlauf
+        if wert <= 0:
+            verlauf.append((mon / 12, 0.0, ertr_j, ent_j))
+            return None, verlauf
+    return None, verlauf
