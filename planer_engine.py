@@ -1619,3 +1619,14 @@ def kredit_zins_aus_rate(betrag, rate, jahre):
         else:
             hi = mitte
     return (lo + hi) / 2 * 12
+
+
+def kredit_restschuld(betrag, rate, zins_pa, monate):
+    """Restschuld einer Annuitaet nach 'monate' gezahlten Raten (nie negativ)."""
+    zm = zins_pa / 12.0
+    if monate <= 0:
+        return float(betrag)
+    if zm == 0:
+        return max(betrag - rate * monate, 0.0)
+    q = (1 + zm) ** monate
+    return max(betrag * q - rate * (q - 1) / zm, 0.0)
