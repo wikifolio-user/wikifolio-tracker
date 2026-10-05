@@ -1486,3 +1486,116 @@ def kaufplan(positionen, betrag, bruchstuecke=False, nachkommastellen=4):
     cash_soll = sum(z["ist"] for z in zeilen if z.get("cash"))
     return {"zeilen": zeilen, "investiert": investiert, "cash_soll": cash_soll,
             "rest": max(betrag - investiert - cash_soll, 0.0), "ohne_kurs": ohne_kurs}
+
+
+# ===========================================================================
+# Kreditfinanzierte Investments (Hebel ueber Kredit) - Szenariorechnung
+# ===========================================================================
+def kredit_rate(betrag, zins_pa, jahre, art="annuitaet"):
+    """Monatsrate: Annuitaet (Zins + Tilgung, konstant) oder endfaellig (nur Zins)."""
+    n = max(int(round(jahre * 12)), 1)
+    zm = zins_pa / 12.0
+    if art == "endfaellig":
+        return betrag * zm
+    if zm == 0:
+        return betrag / n
+    return betrag * zm / (1 - (1 + zm) ** -n)
+
+
+def kredit_simulation(betrag, zins_pa, jahre_kredit, art, rate_aus, rendite_pa, horizont_jahre,
+                      alt_rendite_pa=None, crash=0.0, steuersatz=0.0, beleihung=0.0):
+    """Ein kreditfinanziertes Investment gegen die Alternative ohne Kredit.
+
+    - Mit Kredit: 'betrag' wird sofort investiert (Rendite 'rendite_pa', optional
+      Sofort-Einbruch 'crash' als Anteil, z. B. 0.3). Raten (Zins + Tilgung bzw. nur
+      Zins, endfaellig Schlusszahlung) zahlt entweder das eigene Einkommen
+      (rate_aus="einkommen") oder das Investment selbst (Verkauf, "investment").
+    - Ohne Kredit (Alternative): genau die Zahlungen, die man aus dem Einkommen
+      leisten wuerde, fliessen stattdessen monatlich in eine Anlage mit
+      'alt_rendite_pa' (Standard = gleiche Rendite) - fairer Vergleich.
+    - Steuer (vereinfacht, am Ende): Satz auf den Kursgewinn (Wert - Einstand);
+      Kreditzinsen sind nicht absetzbar (Abgeltungsteuer).
+    -> dict mit Endwerten, Vorteil, Zinsen, eigenen Zahlungen, Verlauf, max. Beleihung"""
+    alt_rendite_pa = rendite_pa if alt_rendite_pa is None else alt_rendite_pa
+    n_kredit = max(int(round(jahre_kredit * 12)), 1)
+    n = max(int(round(horizont_jahre * 12)), n_kredit)
+    zm = zins_pa / 12.0
+    rm = (1 + rendite_pa) ** (1 / 12) - 1 if rendite_pa > -1 else -1.0
+    ra = (1 + alt_rendite_pa) ** (1 / 12) - 1 if alt_rendite_pa > -1 else -1.0
+    rate = kredit_rate(betrag, zins_pa, jahre_kredit, art)
+    P = betrag * (1 - crash)
+    basis = float(betrag)
+    S = float(betrag)
+    A = 0.0
+    basis_a = 0.0
+    zinsen = eigene = verkauft = 0.0
+    max_ltv, warn_monat, pleite_monat = 0.0, None, None
+    verlauf = [(0, P - S, A, S)]
+    p_mon, s_mon = [P], [S]                 # Monatswerte fuer die Beleihung des ganzen Depots
+    for mon in range(1, n + 1):
+        P *= 1 + rm
+        A *= 1 + ra
+        zahlung = 0.0
+        if mon <= n_kredit and S > 1e-9:
+            zins = S * zm
+            if art == "endfaellig":
+                tilg = S if mon == n_kredit else 0.0
+                zahlung = zins + tilg
+            else:
+                zahlung = min(rate, S + zins)
+                tilg = zahlung - zins
+            zinsen += zins
+            S = max(S - tilg, 0.0)
+        if zahlung:
+            if rate_aus == "einkommen":
+                eigene += zahlung
+                A += zahlung
+                basis_a += zahlung
+            else:
+                if P > 0:
+                    anteil = min(zahlung / P, 1.0)
+                    basis -= basis * anteil
+                P -= zahlung
+                verkauft += zahlung
+                if P < 0 and pleite_monat is None:
+                    pleite_monat = mon
+        if P > 0:
+            ltv = S / P
+            if ltv > max_ltv:
+                max_ltv = ltv
+            if beleihung and ltv > beleihung and warn_monat is None:
+                warn_monat = mon
+        elif S > 0:
+            max_ltv = float("inf")
+        p_mon.append(P)
+        s_mon.append(S)
+        if mon % 12 == 0 or mon == n:
+            verlauf.append((mon, P - S, A, S))
+    steuer_b = max(P - max(basis, 0.0), 0.0) * steuersatz if P > 0 else 0.0
+    steuer_a = max(A - basis_a, 0.0) * steuersatz
+    netto_b = P - S - steuer_b
+    netto_a = A - steuer_a
+    return {"rate": rate, "zinsen": zinsen, "eigene": eigene, "verkauft": verkauft, "wert": P, "schuld": S,
+            "netto_mit": netto_b, "netto_ohne": netto_a, "vorteil": netto_b - netto_a,
+            "steuer_mit": steuer_b, "steuer_ohne": steuer_a, "max_ltv": max_ltv, "warn_monat": warn_monat,
+            "pleite_monat": pleite_monat, "verlauf": verlauf, "monate": n, "p_mon": p_mon, "s_mon": s_mon}
+
+
+def kredit_break_even(betrag, zins_pa, jahre_kredit, art, rate_aus, horizont_jahre, alt_rendite_pa=None,
+                      steuersatz=0.0):
+    """Rendite p.a. des Investments, ab der sich der Kredit gegenueber der
+    Alternative lohnt (Vorteil = 0). Bei alt_rendite_pa=None hat die Alternative
+    dieselbe Rendite. -> Anteil oder None"""
+    def vorteil(r):
+        return kredit_simulation(betrag, zins_pa, jahre_kredit, art, rate_aus, r, horizont_jahre,
+                                 alt_rendite_pa, 0.0, steuersatz)["vorteil"]
+    lo, hi = -0.5, 1.0
+    if vorteil(lo) > 0 or vorteil(hi) < 0:
+        return None
+    for _ in range(60):
+        mitte = (lo + hi) / 2
+        if vorteil(mitte) >= 0:
+            hi = mitte
+        else:
+            lo = mitte
+    return hi
