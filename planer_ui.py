@@ -55,6 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
+PLANER_VERSION = "05.10.2026 · 21:15"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -3350,6 +3351,7 @@ def render(h):
     name = st.session_state.get("planer_name")
     st.markdown(f'<div class="abschnitt">💼 Portfolio-Planer{" · " + _esc(name) if name else ""}</div>',
                 unsafe_allow_html=True)
+    st.caption(f"Planer-Version {PLANER_VERSION}")
     _hinweis("Szenariorechnung / keine Prognose – alle Renditen sind Annahmen oder historische Ausgangswerte, "
              "keine Erwartung und keine Anlageempfehlung.")
 
