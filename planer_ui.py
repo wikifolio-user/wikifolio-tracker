@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "05.10.2026 · 22:00"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "05.10.2026 · 22:20"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -882,6 +882,12 @@ def _kpis(platz, m, R):
                 zeilen.append(f'{"Danach" if jahre_n > 0 else "Sofort"} Entnahme <b>{_de(e["monatlich"])} €/Monat</b> '
                               f'aus {_eur(_kap)} bei {_pct(_r)} p.a. · reicht '
                               f'<b class="{"pl-gut" if ok else "pl-schlecht"}">{dauer}</b> (Plan {e["dauer_jahre"]} J.)')
+                gm = _kap * ((1 + _r) ** (1 / 12) - 1)
+                if e["monatlich"] > 0:
+                    zeilen.append(f'Gewinn am Start {_de(gm)} €/Monat gegen Entnahme {_de(e["monatlich"])} €/Monat → '
+                                  + (f'<b class="pl-gut">Kapital wächst</b> (Überschuss {_de(gm - e["monatlich"])} €/Monat)'
+                                     if gm >= e["monatlich"] else
+                                     f'<b class="pl-schlecht">Kapital schrumpft</b> ({_de(e["monatlich"] - gm)} €/Monat vom Kapital)'))
             except Exception:
                 pass
         try:
@@ -2972,6 +2978,67 @@ def _dauer_text(p, jahre_max=100):
     return f"{mon // 12} J. {mon % 12} M." if mon % 12 else f"{mon // 12} J."
 
 
+def _entnahme_gegen_gewinne(m, R, e, kapital, rendite, plan):
+    """Wie wird die Entnahme mit den Gewinnen verrechnet - bringt das Kapital
+    trotz Entnahme noch Gewinn, und wie lange dauert es bis zum Zielwert, wenn
+    sofort entnommen wird?"""
+    _abschnitt("Entnahme gegen Gewinne")
+    rm = (1 + rendite) ** (1 / 12) - 1
+    gewinn_monat = kapital * rm
+    ent = float(e["monatlich"])
+    j1 = (plan.get("jahre_tabelle") or [None])[0]
+    ertr1 = j1["ertrag"] if j1 else gewinn_monat * 12
+    ent1 = j1["brutto"] if j1 else ent * 12
+    saldo1 = ertr1 - ent1
+    deckung = (ertr1 / ent1 * 100) if ent1 else None
+    _kacheln([
+        ("Gewinn pro Monat", f"{_de(gewinn_monat)} €", f"am Start: {_eur(kapital)} × {_pct(rendite)} p.a."),
+        ("Entnahme pro Monat", f"{_de(ent)} €", f"{_de(ent / gewinn_monat * 100) if gewinn_monat > 0 else '–'} % des Gewinns"),
+        ("Saldo 1. Jahr", f'<span class="{"pl-gut" if saldo1 >= 0 else "pl-schlecht"}">{"+" if saldo1 >= 0 else "−"}'
+                          f'{_de(abs(saldo1))} €</span>', "Erträge minus Entnahme"),
+        ("Ergebnis", f'<span class="{"pl-gut" if saldo1 >= 0 else "pl-schlecht"}">'
+                     f'{"Kapital wächst" if saldo1 >= 0 else "Kapital schrumpft"}</span>',
+         (f"Gewinne decken {_de(deckung)} % der Entnahme" if deckung is not None else "")),
+    ], klein=True)
+    st.caption(f"Jeden Monat wird zuerst verzinst ({_pct(rendite)} p.a.), dann die Entnahme abgezogen. Solange die "
+               f"Entnahme unter dem Monatsgewinn bleibt (am Start {_de(gewinn_monat)} €), wird nur vom Gewinn gelebt "
+               "und das Kapital wächst weiter.")
+
+    # Zielwert trotz Entnahme: sofort entnehmen statt erst nach dem Aufbau
+    ziel = float(m["rahmen"].get("zielvermoegen") or 0)
+    if ziel <= 0:
+        return
+    eff = _mit_krediten(m)["rahmen"]
+    start = float(eff["startkapital"])
+    r_auf = R["zus"].get("modell_cagr")
+    if r_auf is None:
+        r_auf = rendite
+    spar = float(m["rahmen"].get("sparrate_monat") or 0)
+    ohne, _ = E.zeit_bis_ziel(start, r_auf, ziel, spar)
+    mit, verlauf = E.zeit_bis_ziel(start, r_auf, ziel, spar, ent, float(e["dynamik_pa"]) / 100.0)
+
+    def dauer(mon):
+        return "nie (Entnahme frisst die Gewinne)" if mon is None else \
+            (f"{mon // 12} J. {mon % 12} M." if mon % 12 else f"{mon // 12} J.")
+    _abschnitt("Wie lange bis zum Zielwert – mit Entnahme ab sofort?")
+    _kacheln([
+        ("Ohne Entnahme", dauer(ohne), f"{_eur(start)} → {_eur(ziel)} bei {_pct(r_auf)} p.a."),
+        (f"Mit {_de(ent)} €/Monat", f'<span class="{"pl-gut" if mit is not None else "pl-schlecht"}">{dauer(mit)}</span>',
+         "Entnahme läuft vom ersten Monat an"),
+        ("Verzögerung", "–" if mit is None or ohne is None else
+         (f"+{(mit - ohne) // 12} J. {(mit - ohne) % 12} M." if (mit - ohne) % 12 else f"+{(mit - ohne) // 12} J."),
+         "durch die Entnahme"),
+    ], klein=True)
+    zeilen = [[str(int(j)) if float(j).is_integer() else _de(j, 1), f"{_de(er)} €", f"{_de(en)} €",
+               f'<span class="{"pl-gut" if er - en >= 0 else "pl-schlecht"}">{"+" if er - en >= 0 else "−"}{_de(abs(er - en))} €</span>',
+               f"<b>{_de(w)} €</b>" + (" ✓" if w >= ziel else "")]
+              for j, w, er, en in verlauf[1:41]]
+    if zeilen:
+        _tabelle(["Jahr", "Erträge", "Entnahme", "Saldo", "Vermögen"], zeilen)
+    st.caption(f"Startkapital {_eur(start)}" + (" (inkl. Kredite)" if _kredit_rahmen(m) else "")
+               + f", Sparrate {_de(spar)} €/Monat, Rendite wie im Aufbau ({_pct(r_auf)} p.a.). ✓ = Zielwert erreicht.")
+
+
 def _b_entnahme(m, R):
     e = _entnahme_daten(m)
     rahmen = m["rahmen"]
@@ -3006,6 +3073,7 @@ def _b_entnahme(m, R):
         ("Kapitalerhalt", f"{_de(erhalt)} €", f"max. pro Monat, nach {jahre} J. noch {_eur(kapital)}"),
     ], klein=True)
     st.caption("Kapitalverzehr/-erhalt: erste Monatsentnahme (netto) – mit derselben jährlichen Erhöhung.")
+    _entnahme_gegen_gewinne(m, R, e, kapital, rendite, plan)
 
     # Chart: Aufbau + Entnahme auf einer Zeitachse
     aufbau = proj["monatswerte"]
@@ -3043,10 +3111,16 @@ def _b_entnahme(m, R):
 
     _abschnitt("Jahresübersicht")
     tab = plan["jahre_tabelle"][:max(jahre, 1)]
-    kopf = ["Jahr", "Anfang", "Erträge", "Entnahme netto"] + (["Steuer"] if e["steuer"] else []) + ["Ende"]
+    kopf = ["Jahr", "Anfang", "Erträge", "Entnahme netto"] + (["Steuer"] if e["steuer"] else []) + ["Saldo", "Ende"]
+
+    def _saldo(z):
+        v = z["ertrag"] - z["brutto"]
+        return f'<span class="{"pl-gut" if v >= 0 else "pl-schlecht"}">{"+" if v >= 0 else "−"}{_de(abs(v))} €</span>'
     _tabelle(kopf, [[str(rahmen["horizont_jahre"] + z["jahr"]), _de(z["anfang"]) + " €", _de(z["ertrag"]) + " €",
                      _de(z["netto"]) + " €"] + ([_de(z["steuer"]) + " €"] if e["steuer"] else [])
-                    + [_de(z.get("ende", 0)) + " €"] for z in tab])
+                    + [_saldo(z), _de(z.get("ende", 0)) + " €"] for z in tab])
+    st.caption("Saldo = Erträge minus Entnahme (inkl. Steuer): grün = die Gewinne decken die Entnahme, das Kapital "
+               "wächst; rot = es wird vom Kapital gelebt.")
     st.caption("„Jahr“ = Jahre ab heute (Aufbauphase + Entnahmejahr). Beträge ungerundet zur Nachvollziehbarkeit – "
                "alle Werte bleiben Szenariorechnung.")
 
