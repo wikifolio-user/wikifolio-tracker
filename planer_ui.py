@@ -813,6 +813,16 @@ def _kpis(platz, m, R):
                               f'<b class="{"pl-gut" if ok else "pl-schlecht"}">{dauer}</b> (Plan {e["dauer_jahre"]} J.)')
             except Exception:
                 pass
+        try:
+            kr = _kredit_rechnen(m, R)
+        except Exception:
+            kr = None
+        if kr:
+            vv = kr["vorteil"]
+            zeilen.append(f'Mit Krediten ({_de(kr["summe"])} €, {_de(kr["rate"], 2)} €/Monat): nach {kr["horizont"]} J. '
+                          f'<b>{_eur(kr["mit"])}</b> netto · ohne {_eur(kr["ohne"])} · '
+                          f'<b class="{"pl-gut" if vv >= 0 else "pl-schlecht"}">{"+" if vv >= 0 else "−"}'
+                          f'{_de(abs(vv))} €</b>')
         auto = st.session_state.get("planer_autogew")
         if auto and auto.get("fehler"):
             zeilen.append(f'⚠ Automatische Gewichtung: {_esc(auto["fehler"])}')
@@ -2971,258 +2981,159 @@ def _b_entnahme(m, R):
 
 
 # ===========================================================================
-# Kreditfinanzierte Investments
+# Kredite: Betrag + monatliche Rate je Kredit, in die Planung eingerechnet
 # ===========================================================================
-KREDIT_TILGUNG = {"annuitaet": "Annuität (Rate inkl. Tilgung)", "endfaellig": "Endfällig (nur Zinsen)"}
-KREDIT_RATE_AUS = {"einkommen": "Einkommen", "investment": "Investment (Verkauf)"}
-KREDIT_PORTFOLIO = "Portfolio (Modell)"
-KREDIT_EIGENE = "Eigene Rendite"
-KREDIT_SEED = [{"name": "Wertpapierkredit", "betrag": 20000.0, "zins": 6.5, "jahre": 5, "tilgung": "annuitaet",
-                "rate_aus": "einkommen", "investment": KREDIT_PORTFOLIO, "rendite": 7.0, "beleihung": 60.0}]
+KREDIT_SEED = [{"name": "Kredit 1", "betrag": 20000.0, "rate": 400.0, "jahre": 5}]
 
 
-def _kredit_daten(m, port_r):
+def _kredite(m):
+    """Kreditliste (neues, einfaches Format) - alte Eintraege werden umgerechnet."""
     k = m.setdefault("kredit", {})
-    k.setdefault("eigenkapital", float(m["rahmen"]["startkapital"]))
-    k.setdefault("ek_rendite", None)            # None = Portfolio-Rendite des Modells
-    k.setdefault("horizont", max(10, int(m["rahmen"].get("horizont_jahre") or 0)))
-    k.setdefault("alt_rendite", None)           # None = gleiche Rendite wie das jeweilige Investment
-    k.setdefault("crash", 0.0)
-    k.setdefault("steuer", False)
-    k.setdefault("kredite", copy.deepcopy(KREDIT_SEED))
+    liste = k.get("kredite")
+    if liste is None:
+        liste = copy.deepcopy(KREDIT_SEED)
+    neu = []
+    for i, x in enumerate(liste, 1):
+        if "rate" not in x:                  # altes Format: Zins + Laufzeit -> Monatsrate
+            x = {"name": x.get("name") or f"Kredit {i}", "betrag": float(x.get("betrag") or 0),
+                 "rate": round(E.kredit_rate(float(x.get("betrag") or 0), float(x.get("zins") or 0) / 100.0,
+                                             int(x.get("jahre") or 1)), 2),
+                 "jahre": int(x.get("jahre") or 1)}
+        neu.append(x)
+    k["kredite"] = neu
+    k.setdefault("aktiv", True)
+    k.setdefault("rate_aus", "einkommen")
     return k
 
 
+def _kredit_rechnen(m, R):
+    """Alle Kredite gegen die Alternative ohne Kredit. Das Kreditgeld wird wie das
+    Portfolio angelegt (Portfolio-Rendite des Modells).
+    -> dict oder None (keine Kredite / ausgeschaltet)"""
+    k = _kredite(m)
+    kredite = [x for x in k["kredite"] if x.get("betrag") and x.get("rate")]
+    if not k.get("aktiv", True) or not kredite:
+        return None
+    z = R["zus"]
+    r = z["modell_cagr"] if z.get("modell_cagr") is not None else \
+        sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
+    jahre_aufbau = int(m["rahmen"].get("horizont_jahre") or 0)
+    horizont = max(jahre_aufbau, max(int(x["jahre"]) for x in kredite))
+    ek_end = z["endwert"] if jahre_aufbau == horizont and jahre_aufbau > 0 else \
+        float(m["rahmen"]["startkapital"]) * (1 + r) ** horizont
+    zeilen = []
+    for x in kredite:
+        zins = E.kredit_zins_aus_rate(float(x["betrag"]), float(x["rate"]), int(x["jahre"]))
+        if zins is None:
+            zeilen.append({"x": x, "fehler": "Rate tilgt den Kredit in der Laufzeit nicht – Rate oder Laufzeit prüfen"})
+            continue
+        o = E.kredit_simulation(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", k["rate_aus"], r, horizont)
+        be = E.kredit_break_even(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", k["rate_aus"], horizont)
+        zeilen.append({"x": x, "zins": zins, "o": o, "lohnt_ab": be})
+    ok = [z_ for z_ in zeilen if "o" in z_]
+    mit = ek_end + sum(z_["o"]["netto_mit"] for z_ in ok)
+    ohne = ek_end + sum(z_["o"]["netto_ohne"] for z_ in ok)
+    return {"zeilen": zeilen, "r": r, "horizont": horizont, "ek_end": ek_end, "mit": mit, "ohne": ohne,
+            "vorteil": mit - ohne, "summe": sum(float(x["betrag"]) for x in kredite),
+            "rate": sum(float(x["rate"]) for x in kredite), "zinsen": sum(z_["o"]["zinsen"] for z_ in ok),
+            "rate_aus": k["rate_aus"]}
+
+
 def _b_kredit(m, R):
-    _abschnitt("Kreditfinanzierte Investments")
-    _hinweis("Szenariorechnung · keine Prognose · keine Anlage- oder Kreditberatung. Kredit = Hebel: Gewinne UND "
-             "Verluste werden größer, die Raten bleiben in jedem Fall fällig.")
-    port_r = sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
-    k = _kredit_daten(m, port_r)
-    namen = {a["name"]: a["id"] for a in m["assets"] if a.get("enabled") and a["category"] != "cash"}
+    _abschnitt("Kredite")
+    _hinweis("Szenariorechnung · keine Anlage- oder Kreditberatung. Kredit = Hebel: Gewinne UND Verluste werden "
+             "größer, die Raten bleiben in jedem Fall fällig.")
+    k = _kredite(m)
+    c1, c2 = st.columns(2)
+    k["aktiv"] = c1.toggle("Kredite in die Planung einrechnen", value=bool(k.get("aktiv", True)), key=_k("kr_aktiv"),
+                           help="Das Kreditgeld wird zusätzlich zum Startkapital angelegt; oben in den Kennzahlen "
+                                "steht dann das Ergebnis nach Abzug der Restschuld")
+    aus = c2.toggle("Raten aus dem Depot zahlen", value=k.get("rate_aus") == "investment", key=_k("kr_aus"),
+                    help="Aus: Raten kommen aus dem Einkommen (Vergleich: diese Raten stattdessen sparen). "
+                         "An: für jede Rate werden Anteile verkauft.")
+    k["rate_aus"] = "investment" if aus else "einkommen"
 
-    with st.expander("⚙️ Eigenkapital & Rahmen", expanded=False):
-        c1, c2 = st.columns(2)
-        k["eigenkapital"] = float(c1.number_input("Eigenkapital (€)", 0.0, 1e9, float(k["eigenkapital"]), step=1000.0,
-                                                  format="%.0f", key=_k("kr_ek")))
-        eigen_ek = c2.toggle("Eigene Rendite fürs Eigenkapital", value=k["ek_rendite"] is not None, key=_k("kr_ek_eigen"),
-                             help=f"Aus: Portfolio-Rendite des Modells ({_pct(port_r)} p.a.)")
-        if eigen_ek:
-            k["ek_rendite"] = float(st.number_input("Rendite Eigenkapital p.a. (%)", -50.0, 200.0,
-                                                    float(k["ek_rendite"] if k["ek_rendite"] is not None else port_r * 100),
-                                                    step=0.5, key=_k("kr_ek_r")))
-        else:
-            k["ek_rendite"] = None
-        c3, c4 = st.columns(2)
-        k["horizont"] = int(c3.number_input("Betrachtung (Jahre)", 1, 40, int(k["horizont"]), key=_k("kr_hor"),
-                                            help="Mindestens so lang wie der längste Kredit"))
-        alt_eigen = c4.toggle("Alternative mit eigener Rendite", value=k["alt_rendite"] is not None,
-                              key=_k("kr_alt_eigen"),
-                              help="Ohne Kredit würden die Raten aus dem Einkommen monatlich angelegt. Aus: mit "
-                                   "derselben Rendite wie das jeweilige Investment (reiner Hebel-Effekt).")
-        if alt_eigen:
-            k["alt_rendite"] = float(st.number_input("Rendite der Alternative p.a. (%)", -50.0, 200.0,
-                                                     float(k["alt_rendite"] if k["alt_rendite"] is not None else port_r * 100),
-                                                     step=0.5, key=_k("kr_alt_r")))
-        else:
-            k["alt_rendite"] = None
-        c5, c6 = st.columns(2)
-        k["crash"] = float(c5.slider("Stress: Einbruch direkt nach dem Kauf (%)", 0, 70, int(k["crash"]), step=5,
-                                     key=_k("kr_crash"),
-                                     help="Alle Investments verlieren sofort diesen Anteil und wachsen danach mit "
-                                          "ihrer Rendite weiter – zeigt das Risiko des Hebels"))
-        k["steuer"] = c6.toggle("Abgeltungsteuer (vereinfacht)", value=bool(k["steuer"]), key=_k("kr_st"),
-                                help="Auf den Kursgewinn am Ende; Kreditzinsen sind bei Kapitalerträgen nicht absetzbar")
-
-    # --- Kredite bearbeiten ---
-    optionen = [KREDIT_PORTFOLIO] + list(namen) + [KREDIT_EIGENE]
-    df = pd.DataFrame([{
-        "Name": x["name"], "Betrag €": float(x["betrag"]), "Zins %": float(x["zins"]), "Jahre": int(x["jahre"]),
-        "Tilgung": KREDIT_TILGUNG[x["tilgung"]], "Rate aus": KREDIT_RATE_AUS[x["rate_aus"]],
-        "Investment": x["investment"] if x["investment"] in optionen else KREDIT_EIGENE,
-        "Rendite %": float(x["rendite"]), "Beleihung %": float(x.get("beleihung") or 0)} for x in k["kredite"]])
-    if df.empty:
-        df = pd.DataFrame(columns=["Name", "Betrag €", "Zins %", "Jahre", "Tilgung", "Rate aus", "Investment",
-                                   "Rendite %", "Beleihung %"])
+    df = pd.DataFrame([{"Kredit": x["name"], "Betrag €": float(x["betrag"]), "Rate/Monat €": float(x["rate"]),
+                        "Laufzeit J.": int(x["jahre"])} for x in k["kredite"]]
+                      or [{"Kredit": "Kredit 1", "Betrag €": 0.0, "Rate/Monat €": 0.0, "Laufzeit J.": 5}])
     ed = _editor_formular(
-        df, key=_k("kredite"), hide_index=True, width="stretch", num_rows="dynamic", height=_hoehe(len(df) + 1),
+        df, key=_k("kredite2"), hide_index=True, width="stretch", num_rows="dynamic", height=_hoehe(len(df) + 1),
         column_config={
-            "Name": st.column_config.TextColumn("Name", width="medium"),
+            "Kredit": st.column_config.TextColumn("Kredit", width="small"),
             "Betrag €": st.column_config.NumberColumn("Betrag €", min_value=0.0, step=1000.0, format="%d"),
-            "Zins %": st.column_config.NumberColumn("Zins %", min_value=0.0, max_value=30.0, step=0.1, format="%.2f",
-                                                    help="Sollzins p.a."),
-            "Jahre": st.column_config.NumberColumn("Jahre", min_value=1, max_value=40, step=1, format="%d",
-                                                   help="Laufzeit"),
-            "Tilgung": st.column_config.SelectboxColumn("Tilgung", options=list(KREDIT_TILGUNG.values()),
-                                                        required=True),
-            "Rate aus": st.column_config.SelectboxColumn("Rate aus", options=list(KREDIT_RATE_AUS.values()),
-                                                         required=True,
-                                                         help="Einkommen = aus dem Gehalt; Investment = es wird "
-                                                              "verkauft, um die Rate zu zahlen"),
-            "Investment": st.column_config.SelectboxColumn("Investment", options=optionen, required=True,
-                                                           help="Wohin das Kreditgeld fließt – bestimmt die Rendite"),
-            "Rendite %": st.column_config.NumberColumn("Rendite %", step=0.5, format="%.1f",
-                                                       help="Nur bei „Eigene Rendite“"),
-            "Beleihung %": st.column_config.NumberColumn("Beleihung %", min_value=0.0, max_value=100.0, step=5.0,
-                                                         format="%d",
-                                                         help="Beleihungsgrenze beim Wertpapierkredit (z. B. 50–70 %). "
-                                                              "Steigt die Schuld darüber, droht eine Nachschussforderung. "
-                                                              "0 = nicht prüfen (z. B. Ratenkredit)"),
+            "Rate/Monat €": st.column_config.NumberColumn("Rate/Monat €", min_value=0.0, step=10.0, format="%.2f",
+                                                          help="Monatliche Belastung laut Kreditvertrag (Zins + Tilgung)"),
+            "Laufzeit J.": st.column_config.NumberColumn("Laufzeit J.", min_value=1, max_value=40, step=1, format="%d"),
         })
     neu = []
-    for _, z in ed.iterrows():
-        if pd.isna(z.get("Betrag €")) or not z.get("Betrag €"):
+    for i, (_, z) in enumerate(ed.iterrows(), 1):
+        betrag = 0.0 if pd.isna(z.get("Betrag €")) else float(z["Betrag €"])
+        if betrag <= 0:
             continue
-        neu.append({"name": str(z.get("Name") or "Kredit"), "betrag": float(z["Betrag €"]),
-                    "zins": float(0 if pd.isna(z.get("Zins %")) else z["Zins %"]),
-                    "jahre": int(1 if pd.isna(z.get("Jahre")) else max(int(z["Jahre"]), 1)),
-                    "tilgung": next((a for a, b in KREDIT_TILGUNG.items() if b == z.get("Tilgung")), "annuitaet"),
-                    "rate_aus": next((a for a, b in KREDIT_RATE_AUS.items() if b == z.get("Rate aus")), "einkommen"),
-                    "investment": z.get("Investment") if z.get("Investment") in optionen else KREDIT_PORTFOLIO,
-                    "rendite": float(0 if pd.isna(z.get("Rendite %")) else z["Rendite %"]),
-                    "beleihung": float(0 if pd.isna(z.get("Beleihung %")) else z["Beleihung %"])})
-    if _norm(neu) != _norm(k["kredite"]):
+        neu.append({"name": str(z.get("Kredit") or "").strip() or f"Kredit {i}", "betrag": betrag,
+                    "rate": 0.0 if pd.isna(z.get("Rate/Monat €")) else float(z["Rate/Monat €"]),
+                    "jahre": 1 if pd.isna(z.get("Laufzeit J.")) else max(int(z["Laufzeit J."]), 1)})
+    if _norm(neu) != _norm(k["kredite"]) and (ed is not df):
         k["kredite"] = neu
         st.rerun()
-    if not k["kredite"]:
-        st.info("Noch kein Kredit eingetragen – in der Tabelle eine Zeile hinzufügen.")
+
+    erg = _kredit_rechnen(m, R)
+    if erg is None:
+        st.info("Kredite eintragen (Betrag, monatliche Rate, Laufzeit) und „Kredite in die Planung einrechnen“ "
+                "einschalten.")
         return
-
-    # --- Rechnen ---
-    def rendite_von(x):
-        if x["investment"] == KREDIT_PORTFOLIO:
-            return port_r
-        if x["investment"] in namen:
-            return R["r"].get(namen[x["investment"]], port_r)
-        return x["rendite"] / 100.0
-
-    satz = (float((m.get("entnahme") or {}).get("steuersatz") or 26.375) / 100.0) if k["steuer"] else 0.0
-    horizont = max(int(k["horizont"]), max(x["jahre"] for x in k["kredite"]))
-    alt = None if k["alt_rendite"] is None else k["alt_rendite"] / 100.0
-    crash = k["crash"] / 100.0
-    ergebnisse = []
-    for x in k["kredite"]:
-        r = rendite_von(x)
-        o = E.kredit_simulation(x["betrag"], x["zins"] / 100.0, x["jahre"], x["tilgung"], x["rate_aus"], r, horizont,
-                                alt, crash, satz, x["beleihung"] / 100.0)
-        be = E.kredit_break_even(x["betrag"], x["zins"] / 100.0, x["jahre"], x["tilgung"], x["rate_aus"], horizont,
-                                 alt, satz)
-        ergebnisse.append((x, r, o, be))
-
-    ek_r = port_r if k["ek_rendite"] is None else k["ek_rendite"] / 100.0
-    ek_end = k["eigenkapital"] * (1 - crash) * (1 + ek_r) ** horizont
-    ek_gewinn = ek_end - k["eigenkapital"]
-    ek_end -= max(ek_gewinn, 0) * satz
-    mit = ek_end + sum(o["netto_mit"] for _, _, o, _ in ergebnisse)
-    ohne = ek_end + sum(o["netto_ohne"] for _, _, o, _ in ergebnisse)
-    vorteil = mit - ohne
-    zinsen = sum(o["zinsen"] for _, _, o, _ in ergebnisse)
-    eigene = sum(o["eigene"] for _, _, o, _ in ergebnisse)
-    kredit_summe = sum(x["betrag"] for x in k["kredite"])
-    farbe = "pl-gut" if vorteil >= 0 else "pl-schlecht"
-
+    v = erg["vorteil"]
     _kacheln([
-        ("Mit Krediten", _eur(mit), f"nach {horizont} J. · netto nach Schulden"),
-        ("Ohne Kredite", _eur(ohne), "Raten stattdessen angelegt"),
-        ("Vorteil Kredit", f'<span class="{farbe}">{"+" if vorteil >= 0 else "−"}{_de(abs(vorteil))} €</span>',
-         "lohnt sich" if vorteil >= 0 else "lohnt sich nicht"),
-        ("Zinskosten", f"{_de(zinsen)} €", f"Kredite {_de(kredit_summe)} € · Hebel "
-                                          f"{_de((k['eigenkapital'] + kredit_summe) / max(k['eigenkapital'], 1), 2)}×"),
+        ("Mit Krediten", _eur(erg["mit"]), f"nach {erg['horizont']} J. · nach Abzug der Restschuld"),
+        ("Ohne Kredite", _eur(erg["ohne"]), "Raten stattdessen gespart" if erg["rate_aus"] == "einkommen"
+         else "nur Startkapital"),
+        ("Vorteil Kredite", f'<span class="{"pl-gut" if v >= 0 else "pl-schlecht"}">{"+" if v >= 0 else "−"}'
+                            f'{_de(abs(v))} €</span>', "lohnt sich" if v >= 0 else "lohnt sich nicht"),
+        ("Belastung", f"{_de(erg['rate'], 2)} €/Monat", f"Kredite {_de(erg['summe'])} € · Zinsen {_de(erg['zinsen'])} €"),
     ])
-    st.caption(f"Eigene Zahlungen aus dem Einkommen gesamt: {_de(eigene)} € · Eigenkapital {_de(k['eigenkapital'])} € "
-               f"mit {_pct(ek_r)} p.a." + (f" · Stress: −{_de(k['crash'])} % direkt nach dem Kauf" if crash else ""))
-
-    # --- Beleihung des ganzen Depots (Eigenkapital + alle Investments sind die Sicherheit) ---
-    lombard = [(x, o) for x, _, o, _ in ergebnisse if x["beleihung"] > 0]
-    beleihung_txt = None
-    if lombard:
-        grenze = min(x["beleihung"] for x, _ in lombard) / 100.0
-        rm_ek = (1 + ek_r) ** (1 / 12) - 1
-        max_ltv, warn = 0.0, None
-        monate = max(len(o["p_mon"]) for _, _, o, _ in ergebnisse)
-        for mon in range(monate):
-            sicherheit = k["eigenkapital"] * (1 - crash) * (1 + rm_ek) ** mon
-            sicherheit += sum(o["p_mon"][min(mon, len(o["p_mon"]) - 1)] for _, _, o, _ in ergebnisse)
-            schuld_m = sum(o["s_mon"][min(mon, len(o["s_mon"]) - 1)] for _, o in lombard)
-            ltv = schuld_m / sicherheit if sicherheit > 0 else float("inf")
-            if ltv > max_ltv:
-                max_ltv = ltv
-            if ltv > grenze and warn is None:
-                warn = mon
-        if warn is not None:
-            st.error(f"⚠ Nachschuss-Risiko: Die Wertpapierkredite erreichen {_de(min(max_ltv, 9.99) * 100)} % des "
-                     f"Depotwerts – über der Beleihungsgrenze von {_de(grenze * 100)} % "
-                     + ("(direkt nach dem Kauf). " if warn == 0 else f"(ab Monat {warn}). ")
-                     + "Die Bank würde Geld nachfordern oder Wertpapiere verkaufen.")
-        beleihung_txt = f"Beleihung des Depots: höchstens {_de(min(max_ltv, 9.99) * 100)} % (Grenze {_de(grenze * 100)} %)"
-        st.caption(beleihung_txt + " – Sicherheit = Eigenkapital + alle Investments.")
-
-    # --- Tabelle je Kredit ---
+    st.caption(f"Gerechnet mit der Portfolio-Rendite des Modells: {_pct(erg['r'])} p.a. – das Kreditgeld wird wie das "
+               "Portfolio angelegt.")
     zeilen = []
-    for x, r, o, be in ergebnisse:
-        v = o["vorteil"]
-        warn = ""
-        if o["pleite_monat"]:
-            warn = f'<span class="pl-schlecht">⚠ Investment aufgebraucht nach {o["pleite_monat"] // 12} J. {o["pleite_monat"] % 12} M.</span>'
-        elif x["beleihung"]:
-            warn = f'Grenze {_de(x["beleihung"])} %'
-        zeilen.append([
-            f'<b>{_esc(x["name"])}</b><br><span class="pt-sub">{_esc(x["investment"])} · {_pct(r)} p.a.</span>',
-            f'{_de(x["betrag"])} €<br><span class="pt-sub">{_de(x["zins"], 2)} % · {x["jahre"]} J.</span>',
-            f'{_de(o["rate"], 2)} €<br><span class="pt-sub">{KREDIT_RATE_AUS[x["rate_aus"]]}</span>',
-            f'{_de(o["zinsen"])} €',
-            f'{_de(o["netto_mit"])} €', f'{_de(o["netto_ohne"])} €',
-            f'<span class="{"pl-gut" if v >= 0 else "pl-schlecht"}"><b>{"+" if v >= 0 else "−"}{_de(abs(v))} €</b></span>',
-            (_pct(be) if be is not None else "–"),
-            warn or "–",
-        ])
-    _tabelle(["Kredit / Investment", "Betrag", "Rate/Monat", "Zinsen", "Mit Kredit", "Ohne Kredit", "Vorteil",
-              "Lohnt ab", "Hinweis"], zeilen)
-    st.caption("„Mit Kredit“ = Wert des Investments minus Restschuld (nach Steuer, falls gewählt). „Ohne Kredit“ = "
-               "dieselben Raten aus dem Einkommen monatlich angelegt (bei Raten aus dem Investment: 0 €, da kein "
-               "eigenes Geld fließt). „Lohnt ab“ = Rendite p.a., ab der der Kredit vorne liegt – grob die Kreditkosten.")
+    for z in erg["zeilen"]:
+        x = z["x"]
+        if "fehler" in z:
+            zeilen.append([f"<b>{_esc(x['name'])}</b>", f"{_de(x['betrag'])} €", f"{_de(x['rate'], 2)} €",
+                           f"{x['jahre']} J.", f'<span class="pl-schlecht">{_esc(z["fehler"])}</span>', "", "", ""])
+            continue
+        o = z["o"]
+        vv = o["vorteil"]
+        zeilen.append([f"<b>{_esc(x['name'])}</b>", f"{_de(x['betrag'])} €", f"{_de(x['rate'], 2)} €",
+                       f"{x['jahre']} J.", f"{_de(z['zins'] * 100, 2)} %", f"{_de(o['zinsen'])} €",
+                       f'<span class="{"pl-gut" if vv >= 0 else "pl-schlecht"}"><b>{"+" if vv >= 0 else "−"}'
+                       f'{_de(abs(vv))} €</b></span>', _pct(z["lohnt_ab"]) if z["lohnt_ab"] is not None else "–"])
+    _tabelle(["Kredit", "Betrag", "Rate", "Laufzeit", "Zins (errechnet)", "Zinskosten", "Vorteil", "Lohnt ab"], zeilen)
+    st.caption("Zins = aus Betrag, Rate und Laufzeit errechneter Sollzins. „Lohnt ab“ = Rendite p.a., ab der der "
+               "Kredit mehr bringt, als er kostet. Vorteil = Ergebnis mit Kredit minus Ergebnis, wenn man die Raten "
+               "stattdessen selbst anlegt.")
 
-    # --- Verlauf ---
-    _abschnitt("Verlauf (alle Kredite + Eigenkapital)")
-    jahre = list(range(0, horizont + 1))
-    def summe(idx):
-        werte = []
+    # Verlauf: Vermoegen mit/ohne Kredite und Restschuld
+    jahre = list(range(0, erg["horizont"] + 1))
+    ek0 = float(m["rahmen"]["startkapital"])
+    pfad_ek = [ek0 * (1 + erg["r"]) ** j for j in jahre]
+    mit_p, ohne_p, schuld = list(pfad_ek), list(pfad_ek), [0.0] * len(jahre)
+    for z in erg["zeilen"]:
+        if "o" not in z:
+            continue
         for j in jahre:
-            s_ = 0.0
-            for _, _, o, _ in ergebnisse:
-                pkt = next((p for p in o["verlauf"] if p[0] == j * 12), o["verlauf"][-1])
-                s_ += pkt[idx]
-            werte.append(s_)
-        return werte
-    ek_pfad = [k["eigenkapital"] * (1 - crash) * (1 + ek_r) ** j if j else k["eigenkapital"] for j in jahre]
-    mit_pfad = [a + b for a, b in zip(ek_pfad, summe(1))]
-    ohne_pfad = [a + b for a, b in zip(ek_pfad, summe(2))]
-    schuld = summe(3)
+            pkt = next((p for p in z["o"]["verlauf"] if p[0] == j * 12), z["o"]["verlauf"][-1])
+            mit_p[j] += pkt[1]
+            ohne_p[j] += pkt[2]
+            schuld[j] += pkt[3]
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=jahre, y=mit_pfad, name="Mit Krediten (netto)", line=dict(color="#16C784", width=3)))
-    fig.add_trace(go.Scatter(x=jahre, y=ohne_pfad, name="Ohne Kredite", line=dict(color="#4C9AFF", width=2, dash="dash")))
+    fig.add_trace(go.Scatter(x=jahre, y=mit_p, name="Mit Krediten (netto)", line=dict(color="#16C784", width=3)))
+    fig.add_trace(go.Scatter(x=jahre, y=ohne_p, name="Ohne Kredite", line=dict(color="#4C9AFF", width=2, dash="dash")))
     fig.add_trace(go.Scatter(x=jahre, y=[-x for x in schuld], name="Restschuld", line=dict(color="#EA3943", width=2),
                              fill="tozeroy", fillcolor="rgba(234,57,67,0.12)"))
-    _layout(fig, 360)
+    _layout(fig, 340)
     fig.update_layout(hovermode="x unified")
     fig.update_xaxes(title="Jahre")
     fig.update_yaxes(hoverformat=",.0f")
     _chart(fig, "pl_kredit")
-
-    # --- Sensitivitaet ---
-    _abschnitt("Was, wenn die Rendite anders kommt?")
-    sz = []
-    for d in (-0.06, -0.04, -0.02, 0.0, 0.02, 0.04):
-        summe_v = 0.0
-        for x, r, _, _ in ergebnisse:
-            summe_v += E.kredit_simulation(x["betrag"], x["zins"] / 100.0, x["jahre"], x["tilgung"], x["rate_aus"],
-                                           r + d, horizont, None if alt is None else alt + d, crash, satz)["vorteil"]
-        sz.append([("<b>" if d == 0 else "") + f'{"+" if d > 0 else ""}{_de(d * 100)} %-Pkt.' + ("</b>" if d == 0 else ""),
-                   f'<span class="{"pl-gut" if summe_v >= 0 else "pl-schlecht"}">{"+" if summe_v >= 0 else "−"}'
-                   f'{_de(abs(summe_v))} €</span>'])
-    _tabelle(["Rendite aller Investments", "Vorteil Kredite gesamt"], sz)
-    st.caption("Faustregel: Ein Kredit lohnt sich nur, wenn das Investment nach Steuern dauerhaft mehr bringt als der "
-               "Kredit kostet – und man Kursrückgänge aussitzen kann, ohne verkaufen oder nachschießen zu müssen.")
 
 
 # ===========================================================================
