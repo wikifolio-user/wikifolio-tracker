@@ -3053,28 +3053,35 @@ def _b_kredit(m, R):
                          "An: für jede Rate werden Anteile verkauft.")
     k["rate_aus"] = "investment" if aus else "einkommen"
 
+    if not k["kredite"]:
+        k["kredite"] = [{"name": "Kredit 1", "betrag": 0.0, "rate": 0.0, "jahre": 5}]
     df = pd.DataFrame([{"Kredit": x["name"], "Betrag €": float(x["betrag"]), "Rate/Monat €": float(x["rate"]),
-                        "Laufzeit J.": int(x["jahre"])} for x in k["kredite"]]
-                      or [{"Kredit": "Kredit 1", "Betrag €": 0.0, "Rate/Monat €": 0.0, "Laufzeit J.": 5}])
+                        "Laufzeit J.": int(x["jahre"]), "🗑️": False} for x in k["kredite"]])
+    # feste Zeilenzahl + eigener „Hinzufügen“-Button: die Tabelle waechst dann sichtbar mit
     ed = _editor_formular(
-        df, key=_k("kredite2"), hide_index=True, width="stretch", num_rows="dynamic", height=_hoehe(len(df) + 1),
+        df, key=_k(f"kredite3_{len(df)}"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
         column_config={
             "Kredit": st.column_config.TextColumn("Kredit", width="small"),
             "Betrag €": st.column_config.NumberColumn("Betrag €", min_value=0.0, step=1000.0, format="%d"),
             "Rate/Monat €": st.column_config.NumberColumn("Rate/Monat €", min_value=0.0, step=10.0, format="%.2f",
                                                           help="Monatliche Belastung laut Kreditvertrag (Zins + Tilgung)"),
             "Laufzeit J.": st.column_config.NumberColumn("Laufzeit J.", min_value=1, max_value=40, step=1, format="%d"),
+            "🗑️": st.column_config.CheckboxColumn("🗑️", width="small", help="Anhaken und „Daten aktualisieren“ = löschen"),
         })
-    neu = []
-    for i, (_, z) in enumerate(ed.iterrows(), 1):
-        betrag = 0.0 if pd.isna(z.get("Betrag €")) else float(z["Betrag €"])
-        if betrag <= 0:
-            continue
-        neu.append({"name": str(z.get("Kredit") or "").strip() or f"Kredit {i}", "betrag": betrag,
-                    "rate": 0.0 if pd.isna(z.get("Rate/Monat €")) else float(z["Rate/Monat €"]),
-                    "jahre": 1 if pd.isna(z.get("Laufzeit J.")) else max(int(z["Laufzeit J."]), 1)})
-    if _norm(neu) != _norm(k["kredite"]) and (ed is not df):
-        k["kredite"] = neu
+    if ed is not df:
+        neu = []
+        for i, (_, z) in enumerate(ed.iterrows(), 1):
+            if bool(z.get("🗑️")):
+                continue
+            neu.append({"name": str(z.get("Kredit") or "").strip() or f"Kredit {i}",
+                        "betrag": 0.0 if pd.isna(z.get("Betrag €")) else float(z["Betrag €"]),
+                        "rate": 0.0 if pd.isna(z.get("Rate/Monat €")) else float(z["Rate/Monat €"]),
+                        "jahre": 1 if pd.isna(z.get("Laufzeit J.")) else max(int(z["Laufzeit J."]), 1)})
+        if _norm(neu) != _norm(k["kredite"]):
+            k["kredite"] = neu
+            st.rerun()
+    if st.button("➕ Kredit hinzufügen", key=_k("kr_neu"), width="stretch"):
+        k["kredite"].append({"name": f"Kredit {len(k['kredite']) + 1}", "betrag": 0.0, "rate": 0.0, "jahre": 5})
         st.rerun()
 
     erg = _kredit_rechnen(m, R)
