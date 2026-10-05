@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "05.10.2026 · 21:45"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "05.10.2026 · 22:00"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -542,6 +542,25 @@ def _scores(m, fund):
 # ===========================================================================
 # Rechnen
 # ===========================================================================
+def _kredit_konditionen(x):
+    """-> (zins_pa, fehler). Zins eingetragen: so rechnen (Rate tilgt evtl. nur
+    teilweise -> Schlussrate). Kein Zins: aus Betrag, Rate und Laufzeit errechnen."""
+    betrag, rate, laufzeit = float(x.get("betrag") or 0), float(x.get("rate") or 0), int(x.get("jahre") or 0)
+    if betrag <= 0 or rate <= 0 or laufzeit <= 0:
+        return None, "unvollständig"
+    zins = x.get("zins")
+    if zins:
+        zins = float(zins) / 100.0
+        if rate <= betrag * zins / 12.0:
+            return None, "Rate deckt nicht einmal die Zinsen"
+        return zins, None
+    zins = E.kredit_zins_aus_rate(betrag, rate, laufzeit)
+    if zins is None:
+        return None, ("Rate tilgt den Kredit in der Laufzeit nicht ganz – bitte „Zins %“ eintragen, dann wird "
+                      "die Restschuld am Laufzeitende (Schlussrate) berechnet")
+    return zins, None
+
+
 def _kredit_rahmen(m):
     """Wirkung der Kredite auf die Aufbauphase: zusaetzliches Startkapital,
     Restschuld am Ende des Aufbaus und (bei Raten aus dem Depot) die mittlere
@@ -553,7 +572,7 @@ def _kredit_rahmen(m):
     summe = rest = rate_depot = 0.0
     for x in k.get("kredite") or []:
         betrag, rate, laufzeit = float(x.get("betrag") or 0), float(x.get("rate") or 0), int(x.get("jahre") or 0)
-        zins = E.kredit_zins_aus_rate(betrag, rate, laufzeit) if betrag > 0 and rate > 0 and laufzeit > 0 else None
+        zins, _ = _kredit_konditionen(x)
         if zins is None:
             continue
         monate = min(jahre, laufzeit) * 12
@@ -3075,11 +3094,12 @@ def _kredit_rechnen(m, R):
         float(m["rahmen"]["startkapital"]) * (1 + r) ** horizont
     zeilen = []
     for x in kredite:
-        zins = E.kredit_zins_aus_rate(float(x["betrag"]), float(x["rate"]), int(x["jahre"]))
+        zins, fehler = _kredit_konditionen(x)
         if zins is None:
-            zeilen.append({"x": x, "fehler": "Rate tilgt den Kredit in der Laufzeit nicht – Rate oder Laufzeit prüfen"})
+            zeilen.append({"x": x, "fehler": fehler})
             continue
-        o = E.kredit_simulation(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", k["rate_aus"], r, horizont)
+        o = E.kredit_simulation(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", k["rate_aus"], r, horizont,
+                                rate=float(x["rate"]))
         be = E.kredit_break_even(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", k["rate_aus"], horizont)
         zeilen.append({"x": x, "zins": zins, "o": o, "lohnt_ab": be})
     ok = [z_ for z_ in zeilen if "o" in z_]
@@ -3108,7 +3128,8 @@ def _b_kredit(m, R):
     if not k["kredite"]:
         k["kredite"] = [{"name": "Kredit 1", "betrag": 0.0, "rate": 0.0, "jahre": 5}]
     df = pd.DataFrame([{"Kredit": x["name"], "Betrag €": float(x["betrag"]), "Rate/Monat €": float(x["rate"]),
-                        "Laufzeit J.": int(x["jahre"]), "🗑️": False} for x in k["kredite"]])
+                        "Laufzeit J.": int(x["jahre"]), "Zins %": float(x.get("zins") or 0.0), "🗑️": False}
+                       for x in k["kredite"]])
     # feste Zeilenzahl + eigener „Hinzufügen“-Button: die Tabelle waechst dann sichtbar mit
     ed = _editor_formular(
         df, key=_k(f"kredite3_{len(df)}"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
@@ -3118,6 +3139,10 @@ def _b_kredit(m, R):
             "Rate/Monat €": st.column_config.NumberColumn("Rate/Monat €", min_value=0.0, step=10.0, format="%.2f",
                                                           help="Monatliche Belastung laut Kreditvertrag (Zins + Tilgung)"),
             "Laufzeit J.": st.column_config.NumberColumn("Laufzeit J.", min_value=1, max_value=40, step=1, format="%d"),
+            "Zins %": st.column_config.NumberColumn("Zins %", min_value=0.0, max_value=30.0, step=0.1, format="%.2f",
+                                                    help="Optional. 0 = aus Rate und Laufzeit errechnen (Rate tilgt "
+                                                         "komplett). Eingetragen: Tilgt die Rate nicht alles, bleibt "
+                                                         "eine Schlussrate, die aus dem Depot bezahlt wird."),
             "🗑️": st.column_config.CheckboxColumn("🗑️", width="small", help="Anhaken und „Daten aktualisieren“ = löschen"),
         })
     if ed is not df:
@@ -3128,12 +3153,14 @@ def _b_kredit(m, R):
             neu.append({"name": str(z.get("Kredit") or "").strip() or f"Kredit {i}",
                         "betrag": 0.0 if pd.isna(z.get("Betrag €")) else float(z["Betrag €"]),
                         "rate": 0.0 if pd.isna(z.get("Rate/Monat €")) else float(z["Rate/Monat €"]),
-                        "jahre": 1 if pd.isna(z.get("Laufzeit J.")) else max(int(z["Laufzeit J."]), 1)})
+                        "jahre": 1 if pd.isna(z.get("Laufzeit J.")) else max(int(z["Laufzeit J."]), 1),
+                        "zins": None if pd.isna(z.get("Zins %")) or not z.get("Zins %") else float(z["Zins %"])})
         if _norm(neu) != _norm(k["kredite"]):
             k["kredite"] = neu
             st.rerun()
     if st.button("➕ Kredit hinzufügen", key=_k("kr_neu"), width="stretch"):
-        k["kredite"].append({"name": f"Kredit {len(k['kredite']) + 1}", "betrag": 0.0, "rate": 0.0, "jahre": 5})
+        k["kredite"].append({"name": f"Kredit {len(k['kredite']) + 1}", "betrag": 0.0, "rate": 0.0, "jahre": 5,
+                             "zins": None})
         st.rerun()
 
     erg = _kredit_rechnen(m, R)
@@ -3162,19 +3189,64 @@ def _b_kredit(m, R):
         o = z["o"]
         vv = o["vorteil"]
         zeilen.append([f"<b>{_esc(x['name'])}</b>", f"{_de(x['betrag'])} €", f"{_de(x['rate'], 2)} €",
-                       f"{x['jahre']} J.", f"{_de(z['zins'] * 100, 2)} %", f"{_de(o['zinsen'])} €",
+                       f"{x['jahre']} J.", f"{_de(z['zins'] * 100, 2)} %" + ("" if x.get("zins") else " (err.)"),
+                       f"{_de(o['zinsen'])} €",
                        f'<span class="{"pl-gut" if vv >= 0 else "pl-schlecht"}"><b>{"+" if vv >= 0 else "−"}'
                        f'{_de(abs(vv))} €</b></span>', _pct(z["lohnt_ab"]) if z["lohnt_ab"] is not None else "–"])
-    _tabelle(["Kredit", "Betrag", "Rate", "Laufzeit", "Zins (errechnet)", "Zinskosten", "Vorteil", "Lohnt ab"], zeilen)
+    _tabelle(["Kredit", "Betrag", "Rate", "Laufzeit", "Zins", "Zinskosten", "Vorteil", "Lohnt ab"], zeilen)
+    for z in erg["zeilen"]:
+        if "o" in z and z["o"]["schlussrate"] > 1:
+            st.caption(f"{z['x']['name']}: Die Rate tilgt nicht alles – am Laufzeitende bleiben "
+                       f"{_de(z['o']['schlussrate'])} € Schlussrate, die aus dem Depot getilgt werden.")
     st.caption("Zins = aus Betrag, Rate und Laufzeit errechneter Sollzins. „Lohnt ab“ = Rendite p.a., ab der der "
                "Kredit mehr bringt, als er kostet. Vorteil = Ergebnis mit Kredit minus Ergebnis, wenn man die Raten "
                "stattdessen selbst anlegt.")
 
-    # Verlauf: Vermoegen mit/ohne Kredite und Restschuld
+    # Tilgungsplan: Restschuld Jahr fuer Jahr (alle Kredite zusammen)
+    _abschnitt("Tilgungsplan")
+    plan = {}
+    for z in erg["zeilen"]:
+        if "o" not in z:
+            continue
+        x, zm = z["x"], z["zins"] / 12.0
+        rest, n = float(x["betrag"]), int(x["jahre"]) * 12
+        for mon in range(1, n + 1):
+            j_ = (mon - 1) // 12 + 1
+            p = plan.setdefault(j_, {"anfang": 0.0, "zinsen": 0.0, "tilgung": 0.0, "schluss": 0.0, "ende": 0.0})
+            if (mon - 1) % 12 == 0:
+                p["anfang"] += rest
+            zins = rest * zm
+            tilg = min(float(x["rate"]) - zins, rest)
+            rest -= tilg
+            p["zinsen"] += zins
+            p["tilgung"] += tilg
+            if mon == n and rest > 1e-6:
+                p["schluss"] += rest
+                rest = 0.0
+            if mon % 12 == 0 or mon == n:
+                p["ende"] += rest
+    if plan:
+        jahre_p = sorted(plan)
+        _tabelle(["Jahr", "Restschuld Anfang", "Zinsen", "Tilgung", "Schlussrate", "Restschuld Ende"],
+                 [[str(j_), f'{_de(plan[j_]["anfang"])} €', f'{_de(plan[j_]["zinsen"])} €',
+                   f'{_de(plan[j_]["tilgung"])} €', f'{_de(plan[j_]["schluss"])} €' if plan[j_]["schluss"] else "–",
+                   f'<b>{_de(plan[j_]["ende"])} €</b>'] for j_ in jahre_p])
+        fig_s = go.Figure()
+        fig_s.add_trace(go.Bar(x=[0] + jahre_p, y=[plan[jahre_p[0]]["anfang"]] + [plan[j_]["ende"] for j_ in jahre_p],
+                               name="Restschuld", marker_color="#EA3943",
+                               text=[_kurz_eur(v) for v in [plan[jahre_p[0]]["anfang"]] + [plan[j_]["ende"] for j_ in jahre_p]],
+                               textposition="outside", textfont=dict(color="#FFFFFF", size=11)))
+        _layout(fig_s, 280, legende=False)
+        fig_s.update_xaxes(title="Jahr (0 = Start)", dtick=1)
+        fig_s.update_yaxes(rangemode="tozero")
+        _chart(fig_s, "pl_kredit_schuld")
+
+    # Verlauf: Vermoegen mit/ohne Kredite
+    _abschnitt("Vermögen mit und ohne Kredite")
     jahre = list(range(0, erg["horizont"] + 1))
     ek0 = float(m["rahmen"]["startkapital"])
     pfad_ek = [ek0 * (1 + erg["r"]) ** j for j in jahre]
-    mit_p, ohne_p, schuld = list(pfad_ek), list(pfad_ek), [0.0] * len(jahre)
+    mit_p, ohne_p = list(pfad_ek), list(pfad_ek)
     for z in erg["zeilen"]:
         if "o" not in z:
             continue
@@ -3182,12 +3254,9 @@ def _b_kredit(m, R):
             pkt = next((p for p in z["o"]["verlauf"] if p[0] == j * 12), z["o"]["verlauf"][-1])
             mit_p[j] += pkt[1]
             ohne_p[j] += pkt[2]
-            schuld[j] += pkt[3]
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=jahre, y=mit_p, name="Mit Krediten (netto)", line=dict(color="#16C784", width=3)))
+    fig.add_trace(go.Scatter(x=jahre, y=mit_p, name="Mit Krediten (nach Restschuld)", line=dict(color="#16C784", width=3)))
     fig.add_trace(go.Scatter(x=jahre, y=ohne_p, name="Ohne Kredite", line=dict(color="#4C9AFF", width=2, dash="dash")))
-    fig.add_trace(go.Scatter(x=jahre, y=[-x for x in schuld], name="Restschuld", line=dict(color="#EA3943", width=2),
-                             fill="tozeroy", fillcolor="rgba(234,57,67,0.12)"))
     _layout(fig, 340)
     fig.update_layout(hovermode="x unified")
     fig.update_xaxes(title="Jahre")
