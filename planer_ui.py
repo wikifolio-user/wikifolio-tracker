@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "05.10.2026 · 21:15"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "05.10.2026 · 21:45"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -542,12 +542,55 @@ def _scores(m, fund):
 # ===========================================================================
 # Rechnen
 # ===========================================================================
+def _kredit_rahmen(m):
+    """Wirkung der Kredite auf die Aufbauphase: zusaetzliches Startkapital,
+    Restschuld am Ende des Aufbaus und (bei Raten aus dem Depot) die mittlere
+    Monatsrate, die dem Depot entnommen wird. None = keine aktiven Kredite."""
+    k = m.get("kredit") or {}
+    jahre = int(m["rahmen"].get("horizont_jahre") or 0)
+    if not k.get("aktiv") or jahre <= 0:
+        return None
+    summe = rest = rate_depot = 0.0
+    for x in k.get("kredite") or []:
+        betrag, rate, laufzeit = float(x.get("betrag") or 0), float(x.get("rate") or 0), int(x.get("jahre") or 0)
+        zins = E.kredit_zins_aus_rate(betrag, rate, laufzeit) if betrag > 0 and rate > 0 and laufzeit > 0 else None
+        if zins is None:
+            continue
+        monate = min(jahre, laufzeit) * 12
+        summe += betrag
+        rest += E.kredit_restschuld(betrag, rate, zins, monate)
+        if k.get("rate_aus") == "investment":
+            rate_depot += rate * monate / (jahre * 12)      # ueber den Aufbau gemittelt
+    if summe <= 0:
+        return None
+    return {"summe": summe, "restschuld": rest, "rate_depot": rate_depot}
+
+
+def _mit_krediten(m):
+    """Modell fuer die Rechnung: Kreditgeld zusaetzlich investiert, Ziel = Ziel
+    NACH Abzug der Restschuld, Raten aus dem Depot mindern die Sparrate. Das
+    Original bleibt unveraendert (gleiche Bausteine/Gewichte)."""
+    kr = _kredit_rahmen(m)
+    if not kr:
+        return m
+    r = dict(m["rahmen"])
+    r["startkapital"] = float(r["startkapital"]) + kr["summe"]
+    if float(r.get("zielvermoegen") or 0) > 0:
+        r["zielvermoegen"] = float(r["zielvermoegen"]) + kr["restschuld"]
+    if kr["rate_depot"]:
+        r["sparrate_monat"] = float(r.get("sparrate_monat") or 0) - kr["rate_depot"]
+    return dict(m, rahmen=r)
+
+
 def _rechne(m, historie, korb_score):
     info = E.alle_renditen(m, historie)
     r = E.rendite_map(info)
     conf = E.confidence_fuer(m, historie)
     reb = m["rebalancing"]
-    zus = E.zusammenfassung(m, r, rebalancing=reb)
+    zus = E.zusammenfassung(_mit_krediten(m), r, rebalancing=reb)
+    kr = _kredit_rahmen(m)
+    zus["kredit"] = kr
+    zus["endwert_netto"] = zus["endwert"] - (kr["restschuld"] if kr else 0.0)
     scores = {"korb": korb_score}
     return {"info": info, "r": r, "conf": conf, "zus": zus, "scores": scores, "reb": reb}
 
@@ -569,7 +612,8 @@ def _benoetigt(m):
     if ziel <= 0:
         return None
     if int(r.get("horizont_jahre") or 0) > 0:
-        return E.erforderliche_rendite(float(r["startkapital"]), ziel, int(r["horizont_jahre"]),
+        r = _mit_krediten(m)["rahmen"]          # Kredite: mehr Kapital, Ziel nach Restschuld
+        return E.erforderliche_rendite(float(r["startkapital"]), float(r["zielvermoegen"]), int(r["horizont_jahre"]),
                                        float(r.get("sparrate_monat") or 0.0))
     e = _entnahme_daten(m)
     if not e.get("aktiv", True):
@@ -610,7 +654,7 @@ def _auto_gewichtung(m, R):
         erg = E.gewichtung_fuer_rendite(m, R["r"], ben)
         erg["benoetigt"] = ben
     elif modus == "ziel":
-        erg = E.gewichtung_fuer_zielvermoegen(m, R["r"], R["reb"])
+        erg = E.gewichtung_fuer_zielvermoegen(_mit_krediten(m), R["r"], R["reb"])
     else:
         erg = E.gewichtung_fuer_rendite(m, R["r"], float(_entnahme_daten(m)["rendite_pa"]) / 100.0)
     erg["modus"] = modus
@@ -786,9 +830,16 @@ def _kpis(platz, m, R):
             k3 = ("Startkapital", _eur(z["endwert"]), "Entnahme startet sofort")
         else:
             k1 = ("Benötigte Rendite p.a.", _pct(z["erforderliche_cagr"]) if ziel > 0 else "–",
-                  f'{_de(rahmen["startkapital"])} € → {_de(ziel)} € in {jahre_n} J.' if ziel > 0 else "kein Ziel gesetzt")
+                  (f'{_de(rahmen["startkapital"])} €'
+                   + (f' + {_de(z["kredit"]["summe"])} € Kredit' if z.get("kredit") else "")
+                   + f' → {_de(ziel)} € in {jahre_n} J.') if ziel > 0 else "kein Ziel gesetzt")
             k2 = ("Modellierte Rendite p.a.", _pct(z["modell_cagr"]), D.METHODEN[rahmen["methode"]])
-            k3 = ("Modell-Endwert", _eur(z["endwert"]), f'nach {jahre_n} J.' + (f' · Ziel {_de(ziel)} €' if ziel > 0 else ""))
+            if z.get("kredit"):
+                k3 = ("Modell-Endwert", _eur(z["endwert_netto"]),
+                      f'nach {jahre_n} J., nach Restschuld {_de(z["kredit"]["restschuld"])} €'
+                      + (f' · Ziel {_de(ziel)} €' if ziel > 0 else ""))
+            else:
+                k3 = ("Modell-Endwert", _eur(z["endwert"]), f'nach {jahre_n} J.' + (f' · Ziel {_de(ziel)} €' if ziel > 0 else ""))
         if ziel > 0 and jahre_n > 0:
             k4 = ("Abstand zum Ziel", f'<span class="{farbe}">{"+" if diff >= 0 else "−"}'
                                       f'{_de(abs(E.runden_ungefaehr(diff) or 0))} €</span>',
@@ -2879,7 +2930,7 @@ def _entnahme_rechnen(m, R, e=None):
     """Entnahme aus dem Modell-Endwert der Aufbauphase (eine durchgehende Rechnung)."""
     e = e or _entnahme_daten(m)
     proj = R["zus"]["projektion"]
-    kapital = proj["endwert"]
+    kapital = R["zus"].get("endwert_netto", proj["endwert"])
     einstand = min(proj["eingezahlt"], kapital)
     if e.get("rendite_quelle", "eigen") == "eigen" and _auto_modus(m) != "ziel":
         rendite = e["rendite_pa"] / 100.0
@@ -3002,7 +3053,7 @@ def _kredite(m):
                  "jahre": int(x.get("jahre") or 1)}
         neu.append(x)
     k["kredite"] = neu
-    k.setdefault("aktiv", True)
+    k.setdefault("aktiv", False)
     k.setdefault("rate_aus", "einkommen")
     return k
 
@@ -3020,7 +3071,7 @@ def _kredit_rechnen(m, R):
         sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
     jahre_aufbau = int(m["rahmen"].get("horizont_jahre") or 0)
     horizont = max(jahre_aufbau, max(int(x["jahre"]) for x in kredite))
-    ek_end = z["endwert"] if jahre_aufbau == horizont and jahre_aufbau > 0 else \
+    ek_end = E.zusammenfassung(m, R["r"], rebalancing=R["reb"])["endwert"] if jahre_aufbau == horizont and jahre_aufbau > 0 else \
         float(m["rahmen"]["startkapital"]) * (1 + r) ** horizont
     zeilen = []
     for x in kredite:
