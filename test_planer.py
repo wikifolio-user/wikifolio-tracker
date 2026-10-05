@@ -663,5 +663,21 @@ class Kaufplan(unittest.TestCase):
         self.assertAlmostEqual(o["zeilen"][0]["ist"], 1000, delta=0.04)
 
 
+class Kredit(unittest.TestCase):
+    def test_lohnt_ab_kreditkosten(self):
+        be = E.kredit_break_even(20000, 0.065, 5, "annuitaet", "einkommen", 10)
+        self.assertAlmostEqual(be, (1 + 0.065 / 12) ** 12 - 1, places=3)      # effektiver Kreditzins
+        self.assertLess(E.kredit_simulation(20000, 0.065, 5, "annuitaet", "einkommen", 0.03, 10)["vorteil"], 0)
+        self.assertGreater(E.kredit_simulation(20000, 0.065, 5, "annuitaet", "einkommen", 0.10, 10)["vorteil"], 0)
+
+    def test_schuld_getilgt_und_zinsen(self):
+        o = E.kredit_simulation(10000, 0.06, 2, "annuitaet", "einkommen", 0.05, 2)
+        self.assertAlmostEqual(o["schuld"], 0, places=6)
+        self.assertAlmostEqual(o["eigene"], o["rate"] * 24, places=4)
+        self.assertAlmostEqual(o["eigene"] - 10000, o["zinsen"], places=4)
+        e = E.kredit_simulation(10000, 0.06, 2, "endfaellig", "investment", 0.0, 2)
+        self.assertAlmostEqual(e["netto_mit"], 10000 - 10000 - 1200, delta=1)  # ohne Rendite: Zinsen = Verlust
+
+
 if __name__ == "__main__":
     unittest.main()
