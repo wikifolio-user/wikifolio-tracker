@@ -613,8 +613,10 @@ class _PDF:
         pages_id = 2 + 2 * n + 1
         seiten_ids = []
         for nr, ops in enumerate(self.seiten, 1):
-            fuss = (f"0.5 0.5 0.5 rg BT /F1 7.5 Tf {self.RAND} 22 Td (Abfindungsrechner {STEUERJAHR} - "
-                    f"Szenariorechnung, keine Steuerberatung - Seite {nr}/{n}) Tj ET")
+            ftxt = _sauber(getattr(self, "fuss", None) or f"Abfindungsrechner {STEUERJAHR} - Szenariorechnung, "
+                                                              "keine Steuerberatung")
+            ftxt = ftxt.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+            fuss = f"0.5 0.5 0.5 rg BT /F1 7.5 Tf {self.RAND} 22 Td ({ftxt} - Seite {nr}/{n}) Tj ET"
             strom = "\n".join(ops + [fuss]).encode("cp1252", "replace")
             sid = obj(b"<< /Length %d >>\nstream\n" % len(strom) + strom + b"\nendstream")
             seiten_ids.append(obj(f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 {self.B} {self.H}] "
