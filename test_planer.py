@@ -713,5 +713,26 @@ class ManuelleRendite(unittest.TestCase):
         self.assertAlmostEqual(o["rendite"], o["max"], places=6)
 
 
+class EntnahmeStufen(unittest.TestCase):
+    def test_betrag(self):
+        st_ = [{"ab_jahr": 4, "monatlich": 500.0}]
+        self.assertAlmostEqual(E.entnahme_betrag(1500, 0.02, 1, st_), 1500)
+        self.assertAlmostEqual(E.entnahme_betrag(1500, 0.02, 36, st_), 1500 * 1.02 ** 2)
+        self.assertAlmostEqual(E.entnahme_betrag(1500, 0.02, 37, st_), 500)
+        self.assertAlmostEqual(E.entnahme_betrag(1500, 0.02, 49, st_), 510)
+
+    def test_plan_und_offset(self):
+        st_ = [{"ab_jahr": 3, "monatlich": 0.0}]
+        p = E.entnahmeplan(100000, 0.0, 1000, jahre=5, max_jahre=5, stufen=st_)
+        self.assertAlmostEqual(p["restwert"], 100000 - 24000)
+        # 2 Jahre schon waehrend des Aufbaus entnommen -> sofort Stufe 3 (0 €)
+        p2 = E.entnahmeplan(100000, 0.0, 1000, jahre=5, max_jahre=5, stufen=st_, start_monat=24)
+        self.assertAlmostEqual(p2["restwert"], 100000)
+
+    def test_projektion_parallel(self):
+        ent = {"monatlich": 1000.0, "dynamik": 0.0, "monate": 36, "stufen": [{"ab_jahr": 2, "monatlich": 0.0}]}
+        self.assertAlmostEqual(E.endwert_mit_fluessen(50000, 0.0, 3, 0.0, ent), 50000 - 12000)
+
+
 if __name__ == "__main__":
     unittest.main()
