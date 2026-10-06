@@ -1852,6 +1852,7 @@ NAV_PRUEF_SEK = 15 * 60             # offene Seite prueft alle 15 Min., ob ein T
 ANSICHT_DEPOT = "🏠 Depot"
 ANSICHT_EINST = "⚙️ Einstellungen"
 ANSICHT_MUSTER = "📦 Musterdepot"    # aus dem Portfolio-Planer erstellt - Button nur, wenn eines existiert
+ANSICHT_ABFINDUNG = "💶 Abfindungsrechner"
 PFAD_MUSTERDEPOT = "state/musterdepot.json"
 ANSICHTEN = [
     ANSICHT_DEPOT,
@@ -1866,6 +1867,7 @@ ANSICHTEN = [
     "💼 Portfolio-Planer",
     "📝 Trader-Log (Trades & Kommentare)",
     "🏆 Watchlist Top 50",
+    ANSICHT_ABFINDUNG,          # immer ans Ende: die Kachel-Keys haengen am Index
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1880,6 +1882,7 @@ ANSICHT_KURZ = {
     "📝 Trader-Log (Trades & Kommentare)": "📝 Chronik",
     "🏆 Watchlist Top 50": "🏆 Watchlist",
     ANSICHT_MUSTER: "📦 Muster",
+    ANSICHT_ABFINDUNG: "💶 Abfindung",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1895,6 +1898,7 @@ NAV_NAMEN = {
     "💼 Portfolio-Planer": "💼 Portfolio-Planer",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
+    ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
 NAV_TITEL = {
@@ -1909,9 +1913,10 @@ NAV_ZEILEN = [
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Planer",
                            "🏆 Watchlist Top 50"]),
+    ("Rechner", [ANSICHT_ABFINDUNG]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER}
+LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG}
 
 NAV_CSS = """
 <style>
@@ -3708,6 +3713,15 @@ def render_dashboard():
             notify_app_error("Tab-Portfolio-Planer", e)
         lade_fertig()
 
+
+    if gewaehlte_ansicht == ANSICHT_ABFINDUNG:
+        try:
+            import abfindung
+            abfindung.render()
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Abfindungsrechner: {e}")
+            notify_app_error("Tab-Abfindungsrechner", e)
+        lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_MUSTER:
         melde("ansicht", 0.3, "Lade Musterdepot …")
