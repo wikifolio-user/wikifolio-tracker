@@ -42,6 +42,10 @@ KATEGORIEN = {
     "cash":            {"titel": "Cash / Reserve",   "typ": "cash"},
 }
 
+# Anlageklassen fuer die Gewichtungs-Regeln (Schluessel = KATEGORIEN[..]["typ"])
+REGEL_KLASSEN = {"wikifolio": "Wikifolios", "index": "ETFs / Indizes", "aktie": "Aktien & Aktienkörbe",
+                 "hebel": "Hebel-ETFs", "krypto": "Krypto", "cash": "Nachkaufreserve (Cash)"}
+
 # ---------------------------------------------------------------------------
 # Rahmenwerte
 # ---------------------------------------------------------------------------
@@ -54,6 +58,12 @@ SEED_RAHMEN = {
     "methode": "manual",                  # aktive Renditequelle, siehe METHODEN
     "szenario": "base",                   # bear | base | bull | custom (fuer Methode "szenario")
     "korb_anteil": None,                  # None = Gewicht des Korb-Assets aus der Asset-Tabelle
+    # Gewichtungs-Regeln je Anlageklasse (min/max in % des Portfolios) - gelten fuer jede
+    # automatische Gewichtung. min = max -> fester Anteil.
+    "regeln": {"aktiv": True, "klassen": {
+        "wikifolio": {"min": 0.0, "max": 35.0}, "index": {"min": 0.0, "max": 100.0},
+        "aktie": {"min": 0.0, "max": 100.0}, "hebel": {"min": 0.0, "max": 100.0},
+        "krypto": {"min": 0.0, "max": 100.0}, "cash": {"min": 5.0, "max": 10.0}}},
 }
 
 METHODEN = {
@@ -237,12 +247,12 @@ BEWERTUNGSREGELN = {
 GRENZEN = {
     "einzelasset_max": 20.0,
     "gruppen": [
-        {"titel": "Wikifolios", "kategorien": ["wikifolio"], "max": 40.0},
+        {"titel": "Wikifolios", "kategorien": ["wikifolio"], "max": 35.0},
         {"titel": "Einzelaktien", "kategorien": ["single_stock", "stock_basket"], "max": 20.0},
         {"titel": "Hebelprodukte", "kategorien": ["leveraged_etf"], "max": 10.0},
         {"titel": "Halbleiter", "merkmal": "semi", "max": 20.0},
         {"titel": "Krypto", "kategorien": ["crypto"], "max": 5.0},
-        {"titel": "Reserve", "kategorien": ["cash"], "min": 5.0},
+        {"titel": "Reserve", "kategorien": ["cash"], "min": 5.0, "max": 10.0},
     ],
 }
 
