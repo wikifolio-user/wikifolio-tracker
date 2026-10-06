@@ -12,6 +12,7 @@ import streamlit as st
 
 import config
 import github_store
+import chronik
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1166,8 +1167,63 @@ def lade_positionen():
     return positionen
 
 
+def chronik_eintrag(kategorie, titel, inhalt="", schluessel=None):
+    """Automatischer Eintrag in die Chronik (Depot -> Chronik). Fehler werden
+    geschluckt - die Chronik darf keine Speicherung verhindern."""
+    try:
+        pfad = getattr(config, "STATE_PATH_TRADES_DB", None)
+        if not pfad:
+            return False
+        liste = gh_read(pfad, []) or []
+        neu, ok = chronik.anhaengen(liste if isinstance(liste, list) else [],
+                                    chronik.neuer_eintrag(kategorie, titel, inhalt, schluessel=schluessel))
+        return gh_write(pfad, neu, message=f"chronik: {str(titel)[:50]} [skip ci]") if ok else False
+    except Exception:
+        return False
+
+
+def _de_zahl(x, nk=2):
+    try:
+        return f"{float(x):,.{nk}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (TypeError, ValueError):
+        return str(x)
+
+
+def _chronik_listen_diff(alt, neu, kategorie, wort, felder):
+    """Unterschiede zweier Listen (Positionen/Beobachtung) als Chronik-Eintraege."""
+    alt = {str(x.get("id")): x for x in (alt or []) if isinstance(x, dict)}
+    neu = {str(x.get("id")): x for x in (neu or []) if isinstance(x, dict)}
+
+    def name(x):
+        return f"{x.get('name') or '?'}" + (f" ({x.get('wkn')})" if x.get("wkn") else "")
+    for i, x in neu.items():
+        if i not in alt:
+            details = " · ".join(f"{lab} {fmt(x.get(k))}" for k, lab, fmt in felder if x.get(k) not in (None, ""))
+            chronik_eintrag(kategorie, f"➕ {wort} angelegt: {name(x)}", details)
+    for i, x in alt.items():
+        if i not in neu:
+            chronik_eintrag(kategorie, f"➖ {wort} entfernt: {name(x)}")
+    for i, x in neu.items():
+        if i in alt:
+            aend = [f"{lab} {fmt(alt[i].get(k))} → {fmt(x.get(k))}" for k, lab, fmt in
+                    [("name", "Name", str), ("wkn", "WKN", str)] + list(felder)
+                    if str(alt[i].get(k)) != str(x.get(k))]
+            if aend:
+                chronik_eintrag(kategorie, f"✏️ {wort} geändert: {name(x)}", " · ".join(aend))
+
+
+_POS_FELDER = [("kaufdatum", "Kaufdatum", lambda v: ".".join(reversed(str(v).split("-")))),
+               ("kaufkurs", "Kaufkurs", lambda v: _de_zahl(v, 3) + " €"),
+               ("startkapital", "Startkapital", lambda v: _de_zahl(v, 2) + " €"),
+               ("instrument_id", "ID", str)]
+
+
 def speichere_positionen(positionen, message="update positionen [skip ci]"):
-    return gh_write(STATE_PATH_POSITIONEN, positionen, message=message)
+    alt = gh_read(STATE_PATH_POSITIONEN, None) or [_position_aus_config()]
+    ok = gh_write(STATE_PATH_POSITIONEN, positionen, message=message)
+    if ok:
+        _chronik_listen_diff(alt, positionen, "depot", "Position", _POS_FELDER)
+    return ok
 
 
 def lade_beobachtung():
@@ -1177,7 +1233,11 @@ def lade_beobachtung():
 
 
 def speichere_beobachtung(eintraege, message="update beobachtung [skip ci]"):
-    return gh_write(STATE_PATH_BEOBACHTUNG, eintraege, message=message)
+    alt = gh_read(STATE_PATH_BEOBACHTUNG, []) or []
+    ok = gh_write(STATE_PATH_BEOBACHTUNG, eintraege, message=message)
+    if ok:
+        _chronik_listen_diff(alt, eintraege, "beobachtung", "Beobachtung", [("instrument_id", "ID", str)])
+    return ok
 
 
 def ist_wikifolio(wkn="", name=""):
@@ -1817,7 +1877,7 @@ ANSICHT_KURZ = {
     "🔮 Zukunfts-Prognose": "🔮 Prognose",
     "📊 Szenario-Simulator (5 Jahre)": "📊 Szenarien",
     "💼 Portfolio-Planer": "💼 Planer",
-    "📝 Trader-Log (Trades & Kommentare)": "📝 Trader-Log",
+    "📝 Trader-Log (Trades & Kommentare)": "📝 Chronik",
     "🏆 Watchlist Top 50": "🏆 Watchlist",
     ANSICHT_MUSTER: "📦 Muster",
 }
@@ -1825,7 +1885,7 @@ ANSICHT_KURZ = {
 NAV_NAMEN = {
     ANSICHT_DEPOT: "🏠 Test-Depot",
     ANSICHT_EINST: "⚙️ Einstellungen",
-    "📝 Trader-Log (Trades & Kommentare)": "📝 Trader-Log",
+    "📝 Trader-Log (Trades & Kommentare)": "📝 Chronik",
     "📈 Vermögens- & Substanzaufbau": "📈 Vermögensaufbau",
     "🔍 Seit 01.01.2026": "🔍 Performance > 2026",
     "🔎 Seit 01.01.2021": "🔎 Performance > 2021",
@@ -3641,7 +3701,7 @@ def render_dashboard():
             planer_ui.render({
                 "suche_instrument": suche_instrument, "get_kurshistorie": get_kurshistorie,
                 "gh_read": gh_read, "gh_write": gh_write, "gh_read_taeglich": gh_read_taeglich,
-                "heute": heute_date, "benchmarks": getattr(config, "BENCHMARKS", {}) or {},
+                "chronik": chronik_eintrag, "heute": heute_date, "benchmarks": getattr(config, "BENCHMARKS", {}) or {},
             })
         except Exception as e:
             st.error(f"⚠️ Fehler im Portfolio-Planer: {e}")
@@ -3653,7 +3713,8 @@ def render_dashboard():
         melde("ansicht", 0.3, "Lade Musterdepot …")
         try:
             import planer_ui
-            planer_ui.render_musterdepot({"gh_read": gh_read, "gh_write": gh_write, "get_live_kurs": get_live_kurs})
+            planer_ui.render_musterdepot({"gh_read": gh_read, "gh_write": gh_write, "get_live_kurs": get_live_kurs,
+                                          "chronik": chronik_eintrag})
         except Exception as e:
             st.error(f"⚠️ Fehler im Musterdepot: {e}")
             notify_app_error("Tab-Musterdepot", e)
@@ -3779,7 +3840,9 @@ def render_dashboard():
     if sparrate_aktiv > 0:
         if not sparplan_state.get("start_datum"):
             sparplan_state = {"start_datum": heute_date.isoformat()}
-            gh_write(config.STATE_PATH_SPARPLAN, sparplan_state, message="sparplan gestartet [skip ci]")
+            if gh_write(config.STATE_PATH_SPARPLAN, sparplan_state, message="sparplan gestartet [skip ci]"):
+                chronik_eintrag("depot", f"💶 Sparplan gestartet: {_de_zahl(sparrate_aktiv)} €/Monat",
+                                "Ab heute wird monatlich zum jeweiligen Kurs nachgekauft (Rechnung).")
         sparplan_start = datetime.date.fromisoformat(sparplan_state["start_datum"])
         monate_sparplan = max(0, (heute_date.year - sparplan_start.year) * 12 + (heute_date.month - sparplan_start.month))
         if heute_date.day < sparplan_start.day:
@@ -3795,7 +3858,9 @@ def render_dashboard():
                     zusaetzliche_stueckzahl_sparplan += sparrate_aktiv / preis_am_einzahlungstag
     else:
         if sparplan_state.get("start_datum"):
-            gh_write(config.STATE_PATH_SPARPLAN, {}, message="sparplan gestoppt [skip ci]")
+            if gh_write(config.STATE_PATH_SPARPLAN, {}, message="sparplan gestoppt [skip ci]"):
+                chronik_eintrag("depot", "⏹️ Sparplan gestoppt",
+                                f"Lief seit {'.'.join(reversed(sparplan_state['start_datum'].split('-')))}.")
 
     # --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
     # Zentrierter Ladefortschritt mit Prozentangabe statt Streamlits kleinem
@@ -5578,40 +5643,73 @@ def render_dashboard():
                 return gh_read(config.STATE_PATH_TRADES_DB, [])
 
             def save_db(data):
-                gh_write(config.STATE_PATH_TRADES_DB, data, message="update trades log [skip ci]")
+                gh_write(config.STATE_PATH_TRADES_DB, data, message="update chronik [skip ci]")
 
-            db_events = load_db()
+            db_events = [x for x in (load_db() or []) if isinstance(x, dict)]
 
             with tab_trades:
-                st.markdown("### 📋 Historie")
-                if not db_events:
-                    st.info("Keine Einträge vorhanden.")
-                else:
-                    for ev in db_events:
-                        st.markdown(f"""
-                            <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
-                                <div style="font-size: 0.75rem; color: #71717A;"><b>[{ev.get('typ','')}]</b> - {ev.get('datum','')}</div>
-                                <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{ev.get('titel','')}</div>
-                                <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt','')}</div>
-                            </div>
-                        """, unsafe_allow_html=True)
+                st.caption("Wird automatisch gefüllt: Kurs-Alarme, Entwarnungen und neue Allzeithochs aus dem "
+                           "Discord-Workflow, Änderungen an Depot-Positionen und beobachteten Werten, Sparplan "
+                           "Start/Stopp, Musterdepots und gespeicherte Planungen. Eigene Notizen sind weiter möglich.")
+                anzahl = {}
+                for ev in db_events:
+                    k_ = chronik.kategorie_von(ev)
+                    anzahl[k_] = anzahl.get(k_, 0) + 1
+                optionen = ["alle"] + [k_ for k_ in chronik.KATEGORIEN if anzahl.get(k_)]
+                beschr = {"alle": f"Alle ({len(db_events)})"}
+                beschr.update({k_: f"{v_[0]} {v_[1]} ({anzahl.get(k_, 0)})" for k_, v_ in chronik.KATEGORIEN.items()})
+                try:
+                    wahl = st.pills("Filter", optionen, default="alle", format_func=beschr.get,
+                                    key="chronik_filter", label_visibility="collapsed") or "alle"
+                except Exception:
+                    wahl = st.selectbox("Filter", optionen, format_func=beschr.get, key="chronik_filter_sb")
+                gezeigt = [ev for ev in db_events if wahl == "alle" or chronik.kategorie_von(ev) == wahl]
+                farben = {"alarm": "#EA3943", "depot": "#29B6F6", "beobachtung": "#A78BFA", "planer": "#F5B942",
+                          "notiz": "#71717A"}
+                if not gezeigt:
+                    st.info("Noch keine Einträge – sie entstehen ab jetzt automatisch.")
+                letzter_tag = None
+                for ev in gezeigt[:200]:
+                    k_ = chronik.kategorie_von(ev)
+                    tag = ev.get("datum", "")
+                    if tag != letzter_tag:
+                        try:
+                            tag_txt = datetime.date.fromisoformat(tag).strftime("%d.%m.%Y")
+                        except Exception:
+                            tag_txt = tag
+                        st.markdown(f'<div style="margin:14px 0 6px;font-size:.8rem;font-weight:700;'
+                                    f'color:#A1A1AA;letter-spacing:.06em">{html.escape(tag_txt)}</div>',
+                                    unsafe_allow_html=True)
+                        letzter_tag = tag
+                    kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
+                    st.markdown(f"""
+                        <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
+                            <div style="font-size: 0.72rem; color: #71717A;">{html.escape(kopf)}</div>
+                            <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
+                            <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                if len(gezeigt) > 200:
+                    st.caption(f"Die neuesten 200 von {len(gezeigt)} Einträgen.")
 
-                with st.form("trade_form", clear_on_submit=True):
-                    col1, col2, col3 = st.columns([2, 2, 3])
-                    with col1: et = st.selectbox("Typ", ["Trade", "Kommentar", "Hinweis"])
-                    with col2: ed = st.date_input("Datum", heute_date)
-                    with col3: eti = st.text_input("Titel")
-                    ei = st.text_area("Details")
-                    if st.form_submit_button("Speichern") and eti:
-                        db_events.insert(0, {"id": len(db_events) + 1, "typ": et, "datum": ed.strftime("%Y-%m-%d"), "titel": eti, "inhalt": ei})
-                        save_db(db_events)
-                        st.rerun()
+                with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
+                    with st.form("trade_form", clear_on_submit=True):
+                        col1, col2 = st.columns([2, 3])
+                        with col1: ed = st.date_input("Datum", heute_date)
+                        with col2: eti = st.text_input("Titel")
+                        ei = st.text_area("Details")
+                        if st.form_submit_button("Speichern") and eti:
+                            eintrag = chronik.neuer_eintrag("notiz", eti, ei, typ="Notiz", quelle="manuell")
+                            eintrag["datum"] = ed.strftime("%Y-%m-%d")
+                            db_neu, _ = chronik.anhaengen(db_events, eintrag)
+                            save_db(db_neu)
+                            st.rerun()
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Trader-Log", e)
     if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
-        melde("ansicht", 0.3, "Lade Trader-Log …")
+        melde("ansicht", 0.3, "Lade Chronik …")
         _render_trades()
         lade_fertig()
 
