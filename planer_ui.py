@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "05.10.2026 · 22:20"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 12:30"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -585,14 +585,31 @@ def _kredit_rahmen(m):
     return {"summe": summe, "restschuld": rest, "rate_depot": rate_depot}
 
 
+def _entnahme_parallel(m):
+    """Gleichzeitige Entnahme waehrend des Aufbaus (Standard) -> dict fuer die
+    Projektion oder None."""
+    e = m.get("entnahme") or {}
+    jahre = int(m["rahmen"].get("horizont_jahre") or 0)
+    if not e.get("aktiv", True) or not e.get("parallel", True) or jahre <= 0 or not float(e.get("monatlich") or 0):
+        return None
+    return {"monatlich": float(e["monatlich"]), "dynamik": float(e.get("dynamik_pa") or 0) / 100.0,
+            "monate": jahre * 12}
+
+
 def _mit_krediten(m):
     """Modell fuer die Rechnung: Kreditgeld zusaetzlich investiert, Ziel = Ziel
-    NACH Abzug der Restschuld, Raten aus dem Depot mindern die Sparrate. Das
-    Original bleibt unveraendert (gleiche Bausteine/Gewichte)."""
+    NACH Abzug der Restschuld, Raten aus dem Depot mindern die Sparrate, und die
+    Entnahme laeuft (Standard) schon waehrend des Aufbaus. Das Original bleibt
+    unveraendert (gleiche Bausteine/Gewichte)."""
     kr = _kredit_rahmen(m)
-    if not kr:
+    ent = _entnahme_parallel(m)
+    if not kr and not ent:
         return m
     r = dict(m["rahmen"])
+    if ent:
+        r["entnahme_parallel"] = ent
+    if not kr:
+        return dict(m, rahmen=r)
     r["startkapital"] = float(r["startkapital"]) + kr["summe"]
     if float(r.get("zielvermoegen") or 0) > 0:
         r["zielvermoegen"] = float(r["zielvermoegen"]) + kr["restschuld"]
@@ -631,9 +648,8 @@ def _benoetigt(m):
     if ziel <= 0:
         return None
     if int(r.get("horizont_jahre") or 0) > 0:
-        r = _mit_krediten(m)["rahmen"]          # Kredite: mehr Kapital, Ziel nach Restschuld
-        return E.erforderliche_rendite(float(r["startkapital"]), float(r["zielvermoegen"]), int(r["horizont_jahre"]),
-                                       float(r.get("sparrate_monat") or 0.0))
+        # Kredite: mehr Kapital, Ziel nach Restschuld; gleichzeitige Entnahme mindert das Wachstum
+        return E.erforderliche_rendite_rahmen(_mit_krediten(m)["rahmen"])
     e = _entnahme_daten(m)
     if not e.get("aktiv", True):
         return None
@@ -743,14 +759,21 @@ def _rahmen(m):
                      "dabei überschrieben.")
             ziel_platz = st.empty()          # wird nach den Entnahme-Eingaben gefuellt (aktuelle Werte)
 
-        _phase("Phase 2 · Entnahme (ab Ende des Aufbaus)")
-        e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"),
-                               help="Startet automatisch mit dem Modell-Endwert der Aufbauphase")
+        _phase("Phase 2 · Entnahme" + (" (gleichzeitig mit dem Aufbau)" if e.get("parallel", True)
+                                       else " (ab Ende des Aufbaus)"))
+        e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"))
         if e["aktiv"]:
+            e["parallel"] = st.toggle(
+                "Entnahme schon während des Aufbaus (ab sofort)", value=bool(e.get("parallel", True)),
+                key=_k("en_parallel"),
+                help="An (Standard): die monatliche Entnahme läuft ab dem ersten Monat, gleichzeitig mit dem Aufbau – "
+                     "sie wird jeden Monat vom Depot abgezogen, nachdem die Rendite gutgeschrieben ist. Nach dem "
+                     "Aufbau geht sie für „Dauer Entnahme“ Jahre weiter. Aus: Entnahme erst nach dem Aufbau.")
             c5, c6 = st.columns(2)
             e["monatlich"] = float(c5.number_input("Entnahme pro Monat (€, netto)", 0.0, 1e7, float(e["monatlich"]),
                                                    step=50.0, format="%.0f", key=_k("en_mon")))
-            e["dauer_jahre"] = int(c6.number_input("Dauer Entnahme (Jahre)", 1, 60, int(e["dauer_jahre"]),
+            e["dauer_jahre"] = int(c6.number_input("Dauer Entnahme nach dem Aufbau (J.)" if e["parallel"]
+                                                   else "Dauer Entnahme (Jahre)", 1, 60, int(e["dauer_jahre"]),
                                                    key=_k("en_dauer")))
             c7, c8 = st.columns(2)
             e["dynamik_pa"] = float(c7.number_input("Jährliche Erhöhung (%)", 0.0, 10.0, float(e["dynamik_pa"]),
@@ -879,10 +902,19 @@ def _kpis(platz, m, R):
                 _kap, _r, _kw, plan = _entnahme_rechnen(m, R, e)
                 dauer = "dauerhaft" if plan["reicht_dauerhaft"] else _dauer_text(plan)
                 ok = plan["reicht_dauerhaft"] or plan["dauer_monate"] >= int(e["dauer_jahre"]) * 12
-                zeilen.append(f'{"Danach" if jahre_n > 0 else "Sofort"} Entnahme <b>{_de(e["monatlich"])} €/Monat</b> '
+                zeilen.append(f'{("Nach dem Aufbau weiter" if _entnahme_parallel(m) else "Danach") if jahre_n > 0 else "Sofort"} Entnahme <b>{_de(e["monatlich"])} €/Monat</b> '
                               f'aus {_eur(_kap)} bei {_pct(_r)} p.a. · reicht '
                               f'<b class="{"pl-gut" if ok else "pl-schlecht"}">{dauer}</b> (Plan {e["dauer_jahre"]} J.)')
-                gm = _kap * ((1 + _r) ** (1 / 12) - 1)
+                ent_p = _entnahme_parallel(m)
+                if ent_p:
+                    # Entnahme laeuft schon im Aufbau: Gewinn des Startkapitals (inkl. Kredite) zaehlt
+                    r_auf = z.get("modell_cagr") if z.get("modell_cagr") is not None else _r
+                    gm = float(_mit_krediten(m)["rahmen"]["startkapital"]) * ((1 + r_auf) ** (1 / 12) - 1)
+                    zeilen.insert(0 if not jahre_n else 2,
+                                  f'Entnahme während des Aufbaus: <b>{_de(e["monatlich"])} €/Monat</b> ab sofort · '
+                                  f'gesamt {_eur(proj.get("entnommen") or 0)} in {jahre_n} J.')
+                else:
+                    gm = _kap * ((1 + _r) ** (1 / 12) - 1)
                 if e["monatlich"] > 0:
                     zeilen.append(f'Gewinn am Start {_de(gm)} €/Monat gegen Entnahme {_de(e["monatlich"])} €/Monat → '
                                   + (f'<b class="pl-gut">Kapital wächst</b> (Überschuss {_de(gm - e["monatlich"])} €/Monat)'
@@ -2154,12 +2186,14 @@ def _gesamtverlauf(m, R):
     proj = R["zus"]["projektion"]
     aufbau = list(proj["monatswerte"])
     n_auf = len(aufbau) - 1
-    spar = float(rahmen.get("sparrate_monat") or 0.0)
+    spar = float(_mit_krediten(m)["rahmen"].get("sparrate_monat") or 0.0)
+    ent_p = _entnahme_parallel(m)
     zeilen = []
     for j in range(n_auf // 12):
         anf, ende = aufbau[j * 12], aufbau[(j + 1) * 12]
-        zeilen.append({"jahr": j + 1, "phase": "Aufbau", "anfang": anf, "fluss": spar * 12,
-                       "ertrag": ende - anf - spar * 12, "steuer": 0.0, "ende": ende})
+        fluss = spar * 12 - sum(E._entnahme_monat(ent_p, mm) for mm in range(j * 12 + 1, j * 12 + 13))
+        zeilen.append({"jahr": j + 1, "phase": "Aufbau + Entnahme" if ent_p else "Aufbau", "anfang": anf,
+                       "fluss": fluss, "ertrag": ende - anf - fluss, "steuer": 0.0, "ende": ende})
     e = _entnahme_daten(m)
     ent, rendite, plan = [], None, None
     if e.get("aktiv", True) and float(e.get("monatlich") or 0) > 0:
