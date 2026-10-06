@@ -653,8 +653,17 @@ FORM_CSS = """<style>
     border: 1.5px dashed #d95926 !important; background: rgba(217,89,38,.08) !important;
 }
 .st-key-zr_form [data-baseweb="input"] input:disabled { color: #f0a27f !important; -webkit-text-fill-color: #f0a27f !important; }
-/* Beschriftungen gleich hoch, damit Felder nebeneinander auf einer Linie liegen */
-.st-key-zr_form [data-testid="stWidgetLabel"] { min-height: 1.5rem !important; margin-bottom: 4px !important; }
+/* Beschriftungen gleich hoch, damit Felder nebeneinander auf einer Linie liegen
+   (Dropdown-Labels haben app-weit einen eigenen Abstand nach oben - hier angleichen) */
+.st-key-zr_form [data-testid="stWidgetLabel"],
+.st-key-zr_form [data-testid="stSelectbox"] label {
+    display: flex !important; align-items: flex-end !important; min-height: 1.5rem !important;
+    margin: 0 0 4px 0 !important; padding: 0 !important; width: auto !important;
+}
+.st-key-zr_form [data-testid="stSelectbox"],
+.st-key-zr_form [data-testid="stNumberInput"],
+.st-key-zr_form [data-testid="stTextInput"],
+.st-key-zr_form [data-testid="stDateInput"] { margin-top: 0 !important; padding-top: 0 !important; }
 .zr-hilfe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: .76rem; color: #c3c2b7;
             margin: 0 0 4px; padding: 10px 12px; border-radius: 12px; background: #12151c; border: 1px solid #2c313d; }
 .zr-hilfe span { display: inline-flex; align-items: center; gap: 6px; }
@@ -768,8 +777,7 @@ def render(basis_url=""):
     k_zins = karte("zins", "📈", "Verzinsung", "Zinssatz, Gutschrift und Steuer")
     c7, c8 = k_zins.columns(2)
     p["z"] = zahl("z", "Zinssatz (% p.a.)", -99.0, 100.0, 0.25, "%.3f", spalte=c7)
-    p["zp"] = c8.selectbox("Gutschrift", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_zp",
-                           help="Zinsperiode: wie oft die Zinsen gutgeschrieben werden")
+    p["zp"] = c8.selectbox("Zinsgutschrift", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_zp")
     p["ze"] = k_zins.selectbox("Zinseszins", [1, 0], key="zr_ze",
                                format_func={1: "Ja – Zinsen werden mitverzinst", 0: "Nein – Zinsen werden ausgezahlt"}.get)
     with k_zins.expander("💶 Steuer auf Zinsen (optional)", expanded=bool(float(st.session_state.get("zr_st") or 0))):
