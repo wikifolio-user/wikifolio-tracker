@@ -18,6 +18,7 @@ import requests
 
 import config
 import github_store
+import chronik
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -198,6 +199,17 @@ def hole_onvista_kontrollkurs(url):
     except Exception as e:
         logging.warning(f"onvista-Kontrollkurs nicht abrufbar (kein Problem, nur Zweitquelle): {e}")
         return None
+
+
+def chronik_eintrag(titel, inhalt, schluessel, now):
+    """Alarm zusaetzlich in die Chronik der App schreiben (Depot -> Chronik)."""
+    if not (GITHUB_REPO and GITHUB_TOKEN):
+        return
+    pfad = getattr(config, "STATE_PATH_TRADES_DB", None)
+    if not pfad:
+        return
+    chronik.eintragen_github(github_store, GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, GITHUB_TOKEN,
+                             chronik.neuer_eintrag("alarm", titel, inhalt, schluessel=schluessel, zeitpunkt=now))
 
 
 def send_discord(msg=None, embed=None):
@@ -420,6 +432,10 @@ def check_high_watermark(now, inst, live_kurs, tageshoch):
             felder=felder,
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
+        chronik_eintrag(f"🏆 Neues Allzeithoch {inst['name']} ({inst['wkn']})",
+                        f"{akt:.3f} € · {anstieg_pct:+.2f} % über dem zuletzt gemeldeten Hoch "
+                        f"({zuletzt_gemeldet:.3f} €)".replace(".", ","),
+                        f"ath-{inst['wkn']}-{akt:.3f}", now)
     else:
         logging.info(
             f"{inst['wkn']}: neues Hoch {akt:.3f}€ still gespeichert "
@@ -568,6 +584,10 @@ def verarbeite_instrument(inst, now):
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
         state["unter_schwelle"] = True
+        chronik_eintrag(f"🚨 Schwelle unterschritten {inst['name']} ({inst['wkn']})",
+                        f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · Schwelle "
+                        f"{config.TAGESVERLUST_SCHWELLE_PCT:+.1f} %".replace(".", ","),
+                        f"schwelle-{inst['wkn']}-{now.strftime('%Y%m%d%H%M')}", now)
     elif not aktuell_unter_schwelle and war_unter_schwelle:
         send_discord(embed=baue_embed(
             titel=f"Entwarnung ({inst['wkn']})",
@@ -580,6 +600,10 @@ def verarbeite_instrument(inst, now):
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
         state["unter_schwelle"] = False
+        chronik_eintrag(f"✅ Entwarnung {inst['name']} ({inst['wkn']})",
+                        f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · wieder über "
+                        f"{config.TAGESVERLUST_SCHWELLE_PCT:+.1f} %".replace(".", ","),
+                        f"entwarnung-{inst['wkn']}-{now.strftime('%Y%m%d%H%M')}", now)
 
     # Nur bei echtem Zustandswechsel schreiben - spart unnoetige Commits.
     state_veraendert = (
