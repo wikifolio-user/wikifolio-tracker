@@ -15,7 +15,7 @@ INTERVALLE = {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich", 12: "j�
 ZIEL_FELDER = {"e": "Endkapital", "a": "Anfangskapital", "s": "Sparrate", "dy": "Dynamik", "z": "Zinssatz",
                "n": "Ansparzeit"}
 STANDARD = {"a": 0.0, "s": 100.0, "si": 1, "ea": "v", "dy": 0.0, "dya": "j", "z": 5.0, "zp": 12, "ze": 1,
-            "n": 10, "ne": "j", "f": 0, "fe": "j", "e": 0.0, "calc": "e", "st": 0.0, "fb": 1000.0, "am": "", "sd": ""}
+            "n": 10, "ne": "j", "f": 0, "fe": "j", "e": 0.0, "calc": "e", "st": 0.0, "fb": 1000.0, "am": "", "sd": "", "sp": "", "ep": ""}
 ABGELTUNG = 26.375
 
 
@@ -24,6 +24,37 @@ ABGELTUNG = 26.375
 # ===========================================================================
 def _monate(wert, einheit):
     return int(round(float(wert))) * (12 if einheit == "j" else 1)
+
+
+def phasen(text):
+    """'1x1000,3x500' -> [(12, 1000.0), (36, 500.0)]  (Jahre x Euro pro Monat, nacheinander ab Start)."""
+    aus = []
+    for teil in str(text or "").split(","):
+        if "x" not in teil:
+            continue
+        try:
+            j, b = teil.split("x", 1)
+            j, b = float(j), float(b)
+        except ValueError:
+            continue
+        if j > 0 and b >= 0:
+            aus.append((int(round(j * 12)), b))
+    return aus
+
+
+def phasen_text(liste):
+    """[(Jahre, Betrag)] -> '1x1000,3x500'"""
+    return ",".join(f"{j:g}x{b:g}" for j, b in liste if j > 0)
+
+
+def phase_betrag(ph, m):
+    """Monatsbetrag im Monat m (1-basiert) laut Phasen; nach der letzten Phase 0."""
+    bis = 0
+    for monate, betrag in ph:
+        bis += monate
+        if m <= bis:
+            return betrag
+    return 0.0
 
 
 def rechne(p):
@@ -48,12 +79,27 @@ def rechne(p):
     jahre, verlauf = [], [k]
     ein_kum, zins_kum, wert = [k], [0.0], [k]               # Monatswerte fuer den Chart
     zins_netto_kum = 0.0
-    jz = {"ein": 0.0, "zins": 0.0, "steuer": 0.0}
+    jz = {"ein": 0.0, "zins": 0.0, "steuer": 0.0, "ent": 0.0}
     frei_rest = freib
     rate = rate0
+    sp_ph, ep_ph = phasen(p.get("sp")), phasen(p.get("ep"))
+    # Laufzeit reicht mindestens bis zum Ende der Plaene
+    n_ges = max(n_ges, sum(mo for mo, _ in sp_ph), sum(mo for mo, _ in ep_ph))
+    entnommen = 0.0
+    leer_monat = None
+    ent_kum = [0.0]
     for m in range(1, n_ges + 1):
         einz = 0.0
-        if m <= n_spar and (m - 1) % si == 0:
+        ent = 0.0
+        if sp_ph:                                           # Sparplan in Phasen (monatlich) statt fester Rate
+            einz = phase_betrag(sp_ph, m)
+            if einz:
+                k += einz
+                einzahlungen += einz
+                jz["ein"] += einz
+                if vorschuessig:
+                    verzinst += einz
+        elif m <= n_spar and (m - 1) % si == 0:
             if dyn:
                 schritte = (m - 1) // 12 if p["dya"] == "j" else (m - 1) // si
                 rate = rate0 * (1 + dyn) ** schritte
@@ -63,9 +109,22 @@ def rechne(p):
             jz["ein"] += einz
             if vorschuessig:
                 verzinst += einz                            # zaehlt schon in diesem Monat
+        if ep_ph and vorschuessig:                          # Entnahme am Monatsanfang
+            ent = min(phase_betrag(ep_ph, m), max(k, 0.0))
+            k -= ent
+            verzinst = max(verzinst - ent, 0.0)
         periode_zins += verzinst * i_m
         if einz and not vorschuessig:
             verzinst += einz                                # erst ab dem naechsten Monat
+        if ep_ph and not vorschuessig:                      # Entnahme am Monatsende
+            ent = min(phase_betrag(ep_ph, m), max(k, 0.0))
+            k -= ent
+            verzinst = max(verzinst - ent, 0.0)
+        if ent:
+            entnommen += ent
+            jz["ent"] += ent
+        if ep_ph and leer_monat is None and phase_betrag(ep_ph, m) > 0 and k <= 0.005:
+            leer_monat = m
         if m % zp == 0 or m == n_ges:                       # Zinsgutschrift am Periodenende / Laufzeitende
             z_ = periode_zins
             st_ = 0.0
@@ -88,16 +147,18 @@ def rechne(p):
         # Chart: aufgelaufene, noch nicht gutgeschriebene Zinsen schon mitzeigen (glatter Verlauf)
         offen = periode_zins * (1 - steuer) if periode_zins else 0.0
         ein_kum.append(einzahlungen)
+        ent_kum.append(entnommen)
         zins_kum.append(zins_netto_kum + offen)
-        wert.append(einzahlungen + zins_netto_kum + offen)
+        wert.append(max(einzahlungen - entnommen + zins_netto_kum + offen, 0.0))
         if m % 12 == 0 or m == n_ges:
             jahre.append({"jahr": (m - 1) // 12 + 1, "monat": m, "ein": jz["ein"], "zins": jz["zins"],
-                          "steuer": jz["steuer"], "stand": k})
-            jz = {"ein": 0.0, "zins": 0.0, "steuer": 0.0}
+                          "steuer": jz["steuer"], "ent": jz["ent"], "stand": k})
+            jz = {"ein": 0.0, "zins": 0.0, "steuer": 0.0, "ent": 0.0}
             frei_rest = freib
     return {"end": k, "einzahlungen": einzahlungen, "zinsen": zinsen_ges, "steuer": steuer_ges,
             "ausgezahlt": ausgezahlt, "jahre": jahre, "verlauf": verlauf, "monate": n_ges, "spar_monate": n_spar,
             "ein_kum": ein_kum, "zins_kum": zins_kum, "wert": wert, "start": float(p["a"]),
+            "ent_kum": ent_kum, "entnommen": entnommen, "leer_monat": leer_monat,
             "letzte_rate": rate}
 
 
@@ -226,10 +287,11 @@ def plus_monate(d, monate):
 def zeitachse(p, r):
     """Tabellenzeilen: Start (Anfangskapital) und je volles Jahr (bzw. Laufzeitende) mit Datum."""
     sd = startdatum(p)
-    zeilen = [{"datum": sd, "text": "Start", "ein": r["start"], "zins": 0.0, "steuer": 0.0, "stand": r["start"]}]
+    zeilen = [{"datum": sd, "text": "Start", "ein": r["start"], "zins": 0.0, "steuer": 0.0, "ent": 0.0,
+               "stand": r["start"]}]
     for z in r["jahre"]:
         zeilen.append({"datum": plus_monate(sd, z["monat"]), "text": "", "ein": z["ein"], "zins": z["zins"],
-                       "steuer": z["steuer"], "stand": z["stand"]})
+                       "steuer": z["steuer"], "ent": z.get("ent", 0.0), "stand": z["stand"]})
     if zeilen:
         zeilen[-1]["text"] = "Ende" if len(zeilen) > 1 else "Start"
     return zeilen
@@ -246,6 +308,16 @@ def _jahr_label(z, p):
     return str(z["jahr"])
 
 
+def phasen_zeitraeume(p, feld):
+    """[(von, bis, betrag)] je Phase mit echten Daten."""
+    sd = startdatum(p)
+    aus, ab = [], 0
+    for monate, betrag in phasen(p.get(feld)):
+        aus.append((plus_monate(sd, ab), plus_monate(sd, ab + monate) - datetime.timedelta(days=1), betrag))
+        ab += monate
+    return aus
+
+
 def zeilen_kenndaten(p):
     zei = [["Anfangskapital", f"{_de(float(p['a']))} €"],
            ["Sparrate", f"{_de(float(p['s']))} € {INTERVALLE[int(p['si'])]}"],
@@ -260,6 +332,11 @@ def zeilen_kenndaten(p):
            ["Steuer", f"{_de(float(p['st']), 3)} % (Freibetrag {_de(float(p['fb']), 0)} €/Jahr)"
             if float(p.get("st") or 0) else "nicht berücksichtigt"]]
     zei.append(["Startdatum", startdatum(p).strftime("%d.%m.%Y")])
+    for feld, name in (("sp", "Sparplan"), ("ep", "Entnahmeplan")):
+        for von, bis, betrag in phasen_zeitraeume(p, feld):
+            zei.append([f"{name} {von.strftime('%d.%m.%Y')} – {bis.strftime('%d.%m.%Y')}", f"{_de(betrag)} € / Monat"])
+    if phasen(p.get("sp")):
+        zei[1] = ["Sparrate", "laut Sparplan (siehe unten)"]
     return zei
 
 
@@ -273,11 +350,11 @@ def _pdf_chart(pdf, p, r, hoehe=170):
     x0, x1 = pdf.RAND + 52, pdf.B - pdf.RAND - 4
     y0 = pdf.y - hoehe
     y1 = pdf.y - 6
-    vmax = max(r["wert"]) or 1.0
+    vmax = (max(max(r["wert"]), max(r.get("ent_kum") or [0.0])) or 1.0) * 1.08
     # "schoene" Obergrenze
     import math as _m
     stufe = 10 ** _m.floor(_m.log10(vmax))
-    for f in (1, 2, 2.5, 5, 10):
+    for f in (1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10):
         if vmax <= f * stufe:
             top = f * stufe
             break
@@ -293,32 +370,63 @@ def _pdf_chart(pdf, p, r, hoehe=170):
         pdf.linie(x0, Y(v), x1, Y(v), (0.88, 0.88, 0.88), 0.4)
         pdf.text(x0 - 6, Y(v) - 3, f"{_de(v, 0)} €", 7, farbe=(0.45, 0.45, 0.45), rechts=True)
     sd = startdatum(p)
-    schritt = max(1, round((n - 1) / 12 / 6)) * 12
+    jahre_n = (n - 1) / 12
+    schritt = (1 if jahre_n <= 12 else (2 if jahre_n <= 24 else 5)) * 12
     for i in range(0, n, schritt):
         pdf.linie(X(i), y0, X(i), y0 - 3, (0.6, 0.6, 0.6), 0.5)
-        pdf.text(X(i) - 14, y0 - 12, plus_monate(sd, i).strftime("%m/%Y"), 7, farbe=(0.45, 0.45, 0.45))
+        pdf.text(X(i) - 8, y0 - 12, plus_monate(sd, i).strftime("%Y"), 7, farbe=(0.45, 0.45, 0.45))
 
     def flaeche(unten, oben, farbe):
         pts = [(X(i), Y(oben[i])) for i in range(n)] + [(X(i), Y(unten[i])) for i in reversed(range(n))]
         pdf.ops.append(f"{farbe[0]:.3f} {farbe[1]:.3f} {farbe[2]:.3f} rg " + f"{pts[0][0]:.2f} {pts[0][1]:.2f} m "
                        + " ".join(f"{a:.2f} {b:.2f} l" for a, b in pts[1:]) + " h f")
 
-    def linie(werte, farbe):
-        pdf.ops.append(f"{farbe[0]:.3f} {farbe[1]:.3f} {farbe[2]:.3f} RG 1.4 w {X(0):.2f} {Y(werte[0]):.2f} m "
-                       + " ".join(f"{X(i):.2f} {Y(werte[i]):.2f} l" for i in range(1, n)) + " S")
+    def linie(werte, farbe, strich=""):
+        pdf.ops.append(f"{farbe[0]:.3f} {farbe[1]:.3f} {farbe[2]:.3f} RG 1.4 w {strich} {X(0):.2f} {Y(werte[0]):.2f} m "
+                       + " ".join(f"{X(i):.2f} {Y(werte[i]):.2f} l" for i in range(1, n)) + " S [] 0 d")
+    ent = r.get("ent_kum") or [0.0] * n
+    basis = [max(e - a, 0.0) for e, a in zip(r["ein_kum"], ent)]
+    mit_ent = r.get("entnommen", 0) > 0
     null = [0.0] * n
-    blau, orange = (0.224, 0.529, 0.898), (0.851, 0.349, 0.149)
-    flaeche(null, r["ein_kum"], (0.80, 0.87, 0.97))
-    flaeche(r["ein_kum"], r["wert"], (0.98, 0.85, 0.79))
-    linie(r["ein_kum"], blau)
+    blau, orange, gruen = (0.224, 0.529, 0.898), (0.851, 0.349, 0.149), (0.098, 0.620, 0.439)
+    flaeche(null, basis, (0.80, 0.87, 0.97))
+    flaeche(basis, r["wert"], (0.98, 0.85, 0.79))
+    linie(basis, blau)
     linie(r["wert"], orange)
-    pdf.text(x1, Y(r["wert"][-1]) + 5, f"{_de(r['wert'][-1], 0)} €", 8.5, True, (0.1, 0.1, 0.1), rechts=True)
+    if mit_ent:
+        linie(ent, gruen, "[3 2] 0 d")
+    # Wert je Jahr ueber dem Punkt (bei vielen Jahren nur jedes k-te, Ende immer)
+    from abfindung import _breite
+    idx = [0] + [z["monat"] for z in r["jahre"]]
+    gr = 6.8 if len(idx) > 8 else 7.5
+    for i in idx:
+        xx, yy = X(i), Y(r["wert"][i])
+        pdf.ops.append(f"1 1 1 rg 0.851 0.349 0.149 RG 1.2 w {xx - 2.2:.2f} {yy - 2.2:.2f} 4.4 4.4 re B")
+    # Beschriftung je Jahr: Start und Ende zuerst, dann alle anderen, die nicht ueberlappen
+    belegt = []
+    reihenfolge = [0, len(idx) - 1] + list(range(1, len(idx) - 1))
+    for nr in dict.fromkeys(reihenfolge):
+        i = idx[nr]
+        xx, yy = X(i), Y(r["wert"][i])
+        txt = _de(r["wert"][i], 0)
+        fett = nr in (0, len(idx) - 1)
+        b_ = _breite(txt, gr, fett)
+        tx = min(max(xx - b_ / 2, x0), x1 - b_)
+        box = (tx - 2, tx + b_ + 2, yy + 4, yy + 4 + gr)
+        if any(not (box[1] < a[0] or box[0] > a[1] or box[3] < a[2] or box[2] > a[3]) for a in belegt):
+            continue
+        belegt.append(box)
+        pdf.text(tx, yy + 5, txt, gr, fett, (0.12, 0.12, 0.12))
     # Legende
-    ly = y1 + 4
-    pdf.rechteck(x0, ly, 8, 8, blau)
-    pdf.text(x0 + 12, ly + 1, "Eingezahlt", 8, farbe=(0.25, 0.25, 0.25))
-    pdf.rechteck(x0 + 70, ly, 8, 8, orange)
-    pdf.text(x0 + 82, ly + 1, "Zinsen" if int(p["ze"]) else "Zinsen (ausgezahlt)", 8, farbe=(0.25, 0.25, 0.25))
+    ly = y1 + 6
+    lx = x0
+    for farbe, txt in ([(blau, "Eingezahlt abzgl. Entnahmen" if mit_ent else "Eingezahlt"),
+                        (orange, "Zinsen" if int(p["ze"]) else "Zinsen (ausgezahlt)")]
+                       + ([(gruen, "Entnahmen gesamt")] if mit_ent else [])):
+        pdf.rechteck(lx, ly, 8, 8, farbe)
+        pdf.text(lx + 12, ly + 1, txt, 8, farbe=(0.25, 0.25, 0.25))
+        from abfindung import _breite
+        lx += 24 + _breite(txt, 8)
     pdf.y = y0 - 20
 
 
@@ -346,7 +454,8 @@ def pdf_bericht(p, r, hinweis="", link=""):
     pdf.text(pdf.RAND + 10, pdf.y - 38,
              f"Endkapital {_de(r['end'])} € · Einzahlungen {_de(r['einzahlungen'])} € · Zinsen {_de(r['zinsen'])} €"
              + (f" · Steuern {_de(r['steuer'])} €" if r["steuer"] else "")
-             + (f" · ausgezahlt {_de(r['ausgezahlt'])} €" if r["ausgezahlt"] else ""), 9)
+             + (f" · ausgezahlt {_de(r['ausgezahlt'])} €" if r["ausgezahlt"] else "")
+             + (f" · Entnahmen {_de(r['entnommen'])} €" if r.get("entnommen") else ""), 9)
     if hinweis:
         pdf.text(pdf.RAND + 10, pdf.y - 54, hinweis, 8.5, farbe=(0.6, 0.2, 0.1))
     pdf.y -= 72
@@ -356,11 +465,18 @@ def pdf_bericht(p, r, hinweis="", link=""):
     pdf.ueberschrift("Entwicklung")
     za = zeitachse(p, r)
     mit_st = bool(r["steuer"])
-    pdf.tabelle(["Datum", "Einzahlungen", "Zinsen"] + (["Steuern"] if mit_st else []) + ["Kontostand"],
+    mit_ent = any(z.get("ent") for z in za)
+    pdf.tabelle(["Datum", "Einzahlungen"] + (["Entnahmen"] if mit_ent else []) + ["Zinsen"]
+                + (["Steuern"] if mit_st else []) + ["Kontostand"],
                 [[z["datum"].strftime("%d.%m.%Y") + (f"  ({z['text']})" if z["text"] else ""),
-                  f"{_de(z['ein'])} €", f"{_de(z['zins'])} €"] + ([f"{_de(z['steuer'])} €"] if mit_st else [])
+                  f"{_de(z['ein'])} €"] + ([f"-{_de(z['ent'])} €" if z.get("ent") else "0,00 €"] if mit_ent else [])
+                 + [f"{_de(z['zins'])} €"] + ([f"{_de(z['steuer'])} €"] if mit_st else [])
                  + [f"{_de(z['stand'])} €"] for z in za],
-                [1.3, 1.2, 1.2] + ([1] if mit_st else []) + [1.4], groesse=8, hervor={0, len(za) - 1})
+                [1.4, 1.1] + ([1.1] if mit_ent else []) + [1.1] + ([0.9] if mit_st else []) + [1.3], groesse=8,
+                hervor={0, len(za) - 1})
+    if r.get("leer_monat"):
+        pdf.absatz(f"Achtung: Das Kapital ist am {plus_monate(startdatum(p), r['leer_monat']).strftime('%d.%m.%Y')} "
+                   "aufgebraucht – danach sind keine Entnahmen mehr möglich.", 8.5, True, (0.6, 0.2, 0.1))
     if link:
         pdf.y -= 6
         pdf.absatz("Permanentlink: " + link, 7.5, farbe=(0.2, 0.3, 0.6))
@@ -372,7 +488,7 @@ def pdf_bericht(p, r, hinweis="", link=""):
 # ===========================================================================
 # Chart (Plotly) - Eingezahltes und Zinsen gestapelt, Datum auf der Zeitachse
 # ===========================================================================
-FARBEN = {"ein": "#3987e5", "zins": "#d95926", "text": "#e8e6df", "text2": "#a9a79c", "grid": "#2a2a28",
+FARBEN = {"ein": "#3987e5", "zins": "#d95926", "ent": "#199e70", "text": "#e8e6df", "text2": "#a9a79c", "grid": "#2a2a28",
           "flaeche": "#0e1117"}
 
 
@@ -387,11 +503,12 @@ def tabelle_html(za, r):
     import html as _h
     mit_ein = any(z["ein"] for z in za[1:])
     mit_st = bool(r["steuer"])
-    kopf = ["Datum"] + (["Einzahlung €"] if mit_ein else []) + ["Zinsen €"] + (["Steuer €"] if mit_st else []) + \
-           ["Kontostand €"]
+    mit_ent = any(z.get("ent") for z in za[1:])
+    kopf = ["Datum"] + (["Einzahlung €"] if mit_ein else []) + (["Entnahme €"] if mit_ent else []) + ["Zinsen €"] + \
+           (["Steuer €"] if mit_st else []) + ["Kontostand €"]
     spalten = len(kopf)
-    groesse = {3: ".86rem", 4: ".8rem"}.get(spalten, ".72rem")
-    pad = "7px 6px" if spalten <= 4 else "6px 3px"
+    groesse = {3: ".86rem", 4: ".8rem", 5: ".72rem"}.get(spalten, ".64rem")
+    pad = "7px 6px" if spalten <= 4 else ("6px 3px" if spalten == 5 else "5px 2px")
     th = "".join(f'<th style="text-align:{"left" if i == 0 else "right"};padding:{pad};font-weight:600;white-space:nowrap;'
                  f'color:{FARBEN["text2"]};border-bottom:1px solid {FARBEN["grid"]}">{k}</th>'
                  for i, k in enumerate(kopf))
@@ -405,6 +522,8 @@ def tabelle_html(za, r):
         leer = z["text"] == "Start"
         if mit_ein:
             zellen.append("" if leer else _de(z['ein']))
+        if mit_ent:
+            zellen.append("" if leer else ("−" + _de(z['ent']) if z.get("ent") else _de(0)))
         zellen.append("" if leer else _de(z['zins']))
         if mit_st:
             zellen.append("" if leer else _de(z['steuer']))
@@ -423,15 +542,24 @@ def chart(p, r):
     sd = startdatum(p)
     x = [plus_monate(sd, i) for i in range(len(r["wert"]))]
     zins_txt = "Zinsen" if int(p["ze"]) else "Zinsen (ausgezahlt)"
+    mit_ent = r.get("entnommen", 0) > 0
+    basis = [max(e - a, 0.0) for e, a in zip(r["ein_kum"], r.get("ent_kum") or [0.0] * len(r["ein_kum"]))]
+    zinsteil = [max(w - b, 0.0) for w, b in zip(r["wert"], basis)]
+    ein_txt = "Eingezahlt abzgl. Entnahmen" if mit_ent else "Eingezahlt"
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=x, y=r["ein_kum"], name="Eingezahlt", stackgroup="eins", mode="lines",
+        x=x, y=basis, name=ein_txt, stackgroup="eins", mode="lines",
         line=dict(color=FARBEN["ein"], width=2, shape="spline", smoothing=0.3),
-        fillcolor=_rgba(FARBEN["ein"], 0.30), hovertemplate="Eingezahlt: %{y:,.2f} €<extra></extra>"))
+        fillcolor=_rgba(FARBEN["ein"], 0.30), hovertemplate=ein_txt + ": %{y:,.2f} €<extra></extra>"))
     fig.add_trace(go.Scatter(
-        x=x, y=r["zins_kum"], name=zins_txt, stackgroup="eins", mode="lines",
+        x=x, y=zinsteil, name=zins_txt, stackgroup="eins", mode="lines",
         line=dict(color=FARBEN["zins"], width=2, shape="spline", smoothing=0.3),
         fillcolor=_rgba(FARBEN["zins"], 0.30), hovertemplate=zins_txt + ": %{y:,.2f} €<extra></extra>"))
+    if mit_ent:
+        fig.add_trace(go.Scatter(
+            x=x, y=r["ent_kum"], name="Entnahmen gesamt", mode="lines",
+            line=dict(color=FARBEN["ent"], width=2, dash="dot"),
+            hovertemplate="Entnahmen gesamt: %{y:,.2f} €<extra></extra>"))
     # Jahrespunkte: Start + jedes volle Jahr + Ende, auf der Gesamtlinie
     za = zeitachse(p, r)
     idx = [0] + [z["monat"] for z in r["jahre"]]
@@ -475,6 +603,40 @@ def chart(p, r):
 # ===========================================================================
 # Oberflaeche
 # ===========================================================================
+def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p):
+    """Plan in Phasen (Jahre x Euro pro Monat) - Tabelle direkt bearbeitbar. -> Text fuer p[feld]."""
+    aktiv = st.toggle(titel, value=bool(st.session_state.get(f"zr_{feld}")), key=f"zr_{feld}_an", help=hilfe)
+    if not aktiv:
+        st.session_state[f"zr_{feld}"] = ""
+        return ""
+    liste = phasen(st.session_state.get(f"zr_{feld}")) or phasen(beispiel)
+    jl = [(mo / 12, b) for mo, b in liste]
+    ver = st.session_state.get(f"zr_{feld}_ver", 0)
+    df = pd.DataFrame([{"Jahre": float(j), "€ pro Monat": float(b), "🗑️": False} for j, b in jl])
+    ed = st.data_editor(df, key=f"zr_{feld}_tab_{ver}", hide_index=True, width="stretch", num_rows="fixed",
+                        column_config={
+                            "Jahre": st.column_config.NumberColumn("Jahre", min_value=0.0833, max_value=100.0,
+                                                                   step=0.5, format="%.2g",
+                                                                   help="Dauer dieser Phase (0,5 = 6 Monate)"),
+                            "€ pro Monat": st.column_config.NumberColumn("€ pro Monat", min_value=0.0, step=50.0,
+                                                                         format="%.2f"),
+                            "🗑️": st.column_config.CheckboxColumn("🗑️", help="Antippen = Phase löschen")})
+    neu = [(float(z["Jahre"] or 0), float(z["€ pro Monat"] or 0)) for _, z in ed.iterrows()
+           if not bool(z.get("🗑️")) and float(z["Jahre"] or 0) > 0]
+    if st.button("➕ Phase hinzufügen", key=f"zr_{feld}_neu", width="stretch"):
+        neu.append((1.0, 0.0))
+        st.session_state[f"zr_{feld}_ver"] = ver + 1
+    if len(neu) != len(jl):
+        st.session_state[f"zr_{feld}_ver"] = ver + 1
+    text = phasen_text(neu)
+    st.session_state[f"zr_{feld}"] = text
+    zeilen = phasen_zeitraeume(dict(p, **{feld: text}), feld)
+    if zeilen:
+        st.caption(" · ".join(f"{a.strftime('%d.%m.%Y')}–{b.strftime('%d.%m.%Y')}: {_de(x)} €/Monat"
+                              for a, b, x in zeilen) + f" · danach 0 €")
+    return text
+
+
 def render(basis_url=""):
     import streamlit as st
     import pandas as pd
@@ -541,6 +703,17 @@ def render(basis_url=""):
         p["fb"] = float(st.number_input("Freibetrag pro Jahr (€)", 0.0, 1e6, step=100.0, format="%.0f", key="zr_fb",
                                         help="Sparerpauschbetrag: 1.000 € (Ehepaare 2.000 €)"))
 
+    st.markdown("##### Pläne")
+    p["sp"] = _phasen_editor(st, pd, "sp", "📥 Sparplan in Phasen (statt fester Sparrate)",
+                             "Z. B. 2 Jahre 200 €/Monat, danach 3 Jahre 500 €/Monat – ersetzt Sparrate, Intervall und "
+                             "Dynamik. Die Laufzeit reicht mindestens bis zum Ende des Plans.", "2x200,3x500", p)
+    p["ep"] = _phasen_editor(st, pd, "ep", "📤 Entnahmeplan (monatliche Entnahme in Phasen)",
+                             "Z. B. im 1. Jahr 1.000 €/Monat, die nächsten 3 Jahre 500 €/Monat, danach nichts. "
+                             "Entnommen wird zum Monatsanfang (vorschüssig) bzw. -ende.", "1x1000,3x500", p)
+    if p["sp"] and calc in ("s", "dy"):
+        st.warning("Mit Sparplan in Phasen lassen sich Sparrate/Dynamik nicht berechnen – bitte Plan ausschalten "
+                   "oder eine andere Größe berechnen.")
+
     q, r, hinweis = loese(p)
     # berechneten Wert merken (Anzeige + Link)
     if calc != "e":
@@ -568,6 +741,13 @@ def render(basis_url=""):
         k3, k4 = st.columns(2)
         k3.metric("Steuern gesamt", f"{_de(r['steuer'])} €")
         k4.metric("Zinsen ausgezahlt", f"{_de(r['ausgezahlt'])} €")
+    if r.get("entnommen"):
+        k5, k6 = st.columns(2)
+        k5.metric("Entnahmen gesamt", f"{_de(r['entnommen'])} €")
+        if r.get("leer_monat"):
+            k6.metric("Kapital aufgebraucht am", plus_monate(startdatum(q), r["leer_monat"]).strftime("%d.%m.%Y"))
+        else:
+            k6.metric("Kapital reicht", "✓ bis zum Ende")
     if calc != "e":
         st.caption(f"Endkapital damit: {_de(r['end'])} €")
 
