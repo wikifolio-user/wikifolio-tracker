@@ -295,7 +295,8 @@ DRAWDOWN_STANDARD = {"index": -35.0, "aktie": -50.0, "wikifolio": -40.0, "hebel"
 # ---------------------------------------------------------------------------
 ENTNAHME = {"aktiv": True, "parallel": True, "auto_gewichtung": False, "monatlich": 1000.0, "dynamik_pa": 2.0, "dauer_jahre": 30, "start": "modell", "startbetrag": None,
             "rendite_quelle": "eigen", "rendite_pa": 5.0, "steuer": False, "steuersatz": 26.375,
-            "freibetrag": 1000.0}
+            "freibetrag": 1000.0,
+            "stufen": []}          # Entnahme aendern ab Jahr X: [{"ab_jahr": 6, "monatlich": 800.0}]
 ENTNAHME_STARTS = {"modell": "Modell-Endwert", "ziel": "Zielvermögen", "eigen": "Eigener Betrag"}
 
 SZENARIO_NAMEN = ["Aktuelles Modell", "Mehr Indizes", "Mehr Wikifolios", "Defensiver", "Aggressiv",
