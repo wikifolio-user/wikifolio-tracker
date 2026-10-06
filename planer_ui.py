@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 17:20"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 18:00"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -585,7 +585,7 @@ def _kredit_rahmen(m):
     """Wirkung der Kredite auf die Aufbauphase: zusaetzliches Startkapital,
     Restschuld am Ende des Aufbaus und (bei Raten aus dem Depot) die mittlere
     Monatsrate, die dem Depot entnommen wird. None = keine aktiven Kredite."""
-    k = m.get("kredit") or {}
+    k = _kredite(m) if m.get("kredit") else {}
     jahre = int(m["rahmen"].get("horizont_jahre") or 0)
     if not _kredite_aktiv(m) or jahre <= 0:
         return None
@@ -939,7 +939,7 @@ def _monatsbilanz(m, R):
     standardmaessig stecken die Raten in der Entnahme und werden nicht extra abgezogen)."""
     rahmen = m["rahmen"]
     e = _entnahme_daten(m)
-    k = m.get("kredit") or {}
+    k = _kredite(m) if m.get("kredit") else {}
     eff = _mit_krediten(m)["rahmen"]
     z = R["zus"]
     r = z.get("modell_cagr")
@@ -947,6 +947,17 @@ def _monatsbilanz(m, R):
         r = sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
     kr = _kredit_rahmen(m)
     kredite = [x for x in (k.get("kredite") or []) if _kredite_aktiv(m) and _kredit_konditionen(x)[0] is not None]
+    # warum ist ein eingetragener Kredit NICHT im Kapital? (sichtbar machen)
+    nicht = []
+    for x in k.get("kredite") or []:
+        if float(x.get("betrag") or 0) <= 0:
+            continue
+        if not _kredite_aktiv(m):
+            nicht.append(f"{x['name']}: „Kredite in die Planung einrechnen“ (Seite 💳 Kredit) ist aus")
+        elif int(rahmen.get("horizont_jahre") or 0) <= 0:
+            nicht.append(f"{x['name']}: nur mit Aufbau (> 0 Jahre)")
+        elif _kredit_konditionen(x)[0] is None:
+            nicht.append(f"{x['name']}: {_kredit_konditionen(x)[1]}")
     raten = sum(_kredit_rate_eff(x) for x in kredite)
     ek = float(rahmen["startkapital"])
     kapital = ek + (kr["summe"] if kr else 0.0)
@@ -964,7 +975,7 @@ def _monatsbilanz(m, R):
             "gewinn_jahr": gewinn_jahr, "gewinn_monat": gewinn_monat, "spar": spar, "entnahme": entnahme,
             "entnahme_spaeter": float(e["monatlich"]) if (e.get("aktiv", True) and not ent_sofort) else 0.0,
             "raten": raten, "raten_depot": raten_depot, "raten_einkommen": raten if (kredite and art == "einkommen") else 0.0,
-            "raten_in_entnahme": raten_in_entnahme, "saldo": saldo,
+            "raten_in_entnahme": raten_in_entnahme, "saldo": saldo, "nicht": nicht,
             "kredit_ohne_aufbau": bool(_kredite_aktiv(m) and kredite and jahre == 0)}
 
 
@@ -1010,7 +1021,9 @@ def _monatsbilanz_anzeigen(platz, m, R):
                      "es ist aber keine Entnahme eingeplant.")
     elif b["raten_in_entnahme"] and b["raten_in_entnahme"] > (b["entnahme"] or b["entnahme_spaeter"]):
         extra.append("⚠ Die Kreditraten sind höher als die Entnahme.")
-    if b["kredit_ohne_aufbau"]:
+    for t in b["nicht"]:
+        extra.append("⚠ Nicht eingerechnet – " + t)
+    if b["kredit_ohne_aufbau"] and not b["nicht"]:
         extra.append("Kredite werden nur bei einer Aufbauphase (> 0 Jahre) aufs Startkapital gerechnet.")
     with platz.container():
         st.markdown('<div class="pl-zeile" style="margin:6px 0 2px"><b>Kapital & Monatsbilanz</b></div>'
@@ -3339,7 +3352,7 @@ def _b_entnahme(m, R):
 # ===========================================================================
 # Kredite: Betrag + monatliche Rate je Kredit, in die Planung eingerechnet
 # ===========================================================================
-KREDIT_SEED = [{"name": "Kredit 1", "betrag": 20000.0, "rate": 400.0, "jahre": 5}]
+KREDIT_SEED = [{"name": "Kredit 1", "betrag": 0.0, "rate": 0.0, "jahre": 5}]
 
 
 def _kredite(m):
@@ -3355,6 +3368,18 @@ def _kredite(m):
                  "rate": round(E.kredit_rate(float(x.get("betrag") or 0), float(x.get("zins") or 0) / 100.0,
                                              int(x.get("jahre") or 1)), 2),
                  "jahre": int(x.get("jahre") or 1)}
+        x = dict(x)
+        for f in ("betrag", "rate"):
+            try:
+                v = float(x.get(f) or 0)
+                x[f] = 0.0 if v != v else v          # NaN -> 0
+            except (TypeError, ValueError):
+                x[f] = 0.0
+        try:
+            j = float(x.get("jahre") or 0)
+            x["jahre"] = int(j) if j == j and j >= 1 else 5     # fehlende Laufzeit -> 5 J.
+        except (TypeError, ValueError):
+            x["jahre"] = 5
         neu.append(x)
     k["kredite"] = neu
     if not k.get("aktiv_v2"):               # neu: eingetragene Kredite zaehlen standardmaessig zum Kapital
@@ -3873,8 +3898,8 @@ def render(h):
     _kpis(kpi_platz, m, R)
     try:
         _monatsbilanz_anzeigen(bilanz_platz, m, R)
-    except Exception:
-        pass
+    except Exception as ex:
+        bilanz_platz.caption(f"Monatsbilanz nicht berechenbar: {ex}")
     _gewichtswarnung(warn_platz, m)
 
     status = _auto_speichern(m, h)
