@@ -306,11 +306,24 @@ def _beta(asset, stress):
 REBAL_MONATE = {"jaehrlich": 12, "halbjaehrlich": 6, "quartalsweise": 3}
 
 
+def entnahme_betrag(monatlich, dynamik, mon, stufen=None):
+    """Monatliche Entnahme im Entnahme-Monat 'mon' (1-basiert, ab Beginn der Entnahme).
+    stufen: [{"ab_jahr": 6, "monatlich": 800}, ...] - ab diesem Entnahmejahr gilt der
+    neue Betrag; die jaehrliche Erhoehung (dynamik) laeuft ab dem Stufenbeginn weiter."""
+    jahr = (int(mon) - 1) // 12 + 1
+    basis, ab = float(monatlich), 1
+    for s_ in sorted(stufen or [], key=lambda x: int(x.get("ab_jahr") or 0)):
+        aj = int(s_.get("ab_jahr") or 0)
+        if 2 <= aj <= jahr:
+            basis, ab = float(s_.get("monatlich") or 0.0), aj
+    return basis * (1.0 + float(dynamik or 0.0)) ** (jahr - ab)
+
+
 def _entnahme_monat(ent, m):
     """Entnahme im Monat m (1-basiert) bei gleichzeitiger Entnahme waehrend des Aufbaus."""
     if not ent or m > int(ent.get("monate") or 0):
         return 0.0
-    return float(ent["monatlich"]) * (1.0 + float(ent.get("dynamik") or 0.0)) ** ((m - 1) // 12)
+    return entnahme_betrag(ent["monatlich"], ent.get("dynamik"), m, ent.get("stufen"))
 
 
 def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None, stress=None,
@@ -1174,7 +1187,7 @@ def vorschlag_renditen(kennz, typ, params=None):
 # Entnahmeplan (monatlich)
 # ===========================================================================
 def entnahmeplan(kapital, rendite_pa, monatlich, *, jahre=30, dynamik_pa=0.0, einstand=None, steuersatz=0.0,
-                 freibetrag=0.0, max_jahre=100):
+                 freibetrag=0.0, max_jahre=100, stufen=None, start_monat=0):
     """Monatliche Entnahme aus einem Kapital (Szenariorechnung, keine Prognose).
 
     - Verzinsung monatlich mit (1 + rendite_pa)^(1/12), Entnahme am Monatsende.
@@ -1201,7 +1214,8 @@ def entnahmeplan(kapital, rendite_pa, monatlich, *, jahre=30, dynamik_pa=0.0, ei
         ertrag = wert * rm
         wert += ertrag
         zeile["ertrag"] += ertrag
-        netto = monatlich * (1.0 + dynamik_pa) ** ((mon - 1) // 12)
+        # start_monat: Entnahme-Monate, die schon waehrend des Aufbaus gelaufen sind
+        netto = entnahme_betrag(monatlich, dynamik_pa, mon + int(start_monat or 0), stufen)
         anteil_gewinn = max(0.0, 1.0 - einstand / wert) if (steuersatz and wert > 0) else 0.0
         if netto * anteil_gewinn <= frei_rest or not steuersatz:
             brutto = netto
@@ -1241,6 +1255,7 @@ def entnahme_fuer(kapital, rendite_pa, *, ziel_restwert=0.0, jahre=30, **kw):
     uebrig ist (0 = Kapitalverzehr, kapital = Kapitalerhalt). Bisektion."""
     if kapital <= 0:
         return 0.0
+    kw = {k: v for k, v in kw.items() if k != "stufen"}     # Stufen sind feste Betraege
     lo, hi = 0.0, float(kapital)
     for _ in range(70):
         mitte = (lo + hi) / 2.0
@@ -1664,7 +1679,7 @@ def kredit_restschuld(betrag, rate, zins_pa, monate):
     return max(betrag * q - rate * (q - 1) / zm, 0.0)
 
 
-def zeit_bis_ziel(start, rendite_pa, ziel, sparrate=0.0, entnahme=0.0, dynamik_pa=0.0, max_jahre=60):
+def zeit_bis_ziel(start, rendite_pa, ziel, sparrate=0.0, entnahme=0.0, dynamik_pa=0.0, max_jahre=60, stufen=None):
     """Monate, bis das Vermoegen 'ziel' erreicht - bei gleichzeitiger monatlicher
     Entnahme (steigt jaehrlich um dynamik_pa) und Sparrate. Verzinsung monatlich.
     -> (monate oder None, jahresverlauf [(jahr, wert, ertraege, entnahmen)])"""
@@ -1675,7 +1690,7 @@ def zeit_bis_ziel(start, rendite_pa, ziel, sparrate=0.0, entnahme=0.0, dynamik_p
         return 0, verlauf
     for mon in range(1, int(max_jahre * 12) + 1):
         ertrag = wert * rm
-        ent = entnahme * (1 + dynamik_pa) ** ((mon - 1) // 12)
+        ent = entnahme_betrag(entnahme, dynamik_pa, mon, stufen) if entnahme else 0.0
         wert += ertrag + sparrate - ent
         ertr_j += ertrag
         ent_j += ent
