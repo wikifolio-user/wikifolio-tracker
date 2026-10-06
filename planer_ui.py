@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 17:00"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 17:20"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -546,8 +546,11 @@ def _kredit_konditionen(x):
     """-> (zins_pa, fehler). Zins eingetragen: so rechnen (Rate tilgt evtl. nur
     teilweise -> Schlussrate). Kein Zins: aus Betrag, Rate und Laufzeit errechnen."""
     betrag, rate, laufzeit = float(x.get("betrag") or 0), float(x.get("rate") or 0), int(x.get("jahre") or 0)
-    if betrag <= 0 or rate <= 0 or laufzeit <= 0:
+    if betrag <= 0 or laufzeit <= 0:
         return None, "unvollständig"
+    if rate <= 0:
+        # keine Rate: Kredit zaehlt trotzdem zum Kapital - nur Zinsen (falls Zins %), Rueckzahlung am Laufzeitende
+        return (float(x.get("zins") or 0) / 100.0), None
     zins = x.get("zins")
     if zins:
         zins = float(zins) / 100.0
@@ -559,6 +562,17 @@ def _kredit_konditionen(x):
         # Rate tilgt nicht alles: trotzdem mitrechnen (0 % angenommen, Rest = Schlussrate)
         return 0.0, None
     return zins, None
+
+
+def _kredit_rate_eff(x, zins=None):
+    """Monatsrate fuer die Rechnung: eingetragene Rate, ohne Rate nur die Zinsen
+    (bei 0 % = 0 €, der ganze Betrag wird am Laufzeitende getilgt)."""
+    rate = float(x.get("rate") or 0)
+    if rate > 0:
+        return rate
+    if zins is None:
+        zins = _kredit_konditionen(x)[0] or 0.0
+    return float(x.get("betrag") or 0) * zins / 12.0
 
 
 def _kredite_aktiv(m):
@@ -582,6 +596,7 @@ def _kredit_rahmen(m):
         if zins is None:
             continue
         monate = min(jahre, laufzeit) * 12
+        rate = _kredit_rate_eff(x, zins)
         summe += betrag
         rest += E.kredit_restschuld(betrag, rate, zins, monate)
         if _rate_aus(m) == "investment":
@@ -932,7 +947,7 @@ def _monatsbilanz(m, R):
         r = sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
     kr = _kredit_rahmen(m)
     kredite = [x for x in (k.get("kredite") or []) if _kredite_aktiv(m) and _kredit_konditionen(x)[0] is not None]
-    raten = sum(float(x["rate"]) for x in kredite)
+    raten = sum(_kredit_rate_eff(x) for x in kredite)
     ek = float(rahmen["startkapital"])
     kapital = ek + (kr["summe"] if kr else 0.0)
     gewinn_jahr = kapital * r
@@ -3373,7 +3388,7 @@ def _kredit_rechnen(m, R):
     Portfolio angelegt (Portfolio-Rendite des Modells).
     -> dict oder None (keine Kredite / ausgeschaltet)"""
     k = _kredite(m)
-    kredite = [x for x in k["kredite"] if x.get("betrag") and x.get("rate")]
+    kredite = [x for x in k["kredite"] if x.get("betrag") and int(x.get("jahre") or 0) > 0]
     if not _kredite_aktiv(m) or not kredite:
         return None
     z = R["zus"]
@@ -3390,15 +3405,16 @@ def _kredit_rechnen(m, R):
             zeilen.append({"x": x, "fehler": fehler})
             continue
         o = E.kredit_simulation(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", _sim_rate_aus(m), r, horizont,
-                                rate=float(x["rate"]))
-        be = E.kredit_break_even(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", _sim_rate_aus(m), horizont)
+                                rate=_kredit_rate_eff(x, zins))
+        be = E.kredit_break_even(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", _sim_rate_aus(m), horizont,
+                                rate=_kredit_rate_eff(x, zins))
         zeilen.append({"x": x, "zins": zins, "o": o, "lohnt_ab": be})
     ok = [z_ for z_ in zeilen if "o" in z_]
     mit = ek_end + sum(z_["o"]["netto_mit"] for z_ in ok)
     ohne = ek_end + sum(z_["o"]["netto_ohne"] for z_ in ok)
     return {"zeilen": zeilen, "r": r, "horizont": horizont, "ek_end": ek_end, "mit": mit, "ohne": ohne,
             "vorteil": mit - ohne, "summe": sum(float(x["betrag"]) for x in kredite),
-            "rate": sum(float(x["rate"]) for x in kredite), "zinsen": sum(z_["o"]["zinsen"] for z_ in ok),
+            "rate": sum(_kredit_rate_eff(x) for x in kredite), "zinsen": sum(z_["o"]["zinsen"] for z_ in ok),
             "rate_aus": _rate_aus(m)}
 
 
@@ -3475,8 +3491,8 @@ def _b_kredit(m, R):
 
     erg = _kredit_rechnen(m, R)
     if erg is None:
-        st.info("Kredite eintragen (Betrag, monatliche Rate, Laufzeit) und „Kredite in die Planung einrechnen“ "
-                "einschalten.")
+        st.info("Kredite eintragen (Betrag und Laufzeit, optional Rate und Zins) und „Kredite in die Planung "
+                "einrechnen“ einschalten.")
         return
     v = erg["vorteil"]
     _kacheln([
@@ -3500,14 +3516,23 @@ def _b_kredit(m, R):
             continue
         o = z["o"]
         vv = o["vorteil"]
-        zeilen.append([f"<b>{_esc(x['name'])}</b>", f"{_de(x['betrag'])} €", f"{_de(x['rate'], 2)} €",
-                       f"{x['jahre']} J.", f"{_de(z['zins'] * 100, 2)} %" + ("" if x.get("zins") else " (err.)"),
+        zeilen.append([f"<b>{_esc(x['name'])}</b>", f"{_de(x['betrag'])} €",
+                       f"{_de(x['rate'], 2)} €" if float(x.get("rate") or 0) else "keine (endfällig)",
+                       f"{x['jahre']} J.", f"{_de(z['zins'] * 100, 2)} %"
+                       + ("" if x.get("zins") or not float(x.get("rate") or 0) else " (err.)"),
                        f"{_de(o['zinsen'])} €",
                        f'<span class="{"pl-gut" if vv >= 0 else "pl-schlecht"}"><b>{"+" if vv >= 0 else "−"}'
                        f'{_de(abs(vv))} €</b></span>', _pct(z["lohnt_ab"]) if z["lohnt_ab"] is not None else "–"])
     _tabelle(["Kredit", "Betrag", "Rate", "Laufzeit", "Zins", "Zinskosten", "Vorteil", "Lohnt ab"], zeilen)
     for z in erg["zeilen"]:
         if "o" in z and z["o"]["schlussrate"] > 1:
+            if not float(z["x"].get("rate") or 0):
+                st.caption(f"{z['x']['name']}: keine Rate eingetragen – "
+                           + (f"monatlich nur Zinsen ({_de(_kredit_rate_eff(z['x'], z['zins']), 2)} €), " if z["zins"]
+                              else "zinsfrei gerechnet, ")
+                           + f"der ganze Betrag ({_de(z['o']['schlussrate'])} €) wird am Laufzeitende aus dem Depot "
+                             "getilgt.")
+                continue
             st.caption(f"{z['x']['name']}: Die Rate tilgt nicht alles – am Laufzeitende bleiben "
                        f"{_de(z['o']['schlussrate'])} € Schlussrate, die aus dem Depot getilgt werden."
                        + ("" if z["x"].get("zins") else " Gerechnet mit 0 % Zins – für eine genaue Rechnung "
@@ -3530,7 +3555,7 @@ def _b_kredit(m, R):
             if (mon - 1) % 12 == 0:
                 p["anfang"] += rest
             zins = rest * zm
-            tilg = min(float(x["rate"]) - zins, rest)
+            tilg = min(_kredit_rate_eff(x, z["zins"]) - zins, rest)
             rest -= tilg
             p["zinsen"] += zins
             p["tilgung"] += tilg
