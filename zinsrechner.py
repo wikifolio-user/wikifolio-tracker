@@ -192,7 +192,7 @@ def loese(p):
         q[ziel] = math.ceil(wert * 100 - 1e-6) / 100       # auf den Cent aufrunden -> Ziel sicher erreicht
         return q, rechne(q), ""
     if ziel in ("z", "dy"):
-        lo, hi = (-0.99 * 100, 100.0) if ziel == "z" else (-50.0, 100.0)
+        lo, hi = (-0.99 * 100, 100.0) if ziel == "z" else (0.0, 100.0)
         if end(hi, ziel) < soll:
             q[ziel] = hi
             return q, rechne(q), f"Auch mit {hi:.0f} % nicht erreichbar."
@@ -603,6 +603,44 @@ def chart(p, r):
 # ===========================================================================
 # Oberflaeche
 # ===========================================================================
+FORM_CSS = """<style>
+/* Zinsrechner: Abschnitte als Karten, Feldbeschriftungen einheitlich und klein */
+.st-key-zr_form [data-testid="stVerticalBlockBorderWrapper"],
+.st-key-zr_form [class*="st-key-zr_karte_"] {
+    background: #12151c; border: 1px solid #2c313d !important; border-radius: 16px !important;
+}
+.zr-kopf { display: flex; gap: 12px; align-items: center; margin: 2px 0 8px; padding-bottom: 10px;
+           border-bottom: 1px solid #2c313d; }
+.zr-symbol { font-size: 1.35rem; width: 38px; height: 38px; border-radius: 10px; background: #1d2330;
+             display: flex; align-items: center; justify-content: center; flex: 0 0 38px; }
+.zr-titel { font-size: 1.05rem; font-weight: 700; color: #ffffff; letter-spacing: .2px; line-height: 1.2; }
+.zr-text { font-size: .8rem; color: #a9a79c; margin-top: 2px; line-height: 1.25; }
+/* Dropdown-Beschriftungen hier wie normale Feldbeschriftungen (nicht wie Ueberschriften) */
+.st-key-zr_form [data-testid="stSelectbox"] label,
+.st-key-zr_form [data-testid="stSelectbox"] label p,
+.st-key-zr_form [data-testid="stWidgetLabel"] p {
+    font-family: inherit !important; font-size: .85rem !important; font-weight: 500 !important;
+    letter-spacing: normal !important; text-transform: none !important; text-shadow: none !important;
+    color: #d6d4cc !important;
+}
+.st-key-zr_form [data-testid="stSelectbox"] label { margin: 0 0 4px 0 !important; }
+.st-key-zr_form [data-testid="stSelectbox"] > div,
+.st-key-zr_form [data-testid="stSelectbox"] [data-baseweb="select"] {
+    outline: 1px solid #3a4152 !important; box-shadow: none !important; animation: none !important;
+    border-radius: 10px !important;
+}
+/* Paare (Wert + Einheit) auch auf dem iPhone nebeneinander lassen */
+.st-key-zr_form [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 10px !important; }
+.st-key-zr_form [data-testid="stHorizontalBlock"] > div { min-width: 0 !important; flex: 1 1 0 !important; }
+</style>"""
+
+
+def _kopf(symbol, titel, text=""):
+    return (f'<div class="zr-kopf" style="margin-top:18px"><span class="zr-symbol">{symbol}</span><div>'
+            f'<div class="zr-titel">{titel}</div>' + (f'<div class="zr-text">{text}</div>' if text else "")
+            + "</div></div>")
+
+
 def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p):
     """Plan in Phasen (Jahre x Euro pro Monat) - Tabelle direkt bearbeitbar. -> Text fuer p[feld]."""
     aktiv = st.toggle(titel, value=bool(st.session_state.get(f"zr_{feld}")), key=f"zr_{feld}_an", help=hilfe)
@@ -644,12 +682,30 @@ def render(basis_url=""):
     # Erstaufruf: Werte aus dem Link uebernehmen (danach gelten die Eingaben)
     if not st.session_state.get("zr_init"):
         p0 = aus_url({k: st.query_params.get(k) for k in STANDARD if k in st.query_params})
+        p0["dy"] = max(float(p0["dy"]), 0.0)
         for k, v in p0.items():
             st.session_state[f"zr_{k}"] = v
         st.session_state["zr_init"] = True
 
-    calc = st.selectbox("Was berechnen?", list(ZIEL_FELDER), format_func=ZIEL_FELDER.get, key="zr_calc")
+    st.markdown(FORM_CSS, unsafe_allow_html=True)
+    form = st.container(key="zr_form")
+
+    def karte(schluessel, symbol, titel, text=""):
+        k_ = form.container(border=True, key=f"zr_karte_{schluessel}")
+        k_.markdown(f'<div class="zr-kopf"><span class="zr-symbol">{symbol}</span><div><div class="zr-titel">{titel}</div>'
+                    + (f'<div class="zr-text">{text}</div>' if text else "") + "</div></div>",
+                    unsafe_allow_html=True)
+        return k_
+
+    # 1) Was berechnen?
+    k_ziel = karte("ziel", "🎯", "Was soll berechnet werden?", "Die gewählte Größe wird aus allen anderen Angaben ermittelt")
+    calc = k_ziel.selectbox("Gesuchte Größe", list(ZIEL_FELDER), format_func=ZIEL_FELDER.get, key="zr_calc")
     p = {"calc": calc}
+    if calc == "e":
+        p["e"] = float(st.session_state.get("zr_e", 0.0))
+    else:
+        p["e"] = float(k_ziel.number_input("Gewünschtes Endkapital (€)", 0.0, 1e12, step=1000.0, format="%.2f",
+                                           key="zr_e"))
 
     def zahl(feld, label, mini, maxi, step, fmt="%.2f", hilfe=None, spalte=st):
         if calc == feld:
@@ -657,59 +713,66 @@ def render(basis_url=""):
             return float(st.session_state.get(f"zr_{feld}", STANDARD[feld]))
         return float(spalte.number_input(label, mini, maxi, step=step, format=fmt, key=f"zr_{feld}", help=hilfe))
 
-    c1, c2 = st.columns(2)
-    p["a"] = zahl("a", "Anfangskapital (€)", 0.0, 1e10, 1000.0, spalte=c1)
-    p["s"] = zahl("s", "Sparrate (€)", 0.0, 1e9, 25.0, spalte=c2)
-    c3, c4 = st.columns(2)
-    p["si"] = c3.selectbox("Sparintervall", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_si")
-    p["ea"] = c4.selectbox("Einzahlungsart", ["v", "n"], key="zr_ea",
-                           format_func={"v": "vorschüssig (Anfang)", "n": "nachschüssig (Ende)"}.get)
-    c5, c6 = st.columns(2)
-    p["dy"] = zahl("dy", "Dynamik (%)", -50.0, 100.0, 0.5, "%.3f", "Erhöhung der Sparrate", spalte=c5)
-    p["dya"] = c6.selectbox("Dynamik", ["j", "i"], key="zr_dya",
-                            format_func={"j": "jährlich", "i": "je Sparintervall"}.get)
-    c7, c8 = st.columns(2)
+    # 2) Kapital & Einzahlungen
+    k_ein = karte("ein", "💰", "Kapital & Einzahlungen", "Startbetrag und regelmäßige Sparrate")
+    p["a"] = zahl("a", "Anfangskapital (€)", 0.0, 1e10, 1000.0, spalte=k_ein)
+    c1, c2 = k_ein.columns(2)
+    p["s"] = zahl("s", "Sparrate (€)", 0.0, 1e9, 25.0, spalte=c1)
+    p["si"] = c2.selectbox("Intervall", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_si")
+    c3, c4 = k_ein.columns(2)
+    p["dy"] = zahl("dy", "Dynamik (%)", 0.0, 100.0, 0.5, "%.2f", "Erhöhung der Sparrate", spalte=c3)
+    p["dya"] = c4.selectbox("Erhöhung", ["j", "i"], key="zr_dya",
+                            format_func={"j": "jährlich", "i": "je Intervall"}.get)
+    p["ea"] = k_ein.selectbox("Zahlung", ["v", "n"], key="zr_ea",
+                              format_func={"v": "vorschüssig – am Monatsanfang", "n": "nachschüssig – am Monatsende"}.get)
+
+    # 3) Verzinsung
+    k_zins = karte("zins", "📈", "Verzinsung", "Zinssatz, Gutschrift und Steuer")
+    c7, c8 = k_zins.columns(2)
     p["z"] = zahl("z", "Zinssatz (% p.a.)", -99.0, 100.0, 0.25, "%.3f", spalte=c7)
-    p["zp"] = c8.selectbox("Zinsperiode", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_zp")
-    p["ze"] = st.selectbox("Zinseszins", [1, 0], key="zr_ze",
-                           format_func={1: "Ja, Zinsansammlung", 0: "Nein, Zinsauszahlung"}.get)
-    c9, c10 = st.columns(2)
+    p["zp"] = c8.selectbox("Gutschrift", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_zp",
+                           help="Zinsperiode: wie oft die Zinsen gutgeschrieben werden")
+    p["ze"] = k_zins.selectbox("Zinseszins", [1, 0], key="zr_ze",
+                               format_func={1: "Ja – Zinsen werden mitverzinst", 0: "Nein – Zinsen werden ausgezahlt"}.get)
+    with k_zins.expander("💶 Steuer auf Zinsen (optional)", expanded=bool(float(st.session_state.get("zr_st") or 0))):
+        c13, c14 = st.columns(2)
+        p["st"] = float(c13.number_input("Steuersatz (%)", 0.0, 60.0, step=0.5, format="%.3f", key="zr_st",
+                                         help=f"Abgeltungsteuer + Soli = {ABGELTUNG} % (0 = nicht berücksichtigen)"))
+        p["fb"] = float(c14.number_input("Freibetrag/Jahr (€)", 0.0, 1e6, step=100.0, format="%.0f", key="zr_fb",
+                                         help="Sparerpauschbetrag: 1.000 € (Ehepaare 2.000 €)"))
+
+    # 4) Laufzeit
+    k_zeit = karte("zeit", "⏳", "Laufzeit", "Ab wann und wie lange")
+    sd_wert = startdatum({"sd": st.session_state.get("zr_sd"), "am": st.session_state.get("zr_am")})
+    if "zr_sd_d" not in st.session_state:
+        st.session_state["zr_sd_d"] = sd_wert
+    sd = k_zeit.date_input("Startdatum", key="zr_sd_d", format="DD.MM.YYYY",
+                           help="Ab hier wird gerechnet – Tabelle, Chart und PDF zeigen die echten Daten")
+    p["sd"] = "" if sd == datetime.date.today() else sd.isoformat()
+    st.session_state["zr_sd"] = p["sd"]
+    p["am"] = ""
+    c9, c10 = k_zeit.columns(2)
     if calc == "n":
         c9.text_input("Ansparzeit", "wird berechnet", disabled=True, key="zr_dis_n")
         p["n"], p["ne"] = st.session_state.get("zr_n", 10), st.session_state.get("zr_ne", "j")
     else:
         p["n"] = int(c9.number_input("Ansparzeit", 0, 1200, step=1, key="zr_n"))
-        p["ne"] = c10.selectbox("Einheit", ["j", "m"], key="zr_ne", format_func={"j": "Jahre", "m": "Monate"}.get)
-    c11, c12 = st.columns(2)
-    p["f"] = int(c11.number_input("Festlegungsfrist", 0, 1200, step=1, key="zr_f",
-                                  help="Nach der Ansparzeit: keine Raten mehr, das Kapital wird weiter verzinst"))
-    p["fe"] = c12.selectbox("Einheit ", ["j", "m"], key="zr_fe", format_func={"j": "Jahre", "m": "Monate"}.get)
-    if calc == "e":
-        p["e"] = float(st.session_state.get("zr_e", 0.0))
-    else:
-        p["e"] = float(st.number_input("Endkapital (Ziel, €)", 0.0, 1e12, step=1000.0, format="%.2f", key="zr_e"))
-    c13, c14 = st.columns(2)
-    sd_wert = startdatum({"sd": st.session_state.get("zr_sd"), "am": st.session_state.get("zr_am")})
-    if "zr_sd_d" not in st.session_state:
-        st.session_state["zr_sd_d"] = sd_wert
-    sd = c13.date_input("Startdatum", key="zr_sd_d", format="DD.MM.YYYY",
-                        help="Ab hier wird gerechnet – Tabelle, Chart und PDF zeigen die echten Daten")
-    p["sd"] = "" if sd == datetime.date.today() else sd.isoformat()
-    st.session_state["zr_sd"] = p["sd"]
-    p["am"] = ""
-    with (c14.popover("💶 Steuer auf Zinsen") if hasattr(c14, "popover") else st.expander("💶 Steuer auf Zinsen")):
-        p["st"] = float(st.number_input("Steuersatz auf Zinsen (%)", 0.0, 60.0, step=0.5, format="%.3f", key="zr_st",
-                                        help=f"Abgeltungsteuer + Soli = {ABGELTUNG} % (0 = nicht berücksichtigen)"))
-        p["fb"] = float(st.number_input("Freibetrag pro Jahr (€)", 0.0, 1e6, step=100.0, format="%.0f", key="zr_fb",
-                                        help="Sparerpauschbetrag: 1.000 € (Ehepaare 2.000 €)"))
+        p["ne"] = c10.selectbox("in", ["j", "m"], key="zr_ne", format_func={"j": "Jahren", "m": "Monaten"}.get)
+    c11, c12 = k_zeit.columns(2)
+    p["f"] = int(c11.number_input("Danach ruhen lassen", 0, 1200, step=1, key="zr_f",
+                                  help="Festlegungsfrist: nach der Ansparzeit keine Raten mehr, das Kapital wird "
+                                       "weiter verzinst"))
+    p["fe"] = c12.selectbox("in ", ["j", "m"], key="zr_fe", format_func={"j": "Jahren", "m": "Monaten"}.get)
 
-    st.markdown("##### Pläne")
-    p["sp"] = _phasen_editor(st, pd, "sp", "📥 Sparplan in Phasen (statt fester Sparrate)",
-                             "Z. B. 2 Jahre 200 €/Monat, danach 3 Jahre 500 €/Monat – ersetzt Sparrate, Intervall und "
-                             "Dynamik. Die Laufzeit reicht mindestens bis zum Ende des Plans.", "2x200,3x500", p)
-    p["ep"] = _phasen_editor(st, pd, "ep", "📤 Entnahmeplan (monatliche Entnahme in Phasen)",
-                             "Z. B. im 1. Jahr 1.000 €/Monat, die nächsten 3 Jahre 500 €/Monat, danach nichts. "
-                             "Entnommen wird zum Monatsanfang (vorschüssig) bzw. -ende.", "1x1000,3x500", p)
+    # 5) Plaene
+    k_plan = karte("plan", "🗓️", "Pläne in Phasen (optional)", "Sparrate oder Entnahme je Zeitraum unterschiedlich")
+    with k_plan:
+        p["sp"] = _phasen_editor(st, pd, "sp", "📥 Sparplan in Phasen (statt fester Sparrate)",
+                                 "Z. B. 2 Jahre 200 €/Monat, danach 3 Jahre 500 €/Monat – ersetzt Sparrate, Intervall "
+                                 "und Dynamik. Die Laufzeit reicht mindestens bis zum Ende des Plans.", "2x200,3x500", p)
+        p["ep"] = _phasen_editor(st, pd, "ep", "📤 Entnahmeplan (monatliche Entnahme in Phasen)",
+                                 "Z. B. im 1. Jahr 1.000 €/Monat, die nächsten 3 Jahre 500 €/Monat, danach nichts. "
+                                 "Entnommen wird zum Monatsanfang (vorschüssig) bzw. -ende.", "1x1000,3x500", p)
     if p["sp"] and calc in ("s", "dy"):
         st.warning("Mit Sparplan in Phasen lassen sich Sparrate/Dynamik nicht berechnen – bitte Plan ausschalten "
                    "oder eine andere Größe berechnen.")
@@ -723,7 +786,7 @@ def render(basis_url=""):
     else:
         st.session_state["zr_e"] = round(r["end"], 2)     # Vorbelegung, falls danach etwas anderes berechnet wird
 
-    st.markdown("##### Ergebnis")
+    st.markdown(_kopf("📊", "Ergebnis"), unsafe_allow_html=True)
     if calc == "e":
         st.metric("Endkapital inkl. Zinsen", f"{_de(r['end'])} €")
     elif calc == "n":
@@ -757,7 +820,7 @@ def render(basis_url=""):
         st.caption(f"Chart nicht verfügbar: {ex}")
 
     za = zeitachse(q, r)
-    st.markdown("##### 📅 Entwicklung")
+    st.markdown(_kopf("📅", "Entwicklung", "Kontostand jeweils am Jahrestag"), unsafe_allow_html=True)
     st.markdown(tabelle_html(za, r), unsafe_allow_html=True)
 
     # Permanentlink: Browser-Adresse zeigt immer die aktuelle Variante
@@ -768,7 +831,7 @@ def render(basis_url=""):
         pass
     from urllib.parse import urlencode
     link = (basis_url.rstrip("/") + "/?" if basis_url else "?") + urlencode(params)
-    st.markdown("##### 🔗 Permanentlink zu dieser Variante")
+    st.markdown(_kopf("🔗", "Permanentlink", "Genau diese Variante wieder aufrufen oder teilen"), unsafe_allow_html=True)
     st.code(link, language=None)
     st.caption("Die Adresse im Browser ist jetzt genau dieser Link – als Lesezeichen speichern oder teilen; beim "
                "Öffnen erscheint der Rechner mit allen Werten.")
