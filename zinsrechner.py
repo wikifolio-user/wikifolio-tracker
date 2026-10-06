@@ -629,6 +629,38 @@ FORM_CSS = """<style>
     outline: 1px solid #3a4152 !important; box-shadow: none !important; animation: none !important;
     border-radius: 10px !important;
 }
+/* ---- Alle bearbeitbaren Felder gleich deutlich als Eingabefeld zeigen ---- */
+.st-key-zr_form [data-baseweb="input"],
+.st-key-zr_form [data-testid="stNumberInputContainer"] {
+    background: #0b0d12 !important; border: 1.5px solid #4a5468 !important; border-radius: 10px !important;
+    box-shadow: none !important;
+}
+.st-key-zr_form [data-baseweb="input"] input { color: #ffffff !important; font-weight: 600 !important; }
+.st-key-zr_form [data-baseweb="input"]:focus-within,
+.st-key-zr_form [data-testid="stNumberInputContainer"]:focus-within,
+.st-key-zr_form [data-testid="stSelectbox"] > div:focus-within {
+    border-color: #3987e5 !important; outline-color: #3987e5 !important;
+    box-shadow: 0 0 0 3px rgba(57,135,229,.25) !important;
+}
+/* Plus/Minus ausblenden: auf dem iPhone tippt man den Wert ein (Zahlentastatur) - mehr Platz fuer die Zahl */
+.st-key-zr_form [data-testid="stNumberInputStepUp"],
+.st-key-zr_form [data-testid="stNumberInputStepDown"] { display: none !important; }
+.st-key-zr_form [data-testid="stSelectbox"] > div,
+.st-key-zr_form [data-testid="stSelectbox"] [data-baseweb="select"] { background: #0b0d12 !important; }
+.st-key-zr_form [data-testid="stSelectbox"] > div { outline: 1.5px solid #4a5468 !important; }
+/* berechnetes Feld: gestrichelt + Akzentfarbe -> "nicht eingeben, wird ausgerechnet" */
+.st-key-zr_form [data-baseweb="input"]:has(input:disabled) {
+    border: 1.5px dashed #d95926 !important; background: rgba(217,89,38,.08) !important;
+}
+.st-key-zr_form [data-baseweb="input"] input:disabled { color: #f0a27f !important; -webkit-text-fill-color: #f0a27f !important; }
+/* Beschriftungen gleich hoch, damit Felder nebeneinander auf einer Linie liegen */
+.st-key-zr_form [data-testid="stWidgetLabel"] { min-height: 1.5rem !important; margin-bottom: 4px !important; }
+.zr-hilfe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: .76rem; color: #c3c2b7;
+            margin: 0 0 4px; padding: 10px 12px; border-radius: 12px; background: #12151c; border: 1px solid #2c313d; }
+.zr-hilfe span { display: inline-flex; align-items: center; gap: 6px; }
+.zr-muster { display: inline-block; width: 26px; height: 16px; border-radius: 5px; background: #0b0d12;
+             border: 1.5px solid #4a5468; }
+.zr-muster.calc { border: 1.5px dashed #d95926; background: rgba(217,89,38,.08); }
 /* Paare (Wert + Einheit) auch auf dem iPhone nebeneinander lassen */
 .st-key-zr_form [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 10px !important; }
 .st-key-zr_form [data-testid="stHorizontalBlock"] > div { min-width: 0 !important; flex: 1 1 0 !important; }
@@ -697,6 +729,10 @@ def render(basis_url=""):
                     unsafe_allow_html=True)
         return k_
 
+    form.markdown('<div class="zr-hilfe"><span><i class="zr-muster"></i>antippen &amp; Wert eintippen</span>'
+                  '<span><i class="zr-muster calc"></i>wird berechnet</span>'
+                  '<span>⌄ antippen = auswählen</span><span>⚡ Ergebnis sofort</span></div>', unsafe_allow_html=True)
+
     # 1) Was berechnen?
     k_ziel = karte("ziel", "🎯", "Was soll berechnet werden?", "Die gewählte Größe wird aus allen anderen Angaben ermittelt")
     calc = k_ziel.selectbox("Gesuchte Größe", list(ZIEL_FELDER), format_func=ZIEL_FELDER.get, key="zr_calc")
@@ -707,9 +743,11 @@ def render(basis_url=""):
         p["e"] = float(k_ziel.number_input("Gewünschtes Endkapital (€)", 0.0, 1e12, step=1000.0, format="%.2f",
                                            key="zr_e"))
 
+    berechnet_platz = {}
+
     def zahl(feld, label, mini, maxi, step, fmt="%.2f", hilfe=None, spalte=st):
         if calc == feld:
-            spalte.text_input(label, "wird berechnet", disabled=True, key=f"zr_dis_{feld}")
+            berechnet_platz[feld] = (spalte.empty(), label)
             return float(st.session_state.get(f"zr_{feld}", STANDARD[feld]))
         return float(spalte.number_input(label, mini, maxi, step=step, format=fmt, key=f"zr_{feld}", help=hilfe))
 
@@ -753,7 +791,7 @@ def render(basis_url=""):
     p["am"] = ""
     c9, c10 = k_zeit.columns(2)
     if calc == "n":
-        c9.text_input("Ansparzeit", "wird berechnet", disabled=True, key="zr_dis_n")
+        berechnet_platz["n"] = (c9.empty(), "Ansparzeit")
         p["n"], p["ne"] = st.session_state.get("zr_n", 10), st.session_state.get("zr_ne", "j")
     else:
         p["n"] = int(c9.number_input("Ansparzeit", 0, 1200, step=1, key="zr_n"))
@@ -778,6 +816,15 @@ def render(basis_url=""):
                    "oder eine andere Größe berechnen.")
 
     q, r, hinweis = loese(p)
+    # berechneten Wert direkt im (gestrichelten) Feld anzeigen
+    for feld, (platz, label) in berechnet_platz.items():
+        if feld == "n":
+            wert_txt = "= " + _laufzeit_text(_monate(q["n"], q["ne"]))
+        elif feld in ("z", "dy"):
+            wert_txt = f"= {_de(float(q[feld]), 3)} %"
+        else:
+            wert_txt = f"= {_de(float(q[feld]))} €"
+        platz.text_input(label + " – berechnet", wert_txt, disabled=True, key=f"zr_dis_{feld}_{wert_txt}")
     # berechneten Wert merken (Anzeige + Link)
     if calc != "e":
         st.session_state[f"zr_{calc}"] = q[calc] if calc != "n" else q["n"]
