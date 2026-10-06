@@ -376,6 +376,99 @@ def gestaltung_wirkung(e):
 
 
 # ===========================================================================
+# Fuenftelregel nach Auszahlungsjahr (Jahrestabelle)
+# ===========================================================================
+def fuenftel_jahre(e, jahre):
+    """jahre: [{"jahr": 2026, "zve": ..., "alg": ...}] -> je Jahr Steuer auf die Abfindung mit/ohne
+    Fuenftelregel, falls sie in DIESEM Jahr ausgezahlt wird (wirkt nur im Auszahlungsjahr)."""
+    a, sp, ki = e["abfindung"], e["splitting"], e["kirche"]
+    aus = []
+    for j in jahre:
+        zve, pv = float(j.get("zve") or 0.0), float(j.get("alg") or 0.0)
+        ohne = steuern(est(zve, sp, pv), sp, ki)
+        voll = _minus(steuern(est(zve + a, sp, pv), sp, ki), ohne)
+        fuenf = _minus(steuern(est_mit_abfindung(zve, a, True, sp, pv), sp, ki), ohne)
+        aus.append({"jahr": int(j["jahr"]), "zve": zve, "alg": pv, "voll": voll["summe"], "fuenftel": fuenf["summe"],
+                    "ersparnis": voll["summe"] - fuenf["summe"], "netto": a - fuenf["summe"],
+                    "satz": fuenf["summe"] / a if a else 0.0, "erstattung_jahr": int(j["jahr"]) + 1})
+    return aus
+
+
+def fuenftel_einkommen(e, stufen=(0, 10000, 20000, 30000, 40000, 50000, 60000, 80000, 100000)):
+    """Steuer auf die Abfindung (mit Fuenftel) je nach uebrigem Einkommen im Auszahlungsjahr."""
+    return fuenftel_jahre(e, [{"jahr": 0, "zve": z, "alg": 0.0} for z in stufen])
+
+
+# ===========================================================================
+# Langfrist-Vergleich: Netto-Abfindung privat anlegen oder in einer Investment-GmbH
+# ===========================================================================
+ABGELTUNG = 0.25 * 1.055          # Abgeltungsteuer + Soli (ohne Kirchensteuer)
+KST = 0.15 * 1.055                # Koerperschaftsteuer + Soli
+GEWST_MESSZAHL = 0.035
+ANLAGEARTEN = {
+    "aktien": "Einzelaktien (Kursgewinne + Dividenden)",
+    "etf": "Aktien-ETF",
+    "zins": "Anleihen / Tagesgeld (Zinsen)",
+}
+
+
+def gmbh_saetze(hebesatz):
+    """Effektive Steuersaetze in der GmbH je Ertragsart."""
+    gew = GEWST_MESSZAHL * hebesatz / 100.0
+    return {
+        "aktien_kurs": 0.05 * (KST + gew),        # § 8b Abs. 2/3 KStG: 95 % steuerfrei
+        "aktien_div": KST + gew,                  # Streubesitz < 10 %: voll steuerpflichtig
+        "etf": 0.20 * KST + 0.60 * gew,           # Teilfreistellung 80 % KSt / 40 % GewSt
+        "zins": KST + gew,
+        "voll": KST + gew,
+    }
+
+
+def privat_saetze(kirche=0.0):
+    abg = 0.25 * (1.055 + kirche) / (1 + 0.25 * kirche) if kirche else ABGELTUNG
+    return {"aktien_kurs": abg, "aktien_div": abg, "etf": 0.70 * abg, "zins": abg, "voll": abg}
+
+
+def anlage_vergleich(betrag, jahre, rendite, art="etf", ausschuettung=0.02, hebesatz=400.0,
+                     kosten_gruendung=1500.0, kosten_jahr=3000.0, freibetrag=1000.0, kirche=0.0):
+    """Jahr fuer Jahr: Vermoegen privat (nach Steuer bei Verkauf) gegen GmbH (in der GmbH nach Verkauf
+    und nach Entnahme an dich). Ausschuettungen/Zinsen werden jaehrlich versteuert und wieder angelegt,
+    Kursgewinne erst beim Verkauf. Vereinfachung: konstante Rendite, keine Vorabpauschale."""
+    pr, gm = privat_saetze(kirche), gmbh_saetze(hebesatz)
+    if art == "zins":
+        d = rendite
+    else:
+        d = min(max(ausschuettung, 0.0), rendite)
+    g = rendite - d
+    s_div_p = pr["etf"] if art == "etf" else (pr["zins"] if art == "zins" else pr["aktien_div"])
+    s_kurs_p = pr["etf"] if art == "etf" else pr["aktien_kurs"]
+    s_div_g = gm["etf"] if art == "etf" else (gm["zins"] if art == "zins" else gm["aktien_div"])
+    s_kurs_g = gm["etf"] if art == "etf" else gm["aktien_kurs"]
+    vp, bp = float(betrag), float(betrag)                  # privat: Wert, Einstand
+    vg = float(betrag) - kosten_gruendung                  # GmbH: Wert, Einstand
+    bg = vg
+    einlage = float(betrag)
+    zeilen = []
+    for j in range(1, int(jahre) + 1):
+        # privat
+        div = vp * d
+        st_p = max(div - freibetrag, 0.0) * s_div_p
+        vp = vp * (1 + g) + div - st_p
+        bp += div - st_p
+        # GmbH: laufende Kosten mindern den steuerpflichtigen Ertrag
+        div_g = vg * d
+        st_g = max(div_g - kosten_jahr, 0.0) * s_div_g
+        vg = vg * (1 + g) + div_g - st_g - kosten_jahr
+        bg += div_g - st_g - kosten_jahr
+        privat_netto = vp - max(vp - bp - freibetrag, 0.0) * s_kurs_p
+        gmbh_drin = vg - max(vg - bg, 0.0) * s_kurs_g
+        gmbh_privat = gmbh_drin - max(gmbh_drin - einlage, 0.0) * pr["voll"]
+        zeilen.append({"jahr": j, "privat": privat_netto, "gmbh": gmbh_drin, "gmbh_privat": gmbh_privat})
+    return {"zeilen": zeilen, "saetze_privat": pr, "saetze_gmbh": gm,
+            "s": {"div_p": s_div_p, "kurs_p": s_kurs_p, "div_g": s_div_g, "kurs_g": s_kurs_g}}
+
+
+# ===========================================================================
 # Formatierung
 # ===========================================================================
 def _de(x, nk=0):
@@ -557,8 +650,8 @@ HINWEISE = [
 ]
 
 
-def pdf_bericht(e, v, erstellt=None):
-    """Ergebnis als PDF (bytes)."""
+def pdf_bericht(e, v, erstellt=None, fj=None, fe=None, av=None, avp=None):
+    """Ergebnis als PDF (bytes). fj/fe: Fuenftel-Tabellen, av/avp: Langfrist-Vergleich + Parameter."""
     erstellt = erstellt or datetime.datetime.now()
     p = _PDF()
     p.y -= 8
@@ -610,6 +703,40 @@ def pdf_bericht(e, v, erstellt=None):
     for x in g["massnahmen"]:
         if x["info"]:
             p.absatz(f"- {x['titel']}: {x['hinweis']}", 8)
+
+    if fj:
+        p.ueberschrift("Fünftelregel – je nach Auszahlungsjahr")
+        p.tabelle(["Auszahlung", "Übriges Eink.", "ALG", "ohne Fünftel", "mit Fünftel", "Ersparnis", "Netto",
+                   "Erstattung"],
+                  [[str(x["jahr"]), f"{_de(x['zve'])} €", f"{_de(x['alg'])} €", f"{_de(x['voll'])} €",
+                    f"{_de(x['fuenftel'])} €", f"{_de(x['ersparnis'])} €", f"{_de(x['netto'])} €",
+                    str(x["erstattung_jahr"])] for x in fj],
+                  [0.9, 1.1, 0.9, 1.05, 1.05, 1, 1, 0.85], groesse=8,
+                  hervor={min(range(len(fj)), key=lambda i: fj[i]["fuenftel"])})
+        p.absatz("Die Fünftelregel wirkt nur im Jahr der Auszahlung – Folgejahre werden normal versteuert. Seit 2025 "
+                 "behält der Arbeitgeber zunächst die Steuer „ohne Fünftel“ ein; die Differenz wird mit der "
+                 "Steuererklärung im Folgejahr erstattet (Spalte Erstattung).", 7.5)
+    if fe:
+        p.ueberschrift("Steuer auf die Abfindung nach übrigem Einkommen im Auszahlungsjahr")
+        p.tabelle(["Übriges Einkommen", "ohne Fünftel", "mit Fünftel", "Ersparnis", "Satz", "Netto"],
+                  [[f"{_de(x['zve'])} €", f"{_de(x['voll'])} €", f"{_de(x['fuenftel'])} €",
+                    f"{_de(x['ersparnis'])} €", _pct(x["satz"]), f"{_de(x['netto'])} €"] for x in fe],
+                  [1.3, 1, 1, 1, 0.8, 1], groesse=8)
+    if av and avp:
+        p.ueberschrift("Langfrist-Vergleich: privat anlegen oder Investment-GmbH")
+        p.absatz(f"Anlage {_de(avp['betrag'])} € · {ANLAGEARTEN[avp['art']]} · Rendite {_de(avp['rendite'] * 100, 1)} % p.a., "
+                 f"davon {_de(avp['ausschuettung'] * 100, 1)} % Ausschüttung/Zinsen · Hebesatz {_de(avp['hebesatz'])} % · "
+                 f"GmbH-Kosten {_de(avp['kosten_gruendung'])} € einmalig + {_de(avp['kosten_jahr'])} € pro Jahr. "
+                 f"Steuersätze: privat {_pct(av['s']['div_p'])} auf Ausschüttungen / {_pct(av['s']['kurs_p'])} auf "
+                 f"Kursgewinne, GmbH {_pct(av['s']['div_g'])} / {_pct(av['s']['kurs_g'])}, Entnahme aus der GmbH "
+                 f"{_pct(av['saetze_privat']['voll'])}.", 8)
+        zz = [z for z in av["zeilen"] if z["jahr"] % 5 == 0 or z["jahr"] in (1, len(av["zeilen"]))]
+        p.tabelle(["Jahr", "Privat (nach Verkauf)", "GmbH (in der GmbH)", "GmbH (an dich entnommen)"],
+                  [[str(z["jahr"]), f"{_de(z['privat'])} €", f"{_de(z['gmbh'])} €", f"{_de(z['gmbh_privat'])} €"]
+                   for z in zz], [0.6, 1.3, 1.3, 1.5], groesse=8)
+        p.absatz("Alle Werte nach Steuern bei Verkauf am Jahresende. „In der GmbH“ = Vermögen bleibt in der Firma "
+                 "(z. B. zum Weiterinvestieren); „an dich entnommen“ = zusätzlich Abgeltungsteuer auf den Gewinn bei "
+                 "Ausschüttung. Vereinfacht: konstante Rendite, ohne Vorabpauschale, ohne Teileinkünfteverfahren.", 7.5)
 
     p.ueberschrift("Eingaben")
     ein = [["Abfindung brutto", f"{_de(e['abfindung'])} €"],
@@ -834,6 +961,89 @@ def render():
         for x in wirk:
             st.caption(f"**{x['titel']}:** {x['hinweis']}")
 
+    # --- Fuenftelregel nach Auszahlungsjahr ---
+    st.markdown("##### 📅 Fünftelregel je nach Auszahlungsjahr")
+    df_j = pd.DataFrame([{"Jahr": STEUERJAHR + i, "Übriges Einkommen €": float(z), "Arbeitslosengeld €": float(a_)}
+                         for i, (z, a_) in enumerate([(zve1, alg1), (zve2, alg2), (zve2, 0.0), (zve2, 0.0)])])
+    ed_j = st.data_editor(df_j, key="abf_fj_tab", hide_index=True, width="stretch", num_rows="fixed",
+                          disabled=["Jahr"],
+                          column_config={
+                              "Jahr": st.column_config.NumberColumn("Jahr", format="%d"),
+                              "Übriges Einkommen €": st.column_config.NumberColumn(
+                                  "Übriges Einkommen €", step=1000.0, format="%.0f",
+                                  help="Zu versteuerndes Einkommen in diesem Jahr ohne Abfindung"),
+                              "Arbeitslosengeld €": st.column_config.NumberColumn("Arbeitslosengeld €", min_value=0.0,
+                                                                                 step=500.0, format="%.0f")})
+    fj = fuenftel_jahre(e, [{"jahr": int(z["Jahr"]), "zve": float(z["Übriges Einkommen €"] or 0),
+                             "alg": float(z["Arbeitslosengeld €"] or 0)} for _, z in ed_j.iterrows()])
+    bestes = min(fj, key=lambda x: x["fuenftel"])
+    st.dataframe(pd.DataFrame([{"Auszahlung": ("✓ " if x is bestes else "") + str(x["jahr"]),
+                                "ohne Fünftel": f"{_de(x['voll'])} €", "mit Fünftel": f"{_de(x['fuenftel'])} €",
+                                "Ersparnis": f"{_de(x['ersparnis'])} €", "Satz": _pct(x["satz"]),
+                                "Netto": f"{_de(x['netto'])} €", "Erstattung kommt": str(x["erstattung_jahr"])}
+                               for x in fj]), hide_index=True, width="stretch")
+    st.caption("Die Fünftelregel wirkt nur im Jahr der Auszahlung – die Steuer wird nicht auf mehrere Jahre "
+               "verteilt, Folgejahre laufen normal. Bei Auszahlung behält der Arbeitgeber erst die Steuer „ohne "
+               "Fünftel“ ein, die Differenz kommt mit der Steuererklärung im Folgejahr zurück. Einkommen und "
+               "Arbeitslosengeld je Jahr oben in der Tabelle anpassen.")
+    with st.expander("Steuer je nach übrigem Einkommen im Auszahlungsjahr", expanded=False):
+        fe = fuenftel_einkommen(e)
+        st.dataframe(pd.DataFrame([{"Übriges Einkommen": f"{_de(x['zve'])} €", "ohne Fünftel": f"{_de(x['voll'])} €",
+                                    "mit Fünftel": f"{_de(x['fuenftel'])} €", "Ersparnis": f"{_de(x['ersparnis'])} €",
+                                    "Satz": _pct(x["satz"]), "Netto": f"{_de(x['netto'])} €"} for x in fe]),
+                     hide_index=True, width="stretch")
+
+    # --- Langfrist: privat oder Investment-GmbH ---
+    with st.expander("🏦 Langfrist: Netto-Abfindung privat anlegen oder Investment-GmbH?", expanded=False):
+        c1, c2 = st.columns(2)
+        av_betrag = float(c1.number_input("Anlagebetrag (€)", 0.0, 1e9, float(round(beste["netto"], -2)),
+                                          step=5000.0, format="%.0f", key="abf_av_betrag",
+                                          help="Vorbelegt mit dem Netto der günstigsten Variante"))
+        av_jahre = int(c2.number_input("Jahre", 1, 50, 20, key="abf_av_jahre"))
+        c3, c4 = st.columns(2)
+        av_rendite = float(c3.number_input("Rendite p.a. (%)", -10.0, 50.0, 7.0, step=0.5, key="abf_av_r")) / 100
+        av_art = c4.selectbox("Anlage", list(ANLAGEARTEN), format_func=ANLAGEARTEN.get, index=1, key="abf_av_art")
+        c5, c6 = st.columns(2)
+        av_aus = float(c5.number_input("davon Ausschüttung/Dividende p.a. (%)", 0.0, 50.0, 2.0, step=0.5,
+                                       key="abf_av_aus", disabled=av_art == "zins")) / 100
+        av_heb = float(c6.number_input("Gewerbesteuer-Hebesatz der Gemeinde (%)", 200.0, 900.0, 400.0, step=10.0,
+                                       key="abf_av_heb"))
+        c7, c8 = st.columns(2)
+        av_kg = float(c7.number_input("GmbH-Gründung einmalig (€)", 0.0, 1e6, 1500.0, step=250.0, format="%.0f",
+                                      key="abf_av_kg", help="Notar, Handelsregister, Beratung"))
+        av_kj = float(c8.number_input("GmbH-Kosten pro Jahr (€)", 0.0, 1e6, 3000.0, step=250.0, format="%.0f",
+                                      key="abf_av_kj", help="Bilanz, Steuererklärungen, Kammer, Konto"))
+        avp = {"betrag": av_betrag, "jahre": av_jahre, "rendite": av_rendite, "art": av_art,
+               "ausschuettung": av_aus, "hebesatz": av_heb, "kosten_gruendung": av_kg, "kosten_jahr": av_kj}
+        av = anlage_vergleich(av_betrag, av_jahre, av_rendite, av_art, av_aus, av_heb, av_kg, av_kj,
+                              freibetrag=2000.0 if e["splitting"] else 1000.0, kirche=kirche)
+        letzte = av["zeilen"][-1]
+        z = [r for r in av["zeilen"] if r["jahr"] % 5 == 0 or r["jahr"] in (1, av_jahre)]
+        st.dataframe(pd.DataFrame([{"Jahr": r["jahr"], "Privat": f"{_de(r['privat'])} €",
+                                    "GmbH (bleibt drin)": f"{_de(r['gmbh'])} €",
+                                    "GmbH (an dich entnommen)": f"{_de(r['gmbh_privat'])} €"} for r in z]),
+                     hide_index=True, width="stretch")
+        try:
+            st.line_chart(pd.DataFrame({"Privat": [r["privat"] for r in av["zeilen"]],
+                                        "GmbH (bleibt drin)": [r["gmbh"] for r in av["zeilen"]],
+                                        "GmbH (entnommen)": [r["gmbh_privat"] for r in av["zeilen"]]},
+                                       index=[r["jahr"] for r in av["zeilen"]]), height=260)
+        except Exception:
+            pass
+        ab = next((r["jahr"] for r in av["zeilen"] if r["gmbh"] > r["privat"]), None)
+        diff_e = letzte["gmbh_privat"] - letzte["privat"]
+        st.markdown(
+            f"Nach {av_jahre} J.: privat **{_de(letzte['privat'])} €**, in der GmbH **{_de(letzte['gmbh'])} €**"
+            + (f" (vorn ab Jahr {ab})" if ab else " (nie vorn)")
+            + f", entnommen **{_de(letzte['gmbh_privat'])} €** → "
+            + (f"GmbH lohnt sich auch bei Entnahme (+{_de(diff_e)} €)." if diff_e > 0 else
+               f"wer das Geld privat braucht, fährt privat besser ({_de(-diff_e)} € mehr)."))
+        st.caption(f"Steuersätze: privat {_pct(av['s']['div_p'])} auf Ausschüttungen/Zinsen und {_pct(av['s']['kurs_p'])} "
+                   f"auf Kursgewinne (Sparerpauschbetrag eingerechnet); GmbH {_pct(av['s']['div_g'])} bzw. "
+                   f"{_pct(av['s']['kurs_g'])} (Einzelaktien: Kursgewinne zu 95 % steuerfrei, Streubesitz-Dividenden "
+                   "voll steuerpflichtig; Aktien-ETF: 80 % Teilfreistellung). Die Abfindung selbst wird in beiden Fällen "
+                   "vorher privat versteuert. Vereinfachte Rechnung – vor einer Gründung Steuerberater fragen.")
+
     with st.expander("🔎 Details je Variante", expanded=False):
         for x in v:
             st.markdown(f"**{'✓ ' if x['beste'] else ''}{x['titel']}**")
@@ -850,7 +1060,8 @@ def render():
             if x["info"]:
                 st.markdown(f"- **{x['titel']}:** {x['hinweis']}")
 
-    st.download_button("📄 Ergebnis als PDF", data=pdf_bericht(e, v), file_name=f"Abfindung_{int(abf)}_EUR.pdf",
+    st.download_button("📄 Ergebnis als PDF", data=pdf_bericht(e, v, fj=fj, fe=fuenftel_einkommen(e), av=av, avp=avp),
+                       file_name=f"Abfindung_{int(abf)}_EUR.pdf",
                        mime="application/pdf", width="stretch", key="abf_pdf")
 
     with st.expander("ℹ️ Gut zu wissen", expanded=False):
