@@ -1614,13 +1614,13 @@ def kredit_simulation(betrag, zins_pa, jahre_kredit, art, rate_aus, rendite_pa, 
 
 
 def kredit_break_even(betrag, zins_pa, jahre_kredit, art, rate_aus, horizont_jahre, alt_rendite_pa=None,
-                      steuersatz=0.0):
+                      steuersatz=0.0, rate=None):
     """Rendite p.a. des Investments, ab der sich der Kredit gegenueber der
     Alternative lohnt (Vorteil = 0). Bei alt_rendite_pa=None hat die Alternative
     dieselbe Rendite. -> Anteil oder None"""
     def vorteil(r):
         return kredit_simulation(betrag, zins_pa, jahre_kredit, art, rate_aus, r, horizont_jahre,
-                                 alt_rendite_pa, 0.0, steuersatz)["vorteil"]
+                                 alt_rendite_pa, 0.0, steuersatz, rate=rate)["vorteil"]
     lo, hi = -0.5, 1.0
     if vorteil(lo) > 0 or vorteil(hi) < 0:
         return None
