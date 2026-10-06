@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 20:10"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 20:40"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -3020,6 +3020,14 @@ def _b_modelle(m, R, historie, h):
         if h["gh_write"](PFAD_SZENARIEN, daten, message=f"planer: szenario {name} [skip ci]"):
             st.session_state["planer_name"] = name
             st.session_state["planer_hash"] = _hash(m)
+            if h.get("chronik"):
+                try:
+                    rr = m["rahmen"]
+                    h["chronik"]("planer", f"💾 Planung gespeichert: {name}",
+                                 f"Start {_de(rr['startkapital'])} € · {rr['horizont_jahre']} J. Aufbau · Ziel "
+                                 f"{_de(rr['zielvermoegen'])} € · {len(E.aktive_assets(m))} Bausteine")
+                except Exception:
+                    pass
             st.success(f"„{name}“ gespeichert.")
         else:
             st.error("Speichern nicht möglich (GitHub-Speicher nicht verfügbar).")
@@ -3963,6 +3971,13 @@ def _musterdepot_formular(h, erg, betrag, prefix):
             ok = h["gh_write"](PFAD_MUSTERDEPOT, daten, message=f"planer: musterdepot {name} [skip ci]")
         except Exception:
             ok = False
+        if ok and h.get("chronik"):
+            try:
+                h["chronik"]("planer", f"📦 Musterdepot erstellt: {name}",
+                             f"Kaufwert {_de(betrag)} € · {len(kaufbar)} Positionen · Cash {_de(depot['cash'], 2)} € · "
+                             f"aus „{depot['quelle']}“")
+            except Exception:
+                pass
         if ok:
             st.success(f"✓ Musterdepot „{name}“ erstellt ({len(kaufbar)} Positionen, Cash {_de(depot['cash'], 2)} €). "
                        "Zu finden im Menü unter „Depot“ → „📦 Musterdepot“.")
@@ -4041,6 +4056,11 @@ def render_musterdepot(h):
             daten["depots"] = depots
             daten["aktiv"] = next(iter(depots), None)
             if h["gh_write"](PFAD_MUSTERDEPOT, daten, message=f"planer: musterdepot {wahl} geloescht [skip ci]"):
+                if h.get("chronik"):
+                    try:
+                        h["chronik"]("planer", f"🗑️ Musterdepot gelöscht: {wahl}")
+                    except Exception:
+                        pass
                 st.success("Gelöscht.")
                 st.rerun()
             else:
