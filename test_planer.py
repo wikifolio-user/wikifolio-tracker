@@ -679,5 +679,18 @@ class Kredit(unittest.TestCase):
         self.assertAlmostEqual(e["netto_mit"], 10000 - 10000 - 1200, delta=1)  # ohne Rendite: Zinsen = Verlust
 
 
+class ParalleleEntnahme(unittest.TestCase):
+    def test_entnahme_im_aufbau(self):
+        m = D.seed_modell()
+        r = renditen(m)
+        ohne = E.zusammenfassung(m, r)
+        m["rahmen"]["entnahme_parallel"] = {"monatlich": 100.0, "dynamik": 0.0, "monate": 60}
+        mit = E.zusammenfassung(m, r)
+        self.assertLess(mit["endwert"], ohne["endwert"])
+        self.assertAlmostEqual(mit["projektion"]["entnommen"], 6000.0, places=6)
+        self.assertAlmostEqual(mit["modell_cagr"], ohne["modell_cagr"], places=9)   # Portfoliorendite unveraendert
+        self.assertGreater(mit["erforderliche_cagr"], ohne["erforderliche_cagr"])
+
+
 if __name__ == "__main__":
     unittest.main()
