@@ -94,6 +94,151 @@ def normalisieren(modell):
     return modell
 
 
+def struktur_regeln(modell):
+    """Gewichtungs-Regeln je Anlageklasse -> {klasse: (min %, max %)} oder None (aus).
+    Aeltere Form (wiki_max/reserve_min/reserve_max) wird mitgelesen."""
+    r = (modell.get("rahmen") or {}).get("regeln")
+    if r is None:
+        r = D.SEED_RAHMEN["regeln"]
+    if not r.get("aktiv", True):
+        return None
+    kl = r.get("klassen")
+    if kl is None:
+        kl = {"wikifolio": {"min": 0.0, "max": r.get("wiki_max", 35.0)},
+              "cash": {"min": r.get("reserve_min", 5.0), "max": r.get("reserve_max", 10.0)}}
+    aus = {}
+    for k, v in kl.items():
+        lo = max(float(v.get("min") or 0.0), 0.0)
+        hi = float(100.0 if v.get("max") is None else v.get("max"))
+        aus[k] = (min(lo, 100.0), max(min(hi, 100.0), lo))
+    return aus
+
+
+def _ist_wiki(a):
+    return a.get("category") == "wikifolio" or _typ(a) == "wikifolio"
+
+
+def regeln_anwenden(modell, g):
+    """Gewichte (in %, aktive Bausteine) in die Grenzen je Anlageklasse bringen
+    (Wikifolios, ETFs, Aktien, Hebel, Krypto, Reserve - je min/max %).
+    Zu viel in einer Klasse geht anteilig an Klassen mit Spielraum, zu wenig wird
+    von dort geholt. Innerhalb einer Klasse bleiben die Verhaeltnisse erhalten.
+    Fixierte Bausteine (ausser der Reserve) bleiben unveraendert."""
+    regeln = struktur_regeln(modell)
+    if not regeln or not g:
+        return g
+    assets = {a["id"]: a for a in modell["assets"]}
+    g = {i: max(float(v or 0.0), 0.0) for i, v in g.items()}
+    tot = sum(g.values())
+    if tot <= 0:
+        return g
+    g = {i: v * 100.0 / tot for i, v in g.items()}
+    klasse = {i: _typ(assets[i]) for i in g}
+    frei = {i for i in g if klasse[i] == "cash" or not assets[i].get("fixiert")}
+    klassen = sorted(set(klasse.values()))
+
+    def grenze(k):
+        return regeln.get(k, (0.0, 100.0))
+
+    def ksum(k):
+        return sum(g[i] for i in g if klasse[i] == k)
+
+    def kfrei(k):
+        return [i for i in g if klasse[i] == k and i in frei]
+
+    def setze(k, neu):
+        ids = kfrei(k)
+        fest = ksum(k) - sum(g[i] for i in ids)
+        ziel = max(neu - fest, 0.0)
+        s_ = sum(g[i] for i in ids)
+        if s_ > 0:
+            for i in ids:
+                g[i] *= ziel / s_
+        elif ids:
+            for i in ids:
+                g[i] = ziel / len(ids)
+
+    for _ in range(60):
+        geaendert = False
+        for k in klassen:
+            lo, hi = grenze(k)
+            s_ = ksum(k)
+            if s_ > hi + 1e-9 and kfrei(k):
+                t = max(hi, s_ - sum(g[i] for i in kfrei(k)))
+            elif s_ < lo - 1e-9 and kfrei(k):
+                t = lo
+            else:
+                continue
+            delta = s_ - t                      # > 0: Klasse gibt ab, < 0: Klasse braucht mehr
+            raum = {}
+            for k2 in klassen:
+                if k2 == k or not kfrei(k2):
+                    continue
+                lo2, hi2 = grenze(k2)
+                platz = (hi2 - ksum(k2)) if delta > 0 else min(ksum(k2) - lo2, sum(g[i] for i in kfrei(k2)))
+                if platz > 1e-9:
+                    raum[k2] = platz
+            if delta > 0 and any(k2 != "cash" for k2 in raum):
+                raum.pop("cash", None)          # Ueberschuss nicht in die Reserve, solange es anders geht
+            gesamt = sum(raum.values())
+            if gesamt <= 1e-9:
+                continue
+            menge = min(abs(delta), gesamt)
+            vz = 1.0 if delta > 0 else -1.0
+            # anteilig nach dem bisherigen Gewicht der Klassen (sonst nach Spielraum), je Klasse max. ihr Spielraum
+            basis = {k2: ksum(k2) for k2 in raum}
+            if sum(basis.values()) <= 1e-9:
+                basis = dict(raum)
+            verteilt = 0.0
+            for _r in range(10):
+                offen_ = {k2: basis[k2] for k2 in raum if raum[k2] > 1e-9}
+                sb = sum(offen_.values())
+                rest_ = menge - verteilt
+                if sb <= 1e-12 or rest_ <= 1e-9:
+                    break
+                for k2, b_ in offen_.items():
+                    teil = min(rest_ * b_ / sb, raum[k2])
+                    setze(k2, ksum(k2) + vz * teil)
+                    raum[k2] -= teil
+                    verteilt += teil
+            setze(k, s_ - vz * verteilt)
+            geaendert = geaendert or verteilt > 1e-9
+        if not geaendert:
+            break
+    return g
+
+
+def klassen_anteile(modell, gewichte_pct=None):
+    """{klasse: % des Portfolios} fuer die aktuellen oder uebergebenen Gewichte."""
+    if gewichte_pct is None:
+        gewichte_pct = {i: v * 100.0 for i, v in gewichte(modell).items()}
+    assets = {a["id"]: a for a in modell["assets"]}
+    aus = {}
+    for i, v in gewichte_pct.items():
+        aus[_typ(assets[i])] = aus.get(_typ(assets[i]), 0.0) + v
+    return aus
+
+
+def regeln_verletzungen(modell, gewichte_pct=None):
+    """Texte zu verletzten Gewichtungs-Regeln (aktuelle oder uebergebene Gewichte in %)."""
+    regeln = struktur_regeln(modell)
+    if not regeln:
+        return []
+    anteile = klassen_anteile(modell, gewichte_pct)
+    aus = []
+    for k, (lo, hi) in regeln.items():
+        if k not in anteile:
+            continue
+        v = anteile[k]
+        name = D.REGEL_KLASSEN.get(k, k)
+        vt = f"{v:.1f}".replace(".", ",")
+        if v > hi + 0.05:
+            aus.append(f"{name} {vt} % > max. {hi:.0f} %")
+        elif v < lo - 0.05:
+            aus.append(f"{name} {vt} % < min. {lo:.0f} %")
+    return aus
+
+
 def gewichte(modell):
     """{asset_id: Anteil 0..1} der aktiven Assets, auf 1 normiert (fuer die
     Rechnung - die Anzeige zeigt die Abweichung von 100 % separat an)."""
@@ -960,7 +1105,15 @@ def optimiere(modell, renditen_netto, confidences, grenzen=None, ziel=None):
       2. Konzentration minimieren (kleinstes Hoechstgewicht)
       3. Confidence maximieren
     Regeln werden NIE verletzt. -> dict mit gewichte (%), endwert, erreichbar."""
-    grenzen = grenzen or modell["grenzen"]
+    grenzen = dict(grenzen or modell["grenzen"])
+    regeln = struktur_regeln(modell)
+    vorhanden = {_typ(a) for a in aktive_assets(modell)}
+    if regeln:      # Gewichtungs-Regeln je Anlageklasse als zusaetzliche Gruppengrenzen
+        grenzen["gruppen"] = list(grenzen.get("gruppen", [])) + [
+            {"titel": D.REGEL_KLASSEN.get(k, k) + " (Regel)",
+             "kategorien": [c for c, v in D.KATEGORIEN.items() if v.get("typ") == k],
+             "min": (lo or None) if k in vorhanden else None, "max": hi}
+            for k, (lo, hi) in regeln.items()]
     rahmen = modell["rahmen"]
     assets = [a for a in aktive_assets(modell)
               if renditen_netto.get(a["id"]) is not None]
@@ -1089,7 +1242,7 @@ def gewichtung_fuer_ziel(modell, renditen_netto, ziel=None, **kw):
         g = dict(bisher)
         for i in frei:
             g[i] = roh[i] / s * rest
-        return g
+        return regeln_anwenden(modell, g)
 
     def endwert_bei(g):
         m2 = dict(modell)
@@ -1333,7 +1486,7 @@ def gewichte_nach_rendite(modell, renditen_netto):
     g = dict(fest)
     for i in frei:
         g[i] = roh[i] / summe * rest
-    return {"gewichte": g}
+    return {"gewichte": regeln_anwenden(modell, g)}
 
 
 def gewichtung_fuer_rendite(modell, renditen_netto, ziel_r):
@@ -1367,13 +1520,13 @@ def gewichtung_fuer_rendite(modell, renditen_netto, ziel_r):
         g = dict(fest)
         for i in offen:
             g[i] = roh[i] / su * rest
-        return g
+        return regeln_anwenden(modell, g)       # Wikifolio-Hoechstanteil, Reserve 5-10 %
 
     def rendite_bei(g):
-        return sum(g[i] * r[i] for i in g) / 100.0
+        return sum(g[i] * r.get(i, 0.0) for i in g) / 100.0
 
-    r_min = beitrag_fest + rest / 100.0 * min(r[i] for i in offen)
-    r_max = beitrag_fest + rest / 100.0 * max(r[i] for i in offen)
+    r_min = rendite_bei(gewichte_bei(-5000.0))
+    r_max = rendite_bei(gewichte_bei(5000.0))
     if ziel_r >= r_max - 1e-9 or ziel_r <= r_min + 1e-9:
         lam = 5000.0 if ziel_r >= r_max - 1e-9 else -5000.0
         g = gewichte_bei(lam)
