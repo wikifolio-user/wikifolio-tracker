@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 18:00"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 18:30"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -644,12 +644,21 @@ def _rechne(m, historie, korb_score):
     r = E.rendite_map(info)
     conf = E.confidence_fuer(m, historie)
     reb = m["rebalancing"]
-    zus = E.zusammenfassung(_mit_krediten(m), r, rebalancing=reb)
+    # Manuelle Rendite: das GANZE Portfolio waechst gleichmaessig mit genau diesem Satz p.a.
+    # (kein Auseinanderdriften der Bausteine) - Kapital inkl. Kredite, Entnahme, Restschuld
+    r_calc = r
+    if _auto_modus(m) == "manuell" and r:
+        satz = _rendite_manuell(m)
+        grenzen = E.gewichtung_fuer_rendite(m, r, satz)
+        if not grenzen.get("fehler") and not grenzen.get("erreichbar", True):
+            satz = min(max(satz, grenzen["min"]), grenzen["max"])
+        r_calc = {i: satz for i in r}
+    zus = E.zusammenfassung(_mit_krediten(m), r_calc, rebalancing=reb)
     kr = _kredit_rahmen(m)
     zus["kredit"] = kr
     zus["endwert_netto"] = zus["endwert"] - (kr["restschuld"] if kr else 0.0)
     scores = {"korb": korb_score}
-    return {"info": info, "r": r, "conf": conf, "zus": zus, "scores": scores, "reb": reb}
+    return {"info": info, "r": r, "r_calc": r_calc, "conf": conf, "zus": zus, "scores": scores, "reb": reb}
 
 
 # ===========================================================================
@@ -734,7 +743,8 @@ def _auto_gewichtung(m, R):
     elif modus == "ziel":
         erg = E.gewichtung_fuer_zielvermoegen(_mit_krediten(m), R["r"], R["reb"])
     elif modus == "manuell":
-        erg = E.gewichtung_fuer_cagr(_mit_krediten(m), R["r"], _rendite_manuell(m), R["reb"])
+        # gewichteter Mittelwert = manueller Satz (gerechnet wird gleichmaessig mit diesem Satz)
+        erg = E.gewichtung_fuer_rendite(m, R["r"], _rendite_manuell(m))
         erg["soll"] = _rendite_manuell(m)
     else:
         erg = E.gewichtung_fuer_rendite(m, R["r"], float(_entnahme_daten(m)["rendite_pa"]) / 100.0)
@@ -944,7 +954,7 @@ def _monatsbilanz(m, R):
     z = R["zus"]
     r = z.get("modell_cagr")
     if r is None:
-        r = sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
+        r = sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in E.gewichte(m).items())
     kr = _kredit_rahmen(m)
     kredite = [x for x in (k.get("kredite") or []) if _kredite_aktiv(m) and _kredit_konditionen(x)[0] is not None]
     # warum ist ein eingetragener Kredit NICHT im Kapital? (sichtbar machen)
@@ -1042,7 +1052,7 @@ def _kpis(platz, m, R):
     diff = z["differenz"]
     farbe = "pl-gut" if diff >= 0 else "pl-schlecht"
     w = E.gewichte(m)
-    port_r = sum(g * R["r"].get(i, 0.0) for i, g in w.items())      # Portfoliorendite p.a. (gewichtet)
+    port_r = sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in w.items())      # Portfoliorendite p.a. (gewichtet)
     with platz.container():
         if jahre_n <= 0:
             k1 = ("Aufbau", "–", "keine Aufbauphase (0 Jahre)")
@@ -1087,6 +1097,24 @@ def _kpis(platz, m, R):
                     zeilen.insert(0 if not jahre_n else 2,
                                   f'Entnahme während des Aufbaus: <b>{_de(e["monatlich"])} €/Monat</b> ab sofort · '
                                   f'gesamt {_eur(proj.get("entnommen") or 0)} in {jahre_n} J.')
+                    # Rechenweg: ohne Entnahme -> Entnahmen inkl. entgangener Rendite -> Restschuld -> Endwert
+                    try:
+                        eff_m = _mit_krediten(m)
+                        ohne_m = dict(eff_m, rahmen={k_: v_ for k_, v_ in eff_m["rahmen"].items()
+                                                     if k_ != "entnahme_parallel"})
+                        ohne_ew = E.projektion(ohne_m, R.get("r_calc", R["r"]), rebalancing=R["reb"])["endwert"]
+                        kr_ = R["zus"].get("kredit")
+                        rs_ = kr_["restschuld"] if kr_ else 0.0
+                        kosten_ent = ohne_ew - proj["endwert"]
+                        zeilen.insert(1 if not jahre_n else 3,
+                                      f'Rechenweg: {_de(eff_m["rahmen"]["startkapital"])} € Kapital'
+                                      + (f' + {_de(eff_m["rahmen"]["sparrate_monat"])} €/Monat'
+                                         if float(eff_m["rahmen"].get("sparrate_monat") or 0) else "")
+                                      + f' ohne Entnahme → {_eur(ohne_ew)} · − Entnahmen inkl. entgangener Rendite '
+                                        f'{_eur(kosten_ent)}' + (f' · − Restschuld {_eur(rs_)}' if rs_ else "")
+                                      + f' = <b>{_eur(proj["endwert"] - rs_)}</b>')
+                    except Exception:
+                        pass
                 b = _monatsbilanz(m, R)
                 teile = [f'Gewinn {_de(b["gewinn_monat"])} €']
                 if b["spar"]:
@@ -3187,7 +3215,7 @@ def _entnahme_rechnen(m, R, e=None):
         rendite = R["zus"]["modell_cagr"]
     else:
         # keine Aufbauphase (0 Jahre): gewichtete Portfoliorendite statt 0 %
-        rendite = sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
+        rendite = sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in E.gewichte(m).items())
     kw = dict(dynamik_pa=e["dynamik_pa"] / 100.0, einstand=einstand,
               steuersatz=(e["steuersatz"] / 100.0) if e["steuer"] else 0.0,
               freibetrag=e["freibetrag"] if e["steuer"] else 0.0)
@@ -3418,10 +3446,10 @@ def _kredit_rechnen(m, R):
         return None
     z = R["zus"]
     r = z["modell_cagr"] if z.get("modell_cagr") is not None else \
-        sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
+        sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in E.gewichte(m).items())
     jahre_aufbau = int(m["rahmen"].get("horizont_jahre") or 0)
     horizont = max(jahre_aufbau, max(int(x["jahre"]) for x in kredite))
-    ek_end = E.zusammenfassung(m, R["r"], rebalancing=R["reb"])["endwert"] if jahre_aufbau == horizont and jahre_aufbau > 0 else \
+    ek_end = E.zusammenfassung(m, R.get("r_calc", R["r"]), rebalancing=R["reb"])["endwert"] if jahre_aufbau == horizont and jahre_aufbau > 0 else \
         float(m["rahmen"]["startkapital"]) * (1 + r) ** horizont
     zeilen = []
     for x in kredite:
