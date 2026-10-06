@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 19:10"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 20:10"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -980,6 +980,7 @@ def _rahmen(m):
                                                   else "") + "</div>", unsafe_allow_html=True)
 
         _phase("Weitere Einstellungen")
+        _regeln_editor(m)
         rahmen["kosten_beruecksichtigen"] = st.toggle(
             "Kosten berücksichtigen (TER und Performance Fee, soweit hinterlegt)",
             value=bool(rahmen.get("kosten_beruecksichtigen")), key=_k("kosten"))
@@ -1286,8 +1287,86 @@ def _kpis(platz, m, R):
         _hinweis()
 
 
+def _regeln_daten(m):
+    """rahmen["regeln"] im neuen Format (je Anlageklasse min/max) - alte Form wird umgerechnet."""
+    rg = m["rahmen"].setdefault("regeln", copy.deepcopy(D.SEED_RAHMEN["regeln"]))
+    if "klassen" not in rg:
+        kl = copy.deepcopy(D.SEED_RAHMEN["regeln"]["klassen"])
+        if "wiki_max" in rg:
+            kl["wikifolio"]["max"] = float(rg.pop("wiki_max"))
+        if "reserve_min" in rg:
+            kl["cash"]["min"] = float(rg.pop("reserve_min"))
+        if "reserve_max" in rg:
+            kl["cash"]["max"] = float(rg.pop("reserve_max"))
+        rg["klassen"] = kl
+    for k, v in D.SEED_RAHMEN["regeln"]["klassen"].items():
+        rg["klassen"].setdefault(k, dict(v))
+    return rg
+
+
+def _regeln_editor(m, pre=""):
+    """Gewichtung je Anlageklasse manuell begrenzen (min/max %) - gilt fuer jede Automatik."""
+    rg = _regeln_daten(m)
+    rg["aktiv"] = st.toggle(
+        "Gewichtungs-Regeln je Kategorie (Wikifolios, ETFs, Aktien, Reserve …)", value=bool(rg.get("aktiv", True)),
+        key=_k(pre + "regeln_aktiv"),
+        help="Min./Max. % je Kategorie. Gilt für jede automatische Gewichtung (Zielvermögen, manuelle Rendite, "
+             "Vorschläge, Optimierer). Zu viel in einer Kategorie wird anteilig auf die anderen verteilt. "
+             "Min. = Max. ergibt einen festen Anteil.")
+    if not rg["aktiv"]:
+        return
+    ist = E.klassen_anteile(m)
+    df = pd.DataFrame([{"Kategorie": D.REGEL_KLASSEN[k], "Min %": float(rg["klassen"][k]["min"]),
+                        "Max %": float(rg["klassen"][k]["max"]),
+                        "Ist %": round(ist.get(k, 0.0), 1) if k in ist else None}
+                       for k in D.REGEL_KLASSEN])
+    ed = st.data_editor(
+        df, key=_k(f"{pre}regeln_tab_{st.session_state.get('planer_rg_ver', 0)}"), hide_index=True, width="stretch",
+        num_rows="fixed", height=_hoehe(len(df)), disabled=["Kategorie", "Ist %"],
+        column_config={
+            "Kategorie": st.column_config.TextColumn("Kategorie"),
+            "Min %": st.column_config.NumberColumn("Min %", min_value=0.0, max_value=100.0, step=1.0, format="%.0f"),
+            "Max %": st.column_config.NumberColumn("Max %", min_value=0.0, max_value=100.0, step=1.0, format="%.0f"),
+            "Ist %": st.column_config.NumberColumn("Ist %", format="%.1f",
+                                                   help="Aktueller Anteil (leer = kein Baustein dieser Kategorie aktiv)"),
+        })
+    if ed is not None and len(ed) == len(df):
+        neu = {}
+        for k, (_, z) in zip(D.REGEL_KLASSEN, ed.iterrows()):
+            lo = 0.0 if pd.isna(z["Min %"]) else float(z["Min %"])
+            hi = 100.0 if pd.isna(z["Max %"]) else float(z["Max %"])
+            neu[k] = {"min": lo, "max": max(hi, lo)}
+        if _norm(neu) != _norm(rg["klassen"]):
+            rg["klassen"] = neu
+            st.session_state["planer_rg_ver"] = st.session_state.get("planer_rg_ver", 0) + 1
+            st.rerun()
+    summe_min = sum(v["min"] for k, v in rg["klassen"].items() if k in ist)
+    summe_max = sum(v["max"] for k, v in rg["klassen"].items() if k in ist)
+    if summe_min > 100.0 + 1e-6:
+        st.caption(f"⚠ Die Mindestanteile ergeben zusammen {_de(summe_min)} % – mehr als 100 %.")
+    if summe_max < 100.0 - 1e-6:
+        st.caption(f"⚠ Die Höchstanteile der aktiven Kategorien ergeben nur {_de(summe_max)} % – weniger als 100 %.")
+    if "cash" not in ist and rg["klassen"]["cash"]["min"] > 0:
+        st.caption("⚠ Keine Nachkaufreserve (Cash-Baustein) aktiv – unter 🧩 Portfolio → Bausteine aktivieren.")
+    st.caption("Gilt für die automatische Gewichtung. Eigene Gewichte werden nicht verändert – bei Abweichung "
+               "erscheint oben ein Hinweis mit „Auf Regeln ausrichten“.")
+
+
 def _gewichtswarnung(platz, m):
     summe = E.gewichte_summe(m)
+    verletzt = E.regeln_verletzungen(m) if abs(summe - 100.0) <= 0.05 else []
+    if verletzt:
+        with platz.container():
+            c1, c2 = st.columns([3, 1])
+            c1.warning("Regeln verletzt: " + " · ".join(verletzt))
+            if c2.button("Auf Regeln ausrichten", key=_k("regeln_oben"), width="stretch"):
+                g = E.regeln_anwenden(m, {a["id"]: float(a.get("targetWeight") or 0) for a in E.aktive_assets(m)})
+                for a in E.aktive_assets(m):
+                    if a["id"] in g:
+                        a["targetWeight"] = round(g[a["id"]], 3)
+                _neu_zeichnen()
+                st.rerun()
+        return
     if abs(summe - 100.0) > 0.05:
         with platz.container():
             c1, c2 = st.columns([3, 1])
@@ -4028,6 +4107,10 @@ def render(h):
         ("🗂️ Daten", "Annahmen & Quellen"): lambda: _b_annahmen(m, R, historie, hist_assets),
         ("🗂️ Daten", "Gespeicherte Modelle"): lambda: _b_modelle(m, R, historie, h),
     }
+    if haupt == "⚖️ Gewichtung":
+        with st.expander("📐 Gewichtung je Kategorie begrenzen (Wikifolios, ETFs, Aktien, Reserve …)",
+                         expanded=False):
+            _regeln_editor(m, "gw_")
     seiten[(haupt, unter)]()
 
     # KPIs mit dem Stand NACH den Eingaben
