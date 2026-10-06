@@ -381,6 +381,43 @@ def _rgba(hexfarbe, a):
     return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{a})"
 
 
+def tabelle_html(za, r):
+    """Kompakte Tabelle: Datum (darunter klein 'Anfangskapital'/'Endkapital'), Betraege rechtsbuendig,
+    feste Spaltenbreiten - passt aufs iPhone ohne seitliches Scrollen."""
+    import html as _h
+    mit_ein = any(z["ein"] for z in za[1:])
+    mit_st = bool(r["steuer"])
+    kopf = ["Datum"] + (["Einzahlung €"] if mit_ein else []) + ["Zinsen €"] + (["Steuer €"] if mit_st else []) + \
+           ["Kontostand €"]
+    spalten = len(kopf)
+    groesse = {3: ".86rem", 4: ".8rem"}.get(spalten, ".72rem")
+    pad = "7px 6px" if spalten <= 4 else "6px 3px"
+    th = "".join(f'<th style="text-align:{"left" if i == 0 else "right"};padding:{pad};font-weight:600;white-space:nowrap;'
+                 f'color:{FARBEN["text2"]};border-bottom:1px solid {FARBEN["grid"]}">{k}</th>'
+                 for i, k in enumerate(kopf))
+    zeilen = []
+    for z in za:
+        rand = z["text"] in ("Start", "Ende")
+        label = {"Start": "Anfangskapital", "Ende": "Endkapital"}.get(z["text"], "")
+        zellen = [f'{z["datum"].strftime("%d.%m.%Y")}'
+                  + (f'<div style="font-size:.68rem;color:{FARBEN["text2"]};line-height:1.1">{label}</div>'
+                     if label else "")]
+        leer = z["text"] == "Start"
+        if mit_ein:
+            zellen.append("" if leer else _de(z['ein']))
+        zellen.append("" if leer else _de(z['zins']))
+        if mit_st:
+            zellen.append("" if leer else _de(z['steuer']))
+        zellen.append(f"<b>{_de(z['stand'])}</b>" if rand else _de(z['stand']))
+        td = "".join(f'<td style="text-align:{"left" if i == 0 else "right"};padding:{pad};white-space:nowrap;'
+                     f'vertical-align:top;border-bottom:1px solid {FARBEN["grid"]}">{c}</td>'
+                     for i, c in enumerate(zellen))
+        zeilen.append(f"<tr>{td}</tr>")
+    return (f'<table style="width:100%;border-collapse:collapse;table-layout:auto;font-size:{groesse};'
+            f'font-variant-numeric:tabular-nums;color:{FARBEN["text"]}"><thead><tr>{th}</tr></thead>'
+            f'<tbody>{"".join(zeilen)}</tbody></table>')
+
+
 def chart(p, r):
     import plotly.graph_objects as go
     sd = startdatum(p)
@@ -411,9 +448,13 @@ def chart(p, r):
     if r["start"] > 0:
         fig.add_annotation(x=x[0], y=r["wert"][0], text=f"{_de(r['start'], 0)} €<br>"
                            f"<span style='color:{FARBEN['text2']}'>{sd.strftime('%d.%m.%Y')}</span>",
-                           showarrow=False, xanchor="left", yanchor="bottom", yshift=8, align="left",
+                           showarrow=False, xanchor="left", yanchor="top", xshift=6, yshift=-10, align="left",
                            font=dict(size=11, color=FARBEN["text"]))
     jahre = len(r["wert"]) / 12
+    schritt = 1 if jahre <= 12 else (2 if jahre <= 24 else 5)
+    tick_i = list(range(0, len(r["wert"]), 12 * schritt))
+    tick_x = [x[i] for i in tick_i]
+    tick_t = [x[i].strftime("%Y") for i in tick_i]
     fig.update_layout(
         height=360, margin=dict(l=8, r=12, t=36, b=8), separators=",.",
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
@@ -423,7 +464,8 @@ def chart(p, r):
         legend=dict(orientation="h", x=0, y=1.12, xanchor="left", font=dict(color=FARBEN["text"]),
                     bgcolor="rgba(0,0,0,0)"),
         xaxis=dict(showgrid=False, linecolor=FARBEN["grid"], ticks="outside", tickcolor=FARBEN["grid"],
-                   tickformat="%Y" if jahre > 3 else "%m/%Y", hoverformat="%d.%m.%Y", fixedrange=True),
+                   tickmode="array", tickvals=tick_x, ticktext=tick_t, hoverformat="%d.%m.%Y", fixedrange=True,
+                   range=[x[0] - datetime.timedelta(days=40), x[-1] + datetime.timedelta(days=40)]),
         yaxis=dict(gridcolor=FARBEN["grid"], zeroline=False, tickformat=",.0f", ticksuffix=" €", rangemode="tozero",
                    fixedrange=True, side="right"),
     )
@@ -535,16 +577,8 @@ def render(basis_url=""):
         st.caption(f"Chart nicht verfügbar: {ex}")
 
     za = zeitachse(q, r)
-    zeilen = []
-    for z in za:
-        zeilen.append({"Datum": z["datum"].strftime("%d.%m.%Y"),
-                       "": "Anfangskapital" if z["text"] == "Start" else ("Endkapital" if z["text"] == "Ende" else ""),
-                       "Einzahlungen": f"{_de(z['ein'])} €" if z["text"] != "Start" else "",
-                       "Zinsen": f"{_de(z['zins'])} €" if z["text"] != "Start" else "",
-                       **({"Steuern": f"{_de(z['steuer'])} €" if z["text"] != "Start" else ""} if r["steuer"] else {}),
-                       "Kontostand": f"{_de(z['stand'])} €"})
     st.markdown("##### 📅 Entwicklung")
-    st.dataframe(pd.DataFrame(zeilen), hide_index=True, width="stretch")
+    st.markdown(tabelle_html(za, r), unsafe_allow_html=True)
 
     # Permanentlink: Browser-Adresse zeigt immer die aktuelle Variante
     params = in_url(q)
