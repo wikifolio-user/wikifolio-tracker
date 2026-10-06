@@ -692,5 +692,26 @@ class ParalleleEntnahme(unittest.TestCase):
         self.assertGreater(mit["erforderliche_cagr"], ohne["erforderliche_cagr"])
 
 
+class ManuelleRendite(unittest.TestCase):
+    def _m(self):
+        m = D.seed_modell()
+        return m, {a["id"]: E.rendite_fuer(m, a)[0] or 0.0 for a in m["assets"]}
+
+    def test_trifft_cagr(self):
+        m, r = self._m()
+        o = E.gewichtung_fuer_cagr(m, r, 0.15, m["rebalancing"])
+        self.assertTrue(o["erreichbar"])
+        for a in m["assets"]:
+            if a["id"] in o["gewichte"]:
+                a["targetWeight"] = o["gewichte"][a["id"]]
+        self.assertAlmostEqual(E.zusammenfassung(m, r, rebalancing=m["rebalancing"])["modell_cagr"], 0.15, places=3)
+
+    def test_unerreichbar_gibt_maximum(self):
+        m, r = self._m()
+        o = E.gewichtung_fuer_cagr(m, r, 5.0, m["rebalancing"])
+        self.assertFalse(o["erreichbar"])
+        self.assertAlmostEqual(o["rendite"], o["max"], places=6)
+
+
 if __name__ == "__main__":
     unittest.main()
