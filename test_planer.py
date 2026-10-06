@@ -361,6 +361,7 @@ class Optimizer(unittest.TestCase):
 class GewichtungZiel(unittest.TestCase):
     def test_trifft_ziel(self):
         m = D.seed_modell()
+        m["rahmen"]["regeln"]["aktiv"] = False
         r = renditen(m)
         o = E.gewichtung_fuer_ziel(m, r)
         self.assertTrue(o["erreichbar"])
@@ -390,6 +391,7 @@ class GewichtungZiel(unittest.TestCase):
 
     def test_grenzen_meldung(self):
         m = D.seed_modell()
+        m["rahmen"]["regeln"]["aktiv"] = False
         self.assertEqual(E.grenzen_verletzungen(m), [])
         o = E.gewichtung_fuer_ziel(m, renditen(m))
         self.assertTrue(any("Wikifolios" in t for t in E.grenzen_verletzungen(m, o["gewichte"])))
@@ -544,6 +546,7 @@ class AnnahmenAusHistorie(unittest.TestCase):
 class NachRendite(unittest.TestCase):
     def test_proportional(self):
         m = D.seed_modell()
+        m["rahmen"]["regeln"]["aktiv"] = False                            # reine Proportionalitaet pruefen
         for a in m["assets"]:
             if a["id"] == "etf_gold":
                 a["enabled"], a["targetWeight"] = True, 0.0             # neu, 0 % -> wird beruecksichtigt
@@ -552,7 +555,7 @@ class NachRendite(unittest.TestCase):
         r["etf_momentum"] = -0.05                                         # negativ -> 0 %
         g = E.gewichte_nach_rendite(m, r)["gewichte"]
         self.assertAlmostEqual(sum(g.values()), 100.0, places=6)
-        self.assertEqual(g["reserve"], 10.0)                               # fixiert
+        self.assertAlmostEqual(g["reserve"], 10.0)                         # fixiert
         self.assertEqual(g["etf_momentum"], 0.0)
         self.assertAlmostEqual(g["etf_gold"] / g["korb"], 0.30 / 0.25, places=6)
         self.assertAlmostEqual(g["wf_ff"] / g["etf_allworld"], 0.50 / 0.1108, places=6)
@@ -565,6 +568,7 @@ class NachRendite(unittest.TestCase):
 class RenditeGewichtung(unittest.TestCase):
     def test_trifft_rendite(self):
         m = D.seed_modell()
+        m["rahmen"]["regeln"]["aktiv"] = False
         r = renditen(m)
         for ziel in (0.10, 0.25, 0.30):
             o = E.gewichtung_fuer_rendite(m, r, ziel)
@@ -732,6 +736,40 @@ class EntnahmeStufen(unittest.TestCase):
     def test_projektion_parallel(self):
         ent = {"monatlich": 1000.0, "dynamik": 0.0, "monate": 36, "stufen": [{"ab_jahr": 2, "monatlich": 0.0}]}
         self.assertAlmostEqual(E.endwert_mit_fluessen(50000, 0.0, 3, 0.0, ent), 50000 - 12000)
+
+
+class StrukturRegeln(unittest.TestCase):
+    def _wiki(self, m, g):
+        a = {x["id"]: x for x in m["assets"]}
+        return sum(v for i, v in g.items() if a[i]["category"] == "wikifolio")
+
+    def test_auto_gewichtung_haelt_regeln(self):
+        m = D.seed_modell()
+        r = renditen(m)
+        for ziel in (0.10, 0.20, 0.9):
+            o = E.gewichtung_fuer_rendite(m, r, ziel)
+            self.assertLessEqual(self._wiki(m, o["gewichte"]), 35.0 + 1e-6)
+            self.assertTrue(5.0 - 1e-6 <= o["gewichte"]["reserve"] <= 10.0 + 1e-6)
+            self.assertAlmostEqual(sum(o["gewichte"].values()), 100.0, places=6)
+
+    def test_regeln_anwenden(self):
+        m = D.seed_modell()
+        g = {a["id"]: 0.0 for a in E.aktive_assets(m)}
+        wikis = [a["id"] for a in E.aktive_assets(m) if a["category"] == "wikifolio"]
+        for i in wikis:
+            g[i] = 100.0 / len(wikis)                  # 100 % Wikifolios, 0 % Reserve
+        g2 = E.regeln_anwenden(m, g)
+        self.assertAlmostEqual(self._wiki(m, g2), 35.0, places=6)
+        self.assertAlmostEqual(g2["reserve"], 5.0, places=6)
+        self.assertAlmostEqual(sum(g2.values()), 100.0, places=6)
+        self.assertEqual(E.regeln_verletzungen(m, g2), [])
+        self.assertTrue(E.regeln_verletzungen(m, g))
+
+    def test_optimierer(self):
+        m = D.seed_modell()
+        o = E.optimiere(m, renditen(m), E.confidence_fuer(m))
+        if o and not o.get("fehler"):
+            self.assertLessEqual(self._wiki(m, o["gewichte"]), 35.0 + 1e-4)
 
 
 if __name__ == "__main__":
