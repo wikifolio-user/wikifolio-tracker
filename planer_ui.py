@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 16:30"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 16:50"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -3413,50 +3413,57 @@ def _b_kredit(m, R):
 
     if not k["kredite"]:
         k["kredite"] = [{"name": "Kredit 1", "betrag": 0.0, "rate": 0.0, "jahre": 5}]
-    df = pd.DataFrame([{"Kredit": x["name"], "Betrag €": float(x["betrag"]), "Rate/Monat €": float(x["rate"]),
-                        "Laufzeit J.": int(x["jahre"]), "Zins %": float(x.get("zins") or 0.0)}
+    # „Hinzufügen“ ueber der Tabelle; Loeschen direkt in der Zeile (🗑️ hinter dem Namen)
+    if st.button("➕ Kredit hinzufügen", key=_k("kr_neu"), width="stretch"):
+        k["kredite"].append({"name": f"Kredit {len(k['kredite']) + 1}", "betrag": 0.0, "rate": 0.0, "jahre": 5,
+                             "zins": None})
+        st.session_state["planer_kr_ver"] = st.session_state.get("planer_kr_ver", 0) + 1
+        st.rerun()
+    df = pd.DataFrame([{"Kredit": x["name"], "🗑️": False, "Betrag €": float(x["betrag"]),
+                        "Rate/Monat €": float(x["rate"]), "Laufzeit J.": int(x["jahre"]),
+                        "Zins %": float(x.get("zins") or 0.0)}
                        for x in k["kredite"]])
-    # feste Zeilenzahl + eigener „Hinzufügen“-Button: die Tabelle waechst dann sichtbar mit
-    ed = _editor_formular(
-        df, key=_k(f"kredite3_{len(df)}"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
-        column_config={
-            "Kredit": st.column_config.TextColumn("Kredit", width="small"),
-            "Betrag €": st.column_config.NumberColumn("Betrag €", min_value=0.0, step=1000.0, format="%d"),
-            "Rate/Monat €": st.column_config.NumberColumn("Rate/Monat €", min_value=0.0, step=10.0, format="%.2f",
-                                                          help="Monatliche Belastung laut Kreditvertrag (Zins + Tilgung)"),
-            "Laufzeit J.": st.column_config.NumberColumn("Laufzeit J.", min_value=1, max_value=40, step=1, format="%d"),
-            "Zins %": st.column_config.NumberColumn("Zins %", min_value=0.0, max_value=30.0, step=0.1, format="%.2f",
-                                                    help="Optional. 0 = aus Rate und Laufzeit errechnen (Rate tilgt "
-                                                         "komplett). Eingetragen: Tilgt die Rate nicht alles, bleibt "
-                                                         "eine Schlussrate, die aus dem Depot bezahlt wird."),
-        })
-    if ed is not df:
+    st.caption("Werte direkt in der Tabelle ändern – wird sofort übernommen. 🗑️ antippen = Kredit löschen.")
+    cfg = {
+        "Kredit": st.column_config.TextColumn("Kredit", width="small", pinned=True),
+        "🗑️": st.column_config.CheckboxColumn("🗑️", width=40, pinned=True, help="Antippen = diesen Kredit löschen"),
+        "Betrag €": st.column_config.NumberColumn("Betrag €", min_value=0.0, step=1000.0, format="%d"),
+        "Rate/Monat €": st.column_config.NumberColumn("Rate/Monat €", min_value=0.0, step=10.0, format="%.2f",
+                                                      help="Monatliche Belastung laut Kreditvertrag (Zins + Tilgung)"),
+        "Laufzeit J.": st.column_config.NumberColumn("Laufzeit J.", min_value=1, max_value=40, step=1, format="%d"),
+        "Zins %": st.column_config.NumberColumn("Zins %", min_value=0.0, max_value=30.0, step=0.1, format="%.2f",
+                                                help="Optional. 0 = aus Rate und Laufzeit errechnen (Rate tilgt "
+                                                     "komplett). Eingetragen: Tilgt die Rate nicht alles, bleibt "
+                                                     "eine Schlussrate, die aus dem Depot bezahlt wird."),
+    }
+    kw = dict(key=_k(f"kredite4_{len(df)}_{st.session_state.get('planer_kr_ver', 0)}"), hide_index=True,
+              width="stretch", num_rows="fixed", height=_hoehe(len(df)))
+    try:
+        ed = st.data_editor(df, column_config=cfg, **kw)
+    except TypeError:                     # aeltere Streamlit-Version ohne pinned/width-Zahl
+        for c in ("Kredit", "🗑️"):
+            cfg[c] = (st.column_config.TextColumn("Kredit", width="small") if c == "Kredit"
+                      else st.column_config.CheckboxColumn("🗑️", width="small"))
+        ed = st.data_editor(df, column_config=cfg, **kw)
+    if ed is not None and len(ed) == len(df):
         neu = []
         for i, (_, z) in enumerate(ed.iterrows(), 1):
+            if bool(z.get("🗑️")):
+                continue
             neu.append({"name": str(z.get("Kredit") or "").strip() or f"Kredit {i}",
                         "betrag": 0.0 if pd.isna(z.get("Betrag €")) else float(z["Betrag €"]),
                         "rate": 0.0 if pd.isna(z.get("Rate/Monat €")) else float(z["Rate/Monat €"]),
                         "jahre": 1 if pd.isna(z.get("Laufzeit J.")) else max(int(z["Laufzeit J."]), 1),
                         "zins": None if pd.isna(z.get("Zins %")) or not z.get("Zins %") else float(z["Zins %"])})
-        if _norm(neu) != _norm(k["kredite"]):
+        geloescht = len(neu) < len(df)
+        if geloescht:
+            for j, y in enumerate(neu, 1):            # Standardnamen neu durchzaehlen
+                if re.fullmatch(r"Kredit \d+", y["name"] or ""):
+                    y["name"] = f"Kredit {j}"
+        if geloescht or _norm(neu) != _norm(k["kredite"]):
             k["kredite"] = neu
+            st.session_state["planer_kr_ver"] = st.session_state.get("planer_kr_ver", 0) + 1
             st.rerun()
-    # Loeschen: sofort per Knopf je Kredit (ohne Umweg ueber die Tabelle)
-    if k["kredite"]:
-        spalten = st.columns(min(len(k["kredite"]), 3))
-        for i, x in enumerate(list(k["kredite"])):
-            if spalten[i % len(spalten)].button(f"🗑️ {x['name']}", key=_k(f"kr_del_{i}"), width="stretch",
-                                                help=f"„{x['name']}“ löschen"):
-                k["kredite"].pop(i)
-                for j, y in enumerate(k["kredite"], 1):          # leere Standardnamen neu durchzaehlen
-                    if re.fullmatch(r"Kredit \d+", y["name"] or ""):
-                        y["name"] = f"Kredit {j}"
-                _neu_zeichnen()
-                st.rerun()
-    if st.button("➕ Kredit hinzufügen", key=_k("kr_neu"), width="stretch"):
-        k["kredite"].append({"name": f"Kredit {len(k['kredite']) + 1}", "betrag": 0.0, "rate": 0.0, "jahre": 5,
-                             "zins": None})
-        st.rerun()
 
     erg = _kredit_rechnen(m, R)
     if erg is None:
