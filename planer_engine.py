@@ -306,8 +306,15 @@ def _beta(asset, stress):
 REBAL_MONATE = {"jaehrlich": 12, "halbjaehrlich": 6, "quartalsweise": 3}
 
 
+def _entnahme_monat(ent, m):
+    """Entnahme im Monat m (1-basiert) bei gleichzeitiger Entnahme waehrend des Aufbaus."""
+    if not ent or m > int(ent.get("monate") or 0):
+        return 0.0
+    return float(ent["monatlich"]) * (1.0 + float(ent.get("dynamik") or 0.0)) ** ((m - 1) // 12)
+
+
 def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None, stress=None,
-               nachkauf=None, scores=None, confidences=None):
+               nachkauf=None, scores=None, confidences=None, entnahme=True):
     """Monatliche Modellrechnung.
 
     renditen   {asset_id: jahresrendite (netto)}
@@ -321,6 +328,9 @@ def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None,
     jahre = int(jahre or rahmen["horizont_jahre"])
     sparrate = float(rahmen.get("sparrate_monat") or 0.0) if sparrate is None else float(sparrate)
     rebalancing = rebalancing or {"art": "keins"}
+    # gleichzeitige Entnahme waehrend des Aufbaus: {"monatlich", "dynamik", "monate"}
+    ent = rahmen.get("entnahme_parallel") if entnahme else None
+    entnommen = 0.0
     w = gewichte(modell)
     assets = {a["id"]: a for a in aktive_assets(modell)}
     start = float(rahmen["startkapital"])
@@ -349,11 +359,19 @@ def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None,
             if pfad and schock != 1.0:
                 f *= max(1.0 + _beta(assets[i], stress) * (schock - 1.0), 0.0)
             werte[i] *= f
-        # 2) Sparrate nach Zielgewicht
+        # 2) Sparrate nach Zielgewicht, gleichzeitige Entnahme anteilig vom Bestand
         if sparrate:
             for i in w:
                 werte[i] += sparrate * w[i]
                 eingezahlt[i] += sparrate * w[i]
+        aus = _entnahme_monat(ent, m)
+        if aus:
+            summe = sum(werte.values())
+            aus = min(aus, max(summe, 0.0))
+            if summe > 0:
+                for i in w:
+                    werte[i] -= aus * werte[i] / summe
+            entnommen += aus
         # 3) Nachkaufreserve (nur im Stresspfad): Tranchen bei Markt-Drawdown
         if pfad:
             markt_hoch = max(markt_hoch, pfad[m])
@@ -405,7 +423,7 @@ def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None,
         "endwerte_asset": dict(werte),
         "beitraege": {i: werte[i] - eingezahlt[i] for i in w},     # Gewinn je Asset
         "nachkaeufe": nachkaeufe, "rebalancings": rebalancings,
-        "max_verlust_pfad": _max_verlust(verlauf),
+        "max_verlust_pfad": _max_verlust(verlauf), "entnommen": entnommen,
     }
 
 
@@ -467,14 +485,16 @@ def nachkauf_ziele(modell, nachkauf, werte, ziel_risiko, scores=None, confidence
 def zusammenfassung(modell, renditen_netto, **kw):
     rahmen = modell["rahmen"]
     proj = projektion(modell, renditen_netto, **kw)
-    ohne_sparen = projektion(modell, renditen_netto, sparrate=0.0, **{k: v for k, v in kw.items() if k != "sparrate"}) \
-        if rahmen.get("sparrate_monat") else proj
+    # Portfoliorendite ohne Ein- und Auszahlungen (Sparrate, gleichzeitige Entnahme)
+    ohne_sparen = projektion(modell, renditen_netto, sparrate=0.0, entnahme=False,
+                             **{k: v for k, v in kw.items() if k not in ("sparrate", "entnahme")}) \
+        if (rahmen.get("sparrate_monat") or rahmen.get("entnahme_parallel")) else proj
     jahre = rahmen["horizont_jahre"]
     start, ziel = rahmen["startkapital"], rahmen["zielvermoegen"]
     return {
         "projektion": proj,
         "endwert": proj["endwert"],
-        "erforderliche_cagr": erforderliche_rendite(start, ziel, jahre, rahmen.get("sparrate_monat") or 0.0),
+        "erforderliche_cagr": erforderliche_rendite_rahmen(rahmen),
         "modell_cagr": required_cagr(start, ohne_sparen["endwert"], jahre),
         "differenz": proj["endwert"] - ziel,
         "multiplikator": proj["endwert"] / proj["eingezahlt"] if proj["eingezahlt"] else None,
@@ -1368,8 +1388,7 @@ def gewichtung_fuer_zielvermoegen(modell, renditen_netto, rebalancing=None):
     ziel = float(rahmen.get("zielvermoegen") or 0.0)
     if jahre <= 0 or ziel <= 0:
         return {"fehler": "Kein Zielvermögen oder keine Aufbauphase."}
-    benoetigt = erforderliche_rendite(float(rahmen["startkapital"]), ziel, jahre,
-                                      float(rahmen.get("sparrate_monat") or 0.0))
+    benoetigt = erforderliche_rendite_rahmen(rahmen)
     if benoetigt is None:
         return {"fehler": "Benötigte Rendite nicht berechenbar (Startkapital 0 ohne Sparrate?)."}
     probe = _copy.deepcopy(modell)
@@ -1671,3 +1690,37 @@ def zeit_bis_ziel(start, rendite_pa, ziel, sparrate=0.0, entnahme=0.0, dynamik_p
             verlauf.append((mon / 12, 0.0, ertr_j, ent_j))
             return None, verlauf
     return None, verlauf
+
+
+def endwert_mit_fluessen(start, rendite, jahre, sparrate=0.0, entnahme=None):
+    """Endwert bei monatlicher Verzinsung, Sparrate und gleichzeitiger Entnahme."""
+    rm = (1.0 + rendite) ** (1.0 / 12.0) - 1.0 if rendite > -1 else -1.0
+    wert = float(start)
+    for m in range(1, int(round(jahre * 12)) + 1):
+        wert = wert * (1 + rm) + sparrate - _entnahme_monat(entnahme, m)
+    return wert
+
+
+def erforderliche_rendite_rahmen(rahmen):
+    """Benoetigte Rendite p.a. fuer das Ziel - beruecksichtigt Sparrate UND eine
+    gleichzeitige Entnahme waehrend des Aufbaus. -> Anteil oder None"""
+    start, ziel = float(rahmen["startkapital"]), float(rahmen.get("zielvermoegen") or 0)
+    jahre = int(rahmen.get("horizont_jahre") or 0)
+    spar = float(rahmen.get("sparrate_monat") or 0.0)
+    ent = rahmen.get("entnahme_parallel")
+    if not ent:
+        return erforderliche_rendite(start, ziel, jahre, spar)
+    if jahre <= 0 or ziel <= 0:
+        return None
+    lo, hi = -0.99, 0.5
+    while endwert_mit_fluessen(start, hi, jahre, spar, ent) < ziel and hi < 100:
+        hi *= 2
+    if endwert_mit_fluessen(start, hi, jahre, spar, ent) < ziel:
+        return None
+    for _ in range(100):
+        mitte = (lo + hi) / 2
+        if endwert_mit_fluessen(start, mitte, jahre, spar, ent) >= ziel:
+            hi = mitte
+        else:
+            lo = mitte
+    return hi
