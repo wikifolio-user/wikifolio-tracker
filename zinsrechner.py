@@ -217,6 +217,53 @@ def loese(p):
     return p, rechne(p), ""
 
 
+def noetiger_zins(p, ziel_end):
+    """Zinssatz p.a., bei dem das Endkapital genau ziel_end erreicht (sonst None)."""
+    q = dict(p, calc="z", e=float(ziel_end))
+    q2, r2, hinweis = loese(q)
+    if hinweis:
+        return None
+    return float(q2["z"])
+
+
+def entnahme_analyse(p, r, wachstum=0.02):
+    """Wie viel Zins braucht der Entnahmeplan?
+    - gesamt: Kapitalerhalt = Endkapital so hoch wie alles Eingezahlte; Wachstum = zusaetzlich +wachstum p.a.
+    - je Phase: Zins, bei dem die Zinsen eines Jahres genau die Entnahmen dieses Jahres decken
+      (Kapital zu Beginn der Phase bleibt gleich) bzw. es um +wachstum waechst; Deckung mit dem aktuellen Zins."""
+    if not r.get("entnommen"):
+        return None
+    jahre = r["monate"] / 12
+    eingezahlt = r["einzahlungen"]
+    basis = dict(p, sp=p.get("sp", ""), calc="e")
+    gesamt = {"erhalt": noetiger_zins(basis, eingezahlt),
+              "wachstum": noetiger_zins(basis, eingezahlt * (1 + wachstum) ** jahre)}
+    phasen_ = []
+    sd = startdatum(p)
+    ab = 0
+    z_akt = float(p["z"])
+    for monate, betrag in phasen(p.get("ep")):
+        if betrag <= 0:
+            ab += monate
+            continue
+        k0 = r["verlauf"][min(ab, len(r["verlauf"]) - 1)]
+        if k0 <= 0:
+            phasen_.append({"von": plus_monate(sd, ab), "bis": plus_monate(sd, ab + monate) - datetime.timedelta(days=1),
+                            "betrag": betrag, "kapital": 0.0, "erhalt": None, "wachstum": None, "deckung": 0.0})
+            ab += monate
+            continue
+        test = dict(STANDARD, a=k0, s=0.0, si=1, ea=p["ea"], z=z_akt, zp=p["zp"], ze=p["ze"], n=1, ne="j",
+                    f=0, st=p.get("st", 0.0), fb=p.get("fb", 1000.0), ep=f"1x{betrag:g}", sp="")
+        erhalt = noetiger_zins(test, k0)
+        wachs = noetiger_zins(test, k0 * (1 + wachstum))
+        jr = rechne(test)
+        deckung = jr["zinsen"] / (12 * betrag) if betrag else None
+        phasen_.append({"von": plus_monate(sd, ab), "bis": plus_monate(sd, ab + monate) - datetime.timedelta(days=1),
+                        "betrag": betrag, "kapital": k0, "erhalt": erhalt, "wachstum": wachs, "deckung": deckung})
+        ab += monate
+    return {"gesamt": gesamt, "phasen": phasen_, "wachstum": wachstum, "zins": z_akt, "eingezahlt": eingezahlt}
+
+
 # ===========================================================================
 # Permanentlink (URL-Parameter)
 # ===========================================================================
@@ -430,7 +477,7 @@ def _pdf_chart(pdf, p, r, hoehe=170):
     pdf.y = y0 - 20
 
 
-def pdf_bericht(p, r, hinweis="", link=""):
+def pdf_bericht(p, r, hinweis="", link="", analyse=None):
     from abfindung import _PDF, _kuerzen
     pdf = _PDF()
     pdf.fuss = "Zinseszinsrechner - Szenariorechnung ohne Gewähr"
@@ -477,6 +524,23 @@ def pdf_bericht(p, r, hinweis="", link=""):
     if r.get("leer_monat"):
         pdf.absatz(f"Achtung: Das Kapital ist am {plus_monate(startdatum(p), r['leer_monat']).strftime('%d.%m.%Y')} "
                    "aufgebraucht – danach sind keine Entnahmen mehr möglich.", 8.5, True, (0.6, 0.2, 0.1))
+    if analyse:
+        pdf.ueberschrift("Entnahme & Zinsen")
+        g, z = analyse["gesamt"], analyse["zins"]
+        pdf.absatz(f"Gerechnet mit {_de(z, 2)} % p.a. Für Kapitalerhalt über die ganze Laufzeit (Endkapital = "
+                   f"eingezahlte {_de(analyse['eingezahlt'])} €) sind "
+                   + (f"{_de(g['erhalt'], 2)} % p.a." if g["erhalt"] is not None else "über 100 %") + " nötig, für "
+                   f"zusätzlich +{_de(analyse['wachstum'] * 100, 1)} % Wachstum p.a. "
+                   + (f"{_de(g['wachstum'], 2)} % p.a." if g["wachstum"] is not None else "über 100 %") + "", 8.5)
+        pdf.tabelle(["Zeitraum", "Entnahme/Monat", "Kapital am Start", "Erhalt", f"+{_de(analyse['wachstum'] * 100, 1)} %",
+                     "Deckung"],
+                    [[f"{x['von'].strftime('%d.%m.%Y')} - {x['bis'].strftime('%d.%m.%Y')}", f"{_de(x['betrag'])} €",
+                      f"{_de(x['kapital'])} €", f"{_de(x['erhalt'], 2)} %" if x["erhalt"] is not None else "-",
+                      f"{_de(x['wachstum'], 2)} %" if x["wachstum"] is not None else "-",
+                      f"{_de((x['deckung'] or 0) * 100, 0)} %"] for x in analyse["phasen"]],
+                    [1.9, 1, 1.1, 0.7, 0.7, 0.7], groesse=8)
+        pdf.absatz("Erhalt = Zinssatz, bei dem die Zinsen eines Jahres die Entnahmen dieses Jahres genau decken (Kapital "
+                   "bleibt gleich). Deckung = Anteil der Entnahmen, den die Zinsen beim gewählten Zinssatz decken.", 7.5)
     if link:
         pdf.y -= 6
         pdf.absatz("Permanentlink: " + link, 7.5, farbe=(0.2, 0.3, 0.6))
@@ -495,6 +559,49 @@ FARBEN = {"ein": "#3987e5", "zins": "#d95926", "ent": "#199e70", "text": "#e8e6d
 def _rgba(hexfarbe, a):
     h = hexfarbe.lstrip("#")
     return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{a})"
+
+
+def analyse_html(a):
+    """Status + Tabelle je Entnahme-Phase (Icon + Text, nie nur Farbe)."""
+    z = a["zins"]
+    g = a["gesamt"]
+
+    def status(noetig):
+        if noetig is None:
+            return '<span style="color:#e66767">⚠ selbst mit 100 % nicht erreichbar</span>'
+        if z >= noetig - 1e-9:
+            return f'<span style="color:#4cc38a">✓ erreicht ({_de(z, 2)} % ≥ {_de(noetig, 2)} %)</span>'
+        return f'<span style="color:#f0a27f">⚠ fehlen {_de(noetig - z, 2)} Prozentpunkte</span>'
+
+    def wert(x):
+        return f"{_de(x, 2)} %" if x is not None else "–"
+    zeilen_g = (
+        f'<div style="display:grid;grid-template-columns:1fr auto;gap:6px 10px;font-size:.86rem;margin:4px 0 12px">'
+        f'<div>Kapitalerhalt über die ganze Laufzeit<br><span style="color:#a9a79c;font-size:.74rem">Endkapital = alles '
+        f'Eingezahlte ({_de(a["eingezahlt"], 0)} €)</span></div><div style="text-align:right"><b>{wert(g["erhalt"])}</b>'
+        f'<br><span style="font-size:.74rem">{status(g["erhalt"])}</span></div>'
+        f'<div>Zusätzlich +{_de(a["wachstum"] * 100, 1)} % Wachstum p.a.</div><div style="text-align:right">'
+        f'<b>{wert(g["wachstum"])}</b><br><span style="font-size:.74rem">{status(g["wachstum"])}</span></div></div>')
+    th = "".join(f'<th style="text-align:{"left" if i == 0 else "right"};padding:6px 4px;color:#a9a79c;font-weight:600;'
+                 f'border-bottom:1px solid #2a2a28;white-space:nowrap">{k}</th>'
+                 for i, k in enumerate(["Phase", "€/Monat", "Erhalt", f"+{_de(a['wachstum'] * 100, 1)} %",
+                                        "Deckung"]))
+    tr = []
+    for x in a["phasen"]:
+        dk = (x["deckung"] or 0) * 100
+        farbe = "#4cc38a" if dk >= 100 else "#f0a27f"
+        tr.append("<tr>" + "".join(
+            f'<td style="text-align:{"left" if i == 0 else "right"};padding:6px 4px;border-bottom:1px solid #2a2a28;'
+            f'white-space:nowrap;vertical-align:top">{c}</td>' for i, c in enumerate([
+                f'{x["von"].strftime("%m/%Y")}–{x["bis"].strftime("%m/%Y")}<div style="font-size:.68rem;color:#a9a79c">'
+                f'Start {_de(x["kapital"], 0)} €</div>',
+                _de(x["betrag"], 0), wert(x["erhalt"]), wert(x["wachstum"]),
+                f'<span style="color:{farbe}">{"✓" if dk >= 100 else "⚠"} {_de(dk, 0)} %</span>'])) + "</tr>")
+    return (zeilen_g + '<table style="width:100%;border-collapse:collapse;font-size:.8rem;color:#e8e6df;'
+            f'font-variant-numeric:tabular-nums"><thead><tr>{th}</tr></thead><tbody>{"".join(tr)}</tbody></table>'
+            '<div style="font-size:.72rem;color:#a9a79c;margin-top:6px">Erhalt = Zinssatz, bei dem die Zinsen eines Jahres '
+            'die Entnahmen dieser Phase genau decken (Kapital bleibt gleich). Deckung = so viel der Entnahmen zahlen die '
+            f'Zinsen beim gewählten Zinssatz von {_de(z, 2)} %.</div>')
 
 
 def tabelle_html(za, r):
@@ -869,6 +976,17 @@ def render(basis_url=""):
     if calc != "e":
         st.caption(f"Endkapital damit: {_de(r['end'])} €")
 
+    analyse = None
+    if r.get("entnommen"):
+        st.markdown(_kopf("🛟", "Entnahme & Zinsen", "Welcher Zinssatz deckt die Entnahmen – und wann wächst das Kapital?"),
+                    unsafe_allow_html=True)
+        st.session_state.setdefault("zr_wg", 2.0)
+        wg = float(st.number_input("Gewünschtes Wachstum zusätzlich zur Entnahme (% p.a.)", 0.0, 50.0, step=0.5,
+                                   format="%.1f", key="zr_wg",
+                                   help="Wie stark das Kapital trotz Entnahme noch wachsen soll")) / 100.0
+        analyse = entnahme_analyse(q, r, wg)
+        st.markdown(analyse_html(analyse), unsafe_allow_html=True)
+
     try:
         st.plotly_chart(chart(q, r), width="stretch", config={"displayModeBar": False}, key="zr_chart")
     except Exception as ex:
@@ -890,5 +1008,5 @@ def render(basis_url=""):
     st.code(link, language=None)
     st.caption("Die Adresse im Browser ist jetzt genau dieser Link – als Lesezeichen speichern oder teilen; beim "
                "Öffnen erscheint der Rechner mit allen Werten.")
-    st.download_button("📄 Ergebnis als PDF", data=pdf_bericht(q, r, hinweis, link),
+    st.download_button("📄 Ergebnis als PDF", data=pdf_bericht(q, r, hinweis, link, analyse),
                        file_name="Zinsrechner.pdf", mime="application/pdf", width="stretch", key="zr_pdf")
