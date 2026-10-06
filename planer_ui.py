@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 15:40"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 16:30"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -578,7 +578,7 @@ def _kredit_rahmen(m):
         monate = min(jahre, laufzeit) * 12
         summe += betrag
         rest += E.kredit_restschuld(betrag, rate, zins, monate)
-        if k.get("rate_aus") == "investment":
+        if _rate_aus(m) == "investment":
             rate_depot += rate * monate / (jahre * 12)      # ueber den Aufbau gemittelt
     if summe <= 0:
         return None
@@ -914,7 +914,8 @@ def _rahmen(m):
 def _monatsbilanz(m, R):
     """Was pro Monat ins Depot hinein- und herausgeht - am Start:
     Gewinn (Rendite p.a. auf Eigenkapital + Kredite, in Monatsgewinn umgerechnet)
-    + Sparrate - Entnahme - Kreditraten (nur wenn aus dem Depot bezahlt)."""
+    + Sparrate - Entnahme - Kreditraten (nur wenn ZUSAETZLICH aus dem Depot bezahlt;
+    standardmaessig stecken die Raten in der Entnahme und werden nicht extra abgezogen)."""
     rahmen = m["rahmen"]
     e = _entnahme_daten(m)
     k = m.get("kredit") or {}
@@ -933,13 +934,16 @@ def _monatsbilanz(m, R):
     jahre = int(rahmen.get("horizont_jahre") or 0)
     ent_sofort = bool(e.get("aktiv", True)) and (bool(_entnahme_parallel(m)) or jahre == 0)
     entnahme = float(e["monatlich"]) if ent_sofort else 0.0
-    raten_depot = raten if (kredite and k.get("rate_aus") == "investment") else 0.0
+    art = _rate_aus(m)
+    raten_depot = raten if (kredite and art == "investment") else 0.0
+    raten_in_entnahme = raten if (kredite and art == "entnahme") else 0.0
     spar = float(rahmen.get("sparrate_monat") or 0.0)
     saldo = gewinn_monat + spar - entnahme - raten_depot
     return {"ek": ek, "kredite": kredite, "kredit_summe": kr["summe"] if kr else 0.0, "kapital": kapital, "r": r,
             "gewinn_jahr": gewinn_jahr, "gewinn_monat": gewinn_monat, "spar": spar, "entnahme": entnahme,
             "entnahme_spaeter": float(e["monatlich"]) if (e.get("aktiv", True) and not ent_sofort) else 0.0,
-            "raten": raten, "raten_depot": raten_depot, "raten_einkommen": raten - raten_depot, "saldo": saldo,
+            "raten": raten, "raten_depot": raten_depot, "raten_einkommen": raten if (kredite and art == "einkommen") else 0.0,
+            "raten_in_entnahme": raten_in_entnahme, "saldo": saldo,
             "kredit_ohne_aufbau": bool(k.get("aktiv") and k.get("kredite") and jahre == 0)}
 
 
@@ -962,6 +966,12 @@ def _monatsbilanz_anzeigen(platz, m, R):
         zeilen.append(z("+ Sparrate", f"+{_de(b['spar'])} €", "pl-gut"))
     if b["entnahme"]:
         zeilen.append(z("− Entnahme (ab sofort)", f"−{_de(b['entnahme'])} €", "pl-schlecht"))
+    if b["raten_in_entnahme"] and (b["entnahme"] or b["entnahme_spaeter"]):
+        ent = b["entnahme"] or b["entnahme_spaeter"]
+        frei = ent - b["raten_in_entnahme"]
+        zeilen.append(z("&nbsp;&nbsp;davon Kreditraten (kein extra Abzug)", f"{_de(b['raten_in_entnahme'])} €"))
+        zeilen.append(z("&nbsp;&nbsp;davon frei verfügbar", f'{"" if frei >= 0 else "−"}{_de(abs(frei))} €',
+                        "" if frei >= 0 else "pl-schlecht"))
     if b["raten_depot"]:
         zeilen.append(z("− Kreditraten (aus dem Depot)", f"−{_de(b['raten_depot'])} €", "pl-schlecht"))
     if b["raten_einkommen"]:
@@ -974,6 +984,11 @@ def _monatsbilanz_anzeigen(platz, m, R):
     extra = []
     if b["entnahme_spaeter"]:
         extra.append(f"Entnahme {_de(b['entnahme_spaeter'])} €/Monat beginnt erst nach dem Aufbau.")
+    if b["raten_in_entnahme"] and not (b["entnahme"] or b["entnahme_spaeter"]):
+        extra.append(f"Kreditraten {_de(b['raten_in_entnahme'])} €/Monat sollen aus der Entnahme kommen – "
+                     "es ist aber keine Entnahme eingeplant.")
+    elif b["raten_in_entnahme"] and b["raten_in_entnahme"] > (b["entnahme"] or b["entnahme_spaeter"]):
+        extra.append("⚠ Die Kreditraten sind höher als die Entnahme.")
     if b["kredit_ohne_aufbau"]:
         extra.append("Kredite werden nur bei einer Aufbauphase (> 0 Jahre) aufs Startkapital gerechnet.")
     with platz.container():
@@ -3322,8 +3337,27 @@ def _kredite(m):
         neu.append(x)
     k["kredite"] = neu
     k.setdefault("aktiv", False)
-    k.setdefault("rate_aus", "einkommen")
+    if not k.get("rate_aus_v2"):            # neu: Raten stecken standardmaessig in der Entnahme
+        k["rate_aus"] = "entnahme"
+        k["rate_aus_v2"] = True
+    if k.get("rate_aus") not in RATE_AUS:
+        k["rate_aus"] = "entnahme"
     return k
+
+
+RATE_AUS = {"entnahme": "aus der Entnahme (darin enthalten)", "einkommen": "aus dem Einkommen",
+            "investment": "zusätzlich aus dem Depot"}
+
+
+def _rate_aus(m):
+    k = m.get("kredit") or {}
+    return k.get("rate_aus") if k.get("rate_aus_v2") and k.get("rate_aus") in RATE_AUS else "entnahme"
+
+
+def _sim_rate_aus(m):
+    """Fuer die Kreditsimulation: Raten aus der Entnahme belasten das Depot nicht
+    zusaetzlich -> wie 'einkommen' (Vergleich: ohne Kredit bliebe die Rate im Depot)."""
+    return "investment" if _rate_aus(m) == "investment" else "einkommen"
 
 
 def _kredit_rechnen(m, R):
@@ -3347,9 +3381,9 @@ def _kredit_rechnen(m, R):
         if zins is None:
             zeilen.append({"x": x, "fehler": fehler})
             continue
-        o = E.kredit_simulation(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", k["rate_aus"], r, horizont,
+        o = E.kredit_simulation(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", _sim_rate_aus(m), r, horizont,
                                 rate=float(x["rate"]))
-        be = E.kredit_break_even(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", k["rate_aus"], horizont)
+        be = E.kredit_break_even(float(x["betrag"]), zins, int(x["jahre"]), "annuitaet", _sim_rate_aus(m), horizont)
         zeilen.append({"x": x, "zins": zins, "o": o, "lohnt_ab": be})
     ok = [z_ for z_ in zeilen if "o" in z_]
     mit = ek_end + sum(z_["o"]["netto_mit"] for z_ in ok)
@@ -3357,7 +3391,7 @@ def _kredit_rechnen(m, R):
     return {"zeilen": zeilen, "r": r, "horizont": horizont, "ek_end": ek_end, "mit": mit, "ohne": ohne,
             "vorteil": mit - ohne, "summe": sum(float(x["betrag"]) for x in kredite),
             "rate": sum(float(x["rate"]) for x in kredite), "zinsen": sum(z_["o"]["zinsen"] for z_ in ok),
-            "rate_aus": k["rate_aus"]}
+            "rate_aus": _rate_aus(m)}
 
 
 def _b_kredit(m, R):
@@ -3369,10 +3403,13 @@ def _b_kredit(m, R):
     k["aktiv"] = c1.toggle("Kredite in die Planung einrechnen", value=bool(k.get("aktiv", True)), key=_k("kr_aktiv"),
                            help="Das Kreditgeld wird zusätzlich zum Startkapital angelegt; oben in den Kennzahlen "
                                 "steht dann das Ergebnis nach Abzug der Restschuld")
-    aus = c2.toggle("Raten aus dem Depot zahlen", value=k.get("rate_aus") == "investment", key=_k("kr_aus"),
-                    help="Aus: Raten kommen aus dem Einkommen (Vergleich: diese Raten stattdessen sparen). "
-                         "An: für jede Rate werden Anteile verkauft.")
-    k["rate_aus"] = "investment" if aus else "einkommen"
+    arten = list(RATE_AUS)
+    k["rate_aus"] = c2.selectbox(
+        "Kreditraten bezahlt", arten, index=arten.index(_rate_aus(m)), format_func=RATE_AUS.get, key=_k("kr_aus2"),
+        help="Aus der Entnahme (Standard): die Raten sind in der monatlichen Entnahme schon enthalten – sie werden "
+             "nicht noch einmal abgezogen. Aus dem Einkommen: Raten belasten das Depot nicht. Zusätzlich aus dem "
+             "Depot: für jede Rate werden zusätzlich zur Entnahme Anteile verkauft.")
+    k["rate_aus_v2"] = True
 
     if not k["kredite"]:
         k["kredite"] = [{"name": "Kredit 1", "betrag": 0.0, "rate": 0.0, "jahre": 5}]
@@ -3429,11 +3466,13 @@ def _b_kredit(m, R):
     v = erg["vorteil"]
     _kacheln([
         ("Mit Krediten", _eur(erg["mit"]), f"nach {erg['horizont']} J. · nach Abzug der Restschuld"),
-        ("Ohne Kredite", _eur(erg["ohne"]), "Raten stattdessen gespart" if erg["rate_aus"] == "einkommen"
-         else "nur Startkapital"),
+        ("Ohne Kredite", _eur(erg["ohne"]), {"einkommen": "Raten stattdessen gespart",
+                                              "entnahme": "Raten-Anteil der Entnahme bleibt im Depot"}
+         .get(erg["rate_aus"], "nur Startkapital")),
         ("Vorteil Kredite", f'<span class="{"pl-gut" if v >= 0 else "pl-schlecht"}">{"+" if v >= 0 else "−"}'
                             f'{_de(abs(v))} €</span>', "lohnt sich" if v >= 0 else "lohnt sich nicht"),
-        ("Belastung", f"{_de(erg['rate'], 2)} €/Monat", f"Kredite {_de(erg['summe'])} € · Zinsen {_de(erg['zinsen'])} €"),
+        ("Belastung", f"{_de(erg['rate'], 2)} €/Monat", ("in der Entnahme enthalten · " if erg["rate_aus"] == "entnahme" else "")
+         + f"Kredite {_de(erg['summe'])} € · Zinsen {_de(erg['zinsen'])} €"),
     ])
     st.caption(f"Gerechnet mit der Portfolio-Rendite des Modells: {_pct(erg['r'])} p.a. – das Kreditgeld wird wie das "
                "Portfolio angelegt.")
