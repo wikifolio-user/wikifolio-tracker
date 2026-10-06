@@ -1724,3 +1724,46 @@ def erforderliche_rendite_rahmen(rahmen):
         else:
             lo = mitte
     return hi
+
+
+def gewichtung_fuer_cagr(modell, renditen_netto, ziel_cagr, rebalancing=None):
+    """Gewichte so verteilen (ausgehend von Gleichverteilung, gekippt nach den
+    Renditen wie gewichtung_fuer_rendite), dass die MODELLIERTE Portfoliorendite
+    p.a. (echte Projektion ohne Ein-/Auszahlungen, inkl. Rebalancing/Drift) genau
+    ziel_cagr ergibt. -> {"gewichte", "rendite", "erreichbar", "min", "max"} oder {"fehler"}"""
+    import copy as _copy
+    jahre = int(modell["rahmen"].get("horizont_jahre") or 0)
+    basis = gewichtung_fuer_rendite(modell, renditen_netto, ziel_cagr)
+    if basis.get("fehler") or jahre <= 0:
+        return basis                           # ohne Aufbau: gewichteter Mittelwert genuegt
+    probe = _copy.deepcopy(modell)
+    probe["rahmen"] = dict(probe["rahmen"], sparrate_monat=0.0)
+    probe["rahmen"].pop("entnahme_parallel", None)
+    start = float(probe["rahmen"]["startkapital"]) or 1.0
+
+    def cagr_bei(t):
+        erg = gewichtung_fuer_rendite(probe, renditen_netto, t)
+        for a in probe["assets"]:
+            if a["id"] in erg.get("gewichte", {}):
+                a["targetWeight"] = erg["gewichte"][a["id"]]
+        ew = projektion(probe, renditen_netto, rebalancing=rebalancing, entnahme=False)["endwert"]
+        return (ew / start) ** (1.0 / jahre) - 1.0 if ew > 0 else -1.0, erg
+
+    lo, hi = basis["min"], basis["max"]
+    c_hi, e_hi = cagr_bei(hi)
+    if c_hi < ziel_cagr:
+        return dict(e_hi, rendite=c_hi, erreichbar=False, min=lo, max=c_hi)
+    c_lo, e_lo = cagr_bei(lo)
+    if c_lo >= ziel_cagr:
+        return dict(e_lo, rendite=c_lo, erreichbar=abs(c_lo - ziel_cagr) < 1e-4, min=c_lo, max=c_hi)
+    erg, c = e_hi, c_hi
+    for _ in range(40):
+        mitte = (lo + hi) / 2
+        c_m, e_m = cagr_bei(mitte)
+        if c_m >= ziel_cagr:
+            hi, erg, c = mitte, e_m, c_m
+        else:
+            lo = mitte
+        if hi - lo < 1e-7:
+            break
+    return dict(erg, rendite=c, erreichbar=True, min=c_lo, max=c_hi)
