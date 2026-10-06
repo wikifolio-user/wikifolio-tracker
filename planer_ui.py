@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 12:30"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 13:00"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -738,6 +738,7 @@ def _rahmen(m):
         rahmen["sparrate_monat"] = float(c2.number_input("Monatliche Sparrate (€)", 0.0, 1e6,
                                                          float(rahmen.get("sparrate_monat") or 0.0), step=50.0,
                                                          format="%.0f", key=_k("spar")))
+        bilanz_platz = st.empty()        # Kapital + Kredite + Monatsbilanz (nach der Rechnung gefuellt)
         c3, c4 = st.columns(2)
         rahmen["horizont_jahre"] = int(c3.number_input("Dauer Aufbau (Jahre)", 0, 40, int(rahmen["horizont_jahre"]),
                                                        key=_k("jahre"),
@@ -855,6 +856,82 @@ def _rahmen(m):
             st.caption("Wo für diese Quelle keine Daten vorliegen, gilt die eigene Annahme.")
         st.caption("Renditen sind effektive Jahresrenditen vor Steuern. Die Nachkaufreserve nimmt am "
                    "Rebalancing nicht teil.")
+    return bilanz_platz
+
+
+def _monatsbilanz(m, R):
+    """Was pro Monat ins Depot hinein- und herausgeht - am Start:
+    Gewinn (Rendite p.a. auf Eigenkapital + Kredite, in Monatsgewinn umgerechnet)
+    + Sparrate - Entnahme - Kreditraten (nur wenn aus dem Depot bezahlt)."""
+    rahmen = m["rahmen"]
+    e = _entnahme_daten(m)
+    k = m.get("kredit") or {}
+    eff = _mit_krediten(m)["rahmen"]
+    z = R["zus"]
+    r = z.get("modell_cagr")
+    if r is None:
+        r = sum(g * R["r"].get(i, 0.0) for i, g in E.gewichte(m).items())
+    kr = _kredit_rahmen(m)
+    kredite = [x for x in (k.get("kredite") or []) if k.get("aktiv") and _kredit_konditionen(x)[0] is not None]
+    raten = sum(float(x["rate"]) for x in kredite)
+    ek = float(rahmen["startkapital"])
+    kapital = ek + (kr["summe"] if kr else 0.0)
+    gewinn_jahr = kapital * r
+    gewinn_monat = kapital * ((1 + r) ** (1 / 12) - 1)
+    jahre = int(rahmen.get("horizont_jahre") or 0)
+    ent_sofort = bool(e.get("aktiv", True)) and (bool(_entnahme_parallel(m)) or jahre == 0)
+    entnahme = float(e["monatlich"]) if ent_sofort else 0.0
+    raten_depot = raten if (kredite and k.get("rate_aus") == "investment") else 0.0
+    spar = float(rahmen.get("sparrate_monat") or 0.0)
+    saldo = gewinn_monat + spar - entnahme - raten_depot
+    return {"ek": ek, "kredite": kredite, "kredit_summe": kr["summe"] if kr else 0.0, "kapital": kapital, "r": r,
+            "gewinn_jahr": gewinn_jahr, "gewinn_monat": gewinn_monat, "spar": spar, "entnahme": entnahme,
+            "entnahme_spaeter": float(e["monatlich"]) if (e.get("aktiv", True) and not ent_sofort) else 0.0,
+            "raten": raten, "raten_depot": raten_depot, "raten_einkommen": raten - raten_depot, "saldo": saldo,
+            "kredit_ohne_aufbau": bool(k.get("aktiv") and k.get("kredite") and jahre == 0)}
+
+
+def _monatsbilanz_anzeigen(platz, m, R):
+    b = _monatsbilanz(m, R)
+
+    def z(label, wert, klasse="", fett=False):
+        w = f"<b>{wert}</b>" if fett else wert
+        return (f'<tr><td style="padding:3px 8px 3px 0">{label}</td>'
+                f'<td style="padding:3px 0;text-align:right;white-space:nowrap" class="{klasse}">{w}</td></tr>')
+
+    zeilen = [z("Eigenkapital (Startkapital)", f"{_de(b['ek'])} €")]
+    for x in b["kredite"]:
+        zeilen.append(z(f"+ {_esc(x['name'])} (Kredit)", f"{_de(x['betrag'])} €"))
+    if b["kredite"]:
+        zeilen.append(z("= investiertes Kapital", f"{_de(b['kapital'])} €", fett=True))
+    zeilen.append(z(f"Gewinn bei {_pct(b['r'])} p.a.", f"{_de(b['gewinn_jahr'])} €/Jahr"))
+    zeilen.append(z("→ Gewinn pro Monat", f"+{_de(b['gewinn_monat'])} €", "pl-gut", fett=True))
+    if b["spar"]:
+        zeilen.append(z("+ Sparrate", f"+{_de(b['spar'])} €", "pl-gut"))
+    if b["entnahme"]:
+        zeilen.append(z("− Entnahme (ab sofort)", f"−{_de(b['entnahme'])} €", "pl-schlecht"))
+    if b["raten_depot"]:
+        zeilen.append(z("− Kreditraten (aus dem Depot)", f"−{_de(b['raten_depot'])} €", "pl-schlecht"))
+    if b["raten_einkommen"]:
+        zeilen.append(z("Kreditraten aus dem Einkommen (laufende Kosten, nicht vom Depot)",
+                        f"{_de(b['raten_einkommen'])} €/Monat"))
+    s_ = b["saldo"]
+    zeilen.append(z("= Monatsbilanz Depot", f'{"+" if s_ >= 0 else "−"}{_de(abs(s_))} €',
+                    "pl-gut" if s_ >= 0 else "pl-schlecht", fett=True))
+    hinweis = ("Depot wächst" if s_ > 0 else "Depot schrumpft") + " – Stand am Start, die Gewinne steigen bzw. sinken mit dem Kapital."
+    extra = []
+    if b["entnahme_spaeter"]:
+        extra.append(f"Entnahme {_de(b['entnahme_spaeter'])} €/Monat beginnt erst nach dem Aufbau.")
+    if b["kredit_ohne_aufbau"]:
+        extra.append("Kredite werden nur bei einer Aufbauphase (> 0 Jahre) aufs Startkapital gerechnet.")
+    with platz.container():
+        st.markdown('<div class="pl-zeile" style="margin:6px 0 2px"><b>Kapital & Monatsbilanz</b></div>'
+                    f'<table style="width:100%;border-collapse:collapse;font-size:.92rem">{"".join(zeilen)}</table>'
+                    f'<div class="pl-zeile" style="margin-top:4px"><b class="{"pl-gut" if s_ >= 0 else "pl-schlecht"}">'
+                    f'{_esc(hinweis)}</b></div>', unsafe_allow_html=True)
+        for t in extra:
+            st.caption(t)
+
 
 def _kpis(platz, m, R):
     z = R["zus"]
@@ -905,21 +982,22 @@ def _kpis(platz, m, R):
                 zeilen.append(f'{("Nach dem Aufbau weiter" if _entnahme_parallel(m) else "Danach") if jahre_n > 0 else "Sofort"} Entnahme <b>{_de(e["monatlich"])} €/Monat</b> '
                               f'aus {_eur(_kap)} bei {_pct(_r)} p.a. · reicht '
                               f'<b class="{"pl-gut" if ok else "pl-schlecht"}">{dauer}</b> (Plan {e["dauer_jahre"]} J.)')
-                ent_p = _entnahme_parallel(m)
-                if ent_p:
-                    # Entnahme laeuft schon im Aufbau: Gewinn des Startkapitals (inkl. Kredite) zaehlt
-                    r_auf = z.get("modell_cagr") if z.get("modell_cagr") is not None else _r
-                    gm = float(_mit_krediten(m)["rahmen"]["startkapital"]) * ((1 + r_auf) ** (1 / 12) - 1)
+                if _entnahme_parallel(m):
                     zeilen.insert(0 if not jahre_n else 2,
                                   f'Entnahme während des Aufbaus: <b>{_de(e["monatlich"])} €/Monat</b> ab sofort · '
                                   f'gesamt {_eur(proj.get("entnommen") or 0)} in {jahre_n} J.')
-                else:
-                    gm = _kap * ((1 + _r) ** (1 / 12) - 1)
-                if e["monatlich"] > 0:
-                    zeilen.append(f'Gewinn am Start {_de(gm)} €/Monat gegen Entnahme {_de(e["monatlich"])} €/Monat → '
-                                  + (f'<b class="pl-gut">Kapital wächst</b> (Überschuss {_de(gm - e["monatlich"])} €/Monat)'
-                                     if gm >= e["monatlich"] else
-                                     f'<b class="pl-schlecht">Kapital schrumpft</b> ({_de(e["monatlich"] - gm)} €/Monat vom Kapital)'))
+                b = _monatsbilanz(m, R)
+                teile = [f'Gewinn {_de(b["gewinn_monat"])} €']
+                if b["spar"]:
+                    teile.append(f'+ Sparrate {_de(b["spar"])} €')
+                if b["entnahme"]:
+                    teile.append(f'− Entnahme {_de(b["entnahme"])} €')
+                if b["raten_depot"]:
+                    teile.append(f'− Raten {_de(b["raten_depot"])} €')
+                sb = b["saldo"]
+                zeilen.append("Monatsbilanz: " + " ".join(teile)
+                              + f' = <b class="{"pl-gut" if sb >= 0 else "pl-schlecht"}">{"+" if sb >= 0 else "−"}'
+                                f'{_de(abs(sb))} €/Monat → {"Depot wächst" if sb > 0 else "Depot schrumpft"}</b>')
             except Exception:
                 pass
         try:
@@ -3584,7 +3662,7 @@ def render(h):
              "keine Erwartung und keine Anlageempfehlung.")
 
     status_platz = st.empty()
-    _rahmen(m)
+    bilanz_platz = _rahmen(m)
     kpi_platz = st.empty()
     warn_platz = st.empty()
     haupt = st.pills("Bereich", HAUPT, default=HAUPT[0], key="pl_haupt") or HAUPT[0]
@@ -3640,6 +3718,10 @@ def render(h):
     if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
         R = _rechne(m, historie, korb_score)
     _kpis(kpi_platz, m, R)
+    try:
+        _monatsbilanz_anzeigen(bilanz_platz, m, R)
+    except Exception:
+        pass
     _gewichtswarnung(warn_platz, m)
 
     status = _auto_speichern(m, h)
