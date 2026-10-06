@@ -1853,6 +1853,10 @@ ANSICHT_DEPOT = "🏠 Depot"
 ANSICHT_EINST = "⚙️ Einstellungen"
 ANSICHT_MUSTER = "📦 Musterdepot"    # aus dem Portfolio-Planer erstellt - Button nur, wenn eines existiert
 ANSICHT_ABFINDUNG = "💶 Abfindungsrechner"
+ANSICHT_ZINS = "🧮 Zinseszinsrechner"
+APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
+# Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
+ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
 PFAD_MUSTERDEPOT = "state/musterdepot.json"
 ANSICHTEN = [
     ANSICHT_DEPOT,
@@ -1868,6 +1872,7 @@ ANSICHTEN = [
     "📝 Trader-Log (Trades & Kommentare)",
     "🏆 Watchlist Top 50",
     ANSICHT_ABFINDUNG,          # immer ans Ende: die Kachel-Keys haengen am Index
+    ANSICHT_ZINS,
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1883,6 +1888,7 @@ ANSICHT_KURZ = {
     "🏆 Watchlist Top 50": "🏆 Watchlist",
     ANSICHT_MUSTER: "📦 Muster",
     ANSICHT_ABFINDUNG: "💶 Abfindung",
+    ANSICHT_ZINS: "🧮 Zinsen",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1899,6 +1905,7 @@ NAV_NAMEN = {
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
+    ANSICHT_ZINS: "🧮 Zinseszinsrechner",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
 NAV_TITEL = {
@@ -1913,10 +1920,10 @@ NAV_ZEILEN = [
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Planer",
                            "🏆 Watchlist Top 50"]),
-    ("Rechner", [ANSICHT_ABFINDUNG]),
+    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG}
+LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS}
 
 NAV_CSS = """
 <style>
@@ -2193,6 +2200,22 @@ def kurse_neu_laden():
 
 def _nav_waehle(ansicht):
     st.session_state["ansicht_aktiv"] = ansicht
+    # ein Permanentlink gilt nur fuer seine Ansicht - beim Wechsel aus der Adresse entfernen
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+    st.session_state.pop("zr_init", None)
+
+
+def _app_url():
+    try:
+        u = st.context.url
+        if u:
+            return u.split("?")[0]
+    except Exception:
+        pass
+    return APP_URL
 
 
 def _nav_aktualisieren():
@@ -2218,6 +2241,12 @@ def navigation():
                   f'nächste Aktualisierung {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div>')
     hilfe = f"Kurse jetzt neu laden (sonst täglich ab {AKTUALISIERUNG_START} Uhr alle {AKTUALISIERUNG_TAKT} Stunden)"
 
+    # Permanentlink (?ansicht=zins&...): beim ersten Aufruf direkt diese Ansicht oeffnen
+    if not st.session_state.get("_link_geprueft"):
+        st.session_state["_link_geprueft"] = True
+        ziel_link = ANSICHT_LINKS.get(st.query_params.get("ansicht", ""))
+        if ziel_link:
+            st.session_state["ansicht_aktiv"] = ziel_link
     aktiv = st.session_state.get("ansicht_aktiv")
     if aktiv not in ANSICHTEN:
         aktiv = None
@@ -3713,6 +3742,15 @@ def render_dashboard():
             notify_app_error("Tab-Portfolio-Planer", e)
         lade_fertig()
 
+
+    if gewaehlte_ansicht == ANSICHT_ZINS:
+        try:
+            import zinsrechner
+            zinsrechner.render(_app_url())
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Zinseszinsrechner: {e}")
+            notify_app_error("Tab-Zinsrechner", e)
+        lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_ABFINDUNG:
         try:
