@@ -108,9 +108,11 @@ def bav_frei(e):
     return BAV_JE_JAHR * jahre
 
 
-def variante(e, titel, kurz, teile, rv=0.0, bav=0.0, hinweis=""):
+def variante(e, titel, kurz, teile, rv=0.0, bav=0.0, hinweis="", abzug_extra=0.0, ermaessigung=0.0):
     """teile: [(jahr_key, betrag, fuenftel)] - 'j1' = Auszahlungsjahr, 'j2' = Folgejahr.
-    rv/bav: Teil der Abfindung, der in Rente/bAV fliesst (wirkt im ersten Jahr der Variante)."""
+    rv/bav: Teil der Abfindung, der in Rente/bAV fliesst (wirkt im ersten Jahr der Variante).
+    abzug_extra: weitere Abzuege (Verluste, Sonderausgaben) im ersten Jahr; ermaessigung: direkte
+    Steuerermaessigung (§ 35a/§ 35c) im ersten Jahr."""
     sp, ki = e["splitting"], e["kirche"]
     erg = {"titel": titel, "kurz": kurz, "hinweis": hinweis, "jahre": {}}
     summe = {"est": 0.0, "soli": 0.0, "kirche": 0.0, "summe": 0.0}
@@ -127,7 +129,7 @@ def variante(e, titel, kurz, teile, rv=0.0, bav=0.0, hinweis=""):
         ohne = steuern(est(zve, sp, pv), sp, ki)
         abzug = e["werbungskosten"] if jk == erstes else 0.0
         if jk == erstes:
-            abzug += rv_abzug
+            abzug += rv_abzug + abzug_extra
         a_f = sum(b for b, f in betraege if f)
         a_n = sum(b for b, f in betraege if not f)
         if jk == erstes and bav_steuerfrei:        # steuerfreier bAV-Teil mindert die steuerpflichtige Abfindung
@@ -136,7 +138,10 @@ def variante(e, titel, kurz, teile, rv=0.0, bav=0.0, hinweis=""):
             else:
                 a_n = max(a_n - bav_steuerfrei, 0.0)
         rest = zve + a_n - abzug
-        mit = steuern(est_mit_abfindung(rest, a_f, True, sp, pv) if a_f else est(rest, sp, pv), sp, ki)
+        est_wert = est_mit_abfindung(rest, a_f, True, sp, pv) if a_f else est(rest, sp, pv)
+        if jk == erstes and ermaessigung:
+            est_wert = max(est_wert - ermaessigung, 0.0)
+        mit = steuern(est_wert, sp, ki)
         d = _minus(mit, ohne)
         erg["jahre"][jk] = {"ohne": ohne, "mit": mit, "abfindung": d}
         for k in summe:
@@ -188,12 +193,186 @@ def varianten(e):
                           [("j2" if folge else "j1", a, f)], rv=e.get("rv", 0.0), bav=e.get("bav", 0.0),
                           hinweis=("Auszahlung im Folgejahr" if folge else "Auszahlung dieses Jahr")
                           + ", Rente/bAV im selben Jahr."))
-    beste = min(v, key=lambda x: x["steuer"]["summe"])
+    g = gestaltungen(e)
+    aktiv = [x for x in g["massnahmen"] if not x["info"] and (x["abzug"] or x["ermaessigung"])]
+    if aktiv:
+        jk = g["jahr"]
+        v.append(variante(e, "Mit Gestaltungen: " + ", ".join(x["kurz"] for x in aktiv)
+                          + (" (Folgejahr)" if jk == "j2" else ""), "Mit Gestaltungen",
+                          [(jk, a, f)], rv=e.get("rv", 0.0), bav=e.get("bav", 0.0),
+                          abzug_extra=sum(x["abzug"] for x in aktiv),
+                          ermaessigung=sum(x["ermaessigung"] for x in aktiv),
+                          hinweis="Alle ausgewählten Gestaltungen zusammen (inkl. Rente/bAV, falls eingetragen). "
+                                  f"Dafür eingesetztes Geld: {_de(sum(x['einsatz'] for x in aktiv))} €."))
+        v[-1]["einsatz"] = sum(x["einsatz"] for x in aktiv)
+    beste = min([x for x in v if not x.get("einsatz")] or v, key=lambda x: x["steuer"]["summe"])
     basis = v[0]["steuer"]["summe"]
     for x in v:
         x["beste"] = x is beste
         x["ersparnis"] = basis - x["steuer"]["summe"]
     return v
+
+
+# ===========================================================================
+# Gestaltungen (Steuer sparen durch eigene Massnahmen im Auszahlungsjahr)
+# ===========================================================================
+AFA_ARTEN = {"2": ("2 % linear (Baujahr 1925–2022)", 0.02), "3": ("3 % linear (fertig ab 2023)", 0.03),
+             "2.5": ("2,5 % linear (Baujahr vor 1925)", 0.025),
+             "5": ("5 % degressiv (Neubau, Baubeginn 10/2023–9/2029)", 0.05)}
+IAB_HOECHST = 200000.0           # § 7g EStG: Investitionsabzugsbetrag hoechstens 200.000 €
+SPENDE_ANTEIL = 0.20             # § 10b Abs. 1: bis 20 % des Gesamtbetrags der Einkuenfte
+VERMOEGENSSTOCK = 1000000.0      # § 10b Abs. 1a: Stiftung (Vermoegensstock) bis 1 Mio. € (Ehepaare 2 Mio.)
+HANDWERKER_MAX = 1200.0          # § 35a Abs. 3: 20 % der Lohnkosten, max. 1.200 € Steuerermaessigung
+SANIERUNG_JAHR1 = (0.07, 14000.0)  # § 35c: 7 % (max. 14.000 €) im 1. und 2. Jahr, 6 % im 3. Jahr
+
+
+def gestaltungen(e):
+    """Massnahmen aus e["gest"] -> {"jahr": "j1"/"j2", "massnahmen": [...]}; je Massnahme
+    abzug (mindert das Einkommen), ermaessigung (mindert die Steuer direkt), einsatz (eigenes Geld),
+    gegenwert, hinweis; info=True = keine Wirkung auf die Abfindungssteuer (nur Erklaerung)."""
+    gs = e.get("gest") or {}
+    jahr = gs.get("jahr", "j1")
+    gde = (e["zve1"] if jahr == "j1" else e["zve2"]) + e["abfindung"]
+    out = []
+
+    def m(kurz, titel, abzug=0.0, ermaessigung=0.0, einsatz=0.0, gegenwert="", hinweis="", info=False):
+        out.append({"kurz": kurz, "titel": titel, "abzug": float(abzug), "ermaessigung": float(ermaessigung),
+                    "einsatz": float(einsatz), "gegenwert": gegenwert, "hinweis": hinweis, "info": info})
+
+    x = gs.get("immo") or {}
+    if x.get("aktiv"):
+        geb = float(x.get("kaufpreis", 0)) * float(x.get("gebaeude_anteil", 80)) / 100.0
+        satz = AFA_ARTEN.get(str(x.get("afa", "2")), AFA_ARTEN["2"])[1]
+        erh = float(x.get("erhaltung", 0))
+        warn = ""
+        if erh > 0.15 * geb / 1.19 and geb > 0:   # anschaffungsnahe Herstellungskosten (§ 6 Abs. 1 Nr. 1a)
+            warn = (" Achtung: Renovierung über 15 % des Gebäudewerts (netto) in den ersten 3 Jahren gilt als "
+                    "Anschaffungskosten – nur über die AfA absetzbar (hier so gerechnet).")
+            geb += erh
+            erh = 0.0
+        afa = geb * satz * max(min(int(x.get("monate", 12)), 12), 0) / 12.0
+        vv = float(x.get("miete", 0)) - afa - float(x.get("zinsen", 0)) - erh - float(x.get("sonstige", 0))
+        m("Immobilie", "Vermietete Immobilie kaufen (Verlust aus Vermietung)", abzug=-vv,
+          einsatz=float(x.get("zinsen", 0)) + float(x.get("erhaltung", 0)) + float(x.get("sonstige", 0))
+          - float(x.get("miete", 0)),
+          gegenwert=f"Immobilie {_de(float(x.get('kaufpreis', 0)))} €",
+          hinweis=f"AfA {_de(afa)} € ({_de(satz * 100, 1)} % vom Gebäudeanteil), Zinsen, Erhaltung und Kosten minus "
+                  f"Miete = Ergebnis Vermietung {_de(vv)} €. Nur vermietete Objekte; selbst genutzt bringt der Kauf "
+                  "keine Steuerersparnis. Grundstücksanteil wird nicht abgeschrieben." + warn)
+
+    x = gs.get("firma") or {}
+    if x.get("aktiv"):
+        iab = min(0.5 * float(x.get("invest", 0)), IAB_HOECHST)
+        anlauf = float(x.get("anlauf", 0))
+        m("Selbstständigkeit", "Einzelunternehmen / Selbstständigkeit gründen (Investitionsabzugsbetrag + Anlaufverlust)",
+          abzug=iab + anlauf, einsatz=anlauf,
+          gegenwert=f"Betrieb; Investition {_de(float(x.get('invest', 0)))} € innerhalb von 3 Jahren",
+          hinweis=f"Investitionsabzugsbetrag {_de(iab)} € (50 % der geplanten Anschaffungen, § 7g) + Anlaufkosten "
+                  f"{_de(anlauf)} €. Der Abzug verschiebt Steuer in spätere Jahre (bei der Anschaffung wird er "
+                  "wieder hinzugerechnet, die Abschreibung sinkt) – lohnt sich, weil die Abfindung hoch besteuert "
+                  "wird. "
+                  "Echte Gewinnerzielungsabsicht nötig; wird nicht investiert, wird der Abzug "
+                  "rückgängig gemacht (mit Zinsen). Verluste einer GmbH lassen sich NICHT mit der Abfindung "
+                  "verrechnen – nur Einzelunternehmen/Personengesellschaft.")
+
+    x = gs.get("spende") or {}
+    if x.get("aktiv"):
+        sp = min(float(x.get("spende", 0)), SPENDE_ANTEIL * max(gde, 0.0))
+        vs = min(float(x.get("stiftung", 0)), VERMOEGENSSTOCK * (2 if e["splitting"] else 1))
+        m("Spende/Stiftung", "Spende oder Zustiftung an eine gemeinnützige Stiftung", abzug=sp + vs,
+          einsatz=float(x.get("spende", 0)) + float(x.get("stiftung", 0)), gegenwert="– (gemeinnützig, Geld ist weg)",
+          hinweis=f"Spenden bis 20 % der Einkünfte ({_de(SPENDE_ANTEIL * max(gde, 0))} €) abziehbar, Zustiftung in "
+                  "den Vermögensstock zusätzlich bis 1 Mio. € (Ehepaare 2 Mio.), verteilbar auf 10 Jahre. "
+                  "Eine eigene Familienstiftung spart dagegen keine Einkommensteuer auf die Abfindung.")
+
+    x = gs.get("ruerup") or {}
+    if x.get("aktiv"):
+        frei = max(rv_spielraum(e) - min(e.get("rv", 0.0), rv_spielraum(e)), 0.0)
+        ab = min(float(x.get("betrag", 0)), frei)
+        m("Rürup", "Einzahlung in eine Basisrente (Rürup)", abzug=ab, einsatz=float(x.get("betrag", 0)),
+          gegenwert="lebenslange Rente (später steuerpflichtig)",
+          hinweis=f"Teilt sich den Höchstbetrag mit der Rentenversicherung – noch {_de(frei)} € abziehbar. Nicht "
+                  "kündbar, nicht vererbbar (nur Hinterbliebenenschutz).")
+
+    x = gs.get("fortbildung") or {}
+    if x.get("aktiv"):
+        m("Fortbildung", "Fortbildung, Umschulung, Bewerbungskosten, Arbeitsmittel", abzug=float(x.get("betrag", 0)),
+          einsatz=float(x.get("betrag", 0)), gegenwert="Qualifikation / Arbeitsmittel",
+          hinweis="Als (vorweggenommene) Werbungskosten abziehbar, wenn sie dem künftigen Beruf dienen.")
+
+    x = gs.get("handwerker") or {}
+    if x.get("aktiv"):
+        er = min(0.2 * float(x.get("lohn", 0)), HANDWERKER_MAX)
+        m("Handwerker", "Handwerkerleistungen im eigenen Haushalt", ermaessigung=er,
+          einsatz=float(x.get("lohn", 0)), gegenwert="Renovierung/Reparatur",
+          hinweis="20 % der Arbeits- und Fahrtkosten (nicht Material), höchstens 1.200 € direkt von der Steuer.")
+
+    x = gs.get("sanierung") or {}
+    if x.get("aktiv"):
+        k = float(x.get("kosten", 0))
+        er = min(SANIERUNG_JAHR1[0] * k, SANIERUNG_JAHR1[1])
+        m("Energetische Sanierung", "Energetische Sanierung des selbst genutzten Hauses (§ 35c)", ermaessigung=er,
+          einsatz=k, gegenwert="Haus: Dämmung, Fenster, Heizung …",
+          hinweis=f"Im 1. Jahr 7 % ({_de(er)} €), im 2. Jahr nochmals 7 %, im 3. Jahr 6 % – zusammen 20 %, max. "
+                  "40.000 €. Gebäude älter als 10 Jahre, Fachbetrieb, nicht zusätzlich gefördert.")
+
+    x = gs.get("solar") or {}
+    if x.get("aktiv"):
+        kwp, kosten = float(x.get("kwp", 0)), float(x.get("kosten", 0))
+        if kwp > 30:
+            iab = min(0.5 * kosten, IAB_HOECHST)
+            m("Solar > 30 kWp", f"Solaranlage {_de(kwp)} kWp als Gewerbe (Investitionsabzugsbetrag)", abzug=iab,
+              einsatz=0.0, gegenwert=f"Anlage {_de(kosten)} €, Einspeiseerlöse",
+              hinweis=f"Über 30 kWp ist die Anlage ein Gewerbebetrieb: Investitionsabzugsbetrag {_de(iab)} € (50 % "
+                      "der Kosten) schon vor dem Kauf absetzbar, danach Abschreibung. Die Steuer wird in spätere "
+                      "Jahre verschoben (Erträge sind steuerpflichtig) – lohnt wegen des hohen Satzes im "
+                      "Abfindungsjahr. Rentabilität der Anlage selbst vorher prüfen.")
+        else:
+            m("Solar ≤ 30 kWp", f"Solaranlage {_de(kwp)} kWp", info=True,
+              hinweis="Bis 30 kWp einkommensteuerfrei (seit 2022) – keine Abschreibung, also keine Ersparnis bei "
+                      "der Abfindungssteuer. Vorteil: 0 % Umsatzsteuer beim Kauf.")
+
+    x = gs.get("kv") or {}
+    if x.get("aktiv"):
+        jb = float(x.get("jahresbeitrag", 0))
+        vz = 2.5 * jb
+        m("KV-Vorauszahlung", "Kranken-/Pflegeversicherung für 2,5 Jahre im Voraus zahlen", abzug=vz, einsatz=0.0,
+          gegenwert=f"Beiträge der nächsten Jahre bezahlt ({_de(vz)} €)",
+          hinweis=f"Basisbeiträge bis zum 2,5-fachen Jahresbeitrag vorauszahlen ({_de(vz)} €) und im Abfindungsjahr "
+                  "absetzen (§ 10 Abs. 1 Nr. 3 S. 4 EStG). In den Folgejahren fällt der Abzug dann weg – die Steuer "
+                  "verschiebt sich in Jahre mit niedrigerem Satz. Vor allem für privat oder freiwillig "
+                  "Versicherte; die Kasse muss Vorauszahlungen annehmen.")
+
+    # Ideen ohne Wirkung auf die Abfindungssteuer - ehrlich einordnen
+    if e.get("kirche"):
+        m("Kirchenaustritt", "Kirchenaustritt vor der Auszahlung", info=True,
+          hinweis=f"Spart die Kirchensteuer auf die Abfindung (oben im Ergebnis als „KiSt“ ausgewiesen). "
+                  "Wirksam ab dem Folgemonat des Austritts – für die Abfindung zählt der Zeitpunkt der Zahlung. "
+                  "Persönliche Entscheidung, hier nur als Rechenhinweis.")
+    m("Eigenheim", "Immobilie selbst bewohnen", info=True,
+      hinweis="Kauf, Zinsen und Abschreibung einer selbst genutzten Immobilie sind nicht absetzbar (Ausnahmen: "
+              "Handwerker § 35a, energetische Sanierung § 35c, häusliches Arbeitszimmer).")
+    m("Investment-GmbH", "Vermögensverwaltende GmbH gründen", info=True,
+      hinweis="Die Abfindung wird vorher privat versteuert – eine GmbH senkt nur die Steuer auf künftige Erträge "
+              "(rund 15–30 % statt Abgeltungsteuer, je nach Anlage), nicht die Abfindungssteuer.")
+    m("Private Anschaffungen", "Auto, Möbel, Elektronik usw. privat kaufen", info=True,
+      hinweis="Privat genutzte Anschaffungen sind steuerlich nicht absetzbar.")
+    return {"jahr": jahr, "massnahmen": out}
+
+
+def gestaltung_wirkung(e):
+    """Steuerersparnis je Massnahme einzeln (gegenueber Auszahlung im gewaehlten Jahr, ohne Massnahme)."""
+    g = gestaltungen(e)
+    jk, a, f = g["jahr"], e["abfindung"], e["fuenftel_moeglich"]
+    ohne = variante(e, "", "", [(jk, a, f)])["steuer"]["summe"]
+    for x in g["massnahmen"]:
+        if x["info"]:
+            x["ersparnis"] = 0.0
+            continue
+        mit = variante(e, "", "", [(jk, a, f)], abzug_extra=x["abzug"], ermaessigung=x["ermaessigung"])
+        x["ersparnis"] = ohne - mit["steuer"]["summe"]
+        x["quote"] = x["ersparnis"] / x["einsatz"] if x["einsatz"] > 0 else None
+    return g
 
 
 # ===========================================================================
@@ -412,6 +591,26 @@ def pdf_bericht(e, v, erstellt=None):
              "minus Steuern minus Einzahlungen in Rente/bAV. Ersparnis = gegenüber dem Lohnsteuerabzug bei "
              "Auszahlung ohne Fünftelregelung.", 7.5)
 
+    g = gestaltung_wirkung(e)
+    wirk = [x for x in g["massnahmen"] if not x["info"]]
+    if wirk:
+        p.ueberschrift("Gestaltungen – was bringt was?")
+        p.tabelle(["Maßnahme", "Abzug", "Ermäßigung", "Steuer gespart", "Einsatz", "je 1 €"],
+                  [[x["kurz"], f"{_de(x['abzug'])} €", f"{_de(x['ermaessigung'])} €", f"{_de(x['ersparnis'])} €",
+                    f"{_de(x['einsatz'])} €", _de(x["quote"], 2) if x.get("quote") is not None else "-"]
+                   for x in wirk], [2.2, 1, 1, 1.1, 1, 0.7], groesse=8)
+        p.absatz("Jede Maßnahme einzeln gerechnet, Auszahlung im " + ("Folgejahr" if g["jahr"] == "j2" else
+                 "laufenden Jahr") + ". Abzug = mindert das Einkommen, Ermäßigung = direkt von der Steuer. "
+                 "Steuer sparen heißt Geld ausgeben – lohnend nur, wenn die Maßnahme ohnehin gewollt ist.", 7.5)
+        for x in wirk:
+            p.y -= 3
+            p.absatz(x["titel"], 8.5, True, (0.1, 0.1, 0.1))
+            p.absatz(x["hinweis"], 8, einzug=8)
+    p.ueberschrift("Ideen ohne Ersparnis bei der Abfindungssteuer")
+    for x in g["massnahmen"]:
+        if x["info"]:
+            p.absatz(f"- {x['titel']}: {x['hinweis']}", 8)
+
     p.ueberschrift("Eingaben")
     ein = [["Abfindung brutto", f"{_de(e['abfindung'])} €"],
            ["Zu versteuerndes Einkommen dieses Jahr (ohne Abfindung)", f"{_de(e['zve1'])} €"],
@@ -447,6 +646,82 @@ def pdf_bericht(e, v, erstellt=None):
 # ===========================================================================
 # Oberflaeche (Streamlit)
 # ===========================================================================
+def _gestaltungen_eingabe(st):
+    """Eingaben fuer die Gestaltungen -> dict fuer e["gest"]."""
+    g = {}
+    with st.expander("💡 Steuern sparen durch Gestaltungen (Immobilie, Firma, Stiftung …)", expanded=False):
+        g["jahr"] = "j2" if st.selectbox("Maßnahmen im Jahr der Auszahlung", ["Dieses Jahr", "Folgejahr"],
+                                         key="abf_g_jahr") == "Folgejahr" else "j1"
+
+        def schalter(key, label, hilfe=None):
+            return st.toggle(label, key=f"abf_g_{key}", help=hilfe)
+
+        if schalter("immo", "🏠 Vermietete Immobilie kaufen"):
+            c1, c2 = st.columns(2)
+            immo = {"aktiv": True,
+                    "kaufpreis": c1.number_input("Kaufpreis (€)", 0.0, 1e8, 300000.0, step=10000.0, format="%.0f",
+                                                 key="abf_g_kp"),
+                    "gebaeude_anteil": c2.number_input("Gebäudeanteil (%)", 0.0, 100.0, 80.0, step=5.0,
+                                                       key="abf_g_ga", help="Grund und Boden wird nicht abgeschrieben")}
+            c3, c4 = st.columns(2)
+            arten = list(AFA_ARTEN)
+            immo["afa"] = c3.selectbox("Abschreibung", arten, format_func=lambda k: AFA_ARTEN[k][0], key="abf_g_afa")
+            immo["monate"] = c4.number_input("Monate vermietet/besessen im Jahr", 0, 12, 6, key="abf_g_mon")
+            c5, c6 = st.columns(2)
+            immo["zinsen"] = c5.number_input("Kreditzinsen im Jahr (€)", 0.0, 1e7, 4000.0, step=500.0, format="%.0f",
+                                             key="abf_g_zins")
+            immo["erhaltung"] = c6.number_input("Renovierung / Erhaltung (€)", 0.0, 1e7, 0.0, step=1000.0,
+                                                format="%.0f", key="abf_g_erh")
+            c7, c8 = st.columns(2)
+            immo["miete"] = c7.number_input("Mieteinnahmen im Jahr (€)", 0.0, 1e7, 5000.0, step=500.0, format="%.0f",
+                                            key="abf_g_miete")
+            immo["sonstige"] = c8.number_input("Sonstige Kosten (Verwaltung, Grundsteuer …, €)", 0.0, 1e7, 1000.0,
+                                               step=250.0, format="%.0f", key="abf_g_sonst")
+            g["immo"] = immo
+        if schalter("firma", "🏢 Selbstständig machen / Einzelunternehmen gründen",
+                    "Investitionsabzugsbetrag: 50 % geplanter Anschaffungen schon vorab absetzen"):
+            c1, c2 = st.columns(2)
+            g["firma"] = {"aktiv": True,
+                          "invest": c1.number_input("Geplante Investitionen in 3 Jahren (€)", 0.0, 1e7, 40000.0,
+                                                    step=1000.0, format="%.0f", key="abf_g_inv",
+                                                    help="Maschinen, Fahrzeug (betrieblich > 90 %), Technik …"),
+                          "anlauf": c2.number_input("Anlaufkosten / Verlust im 1. Jahr (€)", 0.0, 1e7, 5000.0,
+                                                    step=500.0, format="%.0f", key="abf_g_anl")}
+        if schalter("solar", "☀️ Solaranlage kaufen"):
+            c1, c2 = st.columns(2)
+            g["solar"] = {"aktiv": True,
+                          "kwp": c1.number_input("Leistung (kWp)", 0.0, 10000.0, 50.0, step=5.0, key="abf_g_kwp",
+                                                 help="Bis 30 kWp steuerfrei (keine Ersparnis), darüber Gewerbe"),
+                          "kosten": c2.number_input("Kosten netto (€)", 0.0, 1e8, 50000.0, step=5000.0, format="%.0f",
+                                                    key="abf_g_pvk")}
+        if schalter("kv", "🏥 Kranken-/Pflegeversicherung vorauszahlen",
+                    "Für privat oder freiwillig gesetzlich Versicherte"):
+            g["kv"] = {"aktiv": True, "jahresbeitrag": st.number_input(
+                "Jahresbeitrag Basis-Kranken- und Pflegeversicherung (€)", 0.0, 1e6, 6000.0, step=500.0,
+                format="%.0f", key="abf_g_kvbeitrag")}
+        if schalter("spende", "🎗️ Spende / Zustiftung an gemeinnützige Stiftung"):
+            c1, c2 = st.columns(2)
+            g["spende"] = {"aktiv": True,
+                           "spende": c1.number_input("Spenden (€)", 0.0, 1e8, 1000.0, step=500.0, format="%.0f",
+                                                     key="abf_g_sp"),
+                           "stiftung": c2.number_input("Zustiftung Vermögensstock (€)", 0.0, 1e8, 0.0, step=1000.0,
+                                                       format="%.0f", key="abf_g_vs")}
+        if schalter("ruerup", "🧓 Basisrente (Rürup) einzahlen"):
+            g["ruerup"] = {"aktiv": True, "betrag": st.number_input("Einzahlung Rürup (€)", 0.0, 1e7, 10000.0,
+                                                                    step=1000.0, format="%.0f", key="abf_g_rr")}
+        if schalter("fortbildung", "🎓 Fortbildung, Umschulung, Arbeitsmittel"):
+            g["fortbildung"] = {"aktiv": True, "betrag": st.number_input("Kosten (€)", 0.0, 1e7, 3000.0, step=500.0,
+                                                                         format="%.0f", key="abf_g_fb")}
+        if schalter("handwerker", "🔧 Handwerker im eigenen Haushalt"):
+            g["handwerker"] = {"aktiv": True, "lohn": st.number_input("Arbeitskosten laut Rechnung (€)", 0.0, 1e6,
+                                                                      3000.0, step=500.0, format="%.0f",
+                                                                      key="abf_g_hw")}
+        if schalter("sanierung", "🌿 Energetische Sanierung (selbst genutztes Haus)"):
+            g["sanierung"] = {"aktiv": True, "kosten": st.number_input("Sanierungskosten (€)", 0.0, 1e7, 30000.0,
+                                                                       step=1000.0, format="%.0f", key="abf_g_san")}
+    return g
+
+
 def render():
     import streamlit as st
     import pandas as pd
@@ -499,7 +774,10 @@ def render():
                                      key="abf_bav", help="Teil der Abfindung in die betriebliche Altersversorgung"))
         dienst = int(c12.number_input("Dienstjahre (für bAV)", 0, 60, 10, step=1, key="abf_dienst"))
 
-    e = {"abfindung": float(abf), "zve1": float(zve1), "zve2": zve2, "splitting": veranl.startswith("Zusammen"),
+    gest = _gestaltungen_eingabe(st)
+
+    e = {"gest": gest, "abfindung": float(abf), "zve1": float(zve1), "zve2": zve2,
+         "splitting": veranl.startswith("Zusammen"),
          "kirche": kirche, "fuenftel_moeglich": bool(fuenftel), "alg1": alg1, "alg2": alg2,
          "werbungskosten": wk, "rv": rv, "rv_bisher": min(brutto, BBG_RV) * RV_SATZ, "jahresbrutto": brutto,
          "bav": bav, "dienstjahre": dienst}
@@ -534,6 +812,28 @@ def render():
     st.caption("Steuern = Mehrsteuer durch die Abfindung (Jahressteuer mit minus ohne Abfindung). Netto = Abfindung "
                "minus Steuern minus Einzahlungen in Rente/bAV.")
 
+    if any(x["steuer"]["summe"] < 0 for x in v):
+        st.caption("Negative Steuern: Die Gestaltungen sparen mehr Steuer, als die Abfindung kostet – sie senken auch "
+                   "die Steuer auf das übrige Einkommen.")
+    g = gestaltung_wirkung(e)
+    wirk = [x for x in g["massnahmen"] if not x["info"]]
+    if wirk:
+        st.markdown("##### Gestaltungen – was bringt was?")
+        st.dataframe(pd.DataFrame([{
+            "Maßnahme": x["kurz"],
+            "Abzug / Ermäßigung": (f"{_de(x['abzug'])} € Abzug" if x["abzug"] else "")
+            + (f"{_de(x['ermaessigung'])} € von der Steuer" if x["ermaessigung"] else ""),
+            "Steuer gespart": f"{_de(x['ersparnis'])} €",
+            "Eigener Einsatz": f"{_de(x['einsatz'])} €",
+            "Gespart je 1 € Einsatz": (_de(x["quote"], 2) + " €") if x.get("quote") is not None else "–",
+            "Gegenwert": x["gegenwert"]} for x in wirk]), hide_index=True, width="stretch")
+        st.caption("Jede Maßnahme einzeln gerechnet, Auszahlung im "
+                   + ("Folgejahr" if g["jahr"] == "j2" else "laufenden Jahr")
+                   + ". Mit Fünftelregelung wirken Abzüge besonders stark. Wichtig: Steuer sparen heißt Geld "
+                     "ausgeben – lohnend nur, wenn du die Maßnahme ohnehin willst.")
+        for x in wirk:
+            st.caption(f"**{x['titel']}:** {x['hinweis']}")
+
     with st.expander("🔎 Details je Variante", expanded=False):
         for x in v:
             st.markdown(f"**{'✓ ' if x['beste'] else ''}{x['titel']}**")
@@ -544,6 +844,11 @@ def render():
                     teile.append(f"{lab}: Jahressteuer {_de(j['mit']['summe'])} € (ohne Abfindung "
                                  f"{_de(j['ohne']['summe'])} €) → durch die Abfindung +{_de(j['abfindung']['summe'])} €")
             st.caption(" · ".join(teile) + (f" — {x['hinweis']}" if x["hinweis"] else ""))
+
+    with st.expander("🚫 Ideen ohne Ersparnis bei der Abfindungssteuer", expanded=False):
+        for x in g["massnahmen"]:
+            if x["info"]:
+                st.markdown(f"- **{x['titel']}:** {x['hinweis']}")
 
     st.download_button("📄 Ergebnis als PDF", data=pdf_bericht(e, v), file_name=f"Abfindung_{int(abf)}_EUR.pdf",
                        mime="application/pdf", width="stretch", key="abf_pdf")
