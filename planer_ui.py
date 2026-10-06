@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 13:00"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 15:40"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -662,10 +662,32 @@ def _ziel_in_entnahme(m):
     return int(m["rahmen"].get("horizont_jahre") or 0) <= 0
 
 
+RENDITE_MODI = {"ziel": "Automatisch aus dem Zielvermögen", "manuell": "Manuell: eigene Rendite p.a.",
+                "aus": "Aus – eigene Gewichte"}
+
+
+def _rendite_modus(m):
+    """Wie wird die Rendite p.a. des Portfolios festgelegt? 'ziel' | 'manuell' | 'aus'
+    (alte Modelle: auto_ziel True -> 'ziel', False -> 'aus')."""
+    r = m["rahmen"]
+    mo = r.get("rendite_modus")
+    if mo not in RENDITE_MODI:
+        mo = "ziel" if r.get("auto_ziel", True) else "aus"
+    return mo
+
+
+def _rendite_manuell(m):
+    return float(m["rahmen"].get("rendite_manuell") or 8.0) / 100.0
+
+
 def _auto_modus(m):
-    """'ziel' = Gewichte automatisch aufs Zielvermoegen, 'entnahme' = auf die
-    Entnahme-Rendite, None = aus. Das Ziel hat Vorrang (ein Portfolio, ein Ziel)."""
-    if _benoetigt(m) is not None and m["rahmen"].get("auto_ziel", True):
+    """'ziel' = Gewichte automatisch aufs Zielvermoegen, 'manuell' = auf eine fest
+    eingegebene Rendite p.a., 'entnahme' = auf die Entnahme-Rendite, None = aus.
+    Ziel/manuell haben Vorrang (ein Portfolio, eine Rendite)."""
+    mo = _rendite_modus(m)
+    if mo == "manuell":
+        return "manuell"
+    if mo == "ziel" and _benoetigt(m) is not None:
         return "ziel"
     e = _entnahme_daten(m)
     if e.get("aktiv", True) and e.get("rendite_quelle", "eigen") == "eigen" and e.get("auto_gewichtung"):
@@ -690,6 +712,9 @@ def _auto_gewichtung(m, R):
         erg["benoetigt"] = ben
     elif modus == "ziel":
         erg = E.gewichtung_fuer_zielvermoegen(_mit_krediten(m), R["r"], R["reb"])
+    elif modus == "manuell":
+        erg = E.gewichtung_fuer_cagr(_mit_krediten(m), R["r"], _rendite_manuell(m), R["reb"])
+        erg["soll"] = _rendite_manuell(m)
     else:
         erg = E.gewichtung_fuer_rendite(m, R["r"], float(_entnahme_daten(m)["rendite_pa"]) / 100.0)
     erg["modus"] = modus
@@ -711,6 +736,11 @@ def _auto_hinweis(m):
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend so verteilt, dass das Zielvermögen "
                 f"von {_de(m['rahmen']['zielvermoegen'])} € {wann} erreicht wird (benötigt {_pct(_benoetigt(m))} p.a.) – "
                 "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 1“.")
+    elif modus == "manuell":
+        st.info(f"Manuelle Rendite ist aktiv: Die Prozente werden laufend so verteilt, dass das Portfolio "
+                f"{_pct(_rendite_manuell(m))} p.a. erzielt – alle Werte (Aufbau, Entnahme, Kredite, Bilanz) "
+                "werden damit gerechnet; eigene Gewichte und Vorschläge werden überschrieben. "
+                "Ändern unter „⚙️ Planung → Phase 1“.")
     elif modus == "entnahme":
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend auf "
                 f"{_de(_entnahme_daten(m)['rendite_pa'], 1)} % p.a. (Rendite in der Entnahme) ausgerichtet – "
@@ -749,15 +779,23 @@ def _rahmen(m):
                                                         help="0 = kein Ziel. Mit Aufbau: Vermögen am Ende des Aufbaus. "
                                                              "Bei 0 Jahren Aufbau: Vermögen am Ende der Entnahme "
                                                              "(nach allen Entnahmen)."))
+        modi = list(RENDITE_MODI)
+        c4a, c4b = st.columns(2)
+        mo = c4a.selectbox(
+            "Rendite p.a. / Gewichtung", modi, index=modi.index(_rendite_modus(m)), format_func=RENDITE_MODI.get,
+            key=_k("rendite_modus"),
+            help="Zielvermögen: benötigte Rendite wird berechnet und die Prozente automatisch darauf verteilt. "
+                 "Manuell: du gibst die Rendite p.a. vor, die Prozente werden darauf verteilt und alles "
+                 "(Aufbau, Entnahme, Kredite, Monatsbilanz) wird damit gerechnet. Aus: deine eigenen Gewichte. "
+                 "Fixierte Bausteine und Reserve bleiben immer.")
+        rahmen["rendite_modus"] = mo
+        rahmen["auto_ziel"] = mo == "ziel"          # Rueckwaertskompatibel
+        if mo == "manuell":
+            rahmen["rendite_manuell"] = float(c4b.number_input(
+                "Rendite p.a. (%)", -20.0, 200.0, float(rahmen.get("rendite_manuell") or 8.0), step=0.5,
+                key=_k("rendite_manuell"), help="Fester Wert statt der Automatik"))
         ziel_platz = None
-        if float(rahmen.get("zielvermoegen") or 0) > 0:
-            rahmen["auto_ziel"] = st.toggle(
-                "Gewichte automatisch aufs Zielvermögen verteilen", value=bool(rahmen.get("auto_ziel", True)),
-                key=_k("auto_ziel"),
-                help="Berechnet die benötigte Rendite p.a. und verteilt die Prozente im Portfolio – ausgehend von "
-                     "einer Gleichverteilung, gekippt nach den Renditen der Bausteine – so, dass die Rechnung "
-                     "das Ziel genau erreicht. Fixierte Bausteine und Reserve bleiben. Manuelle Gewichte werden "
-                     "dabei überschrieben.")
+        if float(rahmen.get("zielvermoegen") or 0) > 0 or mo == "manuell":
             ziel_platz = st.empty()          # wird nach den Entnahme-Eingaben gefuellt (aktuelle Werte)
 
         _phase("Phase 2 · Entnahme" + (" (gleichzeitig mit dem Aufbau)" if e.get("parallel", True)
@@ -784,7 +822,11 @@ def _rahmen(m):
                              index=list(quellen).index(e.get("rendite_quelle", "eigen")),
                              format_func=quellen.get, key=_k("en_quelle"))
             e["rendite_quelle"] = q
-            if q == "eigen" and _auto_modus(m) == "ziel":
+            if q == "eigen" and _auto_modus(m) == "manuell":
+                st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>{_pct(_rendite_manuell(m))}</b> '
+                            '(manuell aus Phase 1; ist das nicht erreichbar, gilt die höchstmögliche '
+                            'Portfoliorendite)</div>', unsafe_allow_html=True)
+            elif q == "eigen" and _auto_modus(m) == "ziel":
                 # ein Portfolio, eine Rendite: die Entnahme rechnet mit der benoetigten Rendite
                 if _ziel_in_entnahme(m):
                     st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>{_pct(_benoetigt(m))}</b> '
@@ -819,14 +861,24 @@ def _rahmen(m):
 
         if ziel_platz is not None:
             ben = _benoetigt(m)
-            if ben is None:
+            if mo == "manuell":
+                ziel_platz.markdown(
+                    '<div class="pl-zeile">' + (f'Benötigte Rendite fürs Ziel: <b>{_pct(ben)}</b> · ' if ben is not None
+                                                else "")
+                    + f'gerechnet wird mit <b>{_pct(_rendite_manuell(m))}</b> p.a. (manuell) → Gewichte werden '
+                    'automatisch darauf verteilt'
+                    + ((lambda a: f' · ⚠ mit diesen Bausteinen höchstens {_pct(a["max"])}'
+                        if a and a.get("modus") == "manuell" and not a.get("erreichbar") and a.get("max") is not None
+                        and a["max"] < _rendite_manuell(m) else "")(st.session_state.get("planer_autogew")))
+                    + '</div>', unsafe_allow_html=True)
+            elif ben is None:
                 ziel_platz.caption("Ohne Aufbau gilt das Zielvermögen für das Ende der Entnahme – dafür die "
                                    "Entnahme einplanen." if _ziel_in_entnahme(m) else
                                    "Benötigte Rendite nicht berechenbar (Startkapital 0 ohne Sparrate?).")
             else:
                 ziel_platz.markdown(
                     f'<div class="pl-zeile">Benötigte Rendite p.a.' + (" in der Entnahme" if _ziel_in_entnahme(m) else "")
-                    + f': <b>{_pct(ben)}</b>' + (" → Gewichte werden automatisch darauf verteilt" if rahmen["auto_ziel"]
+                    + f': <b>{_pct(ben)}</b>' + (" → Gewichte werden automatisch darauf verteilt" if mo == "ziel"
                                                   else "") + "</div>", unsafe_allow_html=True)
 
         _phase("Weitere Einstellungen")
@@ -1027,6 +1079,17 @@ def _kpis(platz, m, R):
             else:
                 zeilen.append(f'⚠ Ziel mit diesen Bausteinen nicht erreichbar (benötigt {_pct(auto["benoetigt"])} p.a.) – '
                               f'renditestärkste Verteilung ergibt {_eur(auto["endwert"])}')
+        elif auto and auto.get("modus") == "manuell":
+            if auto.get("erreichbar"):
+                zeilen.append(f'Manuelle Rendite: Gewichte auf <b>{_pct(auto["rendite"])} p.a.</b> verteilt')
+            else:
+                zeilen.append(f'⚠ Manuelle Rendite {_pct(auto["soll"])} p.a. mit diesen Bausteinen nicht genau '
+                              f'erreichbar – gerechnet wird mit <b>{_pct(auto["rendite"])} p.a.</b> '
+                              f'(möglich {_pct(auto["min"])} bis {_pct(auto["max"])})')
+            ben = _benoetigt(m)
+            if ben is not None:
+                zeilen.append(f'Fürs Zielvermögen benötigt: {_pct(ben)} p.a. → Ziel '
+                              + ("erreicht" if auto["rendite"] >= ben - 1e-4 else "<b class=\"pl-schlecht\">verfehlt</b>"))
         elif auto:
             zeilen.append(("Gewichte automatisch auf " if auto["erreichbar"] else "⚠ Höchstens erreichbar: ")
                           + f'<b>{_pct(auto["rendite"])} p.a.</b> ausgerichtet'
@@ -3069,7 +3132,7 @@ def _entnahme_rechnen(m, R, e=None):
     proj = R["zus"]["projektion"]
     kapital = R["zus"].get("endwert_netto", proj["endwert"])
     einstand = min(proj["eingezahlt"], kapital)
-    if e.get("rendite_quelle", "eigen") == "eigen" and _auto_modus(m) != "ziel":
+    if e.get("rendite_quelle", "eigen") == "eigen" and _auto_modus(m) not in ("ziel", "manuell"):
         rendite = e["rendite_pa"] / 100.0
     elif R["zus"]["modell_cagr"] is not None and not _ziel_in_entnahme(m):
         rendite = R["zus"]["modell_cagr"]
@@ -3314,7 +3377,7 @@ def _b_kredit(m, R):
     if not k["kredite"]:
         k["kredite"] = [{"name": "Kredit 1", "betrag": 0.0, "rate": 0.0, "jahre": 5}]
     df = pd.DataFrame([{"Kredit": x["name"], "Betrag €": float(x["betrag"]), "Rate/Monat €": float(x["rate"]),
-                        "Laufzeit J.": int(x["jahre"]), "Zins %": float(x.get("zins") or 0.0), "🗑️": False}
+                        "Laufzeit J.": int(x["jahre"]), "Zins %": float(x.get("zins") or 0.0)}
                        for x in k["kredite"]])
     # feste Zeilenzahl + eigener „Hinzufügen“-Button: die Tabelle waechst dann sichtbar mit
     ed = _editor_formular(
@@ -3329,13 +3392,10 @@ def _b_kredit(m, R):
                                                     help="Optional. 0 = aus Rate und Laufzeit errechnen (Rate tilgt "
                                                          "komplett). Eingetragen: Tilgt die Rate nicht alles, bleibt "
                                                          "eine Schlussrate, die aus dem Depot bezahlt wird."),
-            "🗑️": st.column_config.CheckboxColumn("🗑️", width="small", help="Anhaken und „Daten aktualisieren“ = löschen"),
         })
     if ed is not df:
         neu = []
         for i, (_, z) in enumerate(ed.iterrows(), 1):
-            if bool(z.get("🗑️")):
-                continue
             neu.append({"name": str(z.get("Kredit") or "").strip() or f"Kredit {i}",
                         "betrag": 0.0 if pd.isna(z.get("Betrag €")) else float(z["Betrag €"]),
                         "rate": 0.0 if pd.isna(z.get("Rate/Monat €")) else float(z["Rate/Monat €"]),
@@ -3344,6 +3404,18 @@ def _b_kredit(m, R):
         if _norm(neu) != _norm(k["kredite"]):
             k["kredite"] = neu
             st.rerun()
+    # Loeschen: sofort per Knopf je Kredit (ohne Umweg ueber die Tabelle)
+    if k["kredite"]:
+        spalten = st.columns(min(len(k["kredite"]), 3))
+        for i, x in enumerate(list(k["kredite"])):
+            if spalten[i % len(spalten)].button(f"🗑️ {x['name']}", key=_k(f"kr_del_{i}"), width="stretch",
+                                                help=f"„{x['name']}“ löschen"):
+                k["kredite"].pop(i)
+                for j, y in enumerate(k["kredite"], 1):          # leere Standardnamen neu durchzaehlen
+                    if re.fullmatch(r"Kredit \d+", y["name"] or ""):
+                        y["name"] = f"Kredit {j}"
+                _neu_zeichnen()
+                st.rerun()
     if st.button("➕ Kredit hinzufügen", key=_k("kr_neu"), width="stretch"):
         k["kredite"].append({"name": f"Kredit {len(k['kredite']) + 1}", "betrag": 0.0, "rate": 0.0, "jahre": 5,
                              "zins": None})
