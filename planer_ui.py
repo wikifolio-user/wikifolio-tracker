@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 18:30"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "06.10.2026 · 19:10"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -614,6 +614,7 @@ def _entnahme_parallel(m):
     if not e.get("aktiv", True) or not e.get("parallel", True) or jahre <= 0 or not float(e.get("monatlich") or 0):
         return None
     return {"monatlich": float(e["monatlich"]), "dynamik": float(e.get("dynamik_pa") or 0) / 100.0,
+            "stufen": _stufen_sauber(e.get("stufen")),
             "monate": jahre * 12}
 
 
@@ -684,7 +685,8 @@ def _benoetigt(m):
     if not e.get("aktiv", True):
         return None
     return E.rendite_fuer_restwert(float(r["startkapital"]), float(e["monatlich"]), ziel,
-                                   jahre=int(e["dauer_jahre"]), dynamik_pa=float(e["dynamik_pa"]) / 100.0)
+                                   jahre=int(e["dauer_jahre"]), dynamik_pa=float(e["dynamik_pa"]) / 100.0,
+                                   stufen=e.get("stufen"))
 
 
 def _ziel_in_entnahme(m):
@@ -778,10 +780,74 @@ def _auto_hinweis(m):
                 "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 2“.")
 
 
+def _stufen_sauber(liste):
+    """Entnahme-Stufen pruefen: ab Jahr >= 2, Betrag >= 0, sortiert, je Jahr nur eine."""
+    aus = {}
+    for x in liste or []:
+        try:
+            aj, b = int(float(x.get("ab_jahr"))), float(x.get("monatlich"))
+        except (TypeError, ValueError):
+            continue
+        if aj >= 2 and b == b and b >= 0:
+            aus[aj] = b
+    return [{"ab_jahr": aj, "monatlich": aus[aj]} for aj in sorted(aus)]
+
+
+def _stufen_text(e, kurz=False):
+    st_ = e.get("stufen") or []
+    if not st_:
+        return ""
+    t = " · ".join(f"ab J. {x['ab_jahr']}: {_de(x['monatlich'])} €" for x in st_)
+    return t if kurz else f" (danach {t})"
+
+
+def _entnahme_start_monat(m):
+    """Entnahme-Monate, die schon waehrend des Aufbaus gelaufen sind."""
+    return int(m["rahmen"].get("horizont_jahre") or 0) * 12 if _entnahme_parallel(m) else 0
+
+
+def _entnahme_stufen_editor(m, e):
+    """Entnahme nach X Jahren aendern (z. B. senken) - Tabelle direkt bearbeitbar."""
+    parallel = bool(e.get("parallel", True)) and int(m["rahmen"].get("horizont_jahre") or 0) > 0
+    st.markdown('<div class="pl-zeile" style="margin-top:6px"><b>Entnahme später ändern</b></div>',
+                unsafe_allow_html=True)
+    st.caption("Ab einem bestimmten Jahr einen anderen Monatsbetrag entnehmen (z. B. senken, wenn ein Kredit "
+               "abbezahlt ist). Jahr 1 = " + ("ab sofort (Beginn der Planung)." if parallel
+                                              else "erstes Jahr der Entnahme nach dem Aufbau.")
+               + " Die jährliche Erhöhung läuft ab dem neuen Betrag weiter. 🗑️ antippen = Zeile löschen.")
+    if st.button("➕ Änderung hinzufügen", key=_k("en_stufe_neu"), width="stretch"):
+        letzte = e["stufen"][-1] if e["stufen"] else None
+        e["stufen"] = _stufen_sauber(e["stufen"] + [{"ab_jahr": (letzte["ab_jahr"] + 5) if letzte else 6,
+                                                     "monatlich": float(letzte["monatlich"] if letzte
+                                                                        else e["monatlich"])}])
+        st.session_state["planer_st_ver"] = st.session_state.get("planer_st_ver", 0) + 1
+        st.rerun()
+    if not e["stufen"]:
+        return
+    df = pd.DataFrame([{"Ab Jahr": int(x["ab_jahr"]), "€/Monat": float(x["monatlich"]), "🗑️": False}
+                       for x in e["stufen"]])
+    ed = st.data_editor(
+        df, key=_k(f"en_stufen_{len(df)}_{st.session_state.get('planer_st_ver', 0)}"), hide_index=True,
+        width="stretch", num_rows="fixed", height=_hoehe(len(df)),
+        column_config={
+            "Ab Jahr": st.column_config.NumberColumn("Ab Jahr", min_value=2, max_value=100, step=1, format="%d"),
+            "€/Monat": st.column_config.NumberColumn("€/Monat", min_value=0.0, step=50.0, format="%.0f"),
+            "🗑️": st.column_config.CheckboxColumn("🗑️", help="Antippen = Zeile löschen"),
+        })
+    if ed is not None and len(ed) == len(df):
+        neu = _stufen_sauber([{"ab_jahr": z["Ab Jahr"], "monatlich": z["€/Monat"]}
+                              for _, z in ed.iterrows() if not bool(z.get("🗑️"))])
+        if _norm(neu) != _norm(e["stufen"]):
+            e["stufen"] = neu
+            st.session_state["planer_st_ver"] = st.session_state.get("planer_st_ver", 0) + 1
+            st.rerun()
+
+
 def _entnahme_daten(m):
     e = m.setdefault("entnahme", copy.deepcopy(D.ENTNAHME))
     for k, v in D.ENTNAHME.items():
-        e.setdefault(k, v)
+        e.setdefault(k, copy.deepcopy(v))
+    e["stufen"] = _stufen_sauber(e.get("stufen"))
     e["start"] = "modell"             # Entnahme beginnt immer mit dem Modell-Endwert der Aufbauphase
     return e
 
@@ -848,6 +914,7 @@ def _rahmen(m):
             c7, c8 = st.columns(2)
             e["dynamik_pa"] = float(c7.number_input("Jährliche Erhöhung (%)", 0.0, 10.0, float(e["dynamik_pa"]),
                                                     step=0.5, key=_k("en_dyn"), help="z. B. Inflationsausgleich"))
+            _entnahme_stufen_editor(m, e)
             quellen = {"eigen": "Eigene Annahme", "modell": "Wie Aufbauphase"}
             q = c8.selectbox("Rendite in der Entnahme", list(quellen),
                              index=list(quellen).index(e.get("rendite_quelle", "eigen")),
@@ -942,6 +1009,39 @@ def _rahmen(m):
     return bilanz_platz
 
 
+def _stufen_bilanz(m, R, e, r):
+    """Je Entnahme-Stufe: Betrag (inkl. Erhoehung), Depotwert und Monatsbilanz zu Beginn der Stufe."""
+    if not e.get("aktiv", True) or not e.get("stufen"):
+        return []
+    rm = (1 + r) ** (1 / 12) - 1 if r > -1 else -1.0
+    jahre = int(m["rahmen"].get("horizont_jahre") or 0)
+    n_auf = jahre * 12
+    parallel = bool(_entnahme_parallel(m))
+    werte = R["zus"]["projektion"].get("monatswerte") or []
+    try:
+        _, r_ent, _, plan = _entnahme_rechnen(m, R, e)
+        rm_ent = (1 + r_ent) ** (1 / 12) - 1
+        nach = plan["verlauf"]
+    except Exception:
+        rm_ent, nach = rm, []
+    spar = float(_mit_krediten(m)["rahmen"].get("sparrate_monat") or 0.0)
+    aus = []
+    for x in e["stufen"]:
+        mon_ent = (x["ab_jahr"] - 1) * 12                    # Entnahme-Monate davor
+        t = mon_ent if (parallel or jahre == 0) else n_auf + mon_ent   # Monate ab heute
+        betrag = E.entnahme_betrag(e["monatlich"], float(e["dynamik_pa"]) / 100.0, mon_ent + 1, e["stufen"])
+        if t < len(werte) and t < n_auf:
+            wert, rate, sp = werte[t], rm, spar
+        elif 0 <= t - n_auf < len(nach):
+            wert, rate, sp = nach[t - n_auf], rm_ent, 0.0
+        else:
+            wert, rate, sp = None, rm, 0.0
+        saldo = None if wert is None else wert * rate + sp - betrag
+        aus.append({"ab_jahr": x["ab_jahr"], "betrag": betrag, "wert": wert, "saldo": saldo,
+                    "in_jahren": t / 12})
+    return aus
+
+
 def _monatsbilanz(m, R):
     """Was pro Monat ins Depot hinein- und herausgeht - am Start:
     Gewinn (Rendite p.a. auf Eigenkapital + Kredite, in Monatsgewinn umgerechnet)
@@ -986,6 +1086,7 @@ def _monatsbilanz(m, R):
             "entnahme_spaeter": float(e["monatlich"]) if (e.get("aktiv", True) and not ent_sofort) else 0.0,
             "raten": raten, "raten_depot": raten_depot, "raten_einkommen": raten if (kredite and art == "einkommen") else 0.0,
             "raten_in_entnahme": raten_in_entnahme, "saldo": saldo, "nicht": nicht,
+            "stufen": _stufen_bilanz(m, R, e, r),
             "kredit_ohne_aufbau": bool(_kredite_aktiv(m) and kredite and jahre == 0)}
 
 
@@ -1033,13 +1134,23 @@ def _monatsbilanz_anzeigen(platz, m, R):
         extra.append("⚠ Die Kreditraten sind höher als die Entnahme.")
     for t in b["nicht"]:
         extra.append("⚠ Nicht eingerechnet – " + t)
+    stufen_html = ""
+    if b.get("stufen"):
+        teile = []
+        for x in b["stufen"]:
+            t = f'Ab Jahr {x["ab_jahr"]}: Entnahme <b>{_de(x["betrag"])} €/Monat</b>'
+            if x["saldo"] is not None:
+                t += (f' · Depot dann ≈ {_eur(x["wert"])} · Monatsbilanz <b class="{"pl-gut" if x["saldo"] >= 0 else "pl-schlecht"}">'
+                      f'{"+" if x["saldo"] >= 0 else "−"}{_de(abs(x["saldo"]))} €</b>')
+            teile.append(t)
+        stufen_html = '<div class="pl-zeile" style="margin-top:4px">' + "<br>".join(teile) + "</div>"
     if b["kredit_ohne_aufbau"] and not b["nicht"]:
         extra.append("Kredite werden nur bei einer Aufbauphase (> 0 Jahre) aufs Startkapital gerechnet.")
     with platz.container():
         st.markdown('<div class="pl-zeile" style="margin:6px 0 2px"><b>Kapital & Monatsbilanz</b></div>'
                     f'<table style="width:100%;border-collapse:collapse;font-size:.92rem">{"".join(zeilen)}</table>'
                     f'<div class="pl-zeile" style="margin-top:4px"><b class="{"pl-gut" if s_ >= 0 else "pl-schlecht"}">'
-                    f'{_esc(hinweis)}</b></div>', unsafe_allow_html=True)
+                    f'{_esc(hinweis)}</b></div>' + stufen_html, unsafe_allow_html=True)
         for t in extra:
             st.caption(t)
 
@@ -1090,12 +1201,12 @@ def _kpis(platz, m, R):
                 _kap, _r, _kw, plan = _entnahme_rechnen(m, R, e)
                 dauer = "dauerhaft" if plan["reicht_dauerhaft"] else _dauer_text(plan)
                 ok = plan["reicht_dauerhaft"] or plan["dauer_monate"] >= int(e["dauer_jahre"]) * 12
-                zeilen.append(f'{("Nach dem Aufbau weiter" if _entnahme_parallel(m) else "Danach") if jahre_n > 0 else "Sofort"} Entnahme <b>{_de(e["monatlich"])} €/Monat</b> '
+                zeilen.append(f'{("Nach dem Aufbau weiter" if _entnahme_parallel(m) else "Danach") if jahre_n > 0 else "Sofort"} Entnahme <b>{_de(e["monatlich"])} €/Monat</b>{_stufen_text(e)} '
                               f'aus {_eur(_kap)} bei {_pct(_r)} p.a. · reicht '
                               f'<b class="{"pl-gut" if ok else "pl-schlecht"}">{dauer}</b> (Plan {e["dauer_jahre"]} J.)')
                 if _entnahme_parallel(m):
                     zeilen.insert(0 if not jahre_n else 2,
-                                  f'Entnahme während des Aufbaus: <b>{_de(e["monatlich"])} €/Monat</b> ab sofort · '
+                                  f'Entnahme während des Aufbaus: <b>{_de(e["monatlich"])} €/Monat</b> ab sofort{_stufen_text(e)} · '
                                   f'gesamt {_eur(proj.get("entnommen") or 0)} in {jahre_n} J.')
                     # Rechenweg: ohne Entnahme -> Entnahmen inkl. entgangener Rendite -> Restschuld -> Endwert
                     try:
@@ -3218,7 +3329,8 @@ def _entnahme_rechnen(m, R, e=None):
         rendite = sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in E.gewichte(m).items())
     kw = dict(dynamik_pa=e["dynamik_pa"] / 100.0, einstand=einstand,
               steuersatz=(e["steuersatz"] / 100.0) if e["steuer"] else 0.0,
-              freibetrag=e["freibetrag"] if e["steuer"] else 0.0)
+              freibetrag=e["freibetrag"] if e["steuer"] else 0.0,
+              stufen=e.get("stufen"), start_monat=_entnahme_start_monat(m))
     plan = E.entnahmeplan(kapital, rendite, e["monatlich"], jahre=int(e["dauer_jahre"]), **kw)
     return kapital, rendite, kw, plan
 
@@ -3267,7 +3379,8 @@ def _entnahme_gegen_gewinne(m, R, e, kapital, rendite, plan):
         r_auf = rendite
     spar = float(m["rahmen"].get("sparrate_monat") or 0)
     ohne, _ = E.zeit_bis_ziel(start, r_auf, ziel, spar)
-    mit, verlauf = E.zeit_bis_ziel(start, r_auf, ziel, spar, ent, float(e["dynamik_pa"]) / 100.0)
+    mit, verlauf = E.zeit_bis_ziel(start, r_auf, ziel, spar, ent, float(e["dynamik_pa"]) / 100.0,
+                                   stufen=e.get("stufen"))
 
     def dauer(mon):
         return "nie (Entnahme frisst die Gewinne)" if mon is None else \
@@ -3313,7 +3426,7 @@ def _b_entnahme(m, R):
 
     _kacheln([
         ("Startkapital", _eur(kapital), D.ENTNAHME_STARTS[e["start"]] + f" · nach {rahmen['horizont_jahre']} J."),
-        ("Entnahme", f"{_de(e['monatlich'])} €", "pro Monat netto"
+        ("Entnahme", f"{_de(e['monatlich'])} €", "pro Monat netto" + (" · " + _stufen_text(e, True) if e.get("stufen") else "")
          + (f", +{_de(e['dynamik_pa'], 1)} % p.a." if e["dynamik_pa"] else "")),
         ("Kapital reicht", f'<span class="{"pl-gut" if reicht else "pl-schlecht"}">{_dauer_text(plan)}</span>',
          f"Plan: {jahre} J. bei {_pct(rendite)} p.a."),
@@ -3340,7 +3453,8 @@ def _b_entnahme(m, R):
     fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahmephase", line=dict(color="#16C784", width=3)))
     netto_kum, summe = [0.0], 0.0
     for i in range(1, len(ent)):
-        summe += e["monatlich"] * (1 + e["dynamik_pa"] / 100.0) ** ((i - 1) // 12)
+        summe += E.entnahme_betrag(e["monatlich"], e["dynamik_pa"] / 100.0, i + kw.get("start_monat", 0),
+                                   e.get("stufen"))
         netto_kum.append(summe)
     fig.add_trace(go.Scatter(x=x_ent, y=netto_kum, name="Summe Entnahmen", line=dict(color="#F5B942", dash="dot")))
     _layout(fig, 340)
