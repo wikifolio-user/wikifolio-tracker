@@ -15,7 +15,7 @@ INTERVALLE = {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich", 12: "j�
 ZIEL_FELDER = {"e": "Endkapital", "a": "Anfangskapital", "s": "Sparrate", "dy": "Dynamik", "z": "Zinssatz",
                "n": "Ansparzeit"}
 STANDARD = {"a": 0.0, "s": 100.0, "si": 1, "ea": "v", "dy": 0.0, "dya": "j", "z": 5.0, "zp": 12, "ze": 1,
-            "n": 10, "ne": "j", "f": 0, "fe": "j", "e": 0.0, "calc": "e", "st": 0.0, "fb": 1000.0, "am": ""}
+            "n": 10, "ne": "j", "f": 0, "fe": "j", "e": 0.0, "calc": "e", "st": 0.0, "fb": 1000.0, "am": "", "sd": ""}
 ABGELTUNG = 26.375
 
 
@@ -46,6 +46,8 @@ def rechne(p):
     periode_zins = 0.0                                      # in der laufenden Zinsperiode aufgelaufen
     verzinst = k                                            # Betrag, der in diesem Monat Zinsen bringt
     jahre, verlauf = [], [k]
+    ein_kum, zins_kum, wert = [k], [0.0], [k]               # Monatswerte fuer den Chart
+    zins_netto_kum = 0.0
     jz = {"ein": 0.0, "zins": 0.0, "steuer": 0.0}
     frei_rest = freib
     rate = rate0
@@ -75,6 +77,7 @@ def rechne(p):
             steuer_ges += st_
             jz["zins"] += z_
             jz["steuer"] += st_
+            zins_netto_kum += z_ - st_
             if zinseszins:
                 k += z_ - st_
             else:
@@ -82,6 +85,11 @@ def rechne(p):
             verzinst = k
             periode_zins = 0.0
         verlauf.append(k)
+        # Chart: aufgelaufene, noch nicht gutgeschriebene Zinsen schon mitzeigen (glatter Verlauf)
+        offen = periode_zins * (1 - steuer) if periode_zins else 0.0
+        ein_kum.append(einzahlungen)
+        zins_kum.append(zins_netto_kum + offen)
+        wert.append(einzahlungen + zins_netto_kum + offen)
         if m % 12 == 0 or m == n_ges:
             jahre.append({"jahr": (m - 1) // 12 + 1, "monat": m, "ein": jz["ein"], "zins": jz["zins"],
                           "steuer": jz["steuer"], "stand": k})
@@ -89,6 +97,7 @@ def rechne(p):
             frei_rest = freib
     return {"end": k, "einzahlungen": einzahlungen, "zinsen": zinsen_ges, "steuer": steuer_ges,
             "ausgezahlt": ausgezahlt, "jahre": jahre, "verlauf": verlauf, "monate": n_ges, "spar_monate": n_spar,
+            "ein_kum": ein_kum, "zins_kum": zins_kum, "wert": wert, "start": float(p["a"]),
             "letzte_rate": rate}
 
 
@@ -196,6 +205,36 @@ def _laufzeit_text(monate):
            (f"{m} Monat{'e' if m != 1 else ''}" if m else "") or "keine"
 
 
+def startdatum(p):
+    """Startdatum aus p["sd"] (JJJJ-MM-TT), alt: p["am"] (JJJJ-MM) - sonst heute."""
+    for feld, fmt in (("sd", "%Y-%m-%d"), ("am", "%Y-%m")):
+        if p.get(feld):
+            try:
+                return datetime.datetime.strptime(str(p[feld]), fmt).date()
+            except ValueError:
+                pass
+    return datetime.date.today()
+
+
+def plus_monate(d, monate):
+    import calendar
+    j, m = divmod(d.month - 1 + int(monate), 12)
+    jahr, monat = d.year + j, m + 1
+    return datetime.date(jahr, monat, min(d.day, calendar.monthrange(jahr, monat)[1]))
+
+
+def zeitachse(p, r):
+    """Tabellenzeilen: Start (Anfangskapital) und je volles Jahr (bzw. Laufzeitende) mit Datum."""
+    sd = startdatum(p)
+    zeilen = [{"datum": sd, "text": "Start", "ein": r["start"], "zins": 0.0, "steuer": 0.0, "stand": r["start"]}]
+    for z in r["jahre"]:
+        zeilen.append({"datum": plus_monate(sd, z["monat"]), "text": "", "ein": z["ein"], "zins": z["zins"],
+                       "steuer": z["steuer"], "stand": z["stand"]})
+    if zeilen:
+        zeilen[-1]["text"] = "Ende" if len(zeilen) > 1 else "Start"
+    return zeilen
+
+
 def _jahr_label(z, p):
     if p.get("am"):
         try:
@@ -220,9 +259,67 @@ def zeilen_kenndaten(p):
            ["Festlegungsfrist", _laufzeit_text(_monate(p["f"], p["fe"]))],
            ["Steuer", f"{_de(float(p['st']), 3)} % (Freibetrag {_de(float(p['fb']), 0)} €/Jahr)"
             if float(p.get("st") or 0) else "nicht berücksichtigt"]]
-    if p.get("am"):
-        zei.append(["Anfangsmonat", str(p["am"])])
+    zei.append(["Startdatum", startdatum(p).strftime("%d.%m.%Y")])
     return zei
+
+
+def _pdf_chart(pdf, p, r, hoehe=170):
+    """Gestapelte Flaechen (Eingezahlt / Zinsen) als Vektorgrafik im PDF."""
+    n = len(r["wert"])
+    if n < 2:
+        return
+    pdf.ueberschrift("Verlauf")
+    pdf.platz(hoehe + 30)
+    x0, x1 = pdf.RAND + 52, pdf.B - pdf.RAND - 4
+    y0 = pdf.y - hoehe
+    y1 = pdf.y - 6
+    vmax = max(r["wert"]) or 1.0
+    # "schoene" Obergrenze
+    import math as _m
+    stufe = 10 ** _m.floor(_m.log10(vmax))
+    for f in (1, 2, 2.5, 5, 10):
+        if vmax <= f * stufe:
+            top = f * stufe
+            break
+
+    def X(i):
+        return x0 + (x1 - x0) * i / (n - 1)
+
+    def Y(v):
+        return y0 + (y1 - y0) * v / top
+    # Gitter + Achsenbeschriftung
+    for k in range(5):
+        v = top * k / 4
+        pdf.linie(x0, Y(v), x1, Y(v), (0.88, 0.88, 0.88), 0.4)
+        pdf.text(x0 - 6, Y(v) - 3, f"{_de(v, 0)} €", 7, farbe=(0.45, 0.45, 0.45), rechts=True)
+    sd = startdatum(p)
+    schritt = max(1, round((n - 1) / 12 / 6)) * 12
+    for i in range(0, n, schritt):
+        pdf.linie(X(i), y0, X(i), y0 - 3, (0.6, 0.6, 0.6), 0.5)
+        pdf.text(X(i) - 14, y0 - 12, plus_monate(sd, i).strftime("%m/%Y"), 7, farbe=(0.45, 0.45, 0.45))
+
+    def flaeche(unten, oben, farbe):
+        pts = [(X(i), Y(oben[i])) for i in range(n)] + [(X(i), Y(unten[i])) for i in reversed(range(n))]
+        pdf.ops.append(f"{farbe[0]:.3f} {farbe[1]:.3f} {farbe[2]:.3f} rg " + f"{pts[0][0]:.2f} {pts[0][1]:.2f} m "
+                       + " ".join(f"{a:.2f} {b:.2f} l" for a, b in pts[1:]) + " h f")
+
+    def linie(werte, farbe):
+        pdf.ops.append(f"{farbe[0]:.3f} {farbe[1]:.3f} {farbe[2]:.3f} RG 1.4 w {X(0):.2f} {Y(werte[0]):.2f} m "
+                       + " ".join(f"{X(i):.2f} {Y(werte[i]):.2f} l" for i in range(1, n)) + " S")
+    null = [0.0] * n
+    blau, orange = (0.224, 0.529, 0.898), (0.851, 0.349, 0.149)
+    flaeche(null, r["ein_kum"], (0.80, 0.87, 0.97))
+    flaeche(r["ein_kum"], r["wert"], (0.98, 0.85, 0.79))
+    linie(r["ein_kum"], blau)
+    linie(r["wert"], orange)
+    pdf.text(x1, Y(r["wert"][-1]) + 5, f"{_de(r['wert'][-1], 0)} €", 8.5, True, (0.1, 0.1, 0.1), rechts=True)
+    # Legende
+    ly = y1 + 4
+    pdf.rechteck(x0, ly, 8, 8, blau)
+    pdf.text(x0 + 12, ly + 1, "Eingezahlt", 8, farbe=(0.25, 0.25, 0.25))
+    pdf.rechteck(x0 + 70, ly, 8, 8, orange)
+    pdf.text(x0 + 82, ly + 1, "Zinsen" if int(p["ze"]) else "Zinsen (ausgezahlt)", 8, farbe=(0.25, 0.25, 0.25))
+    pdf.y = y0 - 20
 
 
 def pdf_bericht(p, r, hinweis="", link=""):
@@ -253,18 +350,84 @@ def pdf_bericht(p, r, hinweis="", link=""):
     if hinweis:
         pdf.text(pdf.RAND + 10, pdf.y - 54, hinweis, 8.5, farbe=(0.6, 0.2, 0.1))
     pdf.y -= 72
+    _pdf_chart(pdf, p, r)
     pdf.ueberschrift("Kenndaten")
     pdf.tabelle(["Angabe", "Wert"], zeilen_kenndaten(p), [2, 2.4])
-    pdf.ueberschrift("Entwicklung " + ("je Jahr" if not p.get("am") else "(Stand am Jahresende)"))
-    pdf.tabelle(["Jahr", "Einzahlungen", "Zinsen", "Steuern", "Kontostand"],
-                [[_jahr_label(z, p), f"{_de(z['ein'])} €", f"{_de(z['zins'])} €", f"{_de(z['steuer'])} €",
-                  f"{_de(z['stand'])} €"] for z in r["jahre"]], [0.8, 1.2, 1.2, 1, 1.4], groesse=8)
+    pdf.ueberschrift("Entwicklung")
+    za = zeitachse(p, r)
+    mit_st = bool(r["steuer"])
+    pdf.tabelle(["Datum", "Einzahlungen", "Zinsen"] + (["Steuern"] if mit_st else []) + ["Kontostand"],
+                [[z["datum"].strftime("%d.%m.%Y") + (f"  ({z['text']})" if z["text"] else ""),
+                  f"{_de(z['ein'])} €", f"{_de(z['zins'])} €"] + ([f"{_de(z['steuer'])} €"] if mit_st else [])
+                 + [f"{_de(z['stand'])} €"] for z in za],
+                [1.3, 1.2, 1.2] + ([1] if mit_st else []) + [1.4], groesse=8, hervor={0, len(za) - 1})
     if link:
         pdf.y -= 6
         pdf.absatz("Permanentlink: " + link, 7.5, farbe=(0.2, 0.3, 0.6))
     pdf.absatz("Rechenweise: innerhalb der Zinsperiode lineare Verzinsung je Monat, Zinsgutschrift am Ende der "
                "Zinsperiode (Bankpraxis). Szenariorechnung ohne Gewähr.", 7.5)
     return pdf.bytes()
+
+
+# ===========================================================================
+# Chart (Plotly) - Eingezahltes und Zinsen gestapelt, Datum auf der Zeitachse
+# ===========================================================================
+FARBEN = {"ein": "#3987e5", "zins": "#d95926", "text": "#e8e6df", "text2": "#a9a79c", "grid": "#2a2a28",
+          "flaeche": "#0e1117"}
+
+
+def _rgba(hexfarbe, a):
+    h = hexfarbe.lstrip("#")
+    return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{a})"
+
+
+def chart(p, r):
+    import plotly.graph_objects as go
+    sd = startdatum(p)
+    x = [plus_monate(sd, i) for i in range(len(r["wert"]))]
+    zins_txt = "Zinsen" if int(p["ze"]) else "Zinsen (ausgezahlt)"
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=r["ein_kum"], name="Eingezahlt", stackgroup="eins", mode="lines",
+        line=dict(color=FARBEN["ein"], width=2, shape="spline", smoothing=0.3),
+        fillcolor=_rgba(FARBEN["ein"], 0.30), hovertemplate="Eingezahlt: %{y:,.2f} €<extra></extra>"))
+    fig.add_trace(go.Scatter(
+        x=x, y=r["zins_kum"], name=zins_txt, stackgroup="eins", mode="lines",
+        line=dict(color=FARBEN["zins"], width=2, shape="spline", smoothing=0.3),
+        fillcolor=_rgba(FARBEN["zins"], 0.30), hovertemplate=zins_txt + ": %{y:,.2f} €<extra></extra>"))
+    # Jahrespunkte: Start + jedes volle Jahr + Ende, auf der Gesamtlinie
+    za = zeitachse(p, r)
+    idx = [0] + [z["monat"] for z in r["jahre"]]
+    fig.add_trace(go.Scatter(
+        x=[x[i] for i in idx], y=[r["wert"][i] for i in idx], name="Kontostand", mode="markers",
+        marker=dict(size=8, color=FARBEN["text"], line=dict(width=2, color=FARBEN["flaeche"])),
+        hovertemplate="<b>Kontostand: %{y:,.2f} €</b><extra></extra>", showlegend=False))
+    # direkte Beschriftung nur Start und Ende
+    ende = za[-1]
+    fig.add_annotation(x=x[-1], y=r["wert"][-1], text=f"<b>{_de(r['wert'][-1], 0)} €</b><br>"
+                       f"<span style='color:{FARBEN['text2']}'>{ende['datum'].strftime('%d.%m.%Y')}</span>",
+                       showarrow=False, xanchor="right", yanchor="bottom", yshift=10, align="right",
+                       font=dict(size=13, color=FARBEN["text"]))
+    if r["start"] > 0:
+        fig.add_annotation(x=x[0], y=r["wert"][0], text=f"{_de(r['start'], 0)} €<br>"
+                           f"<span style='color:{FARBEN['text2']}'>{sd.strftime('%d.%m.%Y')}</span>",
+                           showarrow=False, xanchor="left", yanchor="bottom", yshift=8, align="left",
+                           font=dict(size=11, color=FARBEN["text"]))
+    jahre = len(r["wert"]) / 12
+    fig.update_layout(
+        height=360, margin=dict(l=8, r=12, t=36, b=8), separators=",.",
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=FARBEN["text2"], size=12),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#1a1a19", bordercolor="#3a3a37", font=dict(color=FARBEN["text"], size=12)),
+        legend=dict(orientation="h", x=0, y=1.12, xanchor="left", font=dict(color=FARBEN["text"]),
+                    bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(showgrid=False, linecolor=FARBEN["grid"], ticks="outside", tickcolor=FARBEN["grid"],
+                   tickformat="%Y" if jahre > 3 else "%m/%Y", hoverformat="%d.%m.%Y", fixedrange=True),
+        yaxis=dict(gridcolor=FARBEN["grid"], zeroline=False, tickformat=",.0f", ticksuffix=" €", rangemode="tozero",
+                   fixedrange=True, side="right"),
+    )
+    return fig
 
 
 # ===========================================================================
@@ -321,24 +484,20 @@ def render(basis_url=""):
         p["e"] = float(st.session_state.get("zr_e", 0.0))
     else:
         p["e"] = float(st.number_input("Endkapital (Ziel, €)", 0.0, 1e12, step=1000.0, format="%.2f", key="zr_e"))
-    with st.expander("Steuer & Anfangsmonat", expanded=bool(float(st.session_state.get("zr_st") or 0)
-                                                           or st.session_state.get("zr_am"))):
-        c13, c14 = st.columns(2)
-        p["st"] = float(c13.number_input("Steuersatz auf Zinsen (%)", 0.0, 60.0, step=0.5, format="%.3f", key="zr_st",
-                                         help=f"Abgeltungsteuer + Soli = {ABGELTUNG} % (0 = nicht berücksichtigen)"))
-        p["fb"] = float(c14.number_input("Freibetrag pro Jahr (€)", 0.0, 1e6, step=100.0, format="%.0f", key="zr_fb",
-                                         help="Sparerpauschbetrag: 1.000 € (Ehepaare 2.000 €)"))
-        am = st.text_input("Anfangsmonat (MM/JJJJ, für Tabelle und PDF)", st.session_state.get("zr_am_txt", "")
-                           or (f"{str(st.session_state.get('zr_am'))[5:7]}/{str(st.session_state.get('zr_am'))[:4]}"
-                               if st.session_state.get("zr_am") else ""), key="zr_am_txt")
-        p["am"] = ""
-        if am.strip():
-            try:
-                mm, jj = am.strip().split("/")
-                p["am"] = f"{int(jj):04d}-{int(mm):02d}"
-            except ValueError:
-                st.caption("Format MM/JJJJ, z. B. 01/2027")
-        st.session_state["zr_am"] = p["am"]
+    c13, c14 = st.columns(2)
+    sd_wert = startdatum({"sd": st.session_state.get("zr_sd"), "am": st.session_state.get("zr_am")})
+    if "zr_sd_d" not in st.session_state:
+        st.session_state["zr_sd_d"] = sd_wert
+    sd = c13.date_input("Startdatum", key="zr_sd_d", format="DD.MM.YYYY",
+                        help="Ab hier wird gerechnet – Tabelle, Chart und PDF zeigen die echten Daten")
+    p["sd"] = "" if sd == datetime.date.today() else sd.isoformat()
+    st.session_state["zr_sd"] = p["sd"]
+    p["am"] = ""
+    with (c14.popover("💶 Steuer auf Zinsen") if hasattr(c14, "popover") else st.expander("💶 Steuer auf Zinsen")):
+        p["st"] = float(st.number_input("Steuersatz auf Zinsen (%)", 0.0, 60.0, step=0.5, format="%.3f", key="zr_st",
+                                        help=f"Abgeltungsteuer + Soli = {ABGELTUNG} % (0 = nicht berücksichtigen)"))
+        p["fb"] = float(st.number_input("Freibetrag pro Jahr (€)", 0.0, 1e6, step=100.0, format="%.0f", key="zr_fb",
+                                        help="Sparerpauschbetrag: 1.000 € (Ehepaare 2.000 €)"))
 
     q, r, hinweis = loese(p)
     # berechneten Wert merken (Anzeige + Link)
@@ -370,18 +529,22 @@ def render(basis_url=""):
     if calc != "e":
         st.caption(f"Endkapital damit: {_de(r['end'])} €")
 
-    df = pd.DataFrame([{"Jahr": _jahr_label(z, q), "Einzahlungen": f"{_de(z['ein'])} €",
-                        "Zinsen": f"{_de(z['zins'])} €", "Steuern": f"{_de(z['steuer'])} €",
-                        "Kontostand": f"{_de(z['stand'])} €"} for z in r["jahre"]])
-    if not r["steuer"]:
-        df = df.drop(columns=["Steuern"])
     try:
-        st.area_chart(pd.DataFrame({"Kontostand": r["verlauf"]},
-                                   index=[i / 12 for i in range(len(r["verlauf"]))]), height=220)
-    except Exception:
-        pass
-    with st.expander("📅 Entwicklung je Jahr", expanded=False):
-        st.dataframe(df, hide_index=True, width="stretch")
+        st.plotly_chart(chart(q, r), width="stretch", config={"displayModeBar": False}, key="zr_chart")
+    except Exception as ex:
+        st.caption(f"Chart nicht verfügbar: {ex}")
+
+    za = zeitachse(q, r)
+    zeilen = []
+    for z in za:
+        zeilen.append({"Datum": z["datum"].strftime("%d.%m.%Y"),
+                       "": "Anfangskapital" if z["text"] == "Start" else ("Endkapital" if z["text"] == "Ende" else ""),
+                       "Einzahlungen": f"{_de(z['ein'])} €" if z["text"] != "Start" else "",
+                       "Zinsen": f"{_de(z['zins'])} €" if z["text"] != "Start" else "",
+                       **({"Steuern": f"{_de(z['steuer'])} €" if z["text"] != "Start" else ""} if r["steuer"] else {}),
+                       "Kontostand": f"{_de(z['stand'])} €"})
+    st.markdown("##### 📅 Entwicklung")
+    st.dataframe(pd.DataFrame(zeilen), hide_index=True, width="stretch")
 
     # Permanentlink: Browser-Adresse zeigt immer die aktuelle Variante
     params = in_url(q)
