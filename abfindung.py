@@ -13,17 +13,29 @@ Ergebnis auch als PDF (eigener kleiner PDF-Schreiber, keine Zusatzpakete noetig)
 import datetime
 import math
 
-STEUERJAHR = 2026
-# --- Tarif 2026 (§ 32a EStG) ---
-GRUNDFREIBETRAG = 12348
-ZONE2_ENDE = 17799
-ZONE3_ENDE = 69878
-ZONE4_ENDE = 277825
-# --- Soli 2026 ---
-SOLI_FREIGRENZE = 20350          # Einzelveranlagung (Splitting: doppelt)
+STEUERJAHR = 2026                # Standard-Auszahlungsjahr (im Rechner waehlbar)
+# --- Tarife (§ 32a EStG): (Grundfreibetrag, [(Zonenende, Formel)], Soli-Freigrenze, Stand) ---
+# Formeln wie im Gesetz: y = (x - Grundfreibetrag)/10.000, z = (x - Ende Zone 2)/10.000
+TARIFE = {
+    2026: {"gfb": 12348, "z2": (17799, 914.51, 1400.0), "z3": (69878, 173.10, 2397.0, 1034.87),
+           "linear": [(277825, 0.42, 11135.63), (None, 0.45, 19470.38)], "soli": 20350,
+           "stand": "geltendes Recht", "handwerker": (0.20, 1200.0)},
+    # Regierungsentwurf Einkommensteuerreformgesetz 2027 (Kabinett 02.09.2026) - noch NICHT beschlossen
+    2027: {"gfb": 12564, "z2": (17799, 952.24, 1400.0), "z3": (70600, 170.74, 2397.0, 993.86),
+           "linear": [(249999, 0.42, 11241.73), (279999, 0.45, 18741.73), (None, 0.47, 24341.73)],
+           "soli": 20350, "stand": "Regierungsentwurf vom 02.09.2026 (noch nicht beschlossen)",
+           "handwerker": (0.15, 900.0)},
+}
+JAHRE = sorted(TARIFE)
+# Rueckwaerts-kompatible Namen (Tarif 2026)
+GRUNDFREIBETRAG = TARIFE[2026]["gfb"]
+ZONE2_ENDE = TARIFE[2026]["z2"][0]
+ZONE3_ENDE = TARIFE[2026]["z3"][0]
+ZONE4_ENDE = TARIFE[2026]["linear"][0][0]
+SOLI_FREIGRENZE = TARIFE[2026]["soli"]   # Einzelveranlagung (Splitting: doppelt)
 SOLI_SATZ = 0.055
 SOLI_MILDERUNG = 0.119
-# --- Sozialversicherung / Vorsorge 2026 ---
+# --- Sozialversicherung / Vorsorge 2026 (fuer 2027 noch nicht festgelegt -> Werte 2026) ---
 BBG_RV = 101400.0                # Beitragsbemessungsgrenze Rentenversicherung (jaehrlich)
 RV_SATZ = 0.186                  # Arbeitnehmer + Arbeitgeber
 HOECHST_ALTERSVORSORGE = 30826.0 # § 10 Abs. 3 EStG, Ledige (Zusammenveranlagung: doppelt)
@@ -31,60 +43,84 @@ BAV_JE_JAHR = 0.04 * BBG_RV      # § 3 Nr. 63 S. 3 EStG: 4 % BBG je Dienstjahr 
 BAV_MAX_JAHRE = 10               # ... hoechstens 10 Jahre
 
 
+def tarif_jahr(jahr):
+    """Tarif fuer ein Jahr; spaetere Jahre ohne bekannten Tarif nutzen den neuesten."""
+    jahr = int(jahr or STEUERJAHR)
+    if jahr in TARIFE:
+        return TARIFE[jahr]
+    return TARIFE[max(JAHRE)] if jahr > max(JAHRE) else TARIFE[min(JAHRE)]
+
+
+def tarif_hinweis(jahr):
+    """Text, wenn fuer ein Jahr kein beschlossener Tarif vorliegt (sonst "")."""
+    jahr = int(jahr)
+    if jahr in TARIFE:
+        t = TARIFE[jahr]
+        return "" if t["stand"] == "geltendes Recht" else f"Tarif {jahr}: {t['stand']}"
+    return f"Für {jahr} gibt es noch keinen Tarif – gerechnet mit dem Tarif {max(JAHRE)} ({tarif_jahr(jahr)['stand']})"
+
+
 # ===========================================================================
 # Steuerrechnung
 # ===========================================================================
-def est_tarif(zve):
-    """Einkommensteuer (Grundtarif 2026), volle Euro."""
+def est_tarif(zve, jahr=STEUERJAHR):
+    """Einkommensteuer (Grundtarif des Jahres), volle Euro."""
+    t = tarif_jahr(jahr)
     x = math.floor(max(zve, 0.0))
-    if x <= GRUNDFREIBETRAG:
+    if x <= t["gfb"]:
         return 0.0
-    if x <= ZONE2_ENDE:
-        y = (x - GRUNDFREIBETRAG) / 10000.0
-        return float(math.floor((914.51 * y + 1400.0) * y))
-    if x <= ZONE3_ENDE:
-        z = (x - ZONE2_ENDE) / 10000.0
-        return float(math.floor((173.10 * z + 2397.0) * z + 1034.87))
-    if x <= ZONE4_ENDE:
-        return float(math.floor(0.42 * x - 11135.63))
-    return float(math.floor(0.45 * x - 19470.38))
+    ende2, a2, b2 = t["z2"]
+    if x <= ende2:
+        y = (x - t["gfb"]) / 10000.0
+        return float(math.floor((a2 * y + b2) * y))
+    ende3, a3, b3, c3 = t["z3"]
+    if x <= ende3:
+        z = (x - ende2) / 10000.0
+        return float(math.floor((a3 * z + b3) * z + c3))
+    for ende, satz, abzug in t["linear"]:
+        if ende is None or x <= ende:
+            return float(math.floor(satz * x - abzug))
+    return 0.0
 
 
-def est(zve, splitting=False, pv=0.0):
+def est(zve, splitting=False, pv=0.0, jahr=STEUERJAHR):
     """Einkommensteuer inkl. Splitting und Progressionsvorbehalt (pv = steuerfreie
     Lohnersatzleistungen wie Arbeitslosengeld: erhoehen nur den Steuersatz)."""
     if zve <= 0:
         return 0.0
 
     def tarif(x):
-        return 2.0 * est_tarif(math.floor(max(x, 0.0) / 2.0)) if splitting else est_tarif(x)
+        return 2.0 * est_tarif(math.floor(max(x, 0.0) / 2.0), jahr) if splitting else est_tarif(x, jahr)
     if pv <= 0:
         return tarif(zve)
     satz = tarif(zve + pv) / (zve + pv)
     return float(math.floor(zve * satz))
 
 
-def est_mit_abfindung(zve_rest, abfindung, fuenftel=True, splitting=False, pv=0.0):
+def est_mit_abfindung(zve_rest, abfindung, fuenftel=True, splitting=False, pv=0.0, jahr=STEUERJAHR):
     """Einkommensteuer des Jahres, Abfindung mit Fuenftelregelung (§ 34 Abs. 1) oder voll."""
     a = max(abfindung, 0.0)
     if not fuenftel or a <= 0:
-        return est(zve_rest + a, splitting, pv)
+        return est(zve_rest + a, splitting, pv, jahr)
     if zve_rest < 0:
         gesamt = zve_rest + a
-        return 5.0 * est(gesamt / 5.0, splitting, pv) if gesamt > 0 else 0.0
-    basis = est(zve_rest, splitting, pv)
-    return basis + 5.0 * (est(zve_rest + a / 5.0, splitting, pv) - basis)
+        return min(5.0 * est(gesamt / 5.0, splitting, pv, jahr), est(gesamt, splitting, pv, jahr)) if gesamt > 0 else 0.0
+    basis = est(zve_rest, splitting, pv, jahr)
+    mit_fuenftel = basis + 5.0 * (est(zve_rest + a / 5.0, splitting, pv, jahr) - basis)
+    # Guenstigerpruefung: das Finanzamt nimmt nie mehr als die normale Besteuerung
+    # (kann z. B. mit Progressionsvorbehalt durch Arbeitslosengeld vorkommen)
+    return min(mit_fuenftel, est(zve_rest + a, splitting, pv, jahr))
 
 
-def soli(est_betrag, splitting=False):
-    frei = SOLI_FREIGRENZE * (2 if splitting else 1)
+def soli(est_betrag, splitting=False, jahr=STEUERJAHR):
+    frei = tarif_jahr(jahr)["soli"] * (2 if splitting else 1)
     if est_betrag <= frei:
         return 0.0
     return round(min(SOLI_SATZ * est_betrag, SOLI_MILDERUNG * (est_betrag - frei)), 2)
 
 
-def steuern(est_betrag, splitting=False, kirche=0.0):
-    s = soli(est_betrag, splitting)
+def steuern(est_betrag, splitting=False, kirche=0.0, jahr=STEUERJAHR):
+    s = soli(est_betrag, splitting, jahr)
     k = round(est_betrag * kirche, 2)
     return {"est": est_betrag, "soli": s, "kirche": k, "summe": est_betrag + s + k}
 
@@ -126,10 +162,9 @@ def variante(e, titel, kurz, teile, rv=0.0, bav=0.0, hinweis="", abzug_extra=0.0
             continue
         zve = e["zve1"] if jk == "j1" else e["zve2"]
         pv = e["alg1"] if jk == "j1" else e["alg2"]
-        ohne = steuern(est(zve, sp, pv), sp, ki)
-        abzug = e["werbungskosten"] if jk == erstes else 0.0
-        if jk == erstes:
-            abzug += rv_abzug + abzug_extra
+        jahr = int(e.get("jahr1", STEUERJAHR)) + (0 if jk == "j1" else 1)
+        ohne = steuern(est(zve, sp, pv, jahr), sp, ki, jahr)
+        abzug = (rv_abzug + abzug_extra) if jk == erstes else 0.0
         a_f = sum(b for b, f in betraege if f)
         a_n = sum(b for b, f in betraege if not f)
         if jk == erstes and bav_steuerfrei:        # steuerfreier bAV-Teil mindert die steuerpflichtige Abfindung
@@ -137,11 +172,20 @@ def variante(e, titel, kurz, teile, rv=0.0, bav=0.0, hinweis="", abzug_extra=0.0
                 a_f = max(a_f - bav_steuerfrei, 0.0)
             else:
                 a_n = max(a_n - bav_steuerfrei, 0.0)
+        if jk == erstes and e.get("werbungskosten"):
+            # Kosten, die mit der Abfindung zusammenhaengen (Anwalt, Gericht), mindern die Abfindung
+            # selbst - also auch den Teil mit Fuenftelregel (BFH); ein Rest mindert das uebrige Einkommen
+            wk = float(e["werbungskosten"])
+            if a_f:
+                weg = min(wk, a_f); a_f -= weg; wk -= weg
+            if wk and a_n:
+                weg = min(wk, a_n); a_n -= weg; wk -= weg
+            abzug += wk
         rest = zve + a_n - abzug
-        est_wert = est_mit_abfindung(rest, a_f, True, sp, pv) if a_f else est(rest, sp, pv)
+        est_wert = est_mit_abfindung(rest, a_f, True, sp, pv, jahr) if a_f else est(rest, sp, pv, jahr)
         if jk == erstes and ermaessigung:
             est_wert = max(est_wert - ermaessigung, 0.0)
-        mit = steuern(est_wert, sp, ki)
+        mit = steuern(est_wert, sp, ki, jahr)
         d = _minus(mit, ohne)
         erg["jahre"][jk] = {"ohne": ohne, "mit": mit, "abfindung": d}
         for k in summe:
@@ -158,47 +202,52 @@ def varianten(e):
     """Alle sinnvollen Rechenwege fuer die Eingaben e."""
     a = e["abfindung"]
     f = e["fuenftel_moeglich"]
-    v = [variante(e, "Auszahlung dieses Jahr – Lohnsteuerabzug ohne Fünftelregelung", "Dieses Jahr, voll",
+    j1 = int(e.get("jahr1", STEUERJAHR))
+    j2 = j1 + 1
+    v = [variante(e, f"Auszahlung {j1} – Lohnsteuerabzug ohne Fünftelregelung", f"{j1}, voll",
                   [("j1", a, False)],
                   hinweis="So viel behält der Arbeitgeber bei der Auszahlung ungefähr ein (seit 2025 ohne "
                           "Fünftelregelung).")]
     if f:
-        v.append(variante(e, "Auszahlung dieses Jahr – mit Fünftelregelung (Steuererklärung)", "Dieses Jahr, Fünftel",
+        v.append(variante(e, f"Auszahlung {j1} – mit Fünftelregelung (Steuererklärung)", f"{j1}, Fünftel",
                           [("j1", a, True)],
                           hinweis="Endgültige Steuer nach der Steuererklärung; die Differenz zum Lohnsteuerabzug "
                                   "kommt als Erstattung zurück."))
-        v.append(variante(e, "Auszahlung im Folgejahr – mit Fünftelregelung", "Folgejahr, Fünftel",
+        v.append(variante(e, f"Auszahlung {j2} – mit Fünftelregelung", f"{j2}, Fünftel",
                           [("j2", a, True)],
                           hinweis="Lohnt sich, wenn das Einkommen im Folgejahr niedriger ist (z. B. Auszahlung im "
                                   "Januar nach dem Ausscheiden)."))
     else:
-        v.append(variante(e, "Auszahlung im Folgejahr – voll besteuert", "Folgejahr, voll", [("j2", a, False)]))
-    v.append(variante(e, "Aufteilung 50/50 auf dieses und nächstes Jahr", "Zwei Jahre, je 50 %",
+        v.append(variante(e, f"Auszahlung {j2} – voll besteuert", f"{j2}, voll", [("j2", a, False)]))
+    v.append(variante(e, f"Aufteilung 50/50 auf {j1} und {j2}", "Zwei Jahre, je 50 %",
                       [("j1", a / 2, False), ("j2", a / 2, False)],
                       hinweis="Teilzahlungen verlieren in der Regel die Fünftelregelung (keine Zusammenballung) – "
                               "jede Hälfte wird normal besteuert."))
     if e.get("rv", 0) > 0:
-        v.append(variante(e, f"Dieses Jahr + Einzahlung Rentenversicherung {_de(e['rv'])} €", "Mit Rentenversicherung",
+        v.append(variante(e, f"{j1} + Einzahlung Rentenversicherung {_de(e['rv'])} €", "Mit Rentenversicherung",
                           [("j1", a, f)], rv=e["rv"],
                           hinweis=f"Abziehbar als Sonderausgabe bis zum Höchstbetrag – hier {_de(rv_spielraum(e))} € "
                                   "Spielraum nach den bisherigen Rentenbeiträgen. Erhöht die spätere Rente."))
     if e.get("bav", 0) > 0:
-        v.append(variante(e, f"Dieses Jahr + Umwandlung in bAV {_de(e['bav'])} €", "Mit bAV",
+        v.append(variante(e, f"{j1} + Umwandlung in bAV {_de(e['bav'])} €", "Mit bAV",
                           [("j1", a, f)], bav=e["bav"],
                           hinweis=f"Steuerfrei bis 4 % der BBG je Dienstjahr (max. 10 J.) = hier bis "
-                                  f"{_de(bav_frei(e))} €; die spätere Betriebsrente ist steuerpflichtig."))
+                                  f"{_de(bav_frei(e))} € – abzüglich steuerfreier bAV-Beiträge im Austrittsjahr und den 6 Jahren "
+                                  "davor (hier nicht abgezogen). Die spätere Betriebsrente ist steuerpflichtig."))
     if e.get("rv", 0) > 0 or e.get("bav", 0) > 0:
-        folge = (e["zve2"] + e["alg2"]) < (e["zve1"] + e["alg1"])
-        v.append(variante(e, "Kombination: günstigeres Jahr + Rente + bAV", "Alle Hebel",
-                          [("j2" if folge else "j1", a, f)], rv=e.get("rv", 0.0), bav=e.get("bav", 0.0),
-                          hinweis=("Auszahlung im Folgejahr" if folge else "Auszahlung dieses Jahr")
-                          + ", Rente/bAV im selben Jahr."))
+        kandidaten = [(jj, variante(e, "Kombination: günstigeres Jahr + Rente + bAV", "Alle Hebel",
+                                    [(jj, a, f)], rv=e.get("rv", 0.0), bav=e.get("bav", 0.0)))
+                      for jj in ("j1", "j2")]
+        jj, kombi = min(kandidaten, key=lambda t: t[1]["steuer"]["summe"])
+        kombi["hinweis"] = (f"Auszahlung {j2}" if jj == "j2" else f"Auszahlung {j1}") \
+            + ", Rente/bAV im selben Jahr (das günstigere Jahr wurde ausgerechnet)."
+        v.append(kombi)
     g = gestaltungen(e)
     aktiv = [x for x in g["massnahmen"] if not x["info"] and (x["abzug"] or x["ermaessigung"])]
     if aktiv:
         jk = g["jahr"]
         v.append(variante(e, "Mit Gestaltungen: " + ", ".join(x["kurz"] for x in aktiv)
-                          + (" (Folgejahr)" if jk == "j2" else ""), "Mit Gestaltungen",
+                          + (f" ({j2})" if jk == "j2" else f" ({j1})"), "Mit Gestaltungen",
                           [(jk, a, f)], rv=e.get("rv", 0.0), bav=e.get("bav", 0.0),
                           abzug_extra=sum(x["abzug"] for x in aktiv),
                           ermaessigung=sum(x["ermaessigung"] for x in aktiv),
@@ -211,6 +260,60 @@ def varianten(e):
         x["beste"] = x is beste
         x["ersparnis"] = basis - x["steuer"]["summe"]
     return v
+
+
+def zusammenballung(e):
+    """Voraussetzung der Fuenftelregel (Zusammenballung, BMF 1.11.2013 Rz. 8 ff.): Im Auszahlungsjahr
+    muessen die Einnahmen inkl. Abfindung (und Ersatzleistungen wie ALG) hoeher sein als das, was bei
+    Fortsetzung des Arbeitsverhaeltnisses verdient worden waere (vereinfacht: Vorjahresbrutto).
+    -> None (keine Angabe) oder {"ok": bool, "dieses": ..., "vergleich": ...}"""
+    vj = e.get("vorjahr_brutto")
+    if not vj:
+        return None
+    dieses = float(e.get("jahresbrutto", 0.0)) + float(e.get("alg1", 0.0)) + float(e["abfindung"])
+    return {"ok": dieses > vj, "dieses": dieses, "vergleich": float(vj)}
+
+
+def hinweise(e):
+    """Was neben der Steuer zu beachten ist -> [(titel, text, wichtig)]"""
+    h = []
+    zb = zusammenballung(e)
+    if zb and not zb["ok"] and e.get("fuenftel_moeglich"):
+        h.append(("Fünftelregel gefährdet",
+                  f"Gehalt + Arbeitslosengeld + Abfindung dieses Jahr ({_de(zb['dieses'])} €) sind nicht höher als "
+                  f"das Vorjahresbrutto ({_de(zb['vergleich'])} €). Dann fehlt meist die „Zusammenballung“ und die "
+                  "Abfindung wird voll besteuert. Abhilfe: Auszahlung in ein Jahr mit wenig übrigem Einkommen legen.",
+                  True))
+    if e.get("zve2", 0) == 0 and e.get("fuenftel_moeglich"):
+        h.append(("Folgejahr mit 0 € gerechnet",
+                  "Das Einkommen im nächsten Jahr steht auf 0 € – die Auszahlung im Folgejahr sieht dadurch "
+                  "besonders günstig aus. Hast du dann einen neuen Job, trag das erwartete zu versteuernde "
+                  "Einkommen in Schritt 2 ein.", True))
+    h += [
+        ("Steuererklärung ist Pflicht",
+         "Mit Abfindung musst du eine Steuererklärung abgeben. Die Fünftelregel gibt es seit 2025 nur noch dort – "
+         "der Arbeitgeber zieht zunächst die volle Lohnsteuer ab, die Erstattung kommt mit dem Bescheid.", False),
+        ("Arbeitslosengeld: Sperrzeit und Ruhen",
+         "Ein Aufhebungsvertrag führt meist zu 12 Wochen Sperrzeit (§ 159 SGB III) – außer mit wichtigem Grund, "
+         "z. B. drohende betriebsbedingte Kündigung und Abfindung bis 0,5 Monatsgehälter je Jahr. Wird die "
+         "Kündigungsfrist nicht eingehalten, ruht das ALG zusätzlich (§ 158 SGB III). Die Abfindung selbst wird "
+         "nicht auf das ALG angerechnet (anders beim Bürgergeld).", False),
+        ("Sozialversicherung",
+         "Eine echte Abfindung für den Verlust des Arbeitsplatzes ist frei von Renten-, Kranken-, Pflege- und "
+         "Arbeitslosenversicherung. Ausnahme: freiwillig gesetzlich Versicherte ohne Leistungsbezug – hier kann "
+         "die Kasse Beiträge verlangen. Nachzahlungen von Gehalt, Urlaub oder Boni im Vertrag sind dagegen "
+         "normal beitrags- und steuerpflichtig (ohne Fünftelregel).", False),
+        ("Rentenabschläge ausgleichen",
+         "Zahlt der Arbeitgeber direkt zum Ausgleich von Rentenabschlägen (§ 187a SGB VI) ein, ist die Hälfte "
+         "davon steuerfrei (§ 3 Nr. 28 EStG) – oft günstiger als selbst einzuzahlen.", False),
+        ("Kirchensteuer",
+         "Viele Landeskirchen erlassen auf Antrag einen Teil der Kirchensteuer auf Abfindungen (häufig bis zu "
+         "50 %) – Antrag nach dem Steuerbescheid bei der Kirchensteuerstelle.", False),
+        ("Teilzahlungen",
+         "Wird die Abfindung auf zwei Jahre verteilt, entfällt die Fünftelregel. Unschädlich ist eine kleine "
+         "Teilzahlung in einem anderen Jahr von höchstens 10 % der Hauptzahlung.", False),
+    ]
+    return h
 
 
 # ===========================================================================
@@ -302,10 +405,13 @@ def gestaltungen(e):
 
     x = gs.get("handwerker") or {}
     if x.get("aktiv"):
-        er = min(0.2 * float(x.get("lohn", 0)), HANDWERKER_MAX)
+        hw_satz, hw_max = tarif_jahr(int(e.get("jahr1", STEUERJAHR)) + (1 if jahr == "j2" else 0))["handwerker"]
+        er = min(hw_satz * float(x.get("lohn", 0)), hw_max)
         m("Handwerker", "Handwerkerleistungen im eigenen Haushalt", ermaessigung=er,
           einsatz=float(x.get("lohn", 0)), gegenwert="Renovierung/Reparatur",
-          hinweis="20 % der Arbeits- und Fahrtkosten (nicht Material), höchstens 1.200 € direkt von der Steuer.")
+          hinweis=f"{_de(hw_satz * 100)} % der Arbeits- und Fahrtkosten (nicht Material), höchstens "
+                  f"{_de(hw_max)} € direkt von der Steuer"
+                  + (" (ab 2027 laut Entwurf gekürzt)." if hw_max < 1200 else "."))
 
     x = gs.get("sanierung") or {}
     if x.get("aktiv"):
@@ -385,9 +491,10 @@ def fuenftel_jahre(e, jahre):
     aus = []
     for j in jahre:
         zve, pv = float(j.get("zve") or 0.0), float(j.get("alg") or 0.0)
-        ohne = steuern(est(zve, sp, pv), sp, ki)
-        voll = _minus(steuern(est(zve + a, sp, pv), sp, ki), ohne)
-        fuenf = _minus(steuern(est_mit_abfindung(zve, a, True, sp, pv), sp, ki), ohne)
+        jahr = int(j["jahr"]) or int(e.get("jahr1", STEUERJAHR))
+        ohne = steuern(est(zve, sp, pv, jahr), sp, ki, jahr)
+        voll = _minus(steuern(est(zve + a, sp, pv, jahr), sp, ki, jahr), ohne)
+        fuenf = _minus(steuern(est_mit_abfindung(zve, a, True, sp, pv, jahr), sp, ki, jahr), ohne)
         aus.append({"jahr": int(j["jahr"]), "zve": zve, "alg": pv, "voll": voll["summe"], "fuenftel": fuenf["summe"],
                     "ersparnis": voll["summe"] - fuenf["summe"], "netto": a - fuenf["summe"],
                     "satz": fuenf["summe"] / a if a else 0.0, "erstattung_jahr": int(j["jahr"]) + 1})
@@ -638,7 +745,8 @@ class _PDF:
 
 
 HINWEISE = [
-    "Abfindungen sind sozialversicherungsfrei; Einkommensteuer, Soli und ggf. Kirchensteuer fallen an.",
+    "Echte Abfindungen sind in der Regel sozialversicherungsfrei (Ausnahmen siehe oben); Einkommensteuer, "
+    "Soli und ggf. Kirchensteuer fallen an.",
     "Fünftelregelung nur bei Zusammenballung: Zahlung in einem Jahr und insgesamt mehr Einkünfte als ohne "
     "Kündigung. Seit 2025 nur über die Steuererklärung – bei Auszahlung wird zunächst voll Lohnsteuer einbehalten.",
     "Arbeitslosengeld ist steuerfrei, erhöht aber über den Progressionsvorbehalt den Steuersatz.",
@@ -646,7 +754,10 @@ HINWEISE = [
     f"({_de(HOECHST_ALTERSVORSORGE)} €, Ehepaare doppelt; abzüglich bereits gezahlter Beiträge) abziehbar.",
     f"bAV: steuerfrei bis 4 % der Beitragsbemessungsgrenze ({_de(BAV_JE_JAHR)} €) je Dienstjahr, höchstens "
     "10 Jahre; Beiträge des Jahres und der 6 Vorjahre werden angerechnet (hier nicht berücksichtigt).",
-    "Sperrzeit/Ruhen beim Arbeitslosengeld (Aufhebungsvertrag, verkürzte Kündigungsfrist) ist nicht eingerechnet.",
+    "Sperrzeit/Ruhen beim Arbeitslosengeld ist in den Beträgen nicht eingerechnet (siehe oben).",
+    "Tarif 2027 nach dem Regierungsentwurf vom 02.09.2026 (Grundfreibetrag 12.564 €, 42 % ab 70.601 €, 45 % ab "
+    "250.000 €, 47 % ab 280.000 €) – kann sich im Gesetzgebungsverfahren noch ändern. Rentenversicherungs-Grenzen "
+    "und Höchstbeträge 2027 stehen noch nicht fest; gerechnet wird mit den Werten 2026.",
     "Vereinfachte Rechnung ohne Kinderfreibeträge und Lohnsteuer-Details – für eine verbindliche Auskunft "
     "Steuerberater oder Lohnsteuerhilfeverein fragen.",
 ]
@@ -659,9 +770,16 @@ def pdf_bericht(e, v, erstellt=None, fj=None, fe=None, av=None, avp=None):
     p.y -= 8
     p.text(p.RAND, p.y, "Abfindung – Steuerberechnung", 20, True, (0.08, 0.1, 0.16))
     p.y -= 16
-    p.text(p.RAND, p.y, f"Steuerjahr {STEUERJAHR} · erstellt am {erstellt.strftime('%d.%m.%Y %H:%M')}", 9,
+    _j1 = int(e.get("jahr1", STEUERJAHR))
+    _th = "; ".join(t for t in (tarif_hinweis(_j1), tarif_hinweis(_j1 + 1)) if t)
+    p.fuss = f"Abfindungsrechner, Auszahlung {_j1} - Szenariorechnung, keine Steuerberatung"
+    p.text(p.RAND, p.y, f"Auszahlungsjahr {_j1} · erstellt am {erstellt.strftime('%d.%m.%Y %H:%M')}", 9,
            farbe=(0.4, 0.4, 0.4))
     p.y -= 12
+    if _th:
+        p.y += 4
+        p.absatz(_th + ".", 8, farbe=(0.7, 0.35, 0.05))
+        p.y -= 2
 
     beste = next(x for x in v if x["beste"])
     basis = v[0]
@@ -744,11 +862,13 @@ def pdf_bericht(e, v, erstellt=None, fj=None, fe=None, av=None, avp=None):
     ein = [["Abfindung brutto", f"{_de(e['abfindung'])} €"],
            ["Zu versteuerndes Einkommen dieses Jahr (ohne Abfindung)", f"{_de(e['zve1'])} €"],
            ["Zu versteuerndes Einkommen Folgejahr (ohne Abfindung)", f"{_de(e['zve2'])} €"],
-           ["Arbeitslosengeld dieses Jahr / Folgejahr", f"{_de(e['alg1'])} € / {_de(e['alg2'])} €"],
+           ["Arbeitslosengeld Auszahlungsjahr / Folgejahr", f"{_de(e['alg1'])} € / {_de(e['alg2'])} €"],
            ["Veranlagung", "Zusammen (Splitting)" if e["splitting"] else "Einzeln"],
            ["Kirchensteuer", f"{_de(e['kirche'] * 100)} %" if e["kirche"] else "keine"],
            ["Fünftelregelung anwendbar", "ja" if e["fuenftel_moeglich"] else "nein"],
-           ["Werbungskosten (z. B. Anwalt)", f"{_de(e['werbungskosten'])} €"],
+           ["Werbungskosten zur Abfindung (z. B. Anwalt)", f"{_de(e['werbungskosten'])} €"],
+           ["Jahresbrutto dieses Jahr / Vorjahr", f"{_de(e.get('jahresbrutto', 0))} € / "
+            + (f"{_de(e['vorjahr_brutto'])} €" if e.get('vorjahr_brutto') else "–")],
            ["Einzahlung Rentenversicherung (abziehbar)",
             f"{_de(e.get('rv', 0))} € ({_de(min(e.get('rv', 0), rv_spielraum(e)))} €)"],
            ["Umwandlung in bAV (steuerfrei bis)", f"{_de(e.get('bav', 0))} € ({_de(bav_frei(e))} €)"]]
@@ -759,13 +879,17 @@ def pdf_bericht(e, v, erstellt=None, fj=None, fe=None, av=None, avp=None):
         p.y -= 4
         p.absatz(x["titel"] + (" – günstigste" if x["beste"] else ""), 9, True, (0.1, 0.1, 0.1))
         jahre_txt = []
-        for jk, lab in (("j1", "Dieses Jahr"), ("j2", "Folgejahr")):
+        for jk, lab in (("j1", str(int(e.get("jahr1", STEUERJAHR)))), ("j2", str(int(e.get("jahr1", STEUERJAHR)) + 1))):
             if jk in x["jahre"]:
                 j = x["jahre"][jk]
                 jahre_txt.append(f"{lab}: Steuer gesamt {_de(j['mit']['summe'])} € (ohne Abfindung "
                                  f"{_de(j['ohne']['summe'])} €)")
         p.absatz(" · ".join(jahre_txt) + (f". {x['hinweis']}" if x["hinweis"] else ""), 8.5, einzug=8)
 
+    p.ueberschrift("Neben der Steuer beachten")
+    for titel, text, wichtig in hinweise(e):
+        p.absatz(("! " if wichtig else "- ") + titel + ": " + text, 8.5, wichtig,
+                 (0.7, 0.2, 0.05) if wichtig else (0.25, 0.25, 0.25))
     p.ueberschrift("Hinweise")
     for t in HINWEISE:
         p.absatz("- " + t, 8.5)
@@ -779,7 +903,10 @@ def _gestaltungen_eingabe(st):
     """Eingaben fuer die Gestaltungen -> dict fuer e["gest"]."""
     g = {}
     with st.expander("💡 Steuern sparen durch Gestaltungen (Immobilie, Firma, Stiftung …)", expanded=False):
+        _j1 = int(st.session_state.get("abf_jahr1", STEUERJAHR))
         g["jahr"] = "j2" if st.selectbox("Maßnahmen im Jahr der Auszahlung", ["Dieses Jahr", "Folgejahr"],
+                                         format_func=lambda x: f"{_j1} (Auszahlungsjahr)" if x == "Dieses Jahr"
+                                         else f"{_j1 + 1} (Folgejahr)",
                                          key="abf_g_jahr") == "Folgejahr" else "j1"
 
         def schalter(key, label, hilfe=None):
@@ -887,7 +1014,7 @@ def render():
     # gleiche, klare Eingabe-Optik wie im Zinseszinsrechner: Karten je Schritt, umrandete Felder
     st.markdown(_zr.FORM_CSS.replace("zr_form", "abf_form").replace("zr_karte_", "abf_karte_")
                 + ABF_CSS, unsafe_allow_html=True)
-    st.caption(f"Szenariorechnung für {STEUERJAHR} · keine Steuer- oder Rechtsberatung")
+    st.caption("Szenariorechnung · keine Steuer- oder Rechtsberatung")
     st.markdown('<div class="zr-hilfe"><span><i class="zr-muster"></i> hier eintippen</span>'
                 '<span><i class="zr-muster calc"></i> wird berechnet</span></div>', unsafe_allow_html=True)
     form = st.container(key="abf_form")
@@ -898,12 +1025,19 @@ def render():
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     abf = k1_.number_input("💶 Abfindungssumme brutto (€)", 0.0, 1e8, 50000.0, step=1000.0, format="%.0f",
                            key="abf_summe")
+    j1 = int(k1_.selectbox("📅 Auszahlung geplant im Jahr", JAHRE, index=JAHRE.index(STEUERJAHR), key="abf_jahr1",
+                           help="Ab diesem Jahr wird gerechnet; das Jahr danach dient als Vergleich "
+                                "(„Auszahlung im Folgejahr“)."))
+    j2 = j1 + 1
+    for jj in (j1, j2):
+        if tarif_hinweis(jj):
+            k1_.caption(f"ℹ️ {tarif_hinweis(jj)}.")
 
     # 2) Einkommen
     k2_ = form.container(border=True, key="abf_karte_einkommen")
-    k2_.markdown(_zr._kopf("2", "Einkommen ohne Abfindung", "Dieses Jahr und nächstes Jahr").replace(
+    k2_.markdown(_zr._kopf("2", "Einkommen ohne Abfindung", f"Im Auszahlungsjahr {j1} und im Jahr danach ({j2})").replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
-    brutto = float(k2_.number_input("Jahresbrutto dieses Jahr (€)", 0.0, 1e8, 60000.0,
+    brutto = float(k2_.number_input(f"Jahresbrutto {j1} (€)", 0.0, 1e8, 60000.0,
                                     step=1000.0, format="%.0f", key="abf_brutto",
                                     help="Gehalt dieses Jahr ohne Abfindung. Grundlage für das zu versteuernde "
                                          "Einkommen und die bereits gezahlten Rentenbeiträge."))
@@ -911,13 +1045,18 @@ def render():
                           key="abf_zve_auto")
     if zve_auto:
         zve1 = round(brutto * 0.8, -2)
-        k2_.number_input("Zu versteuerndes Einkommen dieses Jahr (€) – geschätzt", value=float(zve1),
+        k2_.number_input(f"Zu versteuerndes Einkommen {j1} (€) – geschätzt", value=float(zve1),
                          format="%.0f", disabled=True)
     else:
-        zve1 = float(k2_.number_input("Zu versteuerndes Einkommen dieses Jahr (€)", -1e6, 1e8,
+        zve1 = float(k2_.number_input(f"Zu versteuerndes Einkommen {j1} (€)", -1e6, 1e8,
                                       round(brutto * 0.8, -2), step=1000.0, format="%.0f", key="abf_zve1",
                                       help="Steht im letzten Steuerbescheid"))
-    zve2 = float(k2_.number_input("Zu versteuerndes Einkommen nächstes Jahr (€)", -1e6, 1e8, 0.0, step=1000.0,
+    vorjahr = k2_.number_input(f"Jahresbrutto {j1 - 1} (€) – für die Prüfung der Fünftelregel", 0.0, 1e8,
+                               value=None, step=1000.0, format="%.0f", key="abf_vorjahr",
+                               placeholder="optional, z. B. 62000",
+                               help="Die Fünftelregel gilt nur, wenn du im Auszahlungsjahr mit Abfindung mehr "
+                                    "einnimmst als bei normaler Weiterarbeit (Vergleich: Vorjahr).")
+    zve2 = float(k2_.number_input(f"Zu versteuerndes Einkommen {j2} (€)", -1e6, 1e8, 0.0, step=1000.0,
                                   format="%.0f", key="abf_zve2",
                                   help="Ohne Abfindung – 0 bei Arbeitslosigkeit, sonst neues Gehalt × ca. 80 %."))
 
@@ -938,13 +1077,16 @@ def render():
     k4_.markdown(_zr._kopf("4", "Optional: Steuer senken", "Nur ausfüllen, wenn es auf dich zutrifft").replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     with k4_.expander("🛠️ Arbeitslosengeld, Werbungskosten, Rente, bAV", expanded=False):
-        alg1 = float(st.number_input("Arbeitslosengeld dieses Jahr (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
+        alg1 = float(st.number_input(f"Arbeitslosengeld {j1} (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
                                      key="abf_alg1", help="Steuerfrei, erhöht aber den Steuersatz "
                                                           "(Progressionsvorbehalt)"))
-        alg2 = float(st.number_input("Arbeitslosengeld nächstes Jahr (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
+        alg2 = float(st.number_input(f"Arbeitslosengeld {j2} (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
                                      key="abf_alg2"))
-        wk = float(st.number_input("Werbungskosten, z. B. Anwalt (€)", 0.0, 1e6, 0.0, step=100.0, format="%.0f",
-                                   key="abf_wk", help="Zusätzlich zur Werbungskostenpauschale"))
+        wk = float(st.number_input("Kosten rund um die Abfindung, z. B. Anwalt, Gericht (€)", 0.0, 1e6, 0.0,
+                                   step=100.0, format="%.0f", key="abf_wk",
+                                   help="Mindern die Abfindung selbst (auch den Teil mit Fünftelregel). "
+                                        "Übrige Werbungskosten über der Pauschale sind im zu versteuernden "
+                                        "Einkommen schon enthalten bzw. dort abzuziehen."))
         rv = float(st.number_input("Einzahlung Rentenversicherung (€)", 0.0, 1e6, 0.0, step=1000.0, format="%.0f",
                                    key="abf_rv",
                                    help="Z. B. Ausgleich von Rentenabschlägen aus der Abfindung – als Sonderausgabe "
@@ -957,11 +1099,11 @@ def render():
 
     st.markdown('<div class="abf-ergebnis-kopf">📊 Ergebnis</div>', unsafe_allow_html=True)
 
-    e = {"gest": gest, "abfindung": float(abf), "zve1": float(zve1), "zve2": zve2,
+    e = {"gest": gest, "abfindung": float(abf), "jahr1": j1, "zve1": float(zve1), "zve2": zve2,
          "splitting": veranl.startswith("Zusammen"),
          "kirche": kirche, "fuenftel_moeglich": bool(fuenftel), "alg1": alg1, "alg2": alg2,
          "werbungskosten": wk, "rv": rv, "rv_bisher": min(brutto, BBG_RV) * RV_SATZ, "jahresbrutto": brutto,
-         "bav": bav, "dienstjahre": dienst}
+         "bav": bav, "dienstjahre": dienst, "vorjahr_brutto": float(vorjahr) if vorjahr else None}
     if rv:
         st.caption(f"Rentenversicherung: abziehbar sind noch {_de(rv_spielraum(e))} € (Höchstbetrag "
                    f"{_de(HOECHST_ALTERSVORSORGE * (2 if e['splitting'] else 1))} € minus bisherige Beiträge ca. "
@@ -969,6 +1111,10 @@ def render():
     v = varianten(e)
     beste = next(x for x in v if x["beste"])
     basis = v[0]
+    alle_hinweise = hinweise(e)
+    for titel, text, wichtig in alle_hinweise:
+        if wichtig:
+            st.warning(f"**{titel}:** {text}")
 
     k1, k2 = st.columns(2)
     k1.metric("Steuern (günstigste Variante)", f"{_de(beste['steuer']['summe'])} €",
@@ -1024,7 +1170,7 @@ def render():
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     fjc.markdown('<div class="abf-schritt">✏️ <b>Einkommen je Jahr</b> – Zahl antippen zum Ändern '
                  '(vorbelegt aus Schritt 2)</div>', unsafe_allow_html=True)
-    df_j = pd.DataFrame([{"Jahr": STEUERJAHR + i, "Einkommen ohne Abfindung €": float(z), "Arbeitslosengeld €": float(a_)}
+    df_j = pd.DataFrame([{"Jahr": j1 + i, "Einkommen ohne Abfindung €": float(z), "Arbeitslosengeld €": float(a_)}
                          for i, (z, a_) in enumerate([(zve1, alg1), (zve2, alg2), (zve2, 0.0), (zve2, 0.0)])])
     ed_j = fjc.data_editor(df_j, key=f"abf_fj_tab_{int(zve1)}_{int(zve2)}_{int(alg1)}_{int(alg2)}",
                            hide_index=True, width="stretch", num_rows="fixed", disabled=["Jahr"],
@@ -1120,7 +1266,7 @@ def render():
         for x in v:
             st.markdown(f"**{'✓ ' if x['beste'] else ''}{x['titel']}**")
             teile = []
-            for jk, lab in (("j1", "Dieses Jahr"), ("j2", "Folgejahr")):
+            for jk, lab in (("j1", str(int(e.get("jahr1", STEUERJAHR)))), ("j2", str(int(e.get("jahr1", STEUERJAHR)) + 1))):
                 if jk in x["jahre"]:
                     j = x["jahre"][jk]
                     teile.append(f"{lab}: Jahressteuer {_de(j['mit']['summe'])} € (ohne Abfindung "
@@ -1132,6 +1278,11 @@ def render():
             if x["info"]:
                 st.markdown(f"- **{x['titel']}:** {x['hinweis']}")
 
+    with st.expander("⚠️ Neben der Steuer beachten (Arbeitslosengeld, Sozialversicherung, Kirche …)",
+                     expanded=False):
+        for titel, text, wichtig in alle_hinweise:
+            if not wichtig:
+                st.markdown(f"**{titel}:** {text}")
     st.download_button("📄 Ergebnis als PDF", data=pdf_bericht(e, v, fj=fj, fe=fuenftel_einkommen(e), av=av, avp=avp),
                        file_name=f"Abfindung_{int(abf)}_EUR.pdf",
                        mime="application/pdf", width="stretch", key="abf_pdf")
