@@ -2363,6 +2363,13 @@ def navigation():
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:active {
                     transform: none !important;
                     box-shadow: 0 0 10px rgba(255,60,60,.95), 0 0 22px rgba(255,60,60,.5) !important; }
+                /* waehrend des Ladens ausblenden: sofort beim Prozent-Balken, sonst nach 0,5 s
+                   (gleiche Verzoegerung wie die allgemeine Ladeanzeige - kein Flackern bei kurzen Klicks) */
+                [data-testid="stApp"]:has(.loading-overlay) .st-key-logout_ecke { display: none !important; }
+                [data-testid="stApp"][data-test-script-state="running"] .st-key-logout_ecke,
+                [data-testid="stApp"][data-test-script-state="rerunRequested"] .st-key-logout_ecke {
+                    animation: logoutweg 0.15s ease 0.5s forwards; }
+                @keyframes logoutweg { to { opacity: 0; visibility: hidden; } }
                 @media (prefers-reduced-motion: reduce) {
                     .st-key-logout_ecke [data-testid="stButton"] button::before,
                     .st-key-logout_ecke [data-testid="stIconMaterial"] { animation: none !important; } }
