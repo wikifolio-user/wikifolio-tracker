@@ -2313,6 +2313,14 @@ def navigation():
                                            inset 0 1px 0 rgba(255,255,255,.25); }
                 }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::after { display: none !important; }
+                /* heller Punkt, der innen am Rand entlang kreist */
+                .st-key-logout_ecke [data-testid="stButton"] button { position: relative !important; overflow: visible !important; }
+                .st-key-logout_ecke [data-testid="stButton"] button::before {
+                    content: ""; position: absolute; inset: 1.5px; border-radius: 50%; pointer-events: none;
+                    background: radial-gradient(circle at 50% 2.5px, #ffffff 0 1.2px,
+                                rgba(255,190,150,.85) 1.8px, rgba(255,120,70,.3) 3px, transparent 4px);
+                    animation: logoutorbit 2.8s linear infinite; }
+                @keyframes logoutorbit { to { transform: rotate(360deg); } }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button p,
                 .st-key-logout_ecke [data-testid="stButton"] button p { display: none !important; }
                 .st-key-logout_ecke [data-testid="stButton"] button [data-testid="stIconMaterial"] {
