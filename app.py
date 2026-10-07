@@ -2306,12 +2306,19 @@ def navigation():
                     box-shadow: none !important; transform: none !important; }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::after { display: none !important; }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button p,
-                .st-key-logout_ecke [data-testid="stButton"] button p {
-                    font-size: .85rem !important; line-height: 1 !important; overflow: visible !important; }
+                .st-key-logout_ecke [data-testid="stButton"] button p { display: none !important; }
+                .st-key-logout_ecke [data-testid="stButton"] button [data-testid="stIconMaterial"] {
+                    font-size: 17px !important; color: #c9ccd4 !important; margin: 0 !important; }
+                .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:hover,
+                .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:active {
+                    border-color: #d95926 !important; }
+                .st-key-logout_ecke [data-testid="stButton"] button:hover [data-testid="stIconMaterial"],
+                .st-key-logout_ecke [data-testid="stButton"] button:active [data-testid="stIconMaterial"] {
+                    color: #d95926 !important; }
                 </style>""", unsafe_allow_html=True)
                 with st.container(key="logout_ecke"):
-                    st.button("🚪", key="nav_logout", width="content", on_click=_abmelden,
-                              help=f"Abmelden ({_nutzer()['name']})")
+                    st.button("Abmelden", icon=":material/logout:", key="nav_logout", width="content",
+                              on_click=_abmelden, help=f"Abmelden ({_nutzer()['name']})")
             elif login.konfig(st) is None:
                 st.markdown('<div style="text-align:center;font-size:.8rem;color:#f0a27f;margin:6px 0">🔓 Login nicht '
                             'aktiv – Details unter „Verwaltung → 👥 Benutzer“</div>', unsafe_allow_html=True)
