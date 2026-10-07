@@ -2244,6 +2244,7 @@ def _nav_waehle(ansicht):
     except Exception:
         pass
     st.session_state.pop("zr_init", None)
+    st.session_state.pop("q_fokus", None)        # Qualitaets-Tabelle startet immer mit "Alle Kennzahlen"
 
 
 def _nutzer():
@@ -2853,6 +2854,8 @@ def render_dashboard():
         ("mgmt", "Management*", str, _qc_label(("gut",), ("schwach",))),
         ("bew", "Bewertung", str, _qc_label(("günstig",), ("teuer",))),
         ("risiko", "Risiko", str, _qc_label(("niedrig",), ("hoch",))),
+        # Dividendenrendite (letzte 12 Monate): grün ab 3 %, keine Rotfärbung - keine Dividende ist kein Mangel
+        ("div", "Dividende", _qf_pct(2, False), _qc_schwelle(3, -1)),
         ("mcap", "Mkap. Mrd €", _qf_zahl(), lambda x: ""),
     ]
     Q_KLASSE_CSS = {"prio": "q-prio", "beobachten": "q-beob", "nicht": "q-nicht"}
@@ -3050,6 +3053,11 @@ def render_dashboard():
                 f"Einstufung: **{e['mgmt']}**",
                 f"Aktienanzahl {_q_pct(e['akt'])} p.a. · Rückkäufe + Dividenden {_q_pct(e['aussch'], False)} des FCF",
                 "Insiderkäufe, Vergütung und Prognosetreue sind nicht automatisch bewertbar."]),
+            ("Dividende", [
+                ("Keine Dividende" if e.get("div") == 0 else
+                 f"Dividendenrendite {_q_pct(e.get('div'), False, 2)} (letzte 12 Monate)")
+                + (f" · Ausschüttungsquote {_q_pct(e.get('div_q'), False, 0)} vom Gewinn" if e.get("div_q") is not None else "")
+                + (f" · in {e['div_n']} von {e['n']} Geschäftsjahren gezahlt" if e.get("div_n") is not None else "")]),
             ("Bewertung", [
                 f"KGV {_q_x(e['kgv'], '')} · Forward-KGV {_q_x(e['fkgv'], '')} · EV/EBIT {_q_x(e['ev_ebit'], '')} · "
                 f"EV/EBITDA {_q_x(e['ev_ebitda'], '')} · EV/FCF {_q_x(e['ev_fcf'], '')} · PEG {_q_x(e['peg'], '')}",
@@ -3180,16 +3188,26 @@ def render_dashboard():
             f"Stand {stand} · {kat['bewertet']} von {kat['universum']} {basis_txt} bewertet · "
             f"Priorität {kl['prio']} · Beobachten {kl['beobachten']} · Nicht weiterverfolgen {kl['nicht']}"
         )
-        if abd.get("mit_kennzahlen", 0) < 0.9 * abd.get("universum", 1):
-            st.warning(f"Aufbau läuft: Kennzahlen für {abd.get('mit_kennzahlen', 0)} von "
-                       f"{abd.get('universum', 0)} Aktien liegen vor. Jeder Lauf ergänzt bis zu 3.000 – "
-                       "große Werte zuerst, Russell-Nebenwerte zuletzt.")
+        if "offen" in abd:
+            # Neuer Lauf: unterscheidet "noch nie abgerufen" von "Yahoo liefert keine Daten"
+            if abd["offen"] > 0:
+                st.warning(f"Aufbau läuft: {abd['offen']} Aktien wurden noch nicht abgerufen – jeder Lauf "
+                           "ergänzt bis zu 3.000, große Werte zuerst.")
+            if abd.get("ohne_daten"):
+                st.caption(f"ℹ️ {abd['ohne_daten']} Aktien liefern bei Yahoo zu wenige Geschäftszahlen "
+                           "(< 3 Jahre Abschlüsse, z. B. Neuemissionen, Fonds, Mantel) und werden nicht bewertet. "
+                           "Sie werden alle 3 Tage erneut versucht.")
+        elif abd.get("mit_kennzahlen", 0) < 0.9 * abd.get("universum", 1):
+            st.caption(f"ℹ️ Kennzahlen für {abd.get('mit_kennzahlen', 0)} von {abd.get('universum', 0)} Aktien. "
+                       "Der Rest liefert bei Yahoo vermutlich zu wenige Geschäftszahlen – die genaue "
+                       "Aufteilung zeigt der nächste Lauf.")
         if not symbole:
             st.info("In dieser Einordnung gibt es hier derzeit keine Aktie.")
             return
 
         titel_fokus = ["📊 Alle Kennzahlen"] + [t for _, t, _, _ in Q_SPALTEN]
-        f_wahl = st.pills("Kennzahl in der Tabelle", titel_fokus, default="ROIC", key="q_fokus") or "ROIC"
+        f_wahl = st.pills("Kennzahl in der Tabelle", titel_fokus, default=titel_fokus[0],
+                          key="q_fokus") or titel_fokus[0]
         if f_wahl == titel_fokus[0]:
             _q_vergleich(werte, symbole)
         else:
