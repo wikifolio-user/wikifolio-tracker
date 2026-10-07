@@ -260,6 +260,10 @@ RECHTE_CSS = """<style>
     background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.14); }
 [class*="st-key-rechte_"] [data-testid="stCheckbox"] label p { font-size: .9rem !important; color: #e8e6df !important; }
 .rechte-info { font-size: .8rem; color: #a9a79c; margin: 2px 0 8px; }
+[class*="st-key-rspeichern_"] button {
+    background: #16C784 !important; border: none !important; min-height: 46px; border-radius: 12px !important;
+    box-shadow: 0 0 10px rgba(22,199,132,.35) !important; }
+[class*="st-key-rspeichern_"] button p { color: #0a0b0d !important; font-weight: 700 !important; font-size: 1rem !important; }
 </style>"""
 
 
@@ -360,7 +364,9 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen):
             with st.form(f"rechte_form_{nn}", border=False):
                 with st.container(key=f"rechte_{nn}"):
                     _rechte_schalter(st, f"rechte_{nn}", ansichten, namen, erlaubt)
-                if st.form_submit_button("💾 Rechte speichern", width="stretch", type="primary"):
+                with st.container(key=f"rspeichern_{nn}"):
+                    gedrueckt = st.form_submit_button("💾 Rechte speichern", width="stretch")
+                if gedrueckt:
                     _rechte_speichern(nn)
                     st.rerun()
             st.divider()
