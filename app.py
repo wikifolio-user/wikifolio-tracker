@@ -2302,27 +2302,27 @@ def navigation():
                 .st-key-logout_ecke [data-testid="stButton"] button {
                     width: 30px !important; height: 30px !important; min-height: 30px !important;
                     min-width: 30px !important; padding: 0 !important; border-radius: 50% !important;
-                    background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%) !important;
-                    border: 1px solid rgba(255,255,255,.85) !important; transform: none !important;
+                    background: linear-gradient(175deg, #3a2226 0%, #1f1214 45%, #120a0b 100%) !important;
+                    border: 1px solid rgba(255,77,77,.9) !important; transform: none !important;
                     animation: logoutglow 3s ease-in-out infinite !important; }
                 /* gleiches sanftes Aufleuchten wie die Ueberschriften (navlogopuls) */
                 @keyframes logoutglow {
-                    0%, 100% { box-shadow: 0 0 2px rgba(255,255,255,.2); }
-                    50%      { box-shadow: 0 0 8px rgba(255,255,255,.7), 0 0 18px rgba(255,255,255,.3); }
+                    0%, 100% { box-shadow: 0 0 2px rgba(255,60,60,.25); }
+                    50%      { box-shadow: 0 0 8px rgba(255,60,60,.85), 0 0 18px rgba(255,60,60,.4); }
                 }
                 @keyframes logouticon {
-                    0%, 100% { opacity: .72; filter: drop-shadow(0 0 2px rgba(255,255,255,.25)); }
-                    50%      { opacity: 1;   filter: drop-shadow(0 0 5px rgba(255,255,255,.9)); }
+                    0%, 100% { opacity: .72; filter: drop-shadow(0 0 2px rgba(255,60,60,.3)); }
+                    50%      { opacity: 1;   filter: drop-shadow(0 0 5px rgba(255,60,60,.95)); }
                 }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::after { display: none !important; }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button p,
                 .st-key-logout_ecke [data-testid="stButton"] button p { display: none !important; }
                 .st-key-logout_ecke [data-testid="stButton"] button [data-testid="stIconMaterial"] {
-                    font-size: 16px !important; color: #ffffff !important; margin: 0 0 0 2px !important;
+                    font-size: 16px !important; color: #ff5c5c !important; margin: 0 0 0 2px !important;
                     animation: logouticon 3s ease-in-out infinite; }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:active {
                     animation: none !important;
-                    box-shadow: 0 0 10px rgba(255,255,255,.9), 0 0 22px rgba(255,255,255,.45) !important; }
+                    box-shadow: 0 0 10px rgba(255,60,60,.95), 0 0 22px rgba(255,60,60,.5) !important; }
                 @media (prefers-reduced-motion: reduce) {
                     .st-key-logout_ecke [data-testid="stButton"] button,
                     .st-key-logout_ecke [data-testid="stIconMaterial"] { animation: none !important; } }
