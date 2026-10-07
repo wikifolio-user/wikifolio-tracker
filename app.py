@@ -3901,7 +3901,13 @@ def render_dashboard():
     if gewaehlte_ansicht == ANSICHT_BENUTZER:
         try:
             waehlbar = [a for a in ANSICHTEN if a != ANSICHT_BENUTZER]
-            login.render_verwaltung(st, gh_read, gh_write, waehlbar, NAV_NAMEN)
+            def _gh_write_frisch(*args, **kwargs):
+                # nach dem Speichern den 60-s-Zwischenspeicher leeren: Sperren und
+                # Rechte wirken dann bei den anderen Benutzern beim naechsten Klick
+                ok = gh_write(*args, **kwargs)
+                gh_read_cached.clear()
+                return ok
+            login.render_verwaltung(st, gh_read, _gh_write_frisch, waehlbar, NAV_NAMEN)
         except Exception as e:
             st.error(f"⚠️ Fehler in der Benutzerverwaltung: {e}")
             notify_app_error("Tab-Benutzer", e)
@@ -6584,13 +6590,14 @@ _LADE_JS = """
     var st = D.createElement('style');
     st.textContent =
       'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +
+      'html.lade-js .loading-overlay { display:none !important; }' +
       '#lade-banner { position:fixed; top:0; left:0; right:0; z-index:10000; height:66px; box-sizing:border-box;' +
       ' padding:10px 16px 0; background:rgba(10,11,13,.97); border-bottom:1px solid #21252C;' +
       ' box-shadow:0 2px 14px rgba(0,0,0,.6); display:none; pointer-events:none; }' +
       '#lade-banner .lb-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }' +
       '#lade-banner .lb-pct { font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;' +
-      ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; }' +
-      '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; }' +
+      ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; flex-shrink:0; }' +
+      '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }' +
       '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#21252C; overflow:hidden; }' +
       '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#16C784; transition:width .2s linear; }';
     D.head.appendChild(st);
@@ -6599,29 +6606,53 @@ _LADE_JS = """
     b.innerHTML = '<div class="lb-kopf"><span class="lb-pct">0 %</span><span class="lb-text">Lade Daten …</span></div>' +
                   '<div class="lb-bar"><div class="lb-fill"></div></div>';
     D.body.appendChild(b);
-    var pct = b.querySelector('.lb-pct'), fill = b.querySelector('.lb-fill');
-    var start = 0, timer = null, sichtbar = false;
-    function setze(p) { pct.textContent = Math.round(p) + ' %'; fill.style.width = p + '%'; }
+    var pct = b.querySelector('.lb-pct'), fill = b.querySelector('.lb-fill'), txt = b.querySelector('.lb-text');
+    /* EINE Anzeige fuer alles: der genaue Balken der App (.loading-overlay) wird nur noch
+       ausgelesen, nicht mehr gezeigt. Angezeigt wird immer der hoechste Wert aus Hochrechnung
+       und genauem Stand - die Zahl laeuft so nur vorwaerts, von 0 bis 100 %. Folgt direkt
+       ein weiterer Ladeschritt (innerhalb 0,6 s), laeuft die Zahl einfach weiter. */
+    var start = 0, timer = null, sichtbar = false, wert = 0, ende = null;
+    function setze(p) { wert = p; pct.textContent = Math.floor(p) + ' %'; fill.style.width = p + '%'; }
     function tick() {
       var t = (Date.now() - start) / 1000 - 0.5;
-      if (D.querySelector('.loading-overlay')) { b.style.display = 'none'; sichtbar = false; return; }
-      if (t < 0) return;
-      if (!sichtbar) { setze(0); b.style.display = 'block'; sichtbar = true; }
-      setze(95 * (1 - Math.exp(-t / 3.5)));        /* hochgerechnet: ~50 % nach 2,4 s, ~90 % nach 10 s */
+      var ov = D.querySelector('.loading-overlay');
+      var genau = null;
+      if (ov) {
+        var g = parseInt((ov.querySelector('.loading-pct') || {}).textContent, 10);
+        if (!isNaN(g)) genau = Math.min(g, 99);
+        var tt = (ov.querySelector('.loading-text') || {}).textContent;
+        if (tt) txt.textContent = tt;
+      }
+      if (t < 0 && genau === null && !sichtbar) return;
+      if (!sichtbar) { b.style.display = 'block'; sichtbar = true; }
+      var schaetz = 95 * (1 - Math.exp(-Math.max(t, 0) / 3.5));
+      var ziel = Math.max(schaetz, genau === null ? 0 : genau);
+      /* nie rueckwaerts; bei genauem Stand weich nachziehen statt springen */
+      var neu = Math.max(wert, wert + (ziel - wert) * 0.35);
+      setze(Math.min(neu, 99));
     }
     function fertig() {
       if (timer) { clearInterval(timer); timer = null; }
-      if (!sichtbar) return;
-      setze(100);
-      setTimeout(function () { if (!timer) { b.style.display = 'none'; sichtbar = false; } }, 300);
+      if (!sichtbar) { wert = 0; return; }
+      ende = setTimeout(function () {
+        ende = null;
+        if (timer) return;                    /* es laedt schon weiter */
+        setze(100);
+        setTimeout(function () {
+          if (!timer) { b.style.display = 'none'; sichtbar = false; setze(0); txt.textContent = 'Lade Daten …'; }
+        }, 350);
+      }, 600);
     }
     function pruefe() {
       var app = D.querySelector('[data-testid="stApp"]');
       if (!app) return;
       var s = app.getAttribute('data-test-script-state');
       var laeuft = (s === 'running' || s === 'rerunRequested');
-      if (laeuft && !timer) { start = Date.now(); timer = setInterval(tick, 100); }
-      else if (!laeuft && timer) { fertig(); }
+      if (laeuft && !timer) {
+        if (!sichtbar) { start = Date.now(); setze(0); }   /* sonst: laeuft vom bisherigen Stand weiter */
+        if (ende) { clearTimeout(ende); ende = null; }
+        timer = setInterval(tick, 100);
+      } else if (!laeuft && timer) { fertig(); }
     }
     new MutationObserver(pruefe).observe(D.body, { attributes: true, subtree: true,
                                                    attributeFilter: ['data-test-script-state'] });
