@@ -861,6 +861,10 @@ ABF_CSS = """<style>
                               font-size: 1.05rem; width: 34px; height: 34px; flex-basis: 34px; }
 .st-key-abf_form [data-testid="stExpander"] details { border-color: #3a4152 !important; }
 .st-key-abf_form [data-testid="stCheckbox"] label p { font-size: .88rem !important; color: #e8e6df !important; }
+.st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipIcon"],
+.st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"],
+.st-key-abf_form [data-testid="stSelectbox"] > div:has([data-testid="stTooltipIcon"]):not(:has([data-baseweb="select"])) {
+    outline: none !important; background: transparent !important; box-shadow: none !important; border: none !important; }
 .abf-ergebnis-kopf { margin: 22px 0 10px; padding: 10px 14px; border-radius: 12px; font-size: 1.1rem;
                      font-weight: 800; color: #fff; background: linear-gradient(90deg, rgba(22,199,132,.22), transparent);
                      border-left: 4px solid #16C784; }
