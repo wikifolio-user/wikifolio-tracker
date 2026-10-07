@@ -2385,8 +2385,16 @@ def navigation():
                     .st-key-logout_ecke [data-testid="stIconMaterial"] { animation: none !important; } }
                 </style>""", unsafe_allow_html=True)
                 with st.container(key="logout_ecke"):
-                    st.button("Abmelden", icon=":material/logout:", key="nav_logout", width="content",
-                              on_click=_abmelden, help=f"Abmelden ({_nutzer()['name']})")
+                    # kein on_click: der Knopf liegt im Fragment - ein Callback wuerde nur das
+                    # Fragment neu zeichnen (Menue ohne Knopf). Hier wird die GANZE App neu
+                    # gestartet, damit die Anmeldemaske erscheint.
+                    if st.button("Abmelden", icon=":material/logout:", key="nav_logout", width="content",
+                                 help=f"Abmelden ({_nutzer()['name']})"):
+                        _abmelden()
+                        try:
+                            st.rerun(scope="app")
+                        except TypeError:
+                            st.rerun()
             elif login.konfig(st) is None:
                 st.markdown('<div style="text-align:center;font-size:.8rem;color:#f0a27f;margin:6px 0">🔓 Login nicht '
                             'aktiv – Details unter „Verwaltung → 👥 Benutzer“</div>', unsafe_allow_html=True)
