@@ -2296,17 +2296,22 @@ def navigation():
                 # klein, fest oben rechts in der Ecke
                 st.markdown("""<style>
                 .st-key-logout_ecke { position: fixed !important; z-index: 999999;
-                    top: calc(env(safe-area-inset-top, 0px) + 8px); right: 10px; width: auto !important; }
-                .st-key-logout_ecke button { min-height: 0 !important; height: auto !important;
-                    padding: 3px 9px !important; border-radius: 999px !important;
-                    background: rgba(18,21,28,.85) !important; border: 1px solid #3a4050 !important;
-                    box-shadow: none !important; }
-                .st-key-logout_ecke button p { font-size: .72rem !important; font-weight: 600 !important;
-                    color: #a9a79c !important; }
+                    top: calc(env(safe-area-inset-top, 0px) + 8px); right: 10px;
+                    width: auto !important; margin: 0 !important; }
+                .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button,
+                .st-key-logout_ecke [data-testid="stButton"] button {
+                    width: 30px !important; height: 30px !important; min-height: 30px !important;
+                    min-width: 30px !important; padding: 0 !important; border-radius: 50% !important;
+                    background: rgba(18,21,28,.8) !important; border: 1px solid #3a4050 !important;
+                    box-shadow: none !important; transform: none !important; }
+                .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::after { display: none !important; }
+                .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button p,
+                .st-key-logout_ecke [data-testid="stButton"] button p {
+                    font-size: .85rem !important; line-height: 1 !important; overflow: visible !important; }
                 </style>""", unsafe_allow_html=True)
                 with st.container(key="logout_ecke"):
-                    st.button("🚪 Abmelden", key="nav_logout", width="content", on_click=_abmelden,
-                              help=f"Angemeldet als {_nutzer()['name']}")
+                    st.button("🚪", key="nav_logout", width="content", on_click=_abmelden,
+                              help=f"Abmelden ({_nutzer()['name']})")
             elif login.konfig(st) is None:
                 st.markdown('<div style="text-align:center;font-size:.8rem;color:#f0a27f;margin:6px 0">🔓 Login nicht '
                             'aktiv – Details unter „Verwaltung → 👥 Benutzer“</div>', unsafe_allow_html=True)
