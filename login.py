@@ -52,12 +52,30 @@ def _norm(name):
 # ---------------------------------------------------------------------------
 # Konfiguration + Speicher
 # ---------------------------------------------------------------------------
+def _secrets_quelle(st):
+    """Sucht admin_benutzer in [login], ganz oben oder in irgendeinem Abschnitt der Secrets
+    (haeufiger Fehler: Zeilen ohne [login] unter einen anderen Abschnitt angehaengt)."""
+    try:
+        alle = st.secrets
+        if "login" in alle and alle["login"].get("admin_benutzer"):
+            return alle["login"], "[login]"
+        if alle.get("admin_benutzer"):
+            return alle, "oberste Ebene"
+        for k in list(alle.keys()):
+            try:
+                v = alle[k]
+                if hasattr(v, "get") and v.get("admin_benutzer"):
+                    return v, f"[{k}]"
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None, None
+
+
 def konfig(st):
     """-> {"admin": name, "admin_pw": hash/klartext} oder None (Login aus)."""
-    try:
-        s = st.secrets.get("login")
-    except Exception:
-        s = None
+    s, _ = _secrets_quelle(st)
     if not s:
         return None
     name = _norm(s.get("admin_benutzer"))
@@ -65,6 +83,21 @@ def konfig(st):
     if not name or not pw:
         return None
     return {"admin": name, "admin_pw": str(pw)}
+
+
+def diagnose(st):
+    """Kurzer Text, warum der Login (nicht) aktiv ist - ohne Werte zu verraten."""
+    try:
+        abschnitte = list(st.secrets.keys())
+    except Exception:
+        return "Keine Secrets gefunden (Settings → Secrets ist leer)."
+    s, wo = _secrets_quelle(st)
+    if not s:
+        return ("In den Secrets fehlt „admin_benutzer“. Vorhandene Einträge/Abschnitte: "
+                + (", ".join(abschnitte) or "keine") + ".")
+    if not (s.get("admin_passwort") or s.get("admin_passwort_hash")):
+        return f"„admin_benutzer“ gefunden ({wo}), aber „admin_passwort“ fehlt."
+    return f"Login aktiv (gefunden unter {wo})."
 
 
 def lade(gh_read):
@@ -198,7 +231,8 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen):
     """ansichten: Liste der waehlbaren Ansichten (Schluessel), namen: {schluessel: Anzeigename}."""
     cfg = konfig(st)
     if cfg is None:
-        st.info("Login ist nicht eingerichtet. In Streamlit unter Settings → Secrets eintragen:\n\n"
+        st.warning("Login ist **nicht aktiv** – die App ist für jeden mit dem Link offen.\n\n" + diagnose(st))
+        st.info("In Streamlit unter Settings → Secrets ganz unten eintragen und speichern:\n\n"
                 "```toml\n[login]\nadmin_benutzer = \"dein-name\"\nadmin_passwort = \"dein-passwort\"\n```")
         return
     daten = lade(gh_read)
