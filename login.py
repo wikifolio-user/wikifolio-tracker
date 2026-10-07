@@ -254,6 +254,31 @@ def darf(nutzer, ansicht):
 # ---------------------------------------------------------------------------
 # Benutzerverwaltung (nur Admin)
 # ---------------------------------------------------------------------------
+RECHTE_CSS = """<style>
+.st-key-rechte_box [data-testid="stCheckbox"], [class*="st-key-rechte_"] [data-testid="stCheckbox"] {
+    padding: 6px 10px; margin-bottom: 6px; border-radius: 10px;
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.14); }
+[class*="st-key-rechte_"] [data-testid="stCheckbox"] label p { font-size: .9rem !important; color: #e8e6df !important; }
+.rechte-info { font-size: .8rem; color: #a9a79c; margin: 2px 0 8px; }
+</style>"""
+
+
+def _schalter_key(prefix, a):
+    return f"{prefix}__{a}"
+
+
+def _rechte_schalter(st, prefix, ansichten, namen, erlaubt, on_change=None, args=()):
+    """Je Ansicht ein Schalter (2 Spalten). -> Liste der eingeschalteten Ansichten."""
+    cols = st.columns(2)
+    for i, a in enumerate(ansichten):
+        k = _schalter_key(prefix, a)
+        if k not in st.session_state:
+            st.session_state[k] = a in erlaubt
+        kw = {"on_change": on_change, "args": args} if on_change else {}
+        cols[i % 2].toggle(namen.get(a, a), key=k, **kw)
+    return [a for a in ansichten if st.session_state.get(_schalter_key(prefix, a))]
+
+
 def render_verwaltung(st, gh_read, gh_write, ansichten, namen):
     """ansichten: Liste der waehlbaren Ansichten (Schluessel), namen: {schluessel: Anzeigename}."""
     cfg = konfig(st)
@@ -262,18 +287,40 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen):
         st.info("In Streamlit unter Settings → Secrets ganz unten eintragen und speichern:\n\n"
                 "```toml\n[login]\nadmin_benutzer = \"dein-name\"\nadmin_passwort = \"dein-passwort\"\n```")
         return
+    st.markdown(RECHTE_CSS, unsafe_allow_html=True)
     daten = lade(gh_read)
     benutzer = daten.setdefault("benutzer", {})
-    st.caption(f"Admin: **{cfg['admin']}** (aus den Secrets – kann hier nicht gelöscht werden). Änderungen gelten "
-               "sofort: gesperrte oder gelöschte Benutzer werden beim nächsten Klick abgemeldet.")
+    st.caption(f"Admin: **{cfg['admin']}** (aus den Secrets – sieht immer alles). Schalter wirken sofort und "
+               "werden automatisch gespeichert; gesperrte oder gelöschte Benutzer fliegen beim nächsten Klick raus.")
+
+    def _rechte_setzen(nn, liste=None):
+        """Callback: aktuelle Schalterstellung (oder feste Liste) speichern."""
+        prefix = f"rechte_{nn}"
+        if liste is not None:
+            for a in ansichten:
+                st.session_state[_schalter_key(prefix, a)] = a in liste
+        auswahl = [a for a in ansichten if st.session_state.get(_schalter_key(prefix, a))]
+        d = lade(gh_read)
+        if nn in d.get("benutzer", {}):
+            d["benutzer"][nn]["ansichten"] = auswahl
+            if speichere(gh_write, d, f"rechte {nn}"):
+                st.toast(f"✅ Rechte von „{nn}“ gespeichert ({len(auswahl)}/{len(ansichten)})")
+            else:
+                st.toast("⚠️ Speichern nicht möglich (GitHub-Speicher)")
 
     with st.expander("➕ Neuen Benutzer anlegen", expanded=not benutzer):
         with st.form("neu_benutzer", clear_on_submit=True):
             c1, c2 = st.columns(2)
             n = c1.text_input("Benutzername")
             pw = c2.text_input("Passwort (min. 8 Zeichen)", type="password")
-            sicht = st.multiselect("Darf sehen", ansichten, default=ansichten, format_func=lambda a: namen.get(a, a))
+            st.markdown('<div class="rechte-info">Darf sehen (später jederzeit änderbar):</div>',
+                        unsafe_allow_html=True)
+            with st.container(key="rechte_neu"):
+                cols = st.columns(2)
+                wahl = {a: cols[i % 2].toggle(namen.get(a, a), value=True, key=f"neu_sicht_{i}")
+                        for i, a in enumerate(ansichten)}
             if st.form_submit_button("Anlegen", width="stretch"):
+                sicht = [a for a, an in wahl.items() if an]
                 nn = _norm(n)
                 if not nn or nn == cfg["admin"] or nn in benutzer:
                     st.error("Name fehlt, ist der Admin oder existiert schon.")
@@ -294,30 +341,38 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen):
     for nn in sorted(benutzer):
         u = benutzer[nn]
         aktiv = u.get("aktiv", True)
-        titel = f"{'🟢' if aktiv else '⛔'} {nn}" + (f" · zuletzt {u['zuletzt'].replace('T', ' ')}" if u.get("zuletzt") else "")
+        erlaubt = [a for a in (u.get("ansichten") if u.get("ansichten") is not None else ansichten) if a in ansichten]
+        titel = (f"{'🟢' if aktiv else '⛔'} {nn} · {len(erlaubt)}/{len(ansichten)} Ansichten"
+                 + (f" · zuletzt {u['zuletzt'][:16].replace('T', ' ')}" if u.get("zuletzt") else ""))
         with st.expander(titel):
-            sicht = st.multiselect("Darf sehen", ansichten, default=[a for a in (u.get("ansichten") or ansichten)
-                                                                     if a in ansichten],
-                                   format_func=lambda a: namen.get(a, a), key=f"bv_sicht_{nn}")
-            c1, c2 = st.columns(2)
-            if c1.button("💾 Rechte speichern", key=f"bv_save_{nn}", width="stretch"):
-                u["ansichten"] = sicht
-                speichere(gh_write, daten, f"rechte {nn}")
-                st.success("Gespeichert.")
+            st.markdown('<div class="rechte-info">👁️ <b>Darf sehen</b> – antippen zum Ein-/Ausschalten, '
+                        'wird sofort gespeichert:</div>', unsafe_allow_html=True)
+            q1, q2 = st.columns(2)
+            q1.button("✅ Alles erlauben", key=f"bv_alle_{nn}", width="stretch",
+                      on_click=_rechte_setzen, args=(nn, list(ansichten)))
+            q2.button("⬜ Nichts erlauben", key=f"bv_keine_{nn}", width="stretch",
+                      on_click=_rechte_setzen, args=(nn, []))
+            with st.container(key=f"rechte_{nn}"):
+                _rechte_schalter(st, f"rechte_{nn}", ansichten, namen, erlaubt,
+                                 on_change=_rechte_setzen, args=(nn,))
+            st.divider()
+            c2, c4 = st.columns(2)
             if c2.button("⛔ Sperren" if aktiv else "✅ Freischalten", key=f"bv_akt_{nn}", width="stretch"):
                 u["aktiv"] = not aktiv
                 speichere(gh_write, daten, f"{'sperre' if aktiv else 'frei'} {nn}")
                 st.rerun()
-            neu_pw = st.text_input("Neues Passwort", type="password", key=f"bv_pw_{nn}")
-            c3, c4 = st.columns(2)
-            if c3.button("🔑 Passwort setzen", key=f"bv_pwb_{nn}", width="stretch"):
+            if c4.button("🗑️ Löschen", key=f"bv_del_{nn}", width="stretch"):
+                benutzer.pop(nn, None)
+                speichere(gh_write, daten, f"loeschen {nn}")
+                for a in ansichten:
+                    st.session_state.pop(_schalter_key(f"rechte_{nn}", a), None)
+                st.rerun()
+            neu_pw = st.text_input("🔑 Neues Passwort", type="password", key=f"bv_pw_{nn}",
+                                   placeholder="mind. 8 Zeichen")
+            if st.button("Passwort setzen", key=f"bv_pwb_{nn}", width="stretch"):
                 if len(neu_pw or "") < 8:
                     st.error("Mindestens 8 Zeichen.")
                 else:
                     u["hash"] = passwort_hash(neu_pw)
                     speichere(gh_write, daten, f"passwort {nn}")
                     st.success("Passwort geändert.")
-            if c4.button("🗑️ Löschen", key=f"bv_del_{nn}", width="stretch"):
-                benutzer.pop(nn, None)
-                speichere(gh_write, daten, f"loeschen {nn}")
-                st.rerun()
