@@ -226,9 +226,11 @@ def pruefen(st, gh_read_cached):
     """Waehrend der Sitzung: Benutzer noch aktiv? Sonst abmelden und die ganze Seite neu aufbauen."""
     cfg = konfig(st)
     name = st.session_state.get("login_name")
-    if cfg is None or not name:
+    if cfg is None:
         return
-    if _nutzer(cfg, lade(gh_read_cached), name) is None:
+    # nicht (mehr) angemeldet, aber ein Teil der App zeichnet sich neu (Fragment) ->
+    # ganze App neu starten, damit die Anmeldemaske erscheint
+    if not name or _nutzer(cfg, lade(gh_read_cached), name) is None:
         st.session_state.pop("login_name", None)
         st.session_state.pop("_nutzer", None)
         try:
