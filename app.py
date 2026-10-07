@@ -2293,8 +2293,20 @@ def navigation():
             st.button("🔄 Kurse aktualisieren", key="nav_refresh", width="content", help=hilfe,
                       on_click=_nav_aktualisieren)
             if _nutzer():
-                st.button(f"🚪 Abmelden ({_nutzer()['name']})", key="nav_logout", width="content",
-                          on_click=_abmelden)
+                # klein, fest oben rechts in der Ecke
+                st.markdown("""<style>
+                .st-key-logout_ecke { position: fixed !important; z-index: 999999;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px); right: 10px; width: auto !important; }
+                .st-key-logout_ecke button { min-height: 0 !important; height: auto !important;
+                    padding: 3px 9px !important; border-radius: 999px !important;
+                    background: rgba(18,21,28,.85) !important; border: 1px solid #3a4050 !important;
+                    box-shadow: none !important; }
+                .st-key-logout_ecke button p { font-size: .72rem !important; font-weight: 600 !important;
+                    color: #a9a79c !important; }
+                </style>""", unsafe_allow_html=True)
+                with st.container(key="logout_ecke"):
+                    st.button("🚪 Abmelden", key="nav_logout", width="content", on_click=_abmelden,
+                              help=f"Angemeldet als {_nutzer()['name']}")
             elif login.konfig(st) is None:
                 st.markdown('<div style="text-align:center;font-size:.8rem;color:#f0a27f;margin:6px 0">🔓 Login nicht '
                             'aktiv – Details unter „Verwaltung → 👥 Benutzer“</div>', unsafe_allow_html=True)
