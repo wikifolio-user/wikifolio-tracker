@@ -24,6 +24,7 @@ KATEGORIEN = {
     "depot": ("💼", "Depot"),
     "beobachtung": ("👀", "Beobachtung"),
     "planer": ("📦", "Planer"),
+    "zugang": ("🔐", "Anmeldungen"),
     "notiz": ("✏️", "Notizen"),
 }
 
