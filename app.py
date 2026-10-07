@@ -763,33 +763,45 @@ st.markdown("""
     /* ---------- ALLGEMEINE LADEANZEIGE (jede Ansicht) ----------
        Streamlit markiert die App waehrend jedes Durchlaufs mit
        data-test-script-state="running". Dauert ein Durchlauf laenger als
-       0,5 s (= es werden wirklich Daten geladen), erscheint oben ein
-       durchlaufender Balken mit "Lade Daten …". Schnelle Klicks/Rechner
-       loesen nichts aus (Verzoegerung per animation-delay). Laeuft schon der
-       genaue Prozent-Balken (.loading-overlay), bleibt diese Anzeige aus. */
+       0,5 s, erscheint oben dasselbe Banner wie beim genauen Balken:
+       Prozentzahl, Text und Balken. Die Prozentzahl ist hier eine
+       HOCHRECHNUNG (zaehlt zuegig an, wird dann langsamer und haelt bei
+       95 %, bis die Seite fertig ist) - der genaue Stand ist unbekannt.
+       Laeuft schon der genaue Prozent-Balken (.loading-overlay), bleibt
+       diese Anzeige aus. */
+    @property --ladepct { syntax: '<integer>'; inherits: false; initial-value: 0; }
+    @property --ladebreite { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
     [data-testid="stApp"][data-test-script-state="running"]::before,
     [data-testid="stApp"][data-test-script-state="rerunRequested"]::before {
-        content: ""; position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 10000;
-        background: linear-gradient(90deg, transparent 0%, var(--up) 35%, #ffffff 50%, var(--up) 65%, transparent 100%);
-        background-size: 50% 100%; background-repeat: no-repeat;
-        box-shadow: 0 0 8px var(--up);
+        counter-reset: ladepct var(--ladepct);
+        content: counter(ladepct) " %";
+        position: fixed; top: 0; left: 0; right: 0; z-index: 10000; height: 66px; box-sizing: border-box;
+        padding: 10px 16px 0; display: block;
+        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+        font-size: 1.35rem; font-weight: 700; line-height: 1.2; color: var(--text);
+        background: rgba(10, 11, 13, 0.97); border-bottom: 1px solid var(--line);
+        box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
         opacity: 0; pointer-events: none;
-        animation: ladeein 0.2s ease 0.5s forwards, ladelauf 1.1s linear 0.5s infinite;
+        animation: ladeein 0.2s ease 0.5s forwards, ladezahl 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
     }
     [data-testid="stApp"][data-test-script-state="running"]::after,
     [data-testid="stApp"][data-test-script-state="rerunRequested"]::after {
-        content: "⏳ Lade Daten …"; position: fixed; z-index: 10000; left: 50%; transform: translateX(-50%);
-        top: 8px; padding: 4px 12px; border-radius: 999px;
-        font-size: 0.72rem; font-weight: 600; color: var(--text); white-space: nowrap;
-        background: rgba(10, 11, 13, 0.92); border: 1px solid var(--line);
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+        content: "Lade Daten …";
+        position: fixed; z-index: 10001; top: 0; left: 0; right: 0; height: 66px; box-sizing: border-box;
+        padding: 14px 16px 0 96px; text-align: right;
+        font-size: 0.9rem; font-weight: 600; color: var(--muted); white-space: nowrap;
+        /* Balken: unten im Banner, Fuellung waechst mit --ladebreite */
+        background:
+            linear-gradient(var(--up), var(--up)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
+            linear-gradient(var(--line), var(--line)) no-repeat 16px 46px / calc(100% - 32px) 9px;
         opacity: 0; pointer-events: none;
-        animation: ladeein 0.2s ease 0.5s forwards;
+        animation: ladeein 0.2s ease 0.5s forwards, ladebalken 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
     }
     [data-testid="stApp"]:has(.loading-overlay)::before,
     [data-testid="stApp"]:has(.loading-overlay)::after { display: none !important; }
     @keyframes ladeein { to { opacity: 1; } }
-    @keyframes ladelauf { 0% { background-position: -100% 0; } 100% { background-position: 200% 0; } }
+    @keyframes ladezahl { from { --ladepct: 0; } to { --ladepct: 95; } }
+    @keyframes ladebalken { from { --ladebreite: 0%; } to { --ladebreite: 95%; } }
 
     /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
        Bewusst position:fixed statt im normalen Seitenfluss. Vorher wanderte
@@ -799,36 +811,33 @@ st.markdown("""
        Fixiert belegt er ausserdem keinen Platz im Layout, es gibt also auch
        keinen Versatz mehr, wenn er wieder verschwindet. */
     .loading-overlay {
-        position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
-        display: flex; align-items: center; gap: 12px;
-        padding: 10px 16px;
-        background: rgba(10, 11, 13, 0.96);
+        position: fixed; top: 0; left: 0; right: 0; z-index: 9999; height: 66px; box-sizing: border-box;
+        display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 8px;
+        padding: 10px 16px 0; align-content: flex-start;
+        background: rgba(10, 11, 13, 0.97);
         border-bottom: 1px solid var(--line);
-        box-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+        box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
         backdrop-filter: blur(6px);
     }
     .loading-pct {
         font-family: 'IBM Plex Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums;
-        font-size: 1rem; font-weight: 700; color: var(--text);
-        line-height: 1; min-width: 48px; flex-shrink: 0;
+        font-size: 1.35rem; font-weight: 700; color: var(--text);
+        line-height: 1.2; min-width: 72px; flex-shrink: 0;
     }
-    /* FESTE Breite: mit "flex: 1 1 auto" wuchs und schrumpfte der Balken je
-       nach Laenge des Statustextes - er wirkte dadurch, als liefe er vor und
-       zurueck. Jetzt bleibt seine Breite konstant, nur die Fuellung bewegt sich. */
+    /* Balken in eigener Zeile ueber die volle Breite - feste Breite, nur die Fuellung bewegt sich */
     .loading-bar {
-        flex: 0 0 140px; width: 140px; height: 5px; border-radius: 999px;
+        order: 3; flex: 0 0 100%; width: 100%; height: 9px; border-radius: 999px;
         background: var(--line); overflow: hidden;
     }
     .loading-bar-fill {
         height: 100%; background: var(--up); border-radius: 999px;
         transition: width 0.25s ease;
     }
-    /* Der Text fuellt den Rest und wird bei Bedarf abgeschnitten - er darf
-       die Position von Prozentzahl und Balken nicht mehr beeinflussen. */
+    /* Text rechts neben der Prozentzahl, bei Bedarf abgeschnitten */
     .loading-text {
-        flex: 1 1 auto; min-width: 0;
-        font-size: 0.75rem; color: var(--muted); font-weight: 500;
+        flex: 1 1 0; min-width: 0; text-align: right;
+        font-size: 0.9rem; color: var(--muted); font-weight: 600;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .block-container { padding-top: 0.8rem; padding-bottom: 4rem; max-width: 780px; }
