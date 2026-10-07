@@ -13,6 +13,7 @@ import streamlit as st
 import config
 import github_store
 import chronik
+import login
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1854,6 +1855,7 @@ ANSICHT_EINST = "⚙️ Einstellungen"
 ANSICHT_MUSTER = "📦 Musterdepot"    # aus dem Portfolio-Planer erstellt - Button nur, wenn eines existiert
 ANSICHT_ABFINDUNG = "💶 Abfindungsrechner"
 ANSICHT_ZINS = "🧮 Zinseszinsrechner"
+ANSICHT_BENUTZER = "👥 Benutzer"      # nur fuer den Admin sichtbar
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
@@ -1873,6 +1875,7 @@ ANSICHTEN = [
     "🏆 Watchlist Top 50",
     ANSICHT_ABFINDUNG,          # immer ans Ende: die Kachel-Keys haengen am Index
     ANSICHT_ZINS,
+    ANSICHT_BENUTZER,
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1889,6 +1892,7 @@ ANSICHT_KURZ = {
     ANSICHT_MUSTER: "📦 Muster",
     ANSICHT_ABFINDUNG: "💶 Abfindung",
     ANSICHT_ZINS: "🧮 Zinsen",
+    ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1906,6 +1910,7 @@ NAV_NAMEN = {
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
     ANSICHT_ZINS: "🧮 Zinseszinsrechner",
+    ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
 NAV_TITEL = {
@@ -1921,9 +1926,11 @@ NAV_ZEILEN = [
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Planer",
                            "🏆 Watchlist Top 50"]),
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS]),
+    ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS}
+LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
+                     ANSICHT_BENUTZER}
 
 NAV_CSS = """
 <style>
@@ -2208,6 +2215,26 @@ def _nav_waehle(ansicht):
     st.session_state.pop("zr_init", None)
 
 
+def _nutzer():
+    return st.session_state.get("_nutzer")
+
+
+def _sichtbar(ansicht):
+    """Darf der angemeldete Benutzer diese Ansicht sehen? (ohne Login: alles ausser Benutzerverwaltung)"""
+    n = _nutzer()
+    if ansicht == ANSICHT_BENUTZER:
+        return n is None or n.get("rolle") == "admin"
+    return login.darf(n, ansicht)
+
+
+def _abmelden():
+    login.abmelden(st)
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+
+
 def _app_url():
     try:
         u = st.context.url
@@ -2228,6 +2255,7 @@ def navigation():
     Inhalt beginnt direkt darunter, wie in einer App.
     -> gewaehlte Ansicht oder None (Startseite)."""
     st.markdown(NAV_CSS, unsafe_allow_html=True)
+    login.pruefen(st, gh_read_cached)       # gesperrt/geloescht? -> sofort abmelden (auch bei Teil-Neuaufbau)
     jetzt = datetime.datetime.now(BERLIN_TZ)
     try:
         stand = datetime.datetime.fromisoformat(_kurse_stand())
@@ -2245,9 +2273,11 @@ def navigation():
     if not st.session_state.get("_link_geprueft"):
         st.session_state["_link_geprueft"] = True
         ziel_link = ANSICHT_LINKS.get(st.query_params.get("ansicht", ""))
-        if ziel_link:
+        if ziel_link and _sichtbar(ziel_link):
             st.session_state["ansicht_aktiv"] = ziel_link
     aktiv = st.session_state.get("ansicht_aktiv")
+    if aktiv is not None and not _sichtbar(aktiv):
+        aktiv = None
     if aktiv not in ANSICHTEN:
         aktiv = None
 
@@ -2262,13 +2292,18 @@ def navigation():
                 unsafe_allow_html=True)
             st.button("🔄 Kurse aktualisieren", key="nav_refresh", width="content", help=hilfe,
                       on_click=_nav_aktualisieren)
+            if _nutzer():
+                st.button(f"🚪 Abmelden ({_nutzer()['name']})", key="nav_logout", width="content",
+                          on_click=_abmelden)
             farb_css = []
             try:
                 hat_muster = bool((gh_read_cached(PFAD_MUSTERDEPOT, {}) or {}).get("depots"))
             except Exception:
                 hat_muster = False
             for titel, ansichten in NAV_ZEILEN:
-                ansichten = [a for a in ansichten if a != ANSICHT_MUSTER or hat_muster]
+                ansichten = [a for a in ansichten if (a != ANSICHT_MUSTER or hat_muster) and _sichtbar(a)]
+                if not ansichten:
+                    continue
                 farbe = NAV_FARBEN.get(titel, "#F4F8FF")
                 verzug = f"{[t for t, _ in NAV_ZEILEN].index(titel) * 0.25 + 0.3:.2f}s"
                 st.markdown(f'<div class="nav-gruppe"><span class="nav-wander" style="animation-delay:{verzug}">'
@@ -3742,6 +3777,15 @@ def render_dashboard():
             notify_app_error("Tab-Portfolio-Planer", e)
         lade_fertig()
 
+
+    if gewaehlte_ansicht == ANSICHT_BENUTZER:
+        try:
+            waehlbar = [a for a in ANSICHTEN if a != ANSICHT_BENUTZER]
+            login.render_verwaltung(st, gh_read, gh_write, waehlbar, NAV_NAMEN)
+        except Exception as e:
+            st.error(f"⚠️ Fehler in der Benutzerverwaltung: {e}")
+            notify_app_error("Tab-Benutzer", e)
+        lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_ZINS:
         try:
@@ -6399,5 +6443,8 @@ def render_dashboard():
                 st.write(f"- Erster Schlusskurs der Reihe: **{df_chart['Close'].iloc[0]:.4f} €**")
 
 
+
+# ---------- LOGIN: vor allem anderen (ohne [login] in den Secrets aus) ----------
+st.session_state["_nutzer"] = login.gate(st, gh_read, gh_read_cached, gh_write, chronik_eintrag)
 
 render_dashboard()
