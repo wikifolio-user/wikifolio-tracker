@@ -2304,7 +2304,14 @@ def navigation():
                     min-width: 30px !important; padding: 0 !important; border-radius: 50% !important;
                     background: linear-gradient(175deg, #3a2226 0%, #1f1214 45%, #120a0b 100%) !important;
                     border: 1px solid rgba(255,77,77,.9) !important; transform: none !important;
-                    animation: logoutglow 3s ease-in-out infinite !important; }
+                    position: relative !important; overflow: visible !important;
+                    box-shadow: none !important; filter: none !important; }
+                /* Leuchten ueber eigenen Ring - box-shadow des Knopfs ist global per !important belegt
+                   (graue 3D-Schatten der Menue-Tasten) und liesse sich nicht animieren */
+                .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::before,
+                .st-key-logout_ecke [data-testid="stButton"] button::before {
+                    content: ""; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
+                    animation: logoutglow 3s ease-in-out infinite; }
                 /* gleiches sanftes Aufleuchten wie die Ueberschriften (navlogopuls) */
                 @keyframes logoutglow {
                     0%, 100% { box-shadow: 0 0 2px rgba(255,60,60,.25); }
@@ -2320,11 +2327,12 @@ def navigation():
                 .st-key-logout_ecke [data-testid="stButton"] button [data-testid="stIconMaterial"] {
                     font-size: 16px !important; color: #ff5c5c !important; margin: 0 0 0 2px !important;
                     animation: logouticon 3s ease-in-out infinite; }
+                .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:hover,
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:active {
-                    animation: none !important;
+                    transform: none !important;
                     box-shadow: 0 0 10px rgba(255,60,60,.95), 0 0 22px rgba(255,60,60,.5) !important; }
                 @media (prefers-reduced-motion: reduce) {
-                    .st-key-logout_ecke [data-testid="stButton"] button,
+                    .st-key-logout_ecke [data-testid="stButton"] button::before,
                     .st-key-logout_ecke [data-testid="stIconMaterial"] { animation: none !important; } }
                 </style>""", unsafe_allow_html=True)
                 with st.container(key="logout_ecke"):
