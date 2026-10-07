@@ -851,59 +851,99 @@ def _gestaltungen_eingabe(st):
     return g
 
 
+ABF_CSS = """<style>
+/* Abfindungsrechner: Felder untereinander, Schritt-Nummer als Kreis, Ergebnis klar abgesetzt */
+.st-key-abf_form [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+@media (max-width: 640px) {
+  .st-key-abf_form [data-testid="stHorizontalBlock"] > div { flex: 1 1 100% !important; }
+}
+.st-key-abf_form .zr-symbol { border-radius: 50%; background: #3987e5; color: #fff; font-weight: 800;
+                              font-size: 1.05rem; width: 34px; height: 34px; flex-basis: 34px; }
+.st-key-abf_form [data-testid="stExpander"] details { border-color: #3a4152 !important; }
+.st-key-abf_form [data-testid="stCheckbox"] label p { font-size: .88rem !important; color: #e8e6df !important; }
+.abf-ergebnis-kopf { margin: 22px 0 10px; padding: 10px 14px; border-radius: 12px; font-size: 1.1rem;
+                     font-weight: 800; color: #fff; background: linear-gradient(90deg, rgba(22,199,132,.22), transparent);
+                     border-left: 4px solid #16C784; }
+</style>"""
+
+
 def render():
     import streamlit as st
     import pandas as pd
 
+    import zinsrechner as _zr
+    # gleiche, klare Eingabe-Optik wie im Zinseszinsrechner: Karten je Schritt, umrandete Felder
+    st.markdown(_zr.FORM_CSS.replace("zr_form", "abf_form").replace("zr_karte_", "abf_karte_")
+                + ABF_CSS, unsafe_allow_html=True)
     st.caption(f"Szenariorechnung für {STEUERJAHR} · keine Steuer- oder Rechtsberatung")
-    abf = st.number_input("💶 Abfindungssumme brutto (€)", 0.0, 1e8, 50000.0, step=1000.0, format="%.0f",
-                          key="abf_summe")
+    st.markdown('<div class="zr-hilfe"><span><i class="zr-muster"></i> hier eintippen</span>'
+                '<span><i class="zr-muster calc"></i> wird berechnet</span></div>', unsafe_allow_html=True)
+    form = st.container(key="abf_form")
 
-    with st.expander("📋 Einkommen & Steuer", expanded=True):
-        c1, c2 = st.columns(2)
-        brutto = float(c1.number_input("Jahresbrutto dieses Jahr ohne Abfindung (€)", 0.0, 1e8, 60000.0,
-                                       step=1000.0, format="%.0f", key="abf_brutto",
-                                       help="Grundlage für die Schätzung des zu versteuernden Einkommens und der "
-                                            "bereits gezahlten Rentenbeiträge."))
-        zve_auto = c2.toggle("Zu versteuerndes Einkommen schätzen (ca. 80 % vom Brutto)", value=True,
-                             key="abf_zve_auto")
-        zve1 = round(brutto * 0.8, -2) if zve_auto else float(c2.number_input(
-            "Zu versteuerndes Einkommen dieses Jahr (€)", -1e6, 1e8, round(brutto * 0.8, -2), step=1000.0,
-            format="%.0f", key="abf_zve1"))
-        c3, c4 = st.columns(2)
-        zve2 = float(c3.number_input("Zu versteuerndes Einkommen Folgejahr (€)", -1e6, 1e8, 0.0, step=1000.0,
-                                     format="%.0f", key="abf_zve2",
-                                     help="Ohne Abfindung – z. B. 0 bei Arbeitslosigkeit, sonst neues Gehalt × "
-                                          "ca. 80 %."))
-        veranl = c4.selectbox("Veranlagung", ["Einzeln", "Zusammen (Splitting)"], key="abf_veranl",
-                              help="Bei Zusammenveranlagung das Einkommen beider Partner eintragen.")
-        c5, c6 = st.columns(2)
-        kirche = {"keine": 0.0, "8 % (BY, BW)": 0.08, "9 % (übrige Länder)": 0.09}[
-            c5.selectbox("Kirchensteuer", ["keine", "8 % (BY, BW)", "9 % (übrige Länder)"], key="abf_kirche")]
-        fuenftel = c6.toggle("Fünftelregelung anwendbar", value=True, key="abf_fuenftel",
-                             help="Zahlung in einem Jahr und zusammen mit dem übrigen Einkommen mehr, als ohne "
-                                  "Kündigung verdient worden wäre (Zusammenballung).")
+    # 1) Abfindung
+    k1_ = form.container(border=True, key="abf_karte_summe")
+    k1_.markdown(_zr._kopf("1", "Abfindung", "Bruttobetrag laut Aufhebungsvertrag / Vergleich").replace(
+        'style="margin-top:18px"', ""), unsafe_allow_html=True)
+    abf = k1_.number_input("💶 Abfindungssumme brutto (€)", 0.0, 1e8, 50000.0, step=1000.0, format="%.0f",
+                           key="abf_summe")
 
-    with st.expander("🛠️ Weitere Möglichkeiten (Steuer senken)", expanded=False):
-        c7, c8 = st.columns(2)
-        alg1 = float(c7.number_input("Arbeitslosengeld dieses Jahr (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
+    # 2) Einkommen
+    k2_ = form.container(border=True, key="abf_karte_einkommen")
+    k2_.markdown(_zr._kopf("2", "Einkommen ohne Abfindung", "Dieses Jahr und nächstes Jahr").replace(
+        'style="margin-top:18px"', ""), unsafe_allow_html=True)
+    brutto = float(k2_.number_input("Jahresbrutto dieses Jahr (€)", 0.0, 1e8, 60000.0,
+                                    step=1000.0, format="%.0f", key="abf_brutto",
+                                    help="Gehalt dieses Jahr ohne Abfindung. Grundlage für das zu versteuernde "
+                                         "Einkommen und die bereits gezahlten Rentenbeiträge."))
+    zve_auto = k2_.toggle("Zu versteuerndes Einkommen automatisch schätzen (ca. 80 % vom Brutto)", value=True,
+                          key="abf_zve_auto")
+    if zve_auto:
+        zve1 = round(brutto * 0.8, -2)
+        k2_.number_input("Zu versteuerndes Einkommen dieses Jahr (€) – geschätzt", value=float(zve1),
+                         format="%.0f", disabled=True)
+    else:
+        zve1 = float(k2_.number_input("Zu versteuerndes Einkommen dieses Jahr (€)", -1e6, 1e8,
+                                      round(brutto * 0.8, -2), step=1000.0, format="%.0f", key="abf_zve1",
+                                      help="Steht im letzten Steuerbescheid"))
+    zve2 = float(k2_.number_input("Zu versteuerndes Einkommen nächstes Jahr (€)", -1e6, 1e8, 0.0, step=1000.0,
+                                  format="%.0f", key="abf_zve2",
+                                  help="Ohne Abfindung – 0 bei Arbeitslosigkeit, sonst neues Gehalt × ca. 80 %."))
+
+    # 3) Steuerliche Angaben
+    k3_ = form.container(border=True, key="abf_karte_steuer")
+    k3_.markdown(_zr._kopf("3", "Steuerliche Angaben", "Veranlagung, Kirche, Fünftelregelung").replace(
+        'style="margin-top:18px"', ""), unsafe_allow_html=True)
+    veranl = k3_.selectbox("Veranlagung", ["Einzeln", "Zusammen (Splitting)"], key="abf_veranl",
+                           help="Bei Zusammenveranlagung das Einkommen beider Partner eintragen.")
+    kirche = {"keine": 0.0, "8 % (BY, BW)": 0.08, "9 % (übrige Länder)": 0.09}[
+        k3_.selectbox("Kirchensteuer", ["keine", "8 % (BY, BW)", "9 % (übrige Länder)"], key="abf_kirche")]
+    fuenftel = k3_.toggle("Fünftelregelung anwendbar", value=True, key="abf_fuenftel",
+                          help="Zahlung in einem Jahr und zusammen mit dem übrigen Einkommen mehr, als ohne "
+                               "Kündigung verdient worden wäre (Zusammenballung).")
+
+    # 4) optional
+    k4_ = form.container(border=True, key="abf_karte_optional")
+    k4_.markdown(_zr._kopf("4", "Optional: Steuer senken", "Nur ausfüllen, wenn es auf dich zutrifft").replace(
+        'style="margin-top:18px"', ""), unsafe_allow_html=True)
+    with k4_.expander("🛠️ Arbeitslosengeld, Werbungskosten, Rente, bAV", expanded=False):
+        alg1 = float(st.number_input("Arbeitslosengeld dieses Jahr (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
                                      key="abf_alg1", help="Steuerfrei, erhöht aber den Steuersatz "
                                                           "(Progressionsvorbehalt)"))
-        alg2 = float(c8.number_input("Arbeitslosengeld Folgejahr (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
+        alg2 = float(st.number_input("Arbeitslosengeld nächstes Jahr (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
                                      key="abf_alg2"))
-        c9, c10 = st.columns(2)
-        wk = float(c9.number_input("Werbungskosten, z. B. Anwalt (€)", 0.0, 1e6, 0.0, step=100.0, format="%.0f",
+        wk = float(st.number_input("Werbungskosten, z. B. Anwalt (€)", 0.0, 1e6, 0.0, step=100.0, format="%.0f",
                                    key="abf_wk", help="Zusätzlich zur Werbungskostenpauschale"))
-        rv = float(c10.number_input("Einzahlung Rentenversicherung (€)", 0.0, 1e6, 0.0, step=1000.0, format="%.0f",
-                                    key="abf_rv",
-                                    help="Z. B. Ausgleich von Rentenabschlägen aus der Abfindung – als Sonderausgabe "
-                                         "abziehbar bis zum Höchstbetrag"))
-        c11, c12 = st.columns(2)
-        bav = float(c11.number_input("Umwandlung in bAV (€)", 0.0, 1e6, 0.0, step=1000.0, format="%.0f",
-                                     key="abf_bav", help="Teil der Abfindung in die betriebliche Altersversorgung"))
-        dienst = int(c12.number_input("Dienstjahre (für bAV)", 0, 60, 10, step=1, key="abf_dienst"))
+        rv = float(st.number_input("Einzahlung Rentenversicherung (€)", 0.0, 1e6, 0.0, step=1000.0, format="%.0f",
+                                   key="abf_rv",
+                                   help="Z. B. Ausgleich von Rentenabschlägen aus der Abfindung – als Sonderausgabe "
+                                        "abziehbar bis zum Höchstbetrag"))
+        bav = float(st.number_input("Umwandlung in bAV (€)", 0.0, 1e6, 0.0, step=1000.0, format="%.0f",
+                                    key="abf_bav", help="Teil der Abfindung in die betriebliche Altersversorgung"))
+        dienst = int(st.number_input("Dienstjahre (für bAV)", 0, 60, 10, step=1, key="abf_dienst"))
+    with k4_:
+        gest = _gestaltungen_eingabe(st)
 
-    gest = _gestaltungen_eingabe(st)
+    st.markdown('<div class="abf-ergebnis-kopf">📊 Ergebnis</div>', unsafe_allow_html=True)
 
     e = {"gest": gest, "abfindung": float(abf), "zve1": float(zve1), "zve2": zve2,
          "splitting": veranl.startswith("Zusammen"),
@@ -918,7 +958,6 @@ def render():
     beste = next(x for x in v if x["beste"])
     basis = v[0]
 
-    st.markdown("##### Ergebnis")
     k1, k2 = st.columns(2)
     k1.metric("Steuern (günstigste Variante)", f"{_de(beste['steuer']['summe'])} €",
               f"{beste['kurz']} · {_pct(beste['satz'])}", delta_color="off")
