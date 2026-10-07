@@ -129,6 +129,31 @@ LOGIN_CSS = """<style>
                     background: #12151c; border: 1px solid #2c313d; }
 .login-titel { font-size: 1.4rem; font-weight: 800; color: #fff; margin-bottom: 2px; }
 .login-text { font-size: .85rem; color: #a9a79c; margin-bottom: 14px; }
+/* Beschriftung ueber den Feldern */
+.st-key-login_box [data-testid="stTextInput"] label p {
+    font-size: .95rem !important; font-weight: 700 !important; color: #e8e6df !important; }
+/* Eingabefelder: heller Kasten mit deutlichem Rahmen */
+.st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] {
+    background: #222836 !important; border: 2px solid #4a5468 !important;
+    border-radius: 12px !important; min-height: 52px; transition: border-color .15s, box-shadow .15s; }
+.st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] > div,
+.st-key-login_box [data-testid="stTextInput"] [data-baseweb="base-input"] {
+    background: transparent !important; }
+.st-key-login_box [data-testid="stTextInput"] input {
+    background: transparent !important; color: #ffffff !important;
+    font-size: 16px !important; padding: 12px 14px !important; caret-color: #3987e5; }
+.st-key-login_box [data-testid="stTextInput"] input::placeholder { color: #8a90a0 !important; opacity: 1; }
+/* aktives Feld: blauer Rahmen + Leuchten */
+.st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"]:focus-within {
+    border-color: #3987e5 !important; box-shadow: 0 0 0 3px rgba(57,135,229,.35) !important; }
+.st-key-login_box [data-testid="stTextInput"] button { background: transparent !important; color: #c9ccd4 !important; }
+.st-key-login_box [data-testid="InputInstructions"] { display: none; }
+/* Anmelden-Knopf: farbig und gross */
+.st-key-login_box [data-testid="stFormSubmitButton"] button {
+    background: #3987e5 !important; border: none !important; color: #fff !important;
+    min-height: 52px; border-radius: 12px !important; margin-top: 6px; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button p { font-size: 1.05rem !important; font-weight: 700 !important; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button:active { background: #2f72c4 !important; }
 </style>"""
 
 
@@ -158,8 +183,10 @@ def gate(st, gh_read, gh_read_cached, gh_write, chronik=None):
             st.error(f"Zu viele Fehlversuche – bitte {int(gesperrt_bis - time.time()) + 1} Sekunden warten.")
             st.stop()
         with st.form("login_form", border=False):
-            name = st.text_input("Benutzername", autocomplete="username")
-            pw = st.text_input("Passwort", type="password", autocomplete="current-password")
+            name = st.text_input("👤 Benutzername", autocomplete="username",
+                                 placeholder="Benutzername eingeben")
+            pw = st.text_input("🔑 Passwort", type="password", autocomplete="current-password",
+                               placeholder="Passwort eingeben")
             los = st.form_submit_button("Anmelden", width="stretch")
         if los:
             daten = lade(gh_read)
