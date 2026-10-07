@@ -2375,6 +2375,7 @@ def navigation():
                 /* waehrend des Ladens ausblenden: sofort beim Prozent-Balken, sonst nach 0,5 s
                    (gleiche Verzoegerung wie die allgemeine Ladeanzeige - kein Flackern bei kurzen Klicks) */
                 [data-testid="stApp"]:has(.loading-overlay) .st-key-logout_ecke { display: none !important; }
+                body:has(#lade-banner[style*="block"]) .st-key-logout_ecke { display: none !important; }
                 [data-testid="stApp"][data-test-script-state="running"] .st-key-logout_ecke,
                 [data-testid="stApp"][data-test-script-state="rerunRequested"] .st-key-logout_ecke {
                     animation: logoutweg 0.15s ease 0.5s forwards; }
@@ -6556,6 +6557,82 @@ def render_dashboard():
 
 
 # ---------- LOGIN: vor allem anderen (ohne [login] in den Secrets aus) ----------
+# ---------- LADEANZEIGE MIT HOCHGERECHNETEM FORTSCHRITT (alle Ansichten) ----------
+# Reines CSS kann die Prozentzahl auf dem iPhone (Safari) nicht hochzaehlen - deshalb
+# ein kleines Skript, das EINMAL in die Seite eingesetzt wird und dort dauerhaft
+# laeuft: Es beobachtet Streamlits Lauf-Status und zeigt ab 0,5 s Ladezeit ein
+# Banner, dessen Zahl und Balken gemeinsam hochlaufen (schnell, dann langsamer,
+# max. 95 %); ist die Seite fertig, springt es auf 100 % und verschwindet.
+# Zeigt die App ihren genauen Balken (.loading-overlay), tritt es zurueck.
+_LADE_JS = """
+<script>
+(function () {
+  var P = window.parent, D = P.document;
+  if (P.__ladeBanner) return;
+  P.__ladeBanner = true;
+  var code = function () {
+    var D = document;
+    D.documentElement.classList.add('lade-js');
+    var st = D.createElement('style');
+    st.textContent =
+      'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +
+      '#lade-banner { position:fixed; top:0; left:0; right:0; z-index:10000; height:66px; box-sizing:border-box;' +
+      ' padding:10px 16px 0; background:rgba(10,11,13,.97); border-bottom:1px solid #21252C;' +
+      ' box-shadow:0 2px 14px rgba(0,0,0,.6); display:none; pointer-events:none; }' +
+      '#lade-banner .lb-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }' +
+      '#lade-banner .lb-pct { font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;' +
+      ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; }' +
+      '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; }' +
+      '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#21252C; overflow:hidden; }' +
+      '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#16C784; transition:width .2s linear; }';
+    D.head.appendChild(st);
+    var b = D.createElement('div');
+    b.id = 'lade-banner';
+    b.innerHTML = '<div class="lb-kopf"><span class="lb-pct">0 %</span><span class="lb-text">Lade Daten …</span></div>' +
+                  '<div class="lb-bar"><div class="lb-fill"></div></div>';
+    D.body.appendChild(b);
+    var pct = b.querySelector('.lb-pct'), fill = b.querySelector('.lb-fill');
+    var start = 0, timer = null, sichtbar = false;
+    function setze(p) { pct.textContent = Math.round(p) + ' %'; fill.style.width = p + '%'; }
+    function tick() {
+      var t = (Date.now() - start) / 1000 - 0.5;
+      if (D.querySelector('.loading-overlay')) { b.style.display = 'none'; sichtbar = false; return; }
+      if (t < 0) return;
+      if (!sichtbar) { setze(0); b.style.display = 'block'; sichtbar = true; }
+      setze(95 * (1 - Math.exp(-t / 3.5)));        /* hochgerechnet: ~50 % nach 2,4 s, ~90 % nach 10 s */
+    }
+    function fertig() {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (!sichtbar) return;
+      setze(100);
+      setTimeout(function () { if (!timer) { b.style.display = 'none'; sichtbar = false; } }, 300);
+    }
+    function pruefe() {
+      var app = D.querySelector('[data-testid="stApp"]');
+      if (!app) return;
+      var s = app.getAttribute('data-test-script-state');
+      var laeuft = (s === 'running' || s === 'rerunRequested');
+      if (laeuft && !timer) { start = Date.now(); timer = setInterval(tick, 100); }
+      else if (!laeuft && timer) { fertig(); }
+    }
+    new MutationObserver(pruefe).observe(D.body, { attributes: true, subtree: true,
+                                                   attributeFilter: ['data-test-script-state'] });
+    pruefe();
+  };
+  var s = D.createElement('script');
+  s.textContent = '(' + code.toString() + ')();';
+  D.head.appendChild(s);
+})();
+</script>
+"""
+try:
+    import streamlit.components.v1 as _components
+    with st.container(key="lade_js"):
+        _components.html(_LADE_JS, height=0)
+    st.markdown("<style>.st-key-lade_js { display: none !important; }</style>", unsafe_allow_html=True)
+except Exception:
+    pass                     # ohne Skript bleibt die reine CSS-Anzeige
+
 st.session_state["_nutzer"] = login.gate(st, gh_read, gh_read_cached, gh_write, chronik_eintrag)
 
 render_dashboard()
