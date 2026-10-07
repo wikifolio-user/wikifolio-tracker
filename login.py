@@ -288,25 +288,29 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen):
                 "```toml\n[login]\nadmin_benutzer = \"dein-name\"\nadmin_passwort = \"dein-passwort\"\n```")
         return
     st.markdown(RECHTE_CSS, unsafe_allow_html=True)
+    meldung = st.session_state.pop("rechte_meldung", None)
+    if meldung:
+        st.toast(meldung)
     daten = lade(gh_read)
     benutzer = daten.setdefault("benutzer", {})
     st.caption(f"Admin: **{cfg['admin']}** (aus den Secrets – sieht immer alles). Schalter wirken sofort und "
                "werden automatisch gespeichert; gesperrte oder gelöschte Benutzer fliegen beim nächsten Klick raus.")
 
-    def _rechte_setzen(nn, liste=None):
-        """Callback: aktuelle Schalterstellung (oder feste Liste) speichern."""
-        prefix = f"rechte_{nn}"
-        if liste is not None:
-            for a in ansichten:
-                st.session_state[_schalter_key(prefix, a)] = a in liste
-        auswahl = [a for a in ansichten if st.session_state.get(_schalter_key(prefix, a))]
+    def _alle_setzen(nn, liste):
+        """Callback der Schnellknoepfe: nur die Schalter umstellen - gespeichert wird erst per Knopf."""
+        for a in ansichten:
+            st.session_state[_schalter_key(f"rechte_{nn}", a)] = a in liste
+
+    def _rechte_speichern(nn):
+        auswahl = [a for a in ansichten if st.session_state.get(_schalter_key(f"rechte_{nn}", a))]
         d = lade(gh_read)
-        if nn in d.get("benutzer", {}):
-            d["benutzer"][nn]["ansichten"] = auswahl
-            if speichere(gh_write, d, f"rechte {nn}"):
-                st.toast(f"✅ Rechte von „{nn}“ gespeichert ({len(auswahl)}/{len(ansichten)})")
-            else:
-                st.toast("⚠️ Speichern nicht möglich (GitHub-Speicher)")
+        if nn not in d.get("benutzer", {}):
+            return
+        d["benutzer"][nn]["ansichten"] = auswahl
+        if speichere(gh_write, d, f"rechte {nn}"):
+            st.session_state["rechte_meldung"] = f"✅ Rechte von „{nn}“ gespeichert ({len(auswahl)}/{len(ansichten)})"
+        else:
+            st.session_state["rechte_meldung"] = "⚠️ Speichern nicht möglich (GitHub-Speicher)"
 
     with st.expander("➕ Neuen Benutzer anlegen", expanded=not benutzer):
         with st.form("neu_benutzer", clear_on_submit=True):
@@ -345,16 +349,20 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen):
         titel = (f"{'🟢' if aktiv else '⛔'} {nn} · {len(erlaubt)}/{len(ansichten)} Ansichten"
                  + (f" · zuletzt {u['zuletzt'][:16].replace('T', ' ')}" if u.get("zuletzt") else ""))
         with st.expander(titel):
-            st.markdown('<div class="rechte-info">👁️ <b>Darf sehen</b> – antippen zum Ein-/Ausschalten, '
-                        'wird sofort gespeichert:</div>', unsafe_allow_html=True)
+            st.markdown('<div class="rechte-info">👁️ <b>Darf sehen</b> – Schalter einstellen und dann '
+                        '<b>💾 Rechte speichern</b> tippen:</div>', unsafe_allow_html=True)
             q1, q2 = st.columns(2)
-            q1.button("✅ Alles erlauben", key=f"bv_alle_{nn}", width="stretch",
-                      on_click=_rechte_setzen, args=(nn, list(ansichten)))
-            q2.button("⬜ Nichts erlauben", key=f"bv_keine_{nn}", width="stretch",
-                      on_click=_rechte_setzen, args=(nn, []))
-            with st.container(key=f"rechte_{nn}"):
-                _rechte_schalter(st, f"rechte_{nn}", ansichten, namen, erlaubt,
-                                 on_change=_rechte_setzen, args=(nn,))
+            q1.button("✅ Alle an", key=f"bv_alle_{nn}", width="stretch",
+                      on_click=_alle_setzen, args=(nn, list(ansichten)))
+            q2.button("⬜ Alle aus", key=f"bv_keine_{nn}", width="stretch",
+                      on_click=_alle_setzen, args=(nn, []))
+            # im Formular loesen die Schalter keinen Neuaufbau aus - erst der Speichern-Knopf
+            with st.form(f"rechte_form_{nn}", border=False):
+                with st.container(key=f"rechte_{nn}"):
+                    _rechte_schalter(st, f"rechte_{nn}", ansichten, namen, erlaubt)
+                if st.form_submit_button("💾 Rechte speichern", width="stretch", type="primary"):
+                    _rechte_speichern(nn)
+                    st.rerun()
             st.divider()
             c2, c4 = st.columns(2)
             if c2.button("⛔ Sperren" if aktiv else "✅ Freischalten", key=f"bv_akt_{nn}", width="stretch"):
