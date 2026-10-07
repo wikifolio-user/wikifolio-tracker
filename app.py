@@ -2295,6 +2295,9 @@ def navigation():
             if _nutzer():
                 st.button(f"🚪 Abmelden ({_nutzer()['name']})", key="nav_logout", width="content",
                           on_click=_abmelden)
+            elif login.konfig(st) is None:
+                st.markdown('<div style="text-align:center;font-size:.8rem;color:#f0a27f;margin:6px 0">🔓 Login nicht '
+                            'aktiv – Details unter „Verwaltung → 👥 Benutzer“</div>', unsafe_allow_html=True)
             farb_css = []
             try:
                 hat_muster = bool((gh_read_cached(PFAD_MUSTERDEPOT, {}) or {}).get("depots"))
