@@ -454,6 +454,19 @@ st.markdown("""
         color: #FFFFFF !important;
         width: 24px !important; height: 24px !important;
     }
+    /* Hilfe-Symbol (?) neben Dropdowns: nicht wie das Feld rahmen/fuellen - sonst
+       erscheint es als weisser Kreis. Gleiche Optik wie bei den uebrigen Feldern. */
+    [data-testid="stSelectbox"] [data-testid="stTooltipIcon"],
+    [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"],
+    [data-testid="stSelectbox"] > div:has([data-testid="stTooltipIcon"]):not(:has([data-baseweb="select"])) {
+        outline: none !important; background: transparent !important; box-shadow: none !important;
+        animation: none !important; border: none !important;
+    }
+    [data-testid="stSelectbox"] [data-testid="stTooltipIcon"] svg,
+    [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"] svg {
+        fill: none !important; color: #9AA0A6 !important; stroke: currentColor;
+        width: 18px !important; height: 18px !important;
+    }
     /* Aufgeklappte Liste passend zum Rest gestalten */
     div[data-baseweb="popover"] li {
         font-size: 0.9rem !important;
