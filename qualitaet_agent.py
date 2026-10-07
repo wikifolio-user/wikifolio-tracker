@@ -388,6 +388,9 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
         "aussch": r1(ausschuettung / fcf_summe * 100) if fcf_summe > 0 else None,
         "zukauf": r1(zukaeufe / fcf_summe * 100) if fcf_summe > 0 else None,
         "zykl": zyklisch,
+        # Dividende (Berichtswaehrung): letztes GJ, Jahre mit Ausschuettung, Ausschuettungsquote
+        "div": letzt["dividende"], "div_n": sum(1 for j in jahre if j["dividende"] > 0),
+        "div_q": r1(letzt["dividende"] / letzt["ni"] * 100) if letzt["dividende"] and letzt["ni"] and letzt["ni"] > 0 else None,
         # Bewertungsgrundlagen (Berichtswaehrung)
         "rev": letzt["rev"], "ebit": letzt["ebit"], "ebitda": letzt["ebitda"], "ni": letzt["ni"],
         "fcf": letzt["fcf"], "fcf_basis": fcf_basis, "debt": letzt["debt"], "cash": letzt["cash"],
@@ -503,6 +506,17 @@ def bewerte(sym, k, q, rev, stamm):
     ev_ebitda = ev / ebitda if ebitda and ebitda > 0 else None
     ev_fcf = ev / fcf_b if fcf_b and fcf_b > 0 else None
     fcfy = fcf_b / mcap * 100 if fcf_b is not None else None
+    div_r = None
+    qq = q or {}
+    if qq.get("trailingAnnualDividendYield") is not None:
+        div_r = qq["trailingAnnualDividendYield"] * 100
+    elif qq.get("dividendYield") is not None:
+        div_r = qq["dividendYield"]                       # v7: bereits in Prozent
+    elif k.get("div") is not None:
+        div_e = nach_eur(k["div"], wae)
+        div_r = div_e / mcap * 100 if div_e is not None else None
+    if div_r is not None and not (0 <= div_r <= 25):  # Waehrungs-/Datenfehler (z. B. Pence)
+        div_r = None
     if fcfy is not None and fcfy > 40:            # fast sicher Daten-/Waehrungsfehler
         return None
 
@@ -743,6 +757,7 @@ def bewerte(sym, k, q, rev, stamm):
         "akt": k["g_akt"], "fkgv": r1(fkgv), "kgv": r1(kgv), "ev_ebit": r1(ev_ebit),
         "ev_ebitda": r1(ev_ebitda), "ev_fcf": r1(ev_fcf), "fcfy": r1(fcfy, 2), "peg": r1(peg, 2),
         "h_fcfy": k["h_fcfy"], "h_kgv": k["h_kgv"],
+        "div": r1(div_r, 2), "div_q": k.get("div_q"), "div_n": k.get("div_n"),
         # Details
         "cc": k["cc"], "capex": k["capex"], "sbc": k["sbc"], "gw": k["gw"], "zinsd": k["zinsd"],
         "om_std": k["om_std"], "om_trend": k["om_trend"], "roic_min": k["roic_min"],
@@ -780,12 +795,12 @@ def detail_teil(symbol):
 # Felder der Tabellenzeile (alles andere steht nur in den Detaildateien)
 ZEILEN_FELDER = ("name", "br", "kurs", "kwae", "mcap", "g_ums", "g_eps", "g_fcf", "g_fcfps", "roic",
                  "om", "fm", "nde", "netcash", "akt", "fkgv", "ev_ebit", "fcfy", "moat", "mgmt", "bew",
-                 "risiko", "gesamt", "klasse", "grund", "q_ant", "b_ant", "gj")
+                 "risiko", "gesamt", "klasse", "grund", "q_ant", "b_ant", "gj", "div", "div_q")
 
 
 ALLE_FELDER = ["s", "name", "br", "kurs", "kwae", "mcap", "g_ums", "g_eps", "g_fcf", "g_fcfps", "roic", "om",
                "fm", "nde", "akt", "fkgv", "ev_ebit", "fcfy", "moat", "mgmt", "bew", "risiko", "gesamt",
-               "klasse", "q_ant", "b_ant", "mos", "p6", "p12", "p36", "d"]
+               "klasse", "q_ant", "b_ant", "mos", "p6", "p12", "p36", "div", "div_q", "d"]
 
 
 def zeile(e):
@@ -952,6 +967,8 @@ def main():
     def auswerten(n):
         ausgabe = {"stand": jetzt.isoformat(timespec="minutes"), "reihenfolge": [], "kategorien": {},
                    "werte": {}, "abdeckung": {"universum": len(alle), "mit_kennzahlen": len(alle) - ohne,
+                                              "offen": sum(1 for s in alle if s not in cache),
+                                              "ohne_daten": sum(1 for s in alle if (cache.get(s) or {}).get("fehlt")),
                                               "bewertet": len(ergebnisse), "finanzwerte": len(finanz)},
                    "annahmen": {"diskont": DISKONT * 100, "g_ewig": G_EWIG * 100, "jahre": JAHRE_DCF}}
         gruppen = [("alle", "Alle Aktien", alle)] + [
