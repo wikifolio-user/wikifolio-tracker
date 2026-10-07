@@ -2302,19 +2302,29 @@ def navigation():
                 .st-key-logout_ecke [data-testid="stButton"] button {
                     width: 30px !important; height: 30px !important; min-height: 30px !important;
                     min-width: 30px !important; padding: 0 !important; border-radius: 50% !important;
-                    background: rgba(18,21,28,.8) !important; border: 1px solid #3a4050 !important;
-                    box-shadow: none !important; transform: none !important; }
+                    background: radial-gradient(circle at 35% 30%, #3a2a26 0%, #1c1517 55%, #0e0b0c 100%) !important;
+                    border: 1.5px solid #ff8a5c !important; transform: none !important;
+                    outline: 1px solid rgba(255,138,92,.4) !important; outline-offset: 2px !important;
+                    animation: logoutglow 2.4s ease-in-out infinite !important; }
+                @keyframes logoutglow {
+                    0%, 100% { box-shadow: 0 0 4px rgba(255,120,70,.55), 0 0 10px rgba(255,120,70,.25),
+                                           inset 0 1px 0 rgba(255,255,255,.18); }
+                    50%      { box-shadow: 0 0 8px rgba(255,120,70,.9), 0 0 20px rgba(255,120,70,.45),
+                                           inset 0 1px 0 rgba(255,255,255,.25); }
+                }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::after { display: none !important; }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button p,
                 .st-key-logout_ecke [data-testid="stButton"] button p { display: none !important; }
                 .st-key-logout_ecke [data-testid="stButton"] button [data-testid="stIconMaterial"] {
-                    font-size: 17px !important; color: #c9ccd4 !important; margin: 0 !important; }
+                    font-size: 16px !important; color: #ffb08f !important; margin: 0 0 0 2px !important;
+                    filter: drop-shadow(0 0 3px rgba(255,120,70,.9)); }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:hover,
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:active {
-                    border-color: #d95926 !important; }
+                    border-color: #ffb08f !important; animation: none !important;
+                    box-shadow: 0 0 10px rgba(255,120,70,1), 0 0 26px rgba(255,120,70,.6) !important; }
                 .st-key-logout_ecke [data-testid="stButton"] button:hover [data-testid="stIconMaterial"],
                 .st-key-logout_ecke [data-testid="stButton"] button:active [data-testid="stIconMaterial"] {
-                    color: #d95926 !important; }
+                    color: #ffffff !important; }
                 </style>""", unsafe_allow_html=True)
                 with st.container(key="logout_ecke"):
                     st.button("Abmelden", icon=":material/logout:", key="nav_logout", width="content",
