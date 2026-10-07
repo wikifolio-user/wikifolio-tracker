@@ -871,6 +871,14 @@ ABF_CSS = """<style>
 </style>"""
 
 
+ABF_FJ_CSS = """<style>
+.abf-schritt { font-size: .88rem; color: #d6d4cc; margin: 10px 0 6px; }
+.abf-fazit { margin: 4px 0 8px; padding: 10px 12px; border-radius: 10px; font-size: .9rem; color: #e8e6df;
+             background: rgba(22,199,132,.12); border: 1px solid rgba(22,199,132,.45); }
+.st-key-abf_fj [data-testid="stDataFrame"] { border: 1.5px solid #4a5468; border-radius: 10px; }
+</style>"""
+
+
 def render():
     import streamlit as st
     import pandas as pd
@@ -1007,30 +1015,49 @@ def render():
             st.caption(f"**{x['titel']}:** {x['hinweis']}")
 
     # --- Fuenftelregel nach Auszahlungsjahr ---
-    st.markdown("##### 📅 Fünftelregel je nach Auszahlungsjahr")
-    df_j = pd.DataFrame([{"Jahr": STEUERJAHR + i, "Übriges Einkommen €": float(z), "Arbeitslosengeld €": float(a_)}
+    # --- Fuenftelregel nach Auszahlungsjahr (eigene Karte: Eingabe oben, Ergebnis darunter) ---
+    st.markdown(_zr.FORM_CSS.replace("zr_form", "abf_fj").replace("zr_karte_", "abf_fjk_") + ABF_FJ_CSS,
+                unsafe_allow_html=True)
+    fjc = st.container(key="abf_fj").container(border=True, key="abf_fjk_karte")
+    fjc.markdown(_zr._kopf("📅", "Fünftelregel je nach Auszahlungsjahr",
+                           "Lohnt es sich, die Abfindung später auszahlen zu lassen?").replace(
+        'style="margin-top:18px"', ""), unsafe_allow_html=True)
+    fjc.markdown('<div class="abf-schritt">✏️ <b>Einkommen je Jahr</b> – Zahl antippen zum Ändern '
+                 '(vorbelegt aus Schritt 2)</div>', unsafe_allow_html=True)
+    df_j = pd.DataFrame([{"Jahr": STEUERJAHR + i, "Einkommen ohne Abfindung €": float(z), "Arbeitslosengeld €": float(a_)}
                          for i, (z, a_) in enumerate([(zve1, alg1), (zve2, alg2), (zve2, 0.0), (zve2, 0.0)])])
-    ed_j = st.data_editor(df_j, key="abf_fj_tab", hide_index=True, width="stretch", num_rows="fixed",
-                          disabled=["Jahr"],
-                          column_config={
-                              "Jahr": st.column_config.NumberColumn("Jahr", format="%d"),
-                              "Übriges Einkommen €": st.column_config.NumberColumn(
-                                  "Übriges Einkommen €", step=1000.0, format="%.0f",
-                                  help="Zu versteuerndes Einkommen in diesem Jahr ohne Abfindung"),
-                              "Arbeitslosengeld €": st.column_config.NumberColumn("Arbeitslosengeld €", min_value=0.0,
-                                                                                 step=500.0, format="%.0f")})
-    fj = fuenftel_jahre(e, [{"jahr": int(z["Jahr"]), "zve": float(z["Übriges Einkommen €"] or 0),
+    ed_j = fjc.data_editor(df_j, key=f"abf_fj_tab_{int(zve1)}_{int(zve2)}_{int(alg1)}_{int(alg2)}",
+                           hide_index=True, width="stretch", num_rows="fixed", disabled=["Jahr"],
+                           column_config={
+                               "Jahr": st.column_config.NumberColumn("Jahr", format="%d", width="small"),
+                               "Einkommen ohne Abfindung €": st.column_config.NumberColumn(
+                                   "✏️ Einkommen €", step=1000.0, format="%.0f",
+                                   help="Zu versteuerndes Einkommen in diesem Jahr ohne Abfindung"),
+                               "Arbeitslosengeld €": st.column_config.NumberColumn("✏️ ALG €", min_value=0.0,
+                                                                                  step=500.0, format="%.0f",
+                                                                                  help="Arbeitslosengeld in diesem Jahr")})
+    fj = fuenftel_jahre(e, [{"jahr": int(z["Jahr"]), "zve": float(z["Einkommen ohne Abfindung €"] or 0),
                              "alg": float(z["Arbeitslosengeld €"] or 0)} for _, z in ed_j.iterrows()])
     bestes = min(fj, key=lambda x: x["fuenftel"])
-    st.dataframe(pd.DataFrame([{"Auszahlung": ("✓ " if x is bestes else "") + str(x["jahr"]),
-                                "ohne Fünftel": f"{_de(x['voll'])} €", "mit Fünftel": f"{_de(x['fuenftel'])} €",
-                                "Ersparnis": f"{_de(x['ersparnis'])} €", "Satz": _pct(x["satz"]),
-                                "Netto": f"{_de(x['netto'])} €", "Erstattung kommt": str(x["erstattung_jahr"])}
-                               for x in fj]), hide_index=True, width="stretch")
-    st.caption("Die Fünftelregel wirkt nur im Jahr der Auszahlung – die Steuer wird nicht auf mehrere Jahre "
-               "verteilt, Folgejahre laufen normal. Bei Auszahlung behält der Arbeitgeber erst die Steuer „ohne "
-               "Fünftel“ ein, die Differenz kommt mit der Steuererklärung im Folgejahr zurück. Einkommen und "
-               "Arbeitslosengeld je Jahr oben in der Tabelle anpassen.")
+    erstes = fj[0]
+    fjc.markdown('<div class="abf-schritt">📊 <b>Steuer auf die Abfindung je Auszahlungsjahr</b></div>',
+                 unsafe_allow_html=True)
+    if bestes is erstes:
+        fazit = (f"Am günstigsten ist die Auszahlung <b>{bestes['jahr']}</b> (dieses Jahr): "
+                 f"<b>{_de(bestes['fuenftel'])} €</b> Steuern mit Fünftelregel.")
+    else:
+        fazit = (f"Am günstigsten ist die Auszahlung <b>{bestes['jahr']}</b>: <b>{_de(bestes['fuenftel'])} €</b> "
+                 f"Steuern – <b>{_de(erstes['fuenftel'] - bestes['fuenftel'])} € weniger</b> als bei Auszahlung "
+                 f"{erstes['jahr']}.")
+    fjc.markdown(f'<div class="abf-fazit">✅ {fazit}</div>', unsafe_allow_html=True)
+    fjc.dataframe(pd.DataFrame([{"Auszahlung": ("✓ " if x is bestes else "") + str(x["jahr"]),
+                                 "mit Fünftel": f"{_de(x['fuenftel'])} €", "ohne Fünftel": f"{_de(x['voll'])} €",
+                                 "Ersparnis": f"{_de(x['ersparnis'])} €", "Satz": _pct(x["satz"]),
+                                 "Netto": f"{_de(x['netto'])} €", "Erstattung kommt": str(x["erstattung_jahr"])}
+                                for x in fj]), hide_index=True, width="stretch")
+    fjc.caption("„mit Fünftel“ = Steuer nach der Steuererklärung. „ohne Fünftel“ = was der Arbeitgeber bei "
+                "Auszahlung zunächst einbehält – die Differenz kommt mit der Erklärung im Folgejahr zurück. "
+                "Die Fünftelregel wirkt nur im Auszahlungsjahr, die Steuer wird nicht auf mehrere Jahre verteilt.")
     with st.expander("Steuer je nach übrigem Einkommen im Auszahlungsjahr", expanded=False):
         fe = fuenftel_einkommen(e)
         st.dataframe(pd.DataFrame([{"Übriges Einkommen": f"{_de(x['zve'])} €", "ohne Fünftel": f"{_de(x['voll'])} €",
