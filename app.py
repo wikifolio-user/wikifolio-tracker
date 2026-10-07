@@ -760,6 +760,37 @@ st.markdown("""
         .pt-wrap { overflow-x: visible; }
     }
 
+    /* ---------- ALLGEMEINE LADEANZEIGE (jede Ansicht) ----------
+       Streamlit markiert die App waehrend jedes Durchlaufs mit
+       data-test-script-state="running". Dauert ein Durchlauf laenger als
+       0,5 s (= es werden wirklich Daten geladen), erscheint oben ein
+       durchlaufender Balken mit "Lade Daten …". Schnelle Klicks/Rechner
+       loesen nichts aus (Verzoegerung per animation-delay). Laeuft schon der
+       genaue Prozent-Balken (.loading-overlay), bleibt diese Anzeige aus. */
+    [data-testid="stApp"][data-test-script-state="running"]::before,
+    [data-testid="stApp"][data-test-script-state="rerunRequested"]::before {
+        content: ""; position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 10000;
+        background: linear-gradient(90deg, transparent 0%, var(--up) 35%, #ffffff 50%, var(--up) 65%, transparent 100%);
+        background-size: 50% 100%; background-repeat: no-repeat;
+        box-shadow: 0 0 8px var(--up);
+        opacity: 0; pointer-events: none;
+        animation: ladeein 0.2s ease 0.5s forwards, ladelauf 1.1s linear 0.5s infinite;
+    }
+    [data-testid="stApp"][data-test-script-state="running"]::after,
+    [data-testid="stApp"][data-test-script-state="rerunRequested"]::after {
+        content: "⏳ Lade Daten …"; position: fixed; z-index: 10000; left: 50%; transform: translateX(-50%);
+        top: 8px; padding: 4px 12px; border-radius: 999px;
+        font-size: 0.72rem; font-weight: 600; color: var(--text); white-space: nowrap;
+        background: rgba(10, 11, 13, 0.92); border: 1px solid var(--line);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+        opacity: 0; pointer-events: none;
+        animation: ladeein 0.2s ease 0.5s forwards;
+    }
+    [data-testid="stApp"]:has(.loading-overlay)::before,
+    [data-testid="stApp"]:has(.loading-overlay)::after { display: none !important; }
+    @keyframes ladeein { to { opacity: 1; } }
+    @keyframes ladelauf { 0% { background-position: -100% 0; } 100% { background-position: 200% 0; } }
+
     /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
        Bewusst position:fixed statt im normalen Seitenfluss. Vorher wanderte
        der Balken mit, sobald darueber/darunter Inhalte erschienen - und das
