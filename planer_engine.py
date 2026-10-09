@@ -1655,6 +1655,24 @@ def kaufplan(positionen, betrag, bruchstuecke=False, nachkommastellen=4):
         zeilen.append(z)
     handelbar = [z for z in zeilen if not z.get("cash") and z.get("kurs")]
     rest = betrag - sum(z["ist"] for z in zeilen)
+    mindest = []
+    if not bruchstuecke and betrag > 0:
+        # Was gewichtet ist, wird auch gekauft: mindestens 1 Stueck je Position mit Gewicht,
+        # auch wenn der Kurs ueber dem Soll liegt. Bezahlt wird aus dem Rest, sonst aus der Reserve.
+        # (Einzelaktien eines Korbs nicht - sonst kaeme bei vielen kleinen Korbgewichten zu viel zusammen.)
+        for z in handelbar:
+            if z["soll"] > 0 and z["stueck"] < 1 and not z.get("teil_von"):   # Korb-Aktien ausgenommen
+                z["stueck"] = 1.0
+                z["ist"] = z["kurs"]
+                rest -= z["kurs"]
+                mindest.append(z.get("name"))
+        if rest < 0:
+            for c in [z for z in zeilen if z.get("cash") and z["ist"] > 0]:
+                weg = min(c["ist"], -rest)
+                c["ist"] -= weg
+                rest += weg
+                if rest >= 0:
+                    break
     if not bruchstuecke:
         for _ in range(100000):
             # nur Kaeufe, die naeher ans Soll fuehren (Rueckstand >= halber Kurs)
@@ -1672,7 +1690,8 @@ def kaufplan(positionen, betrag, bruchstuecke=False, nachkommastellen=4):
     investiert = sum(z["ist"] for z in zeilen if not z.get("cash"))
     cash_soll = sum(z["ist"] for z in zeilen if z.get("cash"))
     return {"zeilen": zeilen, "investiert": investiert, "cash_soll": cash_soll,
-            "rest": max(betrag - investiert - cash_soll, 0.0), "ohne_kurs": ohne_kurs}
+            "rest": max(betrag - investiert - cash_soll, 0.0), "ohne_kurs": ohne_kurs,
+            "mindest": mindest, "ueberzogen": max(investiert + cash_soll - betrag, 0.0)}
 
 
 # ===========================================================================
