@@ -772,5 +772,24 @@ class StrukturRegeln(unittest.TestCase):
             self.assertLessEqual(self._wiki(m, o["gewichte"]), 35.0 + 1e-4)
 
 
+class MindestensEinStueck(unittest.TestCase):
+    def test_gewicht_ergibt_mindestens_ein_stueck(self):
+        pos = [{"id": "a", "name": "Teuer", "anteil": 0.011, "kurs": 400.0},
+               {"id": "b", "name": "ETF", "anteil": 0.80, "kurs": 100.0},
+               {"id": "c", "name": "Reserve", "anteil": 0.189, "cash": True}]
+        r = E.kaufplan(pos, 10000)
+        z = {x["id"]: x for x in r["zeilen"]}
+        self.assertEqual(z["a"]["stueck"], 1.0)
+        self.assertAlmostEqual(z["c"]["ist"], 1600.0)        # Mehrbetrag aus der Reserve
+        self.assertEqual(r["mindest"], ["Teuer"])
+        self.assertAlmostEqual(r["investiert"] + r["cash_soll"], 10000.0)
+
+    def test_korbaktien_ohne_mindeststueck(self):
+        pos = [{"id": "k:x", "name": "X", "teil_von": "Korb", "anteil": 0.001, "kurs": 500.0},
+               {"id": "c", "name": "Reserve", "anteil": 0.999, "cash": True}]
+        r = E.kaufplan(pos, 10000)
+        self.assertEqual(r["zeilen"][0]["stueck"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
