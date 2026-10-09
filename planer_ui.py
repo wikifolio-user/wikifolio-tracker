@@ -2289,6 +2289,11 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
                 f'Cash (Reserve + Rest) <b>{_de(cash, 2)} €</b></div>', unsafe_allow_html=True)
     if kp["ohne_kurs"]:
         st.caption("Ohne aktuellen Kurs (Stückzahl nicht berechenbar): " + ", ".join(kp["ohne_kurs"]))
+    if kp.get("mindest"):
+        st.caption("Mindestens 1 Stück gekauft, obwohl das Gewicht dafür eigentlich nicht reicht (Kurs höher als "
+                   "der Anteil): " + ", ".join(str(x) for x in kp["mindest"]) + " – der Mehrbetrag kommt aus "
+                   "Rest bzw. Reserve" + (f"; Startkapital um {_de(kp['ueberzogen'], 2)} € überschritten"
+                                          if kp.get("ueberzogen") else "") + ".")
     kpe = m.setdefault("kaufplan", {"betrag": float(start), "bruch": False})
     runden = st.toggle("Gewichte immer auf ganze Stücke ausrichten", value=bool(kpe.get("runden")), key=_k("stk_runden"),
                        help="Prozente = tatsächlich gekaufter Anteil (Stück × Kurs) für das Startkapital, der Rest der "
