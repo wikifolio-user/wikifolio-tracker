@@ -18,6 +18,8 @@ Bausteine:
 """
 import math
 
+ENGINE_VERSION = "09.10.2026 · 23:00"   # muss zu planer_ui.PLANER_VERSION passen
+
 import planer_daten as D
 
 # ===========================================================================
