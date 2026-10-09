@@ -55,7 +55,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "base": "Base", "bull": "Bull", "custom": "Custom"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "06.10.2026 · 20:40"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "09.10.2026 · 23:00"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -2169,6 +2169,10 @@ def _auf_stuecke(m, hist_assets, hist_korb):
 
 def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     _abschnitt("Bausteine")
+    if getattr(E, "ENGINE_VERSION", None) != PLANER_VERSION:
+        st.warning("⚠️ **planer_engine.py** im Repo ist nicht auf dem Stand von planer_ui.py "
+                   f"(Rechenkern: {getattr(E, 'ENGINE_VERSION', 'alt')}, Oberfläche: {PLANER_VERSION}). "
+                   "Bitte beide Dateien hochladen und die App neu starten (⋮ → Reboot app).")
     _auto_hinweis(m)
     start = m["rahmen"]["startkapital"]
     summe = E.gewichte_summe(m) or 1.0
@@ -4081,7 +4085,7 @@ def render(h):
     name = st.session_state.get("planer_name")
     st.markdown(f'<div class="abschnitt">💼 Portfolio-Planer{" · " + _esc(name) if name else ""}</div>',
                 unsafe_allow_html=True)
-    st.caption(f"Planer-Version {PLANER_VERSION}")
+    st.caption(f"Planer-Version {PLANER_VERSION} · Rechenkern {getattr(E, 'ENGINE_VERSION', 'alt')}")
     _hinweis("Szenariorechnung / keine Prognose – alle Renditen sind Annahmen oder historische Ausgangswerte, "
              "keine Erwartung und keine Anlageempfehlung.")
 
