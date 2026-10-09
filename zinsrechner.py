@@ -854,7 +854,20 @@ def render(basis_url=""):
     calc = k_ziel.selectbox("Gesuchte Größe", list(ZIEL_FELDER), format_func=ZIEL_FELDER.get, key="zr_calc")
     p = {"calc": calc}
     if calc == "e":
-        p["e"] = float(st.session_state.get("zr_e", 0.0))
+        # Kann-Feld: wird ein Zielwert eingetragen, rechnet der Rechner den noetigen Zinssatz
+        # fuer die eingestellte Laufzeit aus (sonst normal: Endkapital aus dem Zinssatz)
+        zielwert = k_ziel.number_input("🎯 Zielwert (€) – optional", min_value=0.0, max_value=1e12, value=None,
+                                       step=1000.0, format="%.2f", key="zr_zielwert",
+                                       placeholder="leer lassen = Endkapital berechnen",
+                                       help="Trag ein, wie viel am Ende da sein soll – der nötige Zinssatz wird "
+                                            "dann passend zur Laufzeit automatisch berechnet.")
+        if zielwert:
+            calc = "z"
+            p = {"calc": "z", "e": float(zielwert)}
+            k_ziel.caption("➜ Zinssatz wird aus Zielwert und Laufzeit berechnet (Feld unten gestrichelt). "
+                           "Zielwert leeren, um wieder selbst einen Zinssatz einzugeben.")
+        else:
+            p["e"] = float(st.session_state.get("zr_e", 0.0))
     else:
         p["e"] = float(k_ziel.number_input("Gewünschtes Endkapital (€)", 0.0, 1e12, step=1000.0, format="%.2f",
                                            key="zr_e"))
