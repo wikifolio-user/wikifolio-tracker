@@ -1,31 +1,55 @@
 name: State-Branch Historie komprimieren (monatlich)
 
 # Loescht NICHT den Dateiinhalt (auch nicht die Preis-Historie-CSVs!) -
-# fasst nur die tausenden Einzel-Commits (alle 5 Min ein Commit) zu EINEM
-# Commit zusammen. Der aktuelle Stand aller Dateien bleibt exakt erhalten.
+# fasst nur die tausenden Einzel-Commits zu EINEM Commit zusammen. Der aktuelle
+# Stand aller Dateien bleibt exakt erhalten.
+#
+# Schutz gegen Datenverlust: Schreibt die App oder ein anderer Workflow genau
+# waehrend des Komprimierens, wuerde ein normales "push --force" dessen Commit
+# ueberschreiben. Deshalb "--force-with-lease": der Push klappt nur, wenn der
+# Branch noch auf dem ausgecheckten Stand ist - sonst neu holen und erneut
+# versuchen (bis zu 5x). Zeitpunkt 01:15 UTC: vor dem Qualitaets-Agenten
+# (03:00 UTC) und ausserhalb der Handelszeiten, also ohne Kursalarm-Laeufe.
 on:
   schedule:
-    - cron: "0 3 1 * *"  # 1. jedes Monats, 03:00 UTC
+    - cron: "15 1 1 * *"  # 1. jedes Monats, 01:15 UTC
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
+concurrency:
+  group: state-squash
+  cancel-in-progress: false
+
 jobs:
   squash:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: State-Branch auschecken
         uses: actions/checkout@v4
         with:
           ref: app-state
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Historie auf einen Commit komprimieren
+      - name: Historie auf einen Commit komprimieren (mit Schutz vor parallelen Schreibern)
         run: |
+          set -e
           git config user.name "state-squash-bot"
           git config user.email "actions@users.noreply.github.com"
-          TREE=$(git write-tree)
-          NEW_COMMIT=$(echo "Squashed state history $(date -u +%Y-%m-%d)" | git commit-tree "$TREE")
-          git reset --soft "$NEW_COMMIT"
-          git push --force origin app-state
+          for versuch in 1 2 3 4 5; do
+            git fetch --depth=1 origin app-state
+            git reset --hard origin/app-state
+            ALT=$(git rev-parse HEAD)
+            TREE=$(git write-tree)
+            NEU=$(echo "Squashed state history $(date -u +%Y-%m-%d)" | git commit-tree "$TREE")
+            if git push --force-with-lease=app-state:"$ALT" origin "$NEU":refs/heads/app-state; then
+              echo "✅ Komprimiert (Versuch $versuch)."
+              exit 0
+            fi
+            echo "Branch wurde zwischendurch geaendert - neuer Versuch in 20 s."
+            sleep 20
+          done
+          echo "❌ Nach 5 Versuchen nicht komprimiert - es wurde nichts ueberschrieben."
+          exit 1
