@@ -3,7 +3,8 @@
 # sonst waehrend jedes Reruns oben rechts einblendet. Wir zeigen stattdessen
 # den eigenen zentrierten Ladefortschritt in der App.
 toolbarMode = "minimal"
-showErrorDetails = true
+# Keine Tracebacks/Details im Browser (Audit SEC-09) - Fehler landen nur im Server-Log.
+showErrorDetails = false
 
 [theme]
 base = "dark"
