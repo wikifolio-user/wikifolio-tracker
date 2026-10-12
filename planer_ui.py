@@ -52,10 +52,12 @@ FARBEN = ["#4C9AFF", "#16C784", "#F5B942", "#EA3943", "#A78BFA", "#22D3EE", "#F4
 
 QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme", "historical5Y": "Historisch 5 J.", "historical10Y": "Historisch 10 J.",
            "fundamentalModel": "Fundamental-Modell", "analystInput": "Analysten-Input", "bear": "Bear",
-           "base": "Base", "bull": "Bull", "custom": "Custom"}
+           "base": "Base", "bull": "Bull", "custom": "Custom",
+           "kategorie_standard": "Kategorie-Standard (Historie < 1 Mon.)",
+           "hochgerechnet": "Hochgerechnet (Historie < 1 J.)"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "09.10.2026 · 23:00"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "12.10.2026 · 10:00"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -117,6 +119,11 @@ def _pct(x, dec=1, vorzeichen=False, anteil=True):
         return "–"
     v = x * 100 if anteil else x
     return (("+" if vorzeichen and v > 0 else "") + _de(v, dec) + " %").replace("-", "−")
+
+
+def _pct_ziel(x):
+    """Benoetigte Rendite: None = Ziel nicht erreichbar."""
+    return "nicht erreichbar" if x is None else _pct(x)
 
 
 def _esc(t):
@@ -583,13 +590,16 @@ def _kredite_aktiv(m):
 
 def _kredit_rahmen(m):
     """Wirkung der Kredite auf die Aufbauphase: zusaetzliches Startkapital,
-    Restschuld am Ende des Aufbaus und (bei Raten aus dem Depot) die mittlere
-    Monatsrate, die dem Depot entnommen wird. None = keine aktiven Kredite."""
+    Restschuld am Ende des Aufbaus und (bei Raten zusaetzlich aus dem Depot) die
+    Raten MONATSGENAU: raten = [(von_monat, bis_monat, betrag)] - nur waehrend der
+    Kreditlaufzeit (innerhalb des Aufbaus). rate_depot = Summe der Monatsraten aus
+    dem Depot im ersten Monat (Anzeige). None = keine aktiven Kredite."""
     k = _kredite(m) if m.get("kredit") else {}
     jahre = int(m["rahmen"].get("horizont_jahre") or 0)
     if not _kredite_aktiv(m) or jahre <= 0:
         return None
-    summe = rest = rate_depot = 0.0
+    summe = rest = 0.0
+    raten = []
     for x in k.get("kredite") or []:
         betrag, rate, laufzeit = float(x.get("betrag") or 0), float(x.get("rate") or 0), int(x.get("jahre") or 0)
         zins, _ = _kredit_konditionen(x)
@@ -599,11 +609,11 @@ def _kredit_rahmen(m):
         rate = _kredit_rate_eff(x, zins)
         summe += betrag
         rest += E.kredit_restschuld(betrag, rate, zins, monate)
-        if _rate_aus(m) == "investment":
-            rate_depot += rate * monate / (jahre * 12)      # ueber den Aufbau gemittelt
+        if _rate_aus(m) == "investment" and rate > 0 and monate > 0:
+            raten.append((1, monate, rate))                 # Monat 1 .. Laufzeitende
     if summe <= 0:
         return None
-    return {"summe": summe, "restschuld": rest, "rate_depot": rate_depot}
+    return {"summe": summe, "restschuld": rest, "raten": raten, "rate_depot": E.kredit_rate_monat(raten, 1)}
 
 
 def _entnahme_parallel(m):
@@ -620,9 +630,10 @@ def _entnahme_parallel(m):
 
 def _mit_krediten(m):
     """Modell fuer die Rechnung: Kreditgeld zusaetzlich investiert, Ziel = Ziel
-    NACH Abzug der Restschuld, Raten aus dem Depot mindern die Sparrate, und die
-    Entnahme laeuft (Standard) schon waehrend des Aufbaus. Das Original bleibt
-    unveraendert (gleiche Bausteine/Gewichte)."""
+    NACH Abzug der Restschuld, Raten aus dem Depot werden monatsgenau waehrend der
+    Kreditlaufzeit abgezogen (rahmen["kredit_raten"]), und die Entnahme laeuft
+    (Standard) schon waehrend des Aufbaus. Das Original bleibt unveraendert
+    (gleiche Bausteine/Gewichte)."""
     kr = _kredit_rahmen(m)
     ent = _entnahme_parallel(m)
     if not kr and not ent:
@@ -635,8 +646,8 @@ def _mit_krediten(m):
     r["startkapital"] = float(r["startkapital"]) + kr["summe"]
     if float(r.get("zielvermoegen") or 0) > 0:
         r["zielvermoegen"] = float(r["zielvermoegen"]) + kr["restschuld"]
-    if kr["rate_depot"]:
-        r["sparrate_monat"] = float(r.get("sparrate_monat") or 0) - kr["rate_depot"]
+    if kr.get("raten"):
+        r["kredit_raten"] = list(kr["raten"])
     return dict(m, rahmen=r)
 
 
@@ -658,6 +669,9 @@ def _rechne(m, historie, korb_score):
     kr = _kredit_rahmen(m)
     zus["kredit"] = kr
     zus["endwert_netto"] = zus["endwert"] - (kr["restschuld"] if kr else 0.0)
+    # PLAN-09: Raten/negative Sparrate, die das Depot nicht mehr decken kann (Depot nie unter 0)
+    zus["fehlbetrag"] = float(zus["projektion"].get("fehlbetrag") or 0.0)
+    zus["entnahme_fehlbetrag"] = float(zus["projektion"].get("entnahme_fehlbetrag") or 0.0)
     scores = {"korb": korb_score}
     return {"info": info, "r": r, "r_calc": r_calc, "conf": conf, "zus": zus, "scores": scores, "reb": reb}
 
@@ -687,6 +701,15 @@ def _benoetigt(m):
     return E.rendite_fuer_restwert(float(r["startkapital"]), float(e["monatlich"]), ziel,
                                    jahre=int(e["dauer_jahre"]), dynamik_pa=float(e["dynamik_pa"]) / 100.0,
                                    stufen=e.get("stufen"))
+
+
+def _ziel_unerreichbar(m):
+    """True = Zielvermoegen (mit Aufbau) gesetzt, aber selbst mit extremer Rendite
+    nicht erreichbar (benoetigte Rendite = None) -> "nicht erreichbar" anzeigen und
+    trotzdem die renditestaerkste Verteilung rechnen."""
+    r = m["rahmen"]
+    return (float(r.get("zielvermoegen") or 0) > 0 and int(r.get("horizont_jahre") or 0) > 0
+            and _benoetigt(m) is None)
 
 
 def _ziel_in_entnahme(m):
@@ -719,7 +742,7 @@ def _auto_modus(m):
     mo = _rendite_modus(m)
     if mo == "manuell":
         return "manuell"
-    if mo == "ziel" and _benoetigt(m) is not None:
+    if mo == "ziel" and (_benoetigt(m) is not None or _ziel_unerreichbar(m)):
         return "ziel"
     e = _entnahme_daten(m)
     if e.get("aktiv", True) and e.get("rendite_quelle", "eigen") == "eigen" and e.get("auto_gewichtung"):
@@ -767,7 +790,7 @@ def _auto_hinweis(m):
     if modus == "ziel":
         wann = "am Ende der Entnahme" if _ziel_in_entnahme(m) else "am Ende des Aufbaus"
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend so verteilt, dass das Zielvermögen "
-                f"von {_de(m['rahmen']['zielvermoegen'])} € {wann} erreicht wird (benötigt {_pct(_benoetigt(m))} p.a.) – "
+                f"von {_de(m['rahmen']['zielvermoegen'])} € {wann} erreicht wird (benötigt {_pct_ziel(_benoetigt(m))} p.a.) – "
                 "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 1“.")
     elif modus == "manuell":
         st.info(f"Manuelle Rendite ist aktiv: Die Prozente werden laufend so verteilt, dass das Portfolio "
@@ -933,7 +956,7 @@ def _rahmen(m):
                                 'Portfoliorendite)</div>', unsafe_allow_html=True)
                 else:
                     st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>wie Aufbauphase</b> '
-                                f'(automatisch – benötigt {_pct(_benoetigt(m))}; ist das Ziel nicht erreichbar, gilt '
+                                f'(automatisch – benötigt {_pct_ziel(_benoetigt(m))}; ist das Ziel nicht erreichbar, gilt '
                                 'die tatsächlich erreichte Modellrendite)</div>', unsafe_allow_html=True)
             elif q == "eigen":
                 e["rendite_pa"] = float(st.number_input(
@@ -972,7 +995,8 @@ def _rahmen(m):
             elif ben is None:
                 ziel_platz.caption("Ohne Aufbau gilt das Zielvermögen für das Ende der Entnahme – dafür die "
                                    "Entnahme einplanen." if _ziel_in_entnahme(m) else
-                                   "Benötigte Rendite nicht berechenbar (Startkapital 0 ohne Sparrate?).")
+                                   "Benötigte Rendite: Ziel nicht erreichbar (auch mit extremer Rendite nicht – "
+                                   "Startkapital/Sparrate zu klein oder Entnahme/Kreditraten zu hoch).")
             else:
                 ziel_platz.markdown(
                     f'<div class="pl-zeile">Benötigte Rendite p.a.' + (" in der Entnahme" if _ziel_in_entnahme(m) else "")
@@ -1025,14 +1049,16 @@ def _stufen_bilanz(m, R, e, r):
         nach = plan["verlauf"]
     except Exception:
         rm_ent, nach = rm, []
-    spar = float(_mit_krediten(m)["rahmen"].get("sparrate_monat") or 0.0)
+    eff_r = _mit_krediten(m)["rahmen"]
+    spar = float(eff_r.get("sparrate_monat") or 0.0)
+    raten = eff_r.get("kredit_raten")
     aus = []
     for x in e["stufen"]:
         mon_ent = (x["ab_jahr"] - 1) * 12                    # Entnahme-Monate davor
         t = mon_ent if (parallel or jahre == 0) else n_auf + mon_ent   # Monate ab heute
         betrag = E.entnahme_betrag(e["monatlich"], float(e["dynamik_pa"]) / 100.0, mon_ent + 1, e["stufen"])
         if t < len(werte) and t < n_auf:
-            wert, rate, sp = werte[t], rm, spar
+            wert, rate, sp = werte[t], rm, spar - E.kredit_rate_monat(raten, t + 1)
         elif 0 <= t - n_auf < len(nach):
             wert, rate, sp = nach[t - n_auf], rm_ent, 0.0
         else:
@@ -1156,6 +1182,22 @@ def _monatsbilanz_anzeigen(platz, m, R):
             st.caption(t)
 
 
+def _fehlbetrag_text(z):
+    """PLAN-09: Hinweis, wenn das Depot Kreditraten / negative Sparrate oder die Entnahme
+    nicht mehr decken kann (die Rechnung stoppt bei 0 €, der Rest ist ungedeckt)."""
+    fb = float(z.get("fehlbetrag") or 0.0)
+    fe = float(z.get("entnahme_fehlbetrag") or 0.0)
+    teile = []
+    if fb > 0.5:
+        teile.append(f"Kreditraten/Abbuchungen {_de(fb)} € nicht gedeckt")
+    if fe > 0.5:
+        teile.append(f"Entnahmen {_de(fe)} € nicht gedeckt")
+    if not teile:
+        return ""
+    return ("⚠ Depot im Aufbau aufgebraucht (Wert 0 €): " + " · ".join(teile)
+            + " – diese Beträge müssten aus dem Einkommen kommen.")
+
+
 def _kpis(platz, m, R):
     z = R["zus"]
     rahmen = m["rahmen"]
@@ -1171,7 +1213,8 @@ def _kpis(platz, m, R):
             k2 = ("Portfolio-Rendite p.a.", _pct(port_r), "gewichtet · " + D.METHODEN[rahmen["methode"]])
             k3 = ("Startkapital", _eur(z["endwert"]), "Entnahme startet sofort")
         else:
-            k1 = ("Benötigte Rendite p.a.", _pct(z["erforderliche_cagr"]) if ziel > 0 else "–",
+            k1 = ("Benötigte Rendite p.a.", (_pct(z["erforderliche_cagr"]) if z["erforderliche_cagr"] is not None
+                                             else "nicht erreichbar") if ziel > 0 else "–",
                   (f'{_de(rahmen["startkapital"])} €'
                    + (f' + {_de(z["kredit"]["summe"])} € Kredit' if z.get("kredit") else "")
                    + f' → {_de(ziel)} € in {jahre_n} J.') if ziel > 0 else "kein Ziel gesetzt")
@@ -1222,6 +1265,8 @@ def _kpis(platz, m, R):
                                       f'Rechenweg: {_de(eff_m["rahmen"]["startkapital"])} € Kapital'
                                       + (f' + {_de(eff_m["rahmen"]["sparrate_monat"])} €/Monat'
                                          if float(eff_m["rahmen"].get("sparrate_monat") or 0) else "")
+                                      + (f' − Kreditraten aus dem Depot {_eur(proj.get("kredit_raten_gezahlt") or 0)}'
+                                         if eff_m["rahmen"].get("kredit_raten") else "")
                                       + f' ohne Entnahme → {_eur(ohne_ew)} · − Entnahmen inkl. entgangener Rendite '
                                         f'{_eur(kosten_ent)}' + (f' · − Restschuld {_eur(rs_)}' if rs_ else "")
                                       + f' = <b>{_eur(proj["endwert"] - rs_)}</b>')
@@ -1251,6 +1296,9 @@ def _kpis(platz, m, R):
                           f'<b>{_eur(kr["mit"])}</b> netto · ohne {_eur(kr["ohne"])} · '
                           f'<b class="{"pl-gut" if vv >= 0 else "pl-schlecht"}">{"+" if vv >= 0 else "−"}'
                           f'{_de(abs(vv))} €</b>')
+        fehl = _fehlbetrag_text(z)
+        if fehl:
+            zeilen.insert(0, f'<b class="pl-schlecht">{_esc(fehl)}</b>')
         auto = st.session_state.get("planer_autogew")
         if auto and auto.get("fehler"):
             zeilen.append(f'⚠ Automatische Gewichtung: {_esc(auto["fehler"])}')
@@ -1266,8 +1314,10 @@ def _kpis(platz, m, R):
                 zeilen.append(f'Gewichte automatisch aufs Ziel verteilt · benötigt <b>{_pct(auto["benoetigt"])} p.a.</b>'
                               f' · Modell-Endwert {_eur(auto["endwert"])}')
             else:
-                zeilen.append(f'⚠ Ziel mit diesen Bausteinen nicht erreichbar (benötigt {_pct(auto["benoetigt"])} p.a.) – '
-                              f'renditestärkste Verteilung ergibt {_eur(auto["endwert"])}')
+                zeilen.append('⚠ Ziel mit diesen Bausteinen nicht erreichbar ('
+                              + (f'benötigt {_pct(auto["benoetigt"])} p.a.' if auto.get("benoetigt") is not None
+                                 else "auch mit extremer Rendite nicht erreichbar")
+                              + f') – renditestärkste Verteilung ergibt {_eur(auto["endwert"])}')
         elif auto and auto.get("modus") == "manuell":
             if auto.get("erreichbar"):
                 zeilen.append(f'Manuelle Rendite: Gewichte auf <b>{_pct(auto["rendite"])} p.a.</b> verteilt')
@@ -2105,6 +2155,10 @@ def _basis_text(m, a):
         src = str(rec.get("source") or "")
         if src.startswith("Kurshistorie ("):
             return "Hist. " + src[len("Kurshistorie ("):].rstrip(")").replace(" p.a.", "")
+        if src.startswith(E.HOCH_PREFIX):
+            return "Hochger. ⚠"
+        if src == E.KURZ_TEXT:
+            return "Kurz-Hist. ⚠"
         if src.startswith("Standard"):
             return "Standard ⚠"
         return "Startwert ⚠"
@@ -2218,8 +2272,9 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
             "Basis": st.column_config.TextColumn(
                 "Basis", width=breite("small"),
                 help="Woher die Annahme stammt: „Hist. 5 J.“ usw. = automatisch aus der bisherigen Rendite p.a. "
-                     "(wird täglich nachgeführt), „Hist. seit Start, N Mon.“ = junge Werte < 1 Jahr (nicht hochgerechnet), "
-                     "„Standard ⚠“ = keine Kursdaten gefunden, Kategorie-Standard, „Startwert ⚠“ = Wert aus dem "
+                     "(wird täglich nachgeführt), „Hochger. ⚠“ = weniger als 1 Jahr Kurshistorie – Ø Monatsrendite seit Start "
+                     "aufs Jahr hochgerechnet (wenig belastbar, ab 1 Jahr Historie automatisch ersetzt), "
+                     "„Kurz-Hist. ⚠“ = unter 1 Monat Kurshistorie – Kategorie-Standard (gedämpft), „Standard ⚠“ = keine Kursdaten gefunden, Kategorie-Standard, „Startwert ⚠“ = Wert aus dem "
                      "Ausgangsmodell, keine Kursdaten, „eigene“ = selbst eingetragen"),
             "Aktiv": st.column_config.CheckboxColumn("Aktiv", width=breite("small")),
             "Baustein": st.column_config.TextColumn("Baustein", width=breite("medium")),
@@ -2321,8 +2376,9 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
             _musterdepot_formular(h, kp, float(start), "bs")
     if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
                  help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
-                      "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J., bei jungen Werten "
-                      "seit Start ohne Hochrechnung; ohne Kursdaten Standardwert der Kategorie)"):
+                      "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J.; bei weniger als 1 Jahr "
+                      "Historie die Ø Monatsrendite aufs Jahr hochgerechnet, unter 1 Monat und ohne Kursdaten "
+                      "Standardwert der Kategorie)"):
         n = E.annahmen_aus_historie(m, st.session_state.get("planer_historie") or {}, alle=True)
         st.session_state["planer_meldung"] = ("ok", f"{n} Annahmen aus der bisherigen Rendite p.a. übernommen.", [])
         _neu_zeichnen()
@@ -2465,30 +2521,86 @@ def _vorschlag(m, R, verfahren, ziel_art, wunsch, mit_grenzen):
     if int(rahmen.get("horizont_jahre") or 0) <= 0:
         return {"art": "fehler", "text": "Keine Aufbauphase (0 Jahre) – für eine Zielrendite in der Entnahme die "
                                          "automatische Gewichtung unter „⚙️ Planung → Phase 2“ nutzen."}
+    # dieselbe Rechnung wie die KPIs: Kredite (Kapital, Restschuld, Raten) und
+    # gleichzeitige Entnahme eingerechnet
+    eff = _mit_krediten(m)
+    kr = _kredit_rahmen(m)
     if ziel_art == "rendite":
-        zielwert = E.ziel_aus_rendite(m, wunsch / 100.0)
+        zielwert = E.ziel_aus_rendite(eff, wunsch / 100.0)
         ziel_txt = f"{_de(wunsch, 1)} % p.a. (≈ {_de(E.runden_ungefaehr(zielwert))} €)"
     else:
-        zielwert = float(rahmen["zielvermoegen"])
-        ziel_txt = f"{_de(zielwert)} €"
+        zielwert = float(eff["rahmen"]["zielvermoegen"])
+        ziel_txt = f"{_de(rahmen['zielvermoegen'])} €" + (
+            f" (+ Restschuld {_de(kr['restschuld'])} € = {_de(zielwert)} € Depotwert)" if kr and kr["restschuld"] > 0.5
+            else "")
     if mit_grenzen:
-        o = E.optimiere(m, R["r"], R["conf"], ziel=zielwert)
-        if not o or o.get("fehler"):
-            return {"art": "fehler", "text": (o or {}).get("fehler") or "Keine Lösung."}
-        voll = {a["id"]: o["gewichte"].get(a["id"], 0.0) for a in E.aktive_assets(m)}
-        if o["erreichbar"]:
-            return {"gewichte": voll, "art": "ok", "text": f"Ziel {ziel_txt} innerhalb aller Grenzen erreichbar."}
-        return {"gewichte": voll, "art": "warnung",
-                "text": f"Ziel {ziel_txt} ist unter den Grenzen nicht erreichbar. Vorschlag = höchster möglicher "
-                        f"Endwert unter den Grenzen ({_eur(o['max_endwert'])})."}
-    erg = E.gewichtung_fuer_ziel(m, R["r"], ziel=zielwert, rebalancing=R["reb"])
+        return _vorschlag_grenzen(eff, R, zielwert, ziel_txt)
+    erg = E.gewichtung_fuer_ziel(eff, R["r"], ziel=zielwert, rebalancing=R["reb"])
     if erg.get("fehler"):
         return {"art": "fehler", "text": erg["fehler"]}
+    if not erg["erreichbar"] and erg.get("min_endwert") is not None:
+        return {"art": "fehler", "text": f"Ziel {ziel_txt} liegt unter dem kleinsten mit diesen Bausteinen "
+                                         f"möglichen Endwert (mindestens {_eur(erg['min_endwert'])}) – es wird "
+                                         "in jedem Fall übertroffen. Renditeschwächere Bausteine/Reserve ergänzen "
+                                         "oder Fixierungen lösen."}
     if not erg["erreichbar"]:
         return {"art": "fehler", "text": f"Ziel {ziel_txt} ist mit den aktuellen Annahmen auch bei maximaler "
                                          f"Verschiebung nicht erreichbar (höchstens {_eur(erg['max_endwert'])}). "
                                          "Fixierungen lösen, Annahmen prüfen oder Grenzen nutzen."}
-    return {"gewichte": erg["gewichte"], "art": "ok", "text": f"Ziel {ziel_txt} exakt erreicht."}
+    return {"gewichte": erg["gewichte"], "art": "ok", "text": f"Ziel {ziel_txt} exakt erreicht.",
+            "endwert": erg["endwert"]}
+
+
+def _vorschlag_grenzen(eff, R, zielwert, ziel_txt):
+    """Optimizer unter den Grenzen fuer das effektive Modell (inkl. Krediten und
+    Entnahme). Der LP-Optimizer rechnet linear ohne Entnahme/Kreditraten/Rebalancing -
+    deshalb wird sein Zielwert per Bisektion so nachgestellt, dass die ECHTE
+    Projektion (wie die KPIs) das Ziel trifft; geht das nicht, ehrlich melden."""
+    aktive = [a["id"] for a in E.aktive_assets(eff)]
+
+    def opt(z):
+        o = E.optimiere(eff, R["r"], R["conf"], ziel=z)
+        if not o or o.get("fehler"):
+            return o, None, None
+        g = {i: o["gewichte"].get(i, 0.0) for i in aktive}
+        return o, g, E.projektion(_mit_gewichten(eff, g), R["r"], rebalancing=R["reb"])["endwert"]
+
+    o, g, ew = opt(zielwert)
+    if not o or o.get("fehler"):
+        return {"art": "fehler", "text": (o or {}).get("fehler") or "Keine Lösung."}
+    def passt(e):           # Ziel erreicht, hoechstens 1 EUR darueber
+        return 0.0 <= e - zielwert <= 1.0
+
+    if not passt(ew):
+        # hoechster unter den Grenzen moeglicher Endwert (renditestaerkste LP-Loesung)
+        _o, g_max, ew_max = opt(max(o["max_endwert"], zielwert) * 10.0 + 1.0)
+        if ew_max < zielwert - 1.0:
+            return {"gewichte": g_max, "art": "warnung",
+                    "text": f"Ziel {ziel_txt} ist unter den Grenzen nicht erreichbar. Vorschlag = höchster möglicher "
+                            f"Endwert unter den Grenzen ({_eur(ew_max)}, inkl. Entnahme/Kreditraten)."}
+        lo, hi = (zielwert, o["max_endwert"]) if ew < zielwert else (0.0, zielwert)
+        g_best, ew_best = (g_max, ew_max) if ew < zielwert else (g, ew)
+        for _ in range(60):
+            mitte = (lo + hi) / 2.0
+            _o, g_m, ew_m = opt(mitte)
+            if g_m is None:
+                break
+            if ew_m >= zielwert:
+                hi, g_best, ew_best = mitte, g_m, ew_m
+                if passt(ew_m):
+                    break
+            else:
+                lo = mitte
+        g, ew = g_best, ew_best
+    if passt(ew):
+        return {"gewichte": g, "art": "ok", "text": f"Ziel {ziel_txt} innerhalb aller Grenzen erreichbar.",
+                "endwert": ew}
+    if ew > zielwert + 1.0:
+        return {"gewichte": g, "art": "warnung", "endwert": ew,
+                "text": f"Ziel {ziel_txt} wird unter den Grenzen übertroffen – genauer als {_eur(ew)} (inkl. "
+                        "Entnahme/Kreditraten) lässt es sich nicht ansteuern. Grenzen (z. B. Mindestanteile) prüfen."}
+    return {"gewichte": g, "art": "warnung", "endwert": ew,
+            "text": f"Ziel {ziel_txt} unter den Grenzen nicht genau erreichbar – höchstens {_eur(ew)}."}
 
 
 def _b_gewichtung(m, R):
@@ -2537,9 +2649,11 @@ def _b_gewichtung(m, R):
 
     # Vergleich vorher / nachher
     summe = E.gewichte_summe(m) or 1.0
-    vorher = R["zus"]["endwert"]
-    try:
-        nachher = E.projektion(_mit_gewichten(m, gew), R["r"], rebalancing=R["reb"])["endwert"]
+    vorher = R["zus"].get("endwert_netto", R["zus"]["endwert"])
+    try:     # gleiche Rechnung wie die KPIs (Kredite, Entnahme, Rechenrenditen, nach Restschuld)
+        _kr = R["zus"].get("kredit")
+        nachher = E.projektion(_mit_krediten(_mit_gewichten(m, gew)), R.get("r_calc", R["r"]),
+                               rebalancing=R["reb"])["endwert"] - (_kr["restschuld"] if _kr else 0.0)
     except Exception:
         nachher = None
     jahre = m["rahmen"]["horizont_jahre"]
@@ -2603,12 +2717,15 @@ def _gesamtverlauf(m, R):
     proj = R["zus"]["projektion"]
     aufbau = list(proj["monatswerte"])
     n_auf = len(aufbau) - 1
-    spar = float(_mit_krediten(m)["rahmen"].get("sparrate_monat") or 0.0)
+    eff_r = _mit_krediten(m)["rahmen"]
+    spar = float(eff_r.get("sparrate_monat") or 0.0)
+    raten = eff_r.get("kredit_raten")
     ent_p = _entnahme_parallel(m)
     zeilen = []
     for j in range(n_auf // 12):
         anf, ende = aufbau[j * 12], aufbau[(j + 1) * 12]
-        fluss = spar * 12 - sum(E._entnahme_monat(ent_p, mm) for mm in range(j * 12 + 1, j * 12 + 13))
+        fluss = spar * 12 - sum(E._entnahme_monat(ent_p, mm) + E.kredit_rate_monat(raten, mm)
+                                for mm in range(j * 12 + 1, j * 12 + 13))
         zeilen.append({"jahr": j + 1, "phase": "Aufbau + Entnahme" if ent_p else "Aufbau", "anfang": anf,
                        "fluss": fluss, "ertrag": ende - anf - fluss, "steuer": 0.0, "ende": ende})
     e = _entnahme_daten(m)
@@ -2780,9 +2897,11 @@ def _b_ziel(m, R):
     namen = {a["id"]: a["name"] for a in m["assets"]}
     _abschnitt("Zielerreichung")
     _kacheln([
-        ("Benötigt p.a.", _pct(z["erforderliche_cagr"]), None),
+        ("Benötigt p.a.", _pct(z["erforderliche_cagr"]) if z["erforderliche_cagr"] is not None or
+         not m["rahmen"].get("zielvermoegen") else "nicht erreichbar", None),
         ("Modell p.a.", _pct(z["modell_cagr"]), None),
-        ("Lücke p.a.", _pct((z["erforderliche_cagr"] or 0) - (z["modell_cagr"] or 0), vorzeichen=True), "Prozentpunkte"),
+        ("Lücke p.a.", _pct(z["erforderliche_cagr"] - (z["modell_cagr"] or 0), vorzeichen=True)
+         if z["erforderliche_cagr"] is not None else "–", "Prozentpunkte"),
         ("Endwert / Ziel", _pct(z["endwert"] / m["rahmen"]["zielvermoegen"], 0) if m["rahmen"]["zielvermoegen"] else "–",
          None),
     ], klein=True)
@@ -2935,7 +3054,8 @@ def _b_wiki(m, R, hist_assets):
         h = hist_assets.get(a["id"]) or {}
         info = R["info"].get(a["id"]) or {}
         herkunft = info.get("herkunft") or {}
-        quelle_txt = herkunft.get("source") if herkunft.get("sourceType") == "historisch" else "Annahme"
+        quelle_txt = herkunft.get("source") if herkunft.get("sourceType") in ("historisch", "hochgerechnet", "kategorie_standard") \
+            else "Annahme"
         conf = R["conf"].get(a["id"]) or E.confidence_score(h.get("jahre"), "wikifolio")
         zeilen.append([
             f'<span class="pt-name">{_esc(a["name"])}</span><span class="pt-sub">'
@@ -2959,7 +3079,9 @@ def _b_wiki(m, R, hist_assets):
         if h.get("fehler"):
             st.caption(f"{a['name']}: {h['fehler']}")
     st.caption("„Genutzt p.a.“ = tatsächliche Rendite laut Kurshistorie (5 J. p.a., sonst 3 J., sonst seit Start, "
-               "sonst 1 J.; bei weniger als 1 Jahr Historie die Rendite seit Start, nicht hochgerechnet). "
+               "sonst 1 J.; bei weniger als 1 Jahr Historie die Ø Monatsrendite seit Start aufs Jahr hochgerechnet – "
+               "„hochgerechnet aus N Mon. (Ø Monatsrendite)“, wenig belastbar, bis 1 Jahr Historie vorliegt; "
+               "unter 1 Monat der Kategorie-Standard, Richtung 8 % gedämpft). "
                "Die eigene Annahme gilt nur, wenn keine Kurshistorie vorliegt oder im Portfolio "
                "Builder „Ist“ abgewählt ist. Vergangene Renditen sind keine Zukunftserwartung. Confidence misst nur, wie lang und belastbar die investierbare Historie ist – z. B. "
                "„Expected Return 50 % / Data Confidence 22/100“. Performance Fee und Kosten nur, soweit unter "
