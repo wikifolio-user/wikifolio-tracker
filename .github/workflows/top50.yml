@@ -11,8 +11,12 @@ on:
 permissions:
   contents: write
 
+# Nie gleichzeitig mit dem Qualitaets-Agenten (Yahoo-Drossel): ein neuer Lauf
+# wartet, statt den laufenden abzubrechen. ACHTUNG: GitHub haelt je Gruppe nur
+# EINEN wartenden Lauf - ein weiterer verdraengt ihn (Status "cancelled"), es
+# kann also ein Lauf ausfallen; der naechste taegliche Lauf holt ihn nach.
 concurrency:
-  group: yahoo-abrufe   # nie gleichzeitig mit dem Qualitaets-Agenten (Yahoo-Drossel)
+  group: yahoo-abrufe
   cancel-in-progress: false
 
 jobs:
