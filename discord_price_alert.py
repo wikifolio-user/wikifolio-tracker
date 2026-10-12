@@ -1,17 +1,29 @@
 """
 Standalone-Skript fuer GitHub Actions: prueft den LS9VFS-Kurs unabhaengig
-von der Streamlit-App und meldet sich per Discord. Wird per Cron alle 5 Min
-ausgefuehrt (siehe .github/workflows/price-alert.yml).
+von der Streamlit-App und meldet sich per Discord. Laeuft nur Mo-Fr waehrend
+der Handelszeiten (siehe .github/workflows/price-alert.yml).
 
 State liegt jetzt auf dem GitHub-Branch config.GITHUB_STATE_BRANCH und wird
 ueber die Contents API gelesen/geschrieben (github_store.py) - kein
 Branch-Checkout/-Push mehr noetig.
+
+Dieser Job ist der EINZIGE Absender von Kurs-Alarmen und der einzige Schreiber
+des Alarm-States (die App zeigt den State nur an). Grundregeln:
+- State (unter_schwelle, zuletzt_gemeldet, ...) wird nur fortgeschrieben, wenn
+  die Discord-Nachricht nachweislich angekommen ist (HTTP 2xx) - sonst
+  versucht es der naechste Lauf erneut (ALM-01).
+- Kein Kurs, unlesbarer State oder unplausible Daten -> kein Alarm, kein
+  State-Schreiben (DEP-04).
+- Logs enthalten nie URLs/Tokens, nur Fehlertyp und HTTP-Status (SEC-08).
 """
+import copy
 import datetime
 import logging
 import os
 import re
 import sys
+import time
+import traceback
 from zoneinfo import ZoneInfo
 
 import requests
@@ -42,6 +54,31 @@ ROUTINE_MELDESCHWELLE_PCT = 0.50
 # ueber dem zuletzt GEMELDETEN Hoch liegt. Der Hoechststand selbst wird immer
 # still mitgefuehrt - nur die Benachrichtigung wird gebuendelt.
 ATH_MELDESCHWELLE_PCT = 0.50
+
+# Hysterese fuer die Entwarnung (Prozentpunkte): Nach einem Schwellen-Alarm
+# kommt die Entwarnung erst, wenn der Kurs mindestens so viel UEBER der
+# Schwelle liegt. Ohne Hysterese erzeugt ein Kurs, der um die Schwelle pendelt
+# (-3,01 / -2,99 / -3,01 ...), bei jedem Lauf Alarm + Entwarnung.
+# Ueberschreibbar per config.ALARM_HYSTERESE_PP.
+HYSTERESE_PP = 0.5
+
+# Discord-Rate-Limit (HTTP 429): hoechstens EIN kurzer Wiederholversuch, und
+# nur wenn Discord hoechstens so lange warten laesst - der Job soll nie haengen.
+DISCORD_429_MAX_WARTEN_S = 5.0
+
+
+def hysterese_pp():
+    wert = getattr(config, "ALARM_HYSTERESE_PP", None)
+    try:
+        return float(wert) if wert is not None else HYSTERESE_PP
+    except (TypeError, ValueError):
+        return HYSTERESE_PP
+
+
+class VeralteteDaten(ValueError):
+    """Die Intraday-Serie enthaelt (noch) keine Kurse von heute - z. B. vor dem
+    ersten Tick oder an einem Feiertag ohne Handel. Kein technischer Fehler,
+    aber auch keine Grundlage fuer Alarme."""
 
 # --- UEBERWACHTE INSTRUMENTE ---
 # Erster Eintrag ist die Hauptposition aus config.py (unveraendertes Verhalten,
@@ -156,7 +193,19 @@ def get_live_market_data(instrument_id=None):
         raise ValueError("Keine Intraday-Daten in der ls-tc.de Antwort gefunden.")
 
     akt = float(intraday[-1][1])
-    tageshoch = max(float(punkt[1]) for punkt in intraday if float(punkt[1]) > 0)
+
+    # Letzter Tick muss von HEUTE sein - sonst wuerde z. B. die gestrige
+    # Tagesbewegung als heutige gemeldet (falscher Alarm mit heutigem Datum).
+    heute = datetime.datetime.now(ZoneInfo("Europe/Berlin")).date()
+    try:
+        tick_datum = datetime.datetime.fromtimestamp(
+            float(intraday[-1][0]) / 1000, tz=ZoneInfo("Europe/Berlin")).date()
+    except (TypeError, ValueError, OverflowError, OSError, IndexError):
+        tick_datum = None  # Zeitstempel nicht auswertbar -> keine Pruefung moeglich
+    if tick_datum is not None and tick_datum.year < 2000:
+        tick_datum = None  # offenbar kein Millisekunden-Zeitstempel -> nicht pruefbar
+    if tick_datum is not None and tick_datum < heute:
+        raise VeralteteDaten(f"Letzter Tick vom {tick_datum.isoformat()}, noch kein Kurs von heute.")
 
     vor = config.extract_previous_close(data)
 
@@ -168,12 +217,51 @@ def get_live_market_data(instrument_id=None):
         )
         vor = config.pick_previous_close_from_history(history)
 
+    # KEIN Ersatzwert mehr (frueher: erster Intraday-Tick als "Vortageskurs").
+    # Damit war die Tagesveraenderung frei erfunden und konnte Alarme ausloesen.
     if vor is None:
-        vor = float(intraday[0][1])
+        raise ValueError("Kein Vortageskurs ermittelbar - Lauf fuer dieses Instrument uebersprungen.")
 
     if akt <= 0 or vor <= 0:
         raise ValueError("Ungueltige Kurswerte von ls-tc.de erhalten.")
+
+    # Tageshoch nur aus plausiblen Ticks (ALM-04): ein einzelner Fehltick
+    # (z. B. Kommafehler 990 statt 99) darf kein Allzeithoch erzeugen.
+    tageshoch = akt
+    for punkt in intraday:
+        try:
+            wert = float(punkt[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if wert > tageshoch and _plausibel(wert, vor):
+            tageshoch = wert
     return akt, vor, tageshoch
+
+
+def _plausibel(wert, basis):
+    """True, wenn wert hoechstens PLAUSIBILITAETS_SCHWELLE_PCT von basis abweicht."""
+    try:
+        wert, basis = float(wert), float(basis)
+    except (TypeError, ValueError):
+        return False
+    if wert <= 0 or basis <= 0:
+        return False
+    return abs(wert - basis) / basis * 100 <= float(config.PLAUSIBILITAETS_SCHWELLE_PCT)
+
+
+def plausibles_tageshoch(akt, vor, tageshoch):
+    """Uebernimmt das Tick-Maximum nur, wenn es gegenueber Vortageskurs ODER
+    aktuellem Kurs innerhalb der Plausibilitaetsschwelle liegt - sonst gilt der
+    aktuelle Kurs. Zweite Absicherung zusaetzlich zur Tick-Filterung oben."""
+    if tageshoch is None:
+        return akt
+    if _plausibel(tageshoch, vor) or _plausibel(tageshoch, akt):
+        return max(akt, float(tageshoch))
+    logging.warning(
+        f"Tageshoch {float(tageshoch):.3f} unplausibel (Kurs {akt:.3f}, Vortag {vor:.3f}) - "
+        f"verwende aktuellen Kurs fuer die Allzeithoch-Pruefung."
+    )
+    return akt
 
 
 def hole_onvista_kontrollkurs(url):
@@ -197,38 +285,91 @@ def hole_onvista_kontrollkurs(url):
             return None
         return float(match.group(1).replace(",", "."))
     except Exception as e:
-        logging.warning(f"onvista-Kontrollkurs nicht abrufbar (kein Problem, nur Zweitquelle): {e}")
+        logging.warning(f"onvista-Kontrollkurs nicht abrufbar (kein Problem, nur Zweitquelle): "
+                        f"{type(e).__name__}")
         return None
 
 
+def _fehlertext(e):
+    """Fehler fuers Log OHNE Nachrichtentext - requests-Meldungen enthalten die
+    volle URL (beim Discord-Webhook inkl. Token). Nur Typ und ggf. HTTP-Status."""
+    status = getattr(getattr(e, "response", None), "status_code", None)
+    return f"{type(e).__name__}" + (f" (HTTP {status})" if status else "")
+
+
 def chronik_eintrag(titel, inhalt, schluessel, now):
-    """Alarm zusaetzlich in die Chronik der App schreiben (Depot -> Chronik)."""
+    """Alarm zusaetzlich in die Chronik der App schreiben (Depot -> Chronik).
+    schluessel ist ereignisbezogen (nicht minutengenau) - ein Wiederholungslauf
+    nach einem Teilfehler erzeugt deshalb keinen doppelten Eintrag."""
     if not (GITHUB_REPO and GITHUB_TOKEN):
-        return
+        return False
     pfad = getattr(config, "STATE_PATH_TRADES_DB", None)
     if not pfad:
-        return
-    chronik.eintragen_github(github_store, GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, GITHUB_TOKEN,
-                             chronik.neuer_eintrag("alarm", titel, inhalt, schluessel=schluessel, zeitpunkt=now))
+        return False
+    try:
+        ok = chronik.eintragen_github(
+            github_store, GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, GITHUB_TOKEN,
+            chronik.neuer_eintrag("alarm", titel, inhalt, schluessel=schluessel, zeitpunkt=now))
+    except Exception as e:  # Chronik darf nie einen Alarm verhindern
+        logging.error(f"Chronik-Eintrag '{schluessel}' fehlgeschlagen: {_fehlertext(e)}")
+        return False
+    if not ok:
+        logging.info(f"Chronik-Eintrag '{schluessel}' nicht neu geschrieben (bereits vorhanden oder Schreibfehler).")
+    return bool(ok)
+
+
+def _retry_after_s(r):
+    """Wartezeit aus einer 429-Antwort (Header Retry-After oder JSON retry_after), sonst None."""
+    werte = []
+    try:
+        werte.append((r.headers or {}).get("Retry-After"))
+    except Exception:
+        pass
+    try:
+        body = r.json()
+        if isinstance(body, dict):
+            werte.append(body.get("retry_after"))
+    except Exception:
+        pass
+    for w in werte:
+        try:
+            if w is not None:
+                return max(0.0, float(w))
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def send_discord(msg=None, embed=None):
     """Sendet entweder reinen Text (msg) oder ein Discord-Embed (embed) - ein
     Embed rendert als sauber formatierte Karte mit farbiger Randleiste,
-    Titel und ausgerichteten Feldern statt als Fliesstext-Block."""
+    Titel und ausgerichteten Feldern statt als Fliesstext-Block.
+
+    -> True NUR bei HTTP 2xx. Bei 429 (Rate-Limit) genau ein Wiederholversuch,
+    falls Discord hoechstens DISCORD_429_MAX_WARTEN_S Sekunden warten laesst.
+    Ins Log kommen nur Fehlertyp/Status, nie die Webhook-URL."""
     if not DISCORD_WEBHOOK_URL:
         logging.warning("Kein DISCORD_WEBHOOK_URL gesetzt, ueberspringe Versand.")
         return False
     payload = {"embeds": [embed]} if embed else {"content": msg}
-    try:
-        r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        if r.status_code not in (200, 204):
-            logging.error(f"Discord antwortete mit Status {r.status_code}: {r.text[:300]}")
+    for versuch in (1, 2):
+        try:
+            r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+        except Exception as e:
+            logging.error(f"Discord-Versand fehlgeschlagen: {_fehlertext(e)}")
             return False
-        return True
-    except Exception as e:
-        logging.error(f"Discord-Versand fehlgeschlagen: {e}")
+        status = getattr(r, "status_code", None)
+        if isinstance(status, int) and 200 <= status < 300:
+            return True
+        if status == 429 and versuch == 1:
+            warten = _retry_after_s(r)
+            if warten is not None and warten <= DISCORD_429_MAX_WARTEN_S:
+                logging.warning(f"Discord Rate-Limit (HTTP 429) - neuer Versuch in {warten:.1f} s.")
+                time.sleep(warten)
+                continue
+        logging.error(f"Discord antwortete mit HTTP {status} - Nachricht nicht zugestellt.")
         return False
+    return False
 
 
 # Farbcodes als Dezimalwerte, wie Discord-Embeds sie erwarten (kein Hex-String)
@@ -266,7 +407,44 @@ def ping_healthcheck():
     try:
         requests.get(HEALTHCHECK_URL, timeout=10)
     except Exception as e:
-        logging.error(f"Healthcheck-Ping fehlgeschlagen: {e}")
+        logging.error(f"Healthcheck-Ping fehlgeschlagen: {_fehlertext(e)}")
+
+
+def _lese_state(pfad, default):
+    """Liest einen State-Datensatz. -> (daten, True) oder (None, False) bei
+    Lesefehler. WICHTIG: Ein Lesefehler darf NICHT wie "noch kein State"
+    behandelt werden - sonst gaelte z. B. unter_schwelle wieder als False und
+    der Alarm wuerde erneut verschickt bzw. das Allzeithoch neu initialisiert."""
+    lese_json = getattr(github_store, "lese_json", None)
+    if callable(lese_json):
+        try:
+            daten, _ = lese_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, GITHUB_TOKEN,
+                                 default=copy.deepcopy(default))
+        except Exception as e:
+            logging.error(f"State {pfad} nicht lesbar ({type(e).__name__}) - keine Alarme, kein Schreiben.")
+            return None, False
+        return daten, True
+    daten, _ = github_store.get_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, GITHUB_TOKEN,
+                                     default=copy.deepcopy(default))
+    lesefehler = getattr(github_store, "lesefehler", None)
+    if callable(lesefehler) and lesefehler(pfad):
+        logging.error(f"State {pfad} nicht lesbar - keine Alarme, kein Schreiben.")
+        return None, False
+    return daten, True
+
+
+def _schreibe_state(pfad, daten, message):
+    """put_json mit geprueftem Rueckgabewert. -> True/False"""
+    try:
+        ok = github_store.put_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, daten,
+                                   GITHUB_TOKEN, message=message)
+    except Exception as e:
+        logging.error(f"State {pfad} nicht geschrieben: {_fehlertext(e)}")
+        return False
+    if not ok:
+        logging.error(f"State {pfad} nicht geschrieben (put_json lieferte False) - "
+                      f"naechster Lauf arbeitet mit dem alten State weiter.")
+    return bool(ok)
 
 
 def log_price_history(akt, now, inst):
@@ -322,7 +500,8 @@ def hole_historischen_hoechststand(instrument_id, tage=1825):
             return None, None
         return bester_wert, beste_ts.isoformat()
     except Exception as e:
-        logging.warning(f"Historischer Höchststand für Instrument {instrument_id} nicht ladbar: {e}")
+        logging.warning(f"Historischer Höchststand für Instrument {instrument_id} nicht ladbar: "
+                        f"{_fehlertext(e)}")
         return None, None
 
 
@@ -347,10 +526,10 @@ def check_high_watermark(now, inst, live_kurs, tageshoch):
     if not (GITHUB_REPO and GITHUB_TOKEN):
         return
     hw_pfad = state_pfad(config.STATE_PATH_HIGH_WATERMARK, inst)
-    state, _ = github_store.get_json(
-        GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad, GITHUB_TOKEN, default=None
-    )
-    if state is None or "high_watermark" not in state:
+    state, lesbar = _lese_state(hw_pfad, default=None)
+    if not lesbar:
+        return  # Lesefehler: NICHT neu initialisieren, nichts melden
+    if not isinstance(state, dict) or "high_watermark" not in state:
         # ERSTE Initialisierung: NICHT blind den aktuellen Kurs als Hoch nehmen -
         # stattdessen die Kurshistorie pruefen. Reicht sie weiter zurueck und
         # zeigt einen hoeheren Wert, gilt DIESER als Startbasis. So wird kein
@@ -365,12 +544,11 @@ def check_high_watermark(now, inst, live_kurs, tageshoch):
             )
         else:
             start_hoch, start_datum = akt, now.isoformat()
-        github_store.put_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad,
-            {"high_watermark": start_hoch, "erreicht_am": start_datum,
-             "zuletzt_gemeldet": start_hoch}, GITHUB_TOKEN,
-            message=f"init high watermark {inst['wkn']} [skip ci]"
-        )
+        neu = dict(state) if isinstance(state, dict) else {}
+        # historie_geprueft gleich mitsetzen: die Historie wurde ja gerade geprueft.
+        neu.update({"high_watermark": start_hoch, "erreicht_am": start_datum,
+                    "zuletzt_gemeldet": start_hoch, "historie_geprueft": True})
+        _schreibe_state(hw_pfad, neu, f"init high watermark {inst['wkn']} [skip ci]")
         return
 
     # SELBSTHEILUNG fuer bereits bestehende States: wurde ein Instrument VOR
@@ -378,7 +556,7 @@ def check_high_watermark(now, inst, live_kurs, tageshoch):
     # (Kurs zum Zeitpunkt der Ersteinrichtung statt echtem historischen Hoch).
     # Einmalig nachpruefen und still korrigieren (kein Alarm - das ist eine
     # Korrektur der Vergangenheit, keine neue Kursbewegung). "historie_geprueft"
-    # verhindert, dass dieser (teurere) Historien-Abruf bei jedem 5-Minuten-Lauf
+    # verhindert, dass dieser (teurere) Historien-Abruf bei jedem Lauf
     # erneut passiert.
     if not state.get("historie_geprueft"):
         hist_hoch, hist_datum = hole_historischen_hoechststand(inst["instrument_id"])
@@ -396,29 +574,35 @@ def check_high_watermark(now, inst, live_kurs, tageshoch):
             # kein NEUES Hoch und soll keinen Alarm ausloesen.
             state["zuletzt_gemeldet"] = hist_hoch
         state["historie_geprueft"] = True
-        github_store.put_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad, state, GITHUB_TOKEN,
-            message=f"selbstheilung high watermark {inst['wkn']} [skip ci]"
-        )
+        if not _schreibe_state(hw_pfad, state, f"selbstheilung high watermark {inst['wkn']} [skip ci]"):
+            return  # sonst wuerde unten auf einem nicht gespeicherten Stand weitergearbeitet
 
     bisheriges_hoch = float(state.get("high_watermark", 0))
-    if akt <= bisheriges_hoch:
-        return
-
-    # Basis fuer die Meldeschwelle ist das zuletzt gemeldete Hoch. Fehlt es
+    # Basis fuer die Meldeschwelle ist das zuletzt GEMELDETE Hoch. Fehlt es
     # (Altbestand vor diesem Update), dient das bisherige Hoch als Basis.
     zuletzt_gemeldet = float(state.get("zuletzt_gemeldet") or bisheriges_hoch)
-    anstieg_pct = ((akt - zuletzt_gemeldet) / zuletzt_gemeldet * 100) if zuletzt_gemeldet else 0.0
+
+    neues_hoch = akt > bisheriges_hoch
+    # Gemeldet wird das hoechste bekannte Niveau. Ist eine fruehere Meldung
+    # gescheitert (Discord-Fehler), liegt high_watermark bereits ueber
+    # zuletzt_gemeldet + Schwelle -> dieser Lauf holt die Meldung nach, auch
+    # wenn der Kurs inzwischen wieder etwas gefallen ist (ALM-01).
+    kandidat = max(akt, bisheriges_hoch)
+    anstieg_pct = ((kandidat - zuletzt_gemeldet) / zuletzt_gemeldet * 100) if zuletzt_gemeldet else 0.0
     melden = anstieg_pct >= ATH_MELDESCHWELLE_PCT
 
+    if not neues_hoch and not melden:
+        return
+
+    gemeldet = False
     if melden:
         # Weicht der Live-Kurs vom gemeldeten Hoch ab (Spike bereits abgeklungen),
         # wird das transparent mit ausgewiesen statt den veralteten Eindruck zu
         # erwecken, der Kurs stuende JETZT auf dem Hoch.
-        spike_vorbei = abs(live_kurs - akt) > 0.0005
+        spike_vorbei = abs(live_kurs - kandidat) > 0.0005
         felder = [
             ("Neues Hoch (Tagesverlauf)" if spike_vorbei else "Aktueller Kurs",
-             f"**{akt:.3f} €**", True),
+             f"**{kandidat:.3f} €**", True),
             ("Zuletzt gemeldet", f"{zuletzt_gemeldet:.3f} € ({anstieg_pct:+.2f} %)", True),
         ]
         if spike_vorbei:
@@ -426,16 +610,20 @@ def check_high_watermark(now, inst, live_kurs, tageshoch):
         felder.append(
             ("Performance Fee", f"Ab hier {config.PERFORMANCE_FEE_PCT:.1f} % auf weitere Gewinne", False)
         )
-        send_discord(embed=baue_embed(
+        gemeldet = send_discord(embed=baue_embed(
             titel=f"Neues Allzeithoch ({inst['wkn']})",
             farbe=FARBE_ATH, emoji="🏆", now=now,
             felder=felder,
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
-        chronik_eintrag(f"🏆 Neues Allzeithoch {inst['name']} ({inst['wkn']})",
-                        f"{akt:.3f} € · {anstieg_pct:+.2f} % über dem zuletzt gemeldeten Hoch "
-                        f"({zuletzt_gemeldet:.3f} €)".replace(".", ","),
-                        f"ath-{inst['wkn']}-{akt:.3f}", now)
+        if gemeldet:
+            chronik_eintrag(f"🏆 Neues Allzeithoch {inst['name']} ({inst['wkn']})",
+                            f"{kandidat:.3f} € · {anstieg_pct:+.2f} % über dem zuletzt gemeldeten Hoch "
+                            f"({zuletzt_gemeldet:.3f} €)".replace(".", ","),
+                            f"ath-{inst['wkn']}-{kandidat:.2f}", now)
+        else:
+            logging.error(f"{inst['wkn']}: Allzeithoch-Meldung NICHT zugestellt - "
+                          f"wird beim naechsten Lauf erneut versucht.")
     else:
         logging.info(
             f"{inst['wkn']}: neues Hoch {akt:.3f}€ still gespeichert "
@@ -443,18 +631,26 @@ def check_high_watermark(now, inst, live_kurs, tageshoch):
             f"Meldeschwelle {ATH_MELDESCHWELLE_PCT:.2f}%)."
         )
 
-    github_store.put_json(
-        GITHUB_REPO, config.GITHUB_STATE_BRANCH, hw_pfad,
-        {
-            "high_watermark": akt,
-            "erreicht_am": now.isoformat(),
-            # Nur fortschreiben, wenn wirklich gemeldet wurde - sonst wuerde die
-            # Schwelle bei jedem Mini-Hoch neu ansetzen und nie ausloesen.
-            "zuletzt_gemeldet": akt if melden else zuletzt_gemeldet,
-        },
-        GITHUB_TOKEN,
-        message=f"update high watermark {inst['wkn']} [skip ci]"
-    )
+    aenderung = {}
+    if neues_hoch:
+        aenderung.update({"high_watermark": akt, "erreicht_am": now.isoformat()})
+    if gemeldet:
+        # Nur fortschreiben, wenn wirklich zugestellt - sonst wuerde die Meldung
+        # verloren gehen bzw. die Schwelle bei jedem Mini-Hoch neu ansetzen.
+        aenderung["zuletzt_gemeldet"] = kandidat
+    if not aenderung:
+        return
+    # state.update statt neuem dict: weitere Felder (historie_geprueft, ...)
+    # bleiben erhalten (ALM-05).
+    state.update(aenderung)
+    _schreibe_state(hw_pfad, state, f"update high watermark {inst['wkn']} [skip ci]")
+
+
+def _alarm_schluessel(art, wkn, now, nr):
+    """Ereignisbezogener Chronik-Schluessel: schwelle-{wkn}-{YYYYMMDD}. Bei einem
+    zweiten Alarm am selben Tag (nach Entwarnung) mit Zaehler -2, -3 ..."""
+    basis = f"{art}-{wkn}-{now.strftime('%Y%m%d')}"
+    return basis if nr <= 1 else f"{basis}-{nr}"
 
 
 def verarbeite_instrument(inst, now):
@@ -474,10 +670,23 @@ def verarbeite_instrument(inst, now):
         )
         return True  # Konfigurationsluecke, kein technischer Fehler
 
+    # Kein Kurs -> kein Alarm, kein State-Schreiben, kein Allzeithoch (DEP-04).
     try:
         akt, vor, tageshoch = get_live_market_data(inst["instrument_id"])
+    except VeralteteDaten as e:
+        logging.warning(f"{kennung}: {e} Lauf ohne Alarm/State-Aenderung beendet.")
+        return True
     except Exception as e:
-        logging.error(f"{kennung}: Kursabruf fehlgeschlagen: {e}")
+        logging.error(f"{kennung}: Kursabruf fehlgeschlagen ({_fehlertext(e)}) - "
+                      f"kein Alarm, kein State-Schreiben in diesem Lauf.")
+        return False
+    try:
+        akt, vor = float(akt), float(vor)
+    except (TypeError, ValueError):
+        logging.error(f"{kennung}: Kursabruf lieferte keine Zahlen - uebersprungen.")
+        return False
+    if akt <= 0 or vor <= 0:
+        logging.error(f"{kennung}: Ungueltige Kurswerte - uebersprungen.")
         return False
 
     pct_change = ((akt - vor) / vor) * 100
@@ -507,27 +716,40 @@ def verarbeite_instrument(inst, now):
             return True  # technisch sauber gelaufen, nur der Wert war unbrauchbar
 
     log_price_history(akt, now, inst)
-    # tageshoch statt akt fuer die ATH-Pruefung: erfasst auch kurze Spikes,
-    # die bis zum Abrufzeitpunkt schon wieder abgeklungen sind.
-    check_high_watermark(now, inst, live_kurs=akt, tageshoch=tageshoch)
+    # Tageshoch statt akt fuer die ATH-Pruefung (erfasst kurze Spikes) - aber
+    # nur, wenn es plausibel ist (ALM-04).
+    check_high_watermark(now, inst, live_kurs=akt, tageshoch=plausibles_tageshoch(akt, vor, tageshoch))
 
     alarm_pfad = state_pfad(config.STATE_PATH_PRICE_ALERT, inst)
     if GITHUB_REPO and GITHUB_TOKEN:
-        state, _ = github_store.get_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, alarm_pfad,
-            GITHUB_TOKEN, default={"unter_schwelle": False}
-        )
+        state, lesbar = _lese_state(alarm_pfad, default={"unter_schwelle": False})
+        if not lesbar:
+            return False
+        if not isinstance(state, dict):
+            state = {"unter_schwelle": False}
     else:
         state = {"unter_schwelle": False}
+    state_vorher = copy.deepcopy(state)
+
+    # --- NEUER HANDELSTAG: Tageszustand zuruecksetzen (ALM-03) ---
+    # pct_change bezieht sich immer auf den Vortag. Ein "unter_schwelle" von
+    # gestern darf den Alarm von heute nicht unterdruecken.
+    heute = now.date().isoformat()
+    if state.get("handelstag") != heute:
+        if state.get("handelstag") is not None:
+            logging.info(f"{kennung}: neuer Handelstag - Alarm-Zustand zurueckgesetzt.")
+        state["handelstag"] = heute
+        state["unter_schwelle"] = False
+        state["zuletzt_gemeldet_pct"] = None
+        state["alarme_heute"] = 0
 
     # --- ROUTINE-KURS-UPDATE: nur bei nennenswerter NEUER Bewegung ---
     # Zwei Bedingungen muessen zusammenkommen:
     #   1. Die Tagesveraenderung liegt bei mindestens ROUTINE_MELDESCHWELLE_PCT
     #   2. Sie hat sich seit der letzten Meldung um mindestens denselben Betrag
     #      weiterbewegt
-    # Ohne (2) wuerde ab dem Ueberschreiten der Schwelle JEDER Lauf melden -
-    # bei 5-Minuten-Takt also den ganzen Tag lang. Der Schwellen-Alarm unten
-    # ist davon nicht betroffen und feuert unveraendert.
+    # Ohne (2) wuerde ab dem Ueberschreiten der Schwelle JEDER Lauf melden.
+    # Der Schwellen-Alarm unten ist davon nicht betroffen.
     zuletzt_gemeldet_pct = state.get("zuletzt_gemeldet_pct")
     ueber_schwelle = abs(pct_change) >= ROUTINE_MELDESCHWELLE_PCT
     if zuletzt_gemeldet_pct is None:
@@ -566,65 +788,69 @@ def verarbeite_instrument(inst, now):
         logging.info(
             f"{kennung}: Routine-Update uebersprungen - {pct_change:+.2f}% liegt zwar "
             f"ueber der Schwelle, aber zu nah an der letzten Meldung "
-            f"({zuletzt_gemeldet_pct:+.2f}%)."
+            f"({float(zuletzt_gemeldet_pct):+.2f}%)."
         )
 
-    aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
-    war_unter_schwelle = state.get("unter_schwelle", False)
+    # --- SCHWELLEN-ALARM / ENTWARNUNG mit Hysterese (ALM-01, ALM-03) ---
+    schwelle = float(config.TAGESVERLUST_SCHWELLE_PCT)
+    entwarn_grenze = schwelle + hysterese_pp()
+    war_unter_schwelle = bool(state.get("unter_schwelle", False))
+    alarme_heute = int(state.get("alarme_heute") or 0)
 
-    if aktuell_unter_schwelle and not war_unter_schwelle:
-        send_discord(embed=baue_embed(
+    if pct_change <= schwelle and not war_unter_schwelle:
+        gesendet = send_discord(embed=baue_embed(
             titel=f"SCHWELLE UNTERSCHRITTEN ({inst['wkn']})",
             farbe=FARBE_ALARM, emoji="🚨", now=now,
             felder=[
                 ("Aktueller Kurs", f"**{akt:.3f} €**", True),
                 ("Tagesveränderung", f"**{pct_change:+.2f} %**", True),
-                ("Schwelle", f"{config.TAGESVERLUST_SCHWELLE_PCT:+.1f} %", True),
+                ("Schwelle", f"{schwelle:+.1f} %", True),
             ],
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
-        state["unter_schwelle"] = True
-        chronik_eintrag(f"🚨 Schwelle unterschritten {inst['name']} ({inst['wkn']})",
-                        f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · Schwelle "
-                        f"{config.TAGESVERLUST_SCHWELLE_PCT:+.1f} %".replace(".", ","),
-                        f"schwelle-{inst['wkn']}-{now.strftime('%Y%m%d%H%M')}", now)
-    elif not aktuell_unter_schwelle and war_unter_schwelle:
-        send_discord(embed=baue_embed(
+        if gesendet:
+            state["unter_schwelle"] = True
+            state["alarme_heute"] = alarme_heute + 1
+            chronik_eintrag(f"🚨 Schwelle unterschritten {inst['name']} ({inst['wkn']})",
+                            f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · Schwelle "
+                            f"{schwelle:+.1f} %".replace(".", ","),
+                            _alarm_schluessel("schwelle", inst["wkn"], now, alarme_heute + 1), now)
+        else:
+            logging.error(f"{kennung}: Schwellen-Alarm NICHT zugestellt - State bleibt, "
+                          f"naechster Lauf versucht es erneut.")
+    elif war_unter_schwelle and pct_change >= entwarn_grenze:
+        gesendet = send_discord(embed=baue_embed(
             titel=f"Entwarnung ({inst['wkn']})",
             farbe=FARBE_NEUTRAL, emoji="✅", now=now,
             felder=[
                 ("Aktueller Kurs", f"**{akt:.3f} €**", True),
                 ("Tagesveränderung", f"**{pct_change:+.2f} %**", True),
-                ("Wieder über", f"{config.TAGESVERLUST_SCHWELLE_PCT:+.1f} %", True),
+                ("Wieder über", f"{entwarn_grenze:+.1f} %", True),
             ],
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
-        state["unter_schwelle"] = False
-        chronik_eintrag(f"✅ Entwarnung {inst['name']} ({inst['wkn']})",
-                        f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · wieder über "
-                        f"{config.TAGESVERLUST_SCHWELLE_PCT:+.1f} %".replace(".", ","),
-                        f"entwarnung-{inst['wkn']}-{now.strftime('%Y%m%d%H%M')}", now)
+        if gesendet:
+            state["unter_schwelle"] = False
+            chronik_eintrag(f"✅ Entwarnung {inst['name']} ({inst['wkn']})",
+                            f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · wieder über "
+                            f"{entwarn_grenze:+.1f} %".replace(".", ","),
+                            _alarm_schluessel("entwarnung", inst["wkn"], now, max(alarme_heute, 1)), now)
+        else:
+            logging.error(f"{kennung}: Entwarnung NICHT zugestellt - naechster Lauf versucht es erneut.")
 
-    # Nur bei echtem Zustandswechsel schreiben - spart unnoetige Commits.
-    state_veraendert = (
-        state.get("unter_schwelle") != war_unter_schwelle
-        or state.get("zuletzt_gemeldet_pct") != zuletzt_gemeldet_pct
-    )
-    if GITHUB_REPO and GITHUB_TOKEN and state_veraendert:
-        github_store.put_json(
-            GITHUB_REPO, config.GITHUB_STATE_BRANCH, alarm_pfad,
-            state, GITHUB_TOKEN, message=f"update price alert state {inst['wkn']} [skip ci]"
-        )
+    # Nur bei echter Aenderung schreiben - spart unnoetige Commits.
+    if GITHUB_REPO and GITHUB_TOKEN and state != state_vorher:
+        _schreibe_state(alarm_pfad, state, f"update price alert state {inst['wkn']} [skip ci]")
 
     logging.info(
         f"OK {kennung}: Kurs={akt:.3f} Veraenderung={pct_change:+.2f}% "
-        f"unter_schwelle={state['unter_schwelle']}"
+        f"unter_schwelle={state.get('unter_schwelle')}"
     )
     return True
 
 
-def main():
-    now = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
+def main(now=None):
+    now = now or datetime.datetime.now(ZoneInfo("Europe/Berlin"))
 
     if not config.ist_handelszeit(now):
         logging.info(
@@ -641,7 +867,10 @@ def main():
         try:
             ergebnisse.append(verarbeite_instrument(inst, now))
         except Exception as e:
-            logging.exception(f"Unerwarteter Fehler bei {inst.get('wkn', '?')}: {e}")
+            # Nur Typ + Stack (Dateien/Zeilen), nicht die Fehlermeldung selbst -
+            # die kann bei requests-Fehlern URLs enthalten (SEC-08).
+            stack = "".join(traceback.format_tb(e.__traceback__))
+            logging.error(f"Unerwarteter Fehler bei {inst.get('wkn', '?')}: {_fehlertext(e)}\n{stack}")
             ergebnisse.append(False)
 
     # Healthcheck nur pingen, wenn MINDESTENS ein Instrument sauber lief -
