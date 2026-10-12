@@ -1,3 +1,5 @@
+import bisect
+import copy
 import datetime
 import time
 import re
@@ -27,10 +29,23 @@ st.set_page_config(page_title="Finanz Dashboard", page_icon="⚡", layout="wide"
 # beim Start vom Homescreen, passende Statusleisten-/Titelleisten-Farbe.
 # Icons werden von GitHub (raw-content) geladen, da Streamlit selbst keine
 # eigenen statischen Zusatzdateien unter frei waehlbaren Pfaden ausliefert.
-_GH_RAW_BASE = "https://raw.githubusercontent.com/wikifolio-user/wikifolio-tracker/main"
+#
+# Audit SEC-01: raw.githubusercontent.com liefert nur bei OEFFENTLICHEM Repo aus.
+# Liegt der State (benutzer.json mit Passwort-Hashes, Positionen, Chronik) im
+# selben Repo, muss dieses PRIVAT sein - dann die Icons woanders ablegen (z. B.
+# ein eigenes oeffentliches Repo nur mit manifest.json/icon-180.png oder GitHub
+# Pages) und die Basis-URL per Secret ICON_BASE_URL setzen. Ohne Secret gilt
+# die bisherige URL (funktioniert nur, solange das Repo oeffentlich ist).
+_GH_RAW_BASE_STANDARD = "https://raw.githubusercontent.com/wikifolio-user/wikifolio-tracker/main"
+try:
+    _GH_RAW_BASE = str(st.secrets.get("ICON_BASE_URL", "") or _GH_RAW_BASE_STANDARD).rstrip("/")
+except Exception:
+    _GH_RAW_BASE = _GH_RAW_BASE_STANDARD
+if not re.match(r"^https://[^\s\"'<>]+$", _GH_RAW_BASE):
+    _GH_RAW_BASE = _GH_RAW_BASE_STANDARD
 st.markdown(f"""
-<link rel="manifest" href="{_GH_RAW_BASE}/manifest.json">
-<link rel="apple-touch-icon" href="{_GH_RAW_BASE}/icon-180.png">
+<link rel="manifest" href="{html.escape(_GH_RAW_BASE)}/manifest.json">
+<link rel="apple-touch-icon" href="{html.escape(_GH_RAW_BASE)}/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="LS9VFS">
@@ -64,6 +79,11 @@ STATE_PATH_BEOBACHTUNG = "state/beobachtung.json"
 # hier je Instrument dauerhaft hinterlegt und fliesst ueberall dort ein, wo mit
 # der Produkt-Rendite gerechnet wird (Prognose, Meilenstein, Simulator).
 STATE_PATH_AUFLEGUNG = "state/auflegung.json"
+
+# --- MONATLICHE ENTNAHME (Audit DEP-03) ---
+# Eine einzige, gespeicherte Quelle fuer die Entnahme der Hauptposition
+# ({"rate": 70.0}); fehlt die Datei, gilt config.ENTNAHME_PM.
+STATE_PATH_ENTNAHME = "state/entnahme_state.json"
 WIKIFOLIO_STARTKURS = 100.0
 
 # --- TERMINAL STYLING ---
@@ -895,36 +915,113 @@ def gh_read(path, default):
     return data if data is not None else default
 
 
+def gh_read_streng(path, default):
+    """Wie gh_read, wirft aber github_store.LeseFehler bei Lesefehlern (404 ->
+    default). Grundlage der gecachten Leser: st.cache_data speichert Ausnahmen
+    NICHT - ein Fehlschlag landet so nie im Zwischenspeicher (Audit DATA-01)."""
+    if not GH_STATE_READY:
+        return default
+    data, _ = github_store.lese_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, GITHUB_TOKEN, default=default)
+    return data if data is not None else default
+
+
 @st.cache_data(ttl=900, show_spinner=False)
+def _gh_read_taeglich_roh(path, default):
+    return gh_read_streng(path, default)
+
+
 def gh_read_taeglich(path, default):
     """Fuer Dateien, die die Agenten nur einmal taeglich schreiben (Watchlist-
     Ranglisten, Qualitaets-Score): 15 Minuten gehalten statt 60 Sekunden -
-    die Dateien sind mehrere hundert KB gross."""
-    return gh_read(path, default)
+    die Dateien sind mehrere hundert KB gross. Lesefehler -> default, aber
+    NICHT zwischengespeichert (naechster Aufruf versucht es erneut)."""
+    try:
+        return _gh_read_taeglich_roh(path, default)
+    except github_store.LeseFehler as e:
+        logging.warning(f"gh_read_taeglich: {path} nicht lesbar ({type(e).__name__})")
+        return default
+
+
+gh_read_taeglich.clear = _gh_read_taeglich_roh.clear
 
 
 @st.cache_data(ttl=60, show_spinner=False)
+def _gh_read_cached_roh(path, default):
+    return gh_read_streng(path, default)
+
+
+def gh_read_cached_status(path, default):
+    """-> (daten, ok). ok=False: die Datei war gerade NICHT lesbar (daten = default).
+    Wer auf Basis der gelesenen Daten etwas schreibt oder verschickt, muss ok pruefen."""
+    try:
+        return _gh_read_cached_roh(path, default), True
+    except github_store.LeseFehler as e:
+        logging.warning(f"gh_read_cached: {path} nicht lesbar ({type(e).__name__})")
+        return default, False
+
+
 def gh_read_cached(path, default):
     """Wie gh_read, aber 60s gecacht - für Status-/Alarm-Reads, die bei jedem
     30s-Autorefresh sonst unnötig oft die GitHub-API belasten (Rate-Limit
     5.000/Std.). NICHT für Daten verwenden, die sofort nach einem Schreiben
     im selben Nutzer-Flow wieder gelesen werden müssen (z.B. Trader-Log) -
-    dafür bleibt gh_read() ungecacht."""
-    return gh_read(path, default)
+    dafür bleibt gh_read() ungecacht. Fehlgeschlagene Lesevorgaenge werden
+    nicht gecacht (Audit DATA-01)."""
+    return gh_read_cached_status(path, default)[0]
+
+
+gh_read_cached.clear = _gh_read_cached_roh.clear
 
 
 def gh_write(path, obj, message="update state [skip ci]"):
+    """Kompletter Ersatz einer Datei. -> True/False (Aufrufer MUSS das pruefen).
+    Fuer Lesen-Aendern-Schreiben stattdessen gh_aktualisiere() verwenden."""
     if not GH_STATE_READY:
         return False
     erfolg = github_store.put_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, obj, GITHUB_TOKEN, message=message)
     if erfolg:
         # WICHTIG: den Lese-Cache leeren. Sonst liefert gh_read_cached() bis zu
-        # 60s lang noch den ALTEN Zustand - bei mehreren Reruns innerhalb dieser
-        # Zeit (jede Widget-Interaktion loest einen aus) wuerde ein bereits
-        # gesetzter Alarm-Cooldown nicht gesehen und dieselbe Discord-Meldung
-        # mehrfach verschickt.
+        # 60s lang noch den ALTEN Zustand.
         gh_read_cached.clear()
     return erfolg
+
+
+def gh_aktualisiere(path, aendern, default=None, message="update state [skip ci]"):
+    """Lesen + Aendern + Schreiben mit Versionspruefung (github_store.aktualisiere_json).
+    aendern(daten) -> neue Daten oder None (= nichts schreiben); wird bei einem
+    Konflikt mit frisch gelesenen Daten erneut aufgerufen. Nach einem Lesefehler
+    wird NICHTS geschrieben. -> (ok, neue_daten)"""
+    if not GH_STATE_READY:
+        return False, None
+    ok, neu = github_store.aktualisiere_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, GITHUB_TOKEN,
+                                             aendern, default=default, message=message)
+    if ok:
+        gh_read_cached.clear()
+    return ok, neu
+
+
+def _discord_senden(text):
+    """Eine Discord-Nachricht. -> True nur bei HTTP 2xx (Ergebnis wird geprueft)."""
+    if not DISCORD_WEBHOOK_URL:
+        return False
+    try:
+        r = requests.post(DISCORD_WEBHOOK_URL, json={"content": text}, timeout=5)
+        if 200 <= r.status_code < 300:
+            return True
+        logging.error(f"Discord-Versand fehlgeschlagen: HTTP {r.status_code}")
+    except Exception as e:
+        logging.error(f"Discord-Versand fehlgeschlagen: {type(e).__name__}")
+    return False
+
+
+def _bereinige(text, geheimnisse=()):
+    """Entfernt URLs (z. B. Discord-Webhooks) und Tokens aus Log-/Fehlertexten."""
+    s = str(text)
+    for g in geheimnisse:
+        if g:
+            s = s.replace(str(g), "***")
+    s = re.sub(r"https?://\S+", "<url>", s, flags=re.IGNORECASE)
+    return re.sub(r"(gh[pousr]_[A-Za-z0-9]{10,}|github_pat_[A-Za-z0-9_]{10,}|Bearer\s+\S+)", "***", s)
 
 
 # --- APP-FEHLER AN DISCORD MELDEN (Punkt 10) ---
@@ -932,14 +1029,20 @@ def notify_app_error(context, exc):
     """Meldet einen Fehler INNERHALB der Streamlit-App an Discord (nicht nur
     in die schwer einsehbaren Cloud-Logs). Cooldown pro 'context' (z.B. Tab-
     Name), damit ein wiederholt fehlschlagender Bereich nicht bei jedem
-    30s-Autorefresh erneut pingt."""
-    logging.error(f"App-Fehler in '{context}': {exc}", exc_info=True)  # voller Traceback jetzt in den Logs
+    30s-Autorefresh erneut pingt. URLs und Tokens werden vor dem Loggen und
+    Versenden entfernt."""
+    geheim = (DISCORD_WEBHOOK_URL, GITHUB_TOKEN)
+    fehler_text = _bereinige(f"{type(exc).__name__}: {exc}", geheim)
+    tb_text = _bereinige(traceback.format_exc(), geheim)
+    logging.error(f"App-Fehler in '{context}': {fehler_text}\n{tb_text}")
     if not DISCORD_WEBHOOK_URL:
         return
 
-    state = gh_read_cached(config.STATE_PATH_APP_ERROR, {})
+    state, lesbar = gh_read_cached_status(config.STATE_PATH_APP_ERROR, {})
+    if not lesbar:
+        return              # ohne gesicherten Cooldown-Zustand nichts verschicken
     now = datetime.datetime.now(BERLIN_TZ)
-    last_str = state.get(context)
+    last_str = (state or {}).get(context)
     cooldown_ok = True
     if last_str:
         try:
@@ -952,15 +1055,16 @@ def notify_app_error(context, exc):
 
     msg = (f"🐞 **App-Fehler ({config.WKN})**\n"
            f"Bereich: **{context}**\n"
-           f"Fehler: `{type(exc).__name__}: {str(exc)[:200]}`\n"
-           f"```\n{traceback.format_exc()[-1200:]}\n```\n"
+           f"Fehler: `{fehler_text[:200]}`\n"
+           f"```\n{tb_text[-1200:]}\n```\n"
            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}")
-    try:
-        requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-        state[context] = now.isoformat()
-        gh_write(config.STATE_PATH_APP_ERROR, state, message="update app error state [skip ci]")
-    except Exception as e:
-        logging.error(f"Discord App-Error-Alert Fehler: {e}")
+    if _discord_senden(msg):
+        def _merken(d):
+            d = d if isinstance(d, dict) else {}
+            d[context] = now.isoformat()
+            return d
+        gh_aktualisiere(config.STATE_PATH_APP_ERROR, _merken, default={},
+                        message="update app error state [skip ci]")
 
 
 # --- ZAHLENFORMATIERUNG (Punkt = Tausender, Komma = Dezimal) ---
@@ -970,6 +1074,290 @@ def fmt(val, dec=2):
     else:
         s = f"{val:,.0f}"
     return f"{s.replace(',', 'X').replace('.', ',').replace('X', '.')}€"
+
+
+def fmt_vz(val, dec=2):
+    """Wie fmt, aber immer mit Vorzeichen: +1.234,00€ / -500,00€ (Audit DEP-13).
+    Nie '+-'; Werte, die auf 0 runden, erscheinen als +0,00€ (kein '-0,00€')."""
+    v = round(float(val), dec) + 0.0
+    return ("+" if v >= 0 else "") + fmt(v, dec)
+
+
+def vz_zahl(wert, nachkomma=2):
+    """Deutsche Zahl mit Vorzeichen ohne Einheit: +1.234,56 / -0,50 (Audit DEP-13)."""
+    v = round(float(wert), nachkomma) + 0.0
+    s = f"{v:+,.{nachkomma}f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _h(text):
+    """HTML-Escaping fuer Nutzer-/Fremdtexte in unsafe_allow_html-Bausteinen (Audit SEC-04)."""
+    return html.escape("" if text is None else str(text), quote=True)
+
+
+# --- SPARPLAN / ENTNAHME: EIN gemeinsamer Monatsplan (Audit DEP-03/DEP-11) ---
+def monats_termine(start, bis, ab_k=0):
+    """Alle Termine start + k Monate (k >= ab_k), die am oder vor 'bis' liegen.
+    Monatsenden werden von pandas gekappt (31.01. + 1 Monat = 28./29.02.)."""
+    if start is None or bis is None:
+        return []
+    start_ts = pd.Timestamp(start).normalize()
+    bis_ts = pd.Timestamp(bis).normalize()
+    termine = []
+    k = ab_k
+    while True:
+        t = start_ts + pd.DateOffset(months=k)
+        if t > bis_ts:
+            break
+        termine.append(t)
+        k += 1
+    return termine
+
+
+def sparplan_termine(start, heute):
+    """Sparplan-Kaeufe: der erste am Starttag (k=0), dann monatlich."""
+    return monats_termine(start, heute, ab_k=0)
+
+
+def entnahme_termine(kaufdatum, heute):
+    """Entnahmen: erstmals einen Monat nach dem Kauf (k=1), dann monatlich."""
+    return monats_termine(kaufdatum, heute, ab_k=1)
+
+
+def kumulierte_entnahme(index, termine, rate):
+    """Je Zeitpunkt des Index: Summe aller Entnahmen bis einschliesslich dieses Tages."""
+    sortiert = sorted(pd.Timestamp(t) for t in termine)
+    return [rate * bisect.bisect_right(sortiert, pd.Timestamp(ts).normalize()) for ts in index]
+
+
+def sparplan_phasen(state):
+    """Gespeicherter Sparplan (Audit DEP-02) -> (start_datum | None, [(ab_datum, rate), ...]).
+    Format: {"start_datum": "YYYY-MM-DD", "rate": 500.0, "phasen": [{"ab": ..., "rate": ...}]}.
+    Altbestand nur mit start_datum (Rate wurde frueher nicht gespeichert) -> leere Phasen."""
+    if not isinstance(state, dict) or not state.get("start_datum"):
+        return None, []
+    try:
+        start = datetime.date.fromisoformat(str(state["start_datum"]))
+    except ValueError:
+        return None, []
+    phasen = []
+    for ph in state.get("phasen") or []:
+        try:
+            phasen.append((datetime.date.fromisoformat(str(ph["ab"])), float(ph["rate"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not phasen and state.get("rate") is not None:
+        try:
+            phasen = [(start, float(state["rate"]))]
+        except (TypeError, ValueError):
+            phasen = []
+    return start, sorted(phasen)
+
+
+def sparrate_am(phasen, tag):
+    """Sparrate, die an 'tag' gilt (letzte Phase mit ab <= tag), sonst 0."""
+    t = pd.Timestamp(tag).normalize()
+    rate = 0.0
+    for ab, r in phasen:
+        if pd.Timestamp(ab) <= t:
+            rate = r
+        else:
+            break
+    return rate
+
+
+def sparplan_state_neu(state, rate, heute):
+    """Zustand nach dem AUSDRUECKLICHEN Speichern einer Sparrate > 0 (Audit DEP-02).
+    Neuer Plan startet heute; eine geaenderte Rate gilt ab heute (fruehere Kaeufe
+    behalten ihre Rate). Altbestand ohne gespeicherte Rate: Rate gilt ab Start.
+    -> neuer Zustand oder None (nichts zu aendern)."""
+    rate = float(rate)
+    start, phasen = sparplan_phasen(state)
+    if start is None:
+        h = heute.isoformat()
+        return {"start_datum": h, "rate": rate, "phasen": [{"ab": h, "rate": rate}]}
+    if phasen and abs(phasen[-1][1] - rate) < 1e-9:
+        return None
+    if not phasen:
+        phasen = [(start, rate)]
+    else:
+        phasen = [p for p in phasen if p[0] < heute] + [(heute, rate)]
+    return {"start_datum": start.isoformat(), "rate": rate,
+            "phasen": [{"ab": ab.isoformat(), "rate": r} for ab, r in phasen]}
+
+
+def sparplan_kaeufe(termine, kursreihe, rate, ersatzkurs=None):
+    """Kauft je Termin fuer 'rate' Euro zum letzten Kurs am/vor dem Termin.
+    rate: Zahl oder Funktion termin -> Rate (Phasen). -> (eingezahlt, stueck).
+    Nur tatsaechlich ausgefuehrte Kaeufe (mit Kurs) zaehlen zum Einstand."""
+    eingezahlt, stueck = 0.0, 0.0
+    rate_fn = rate if callable(rate) else (lambda _t, _r=rate: _r)
+    if not callable(rate) and (not rate or rate <= 0):
+        return 0.0, 0.0
+    for t in termine:
+        r_t = rate_fn(t) or 0.0
+        if r_t <= 0:
+            continue
+        preis = None
+        if kursreihe is not None and len(kursreihe):
+            davor = kursreihe[kursreihe.index <= pd.Timestamp(t)]
+            if len(davor):
+                preis = float(davor.iloc[-1])
+        if preis is None:
+            preis = ersatzkurs
+        if preis and preis > 0:
+            eingezahlt += r_t
+            stueck += r_t / preis
+    return eingezahlt, stueck
+
+
+def entnahme_rate_aus_state(state, standard):
+    """Monatliche Entnahme (Audit DEP-03): gespeicherter Wert, sonst Standard (config.ENTNAHME_PM)."""
+    try:
+        if isinstance(state, dict) and state.get("rate") is not None:
+            return max(0.0, float(state["rate"]))
+    except (TypeError, ValueError):
+        pass
+    return max(0.0, float(standard or 0.0))
+
+
+def hochgerechnete_rendite_pa(kurs, kaufkurs, tage, min_tage=30):
+    """Prognose-Hochrechnung bei Historie unter 1 Jahr (Nutzerentscheid zu DEP-08):
+    geometrische Ø-Monatsrendite r_m = (1+gesamt)^(1/monate) - 1 mit
+    monate = tage / 30,4375, hochgerechnet auf r_pa = (1+r_m)^12 - 1.
+    Unter min_tage (1 Monat) bzw. bei ungueltigen Kursen -> None.
+    -> (rate_pa_pct, monate, rate_mo_pct) | None"""
+    if not kaufkurs or kaufkurs <= 0 or not kurs or kurs <= 0 or tage < min_tage:
+        return None
+    monate = tage / 30.4375          # 365,25 / 12
+    r_m = (kurs / kaufkurs) ** (1 / monate) - 1
+    return ((1 + r_m) ** 12 - 1) * 100, monate, r_m * 100
+
+
+def prognose_rate_rueckfall(kurs, kaufkurs, tage, min_tage=30):
+    """Ersatz-Prognoserate, wenn die Produkt-Historie keine Rate liefert (Audit DEP-08):
+    ab 365 Tagen realisierte Rendite p.a. (unveraendert); von min_tage (1 Monat) bis
+    unter 1 Jahr die auf ein Jahr hochgerechnete Ø-Monatsrendite (mit Hinweis);
+    darunter 0 % (bewusst neutral, manuell ueberschreibbar).
+    -> (rate_pa, hinweis | None)"""
+    if tage >= 365:
+        r = realisierte_rendite_pa(kurs, kaufkurs, tage, 365)
+        if r is not None:
+            return r, None
+    else:
+        h = hochgerechnete_rendite_pa(kurs, kaufkurs, tage, min_tage)
+        if h is not None:
+            r, monate, r_m = h
+            return r, (f"Hochgerechnet aus {monate:.1f} Monaten (Ø Monatsrendite {r_m:+.2f} %) – "
+                       "vorläufig, bis 1 Jahr Historie vorliegt")
+    return 0.0, "Zu kurze Historie (< 1 Monat) – 0 % p.a. angenommen, bitte bei Bedarf anpassen"
+
+
+def depot_kennzahlen(stueck_basis, stueck_sparplan, kurs, startkapital, sparplan_eingezahlt,
+                     entnahme_rate, anzahl_entnahmen):
+    """Kennzahlen 'seit Kauf' (Audit DEP-01/DEP-03): Einstand = Startkapital + tatsaechlich
+    eingezahlte Sparraten; Netto = Brutto - Rate x Anzahl Entnahmen seit Kauf."""
+    brutto = (stueck_basis + stueck_sparplan) * kurs
+    einstand = startkapital + sparplan_eingezahlt
+    gewinn = brutto - einstand
+    entnommen = entnahme_rate * anzahl_entnahmen
+    return {
+        "brutto": brutto, "einstand": einstand, "gewinn": gewinn,
+        "rendite_pct": (gewinn / einstand * 100) if einstand else 0.0,
+        "entnommen": entnommen, "netto": brutto - entnommen,
+    }
+
+
+def berechne_reale_stueckzahl(df, start_stueckzahl, entnahme_pm, termine, spread_pct):
+    """REAL: zu jedem Entnahmetermin werden tatsaechlich Anteile zum Geldkurs (Mid minus
+    Spread) verkauft - am ersten Handelstag am/nach dem Termin. Gleicher Plan und gleiche
+    Rate wie die Netto-Simulation (Audit DEP-03). -> Stueckzahl je Zeile von df."""
+    stueckzahl = start_stueckzahl
+    offen = sorted(pd.Timestamp(t) for t in termine)
+    i = 0
+    verlauf = []
+    for ts, row in df.iterrows():
+        tag = pd.Timestamp(ts).normalize()
+        while i < len(offen) and offen[i] <= tag:
+            geld_preis = float(row["Close"]) * (1 - spread_pct / 100.0)
+            if entnahme_pm and geld_preis > 0:
+                stueckzahl = max(0.0, stueckzahl - entnahme_pm / geld_preis)
+            i += 1
+        verlauf.append(stueckzahl)
+    return verlauf
+
+
+def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_datum):
+    """Gesamt-%, Ø-monatliche % und Ø-jährliche % sowie Gewinn/Verlust in €.
+    Keine Hochrechnung kurzer Zeitraeume (Audit DEP-08): Ø/Jahr erst ab 365 Tagen,
+    Ø/Monat erst ab 30 Tagen - sonst None ('n. a.', angezeigt wird die Gesamtrendite)."""
+    gesamt_pct = (letzter_wert / erste_werte - 1) * 100
+    tage = max(1, (end_datum - start_datum).days)
+    monate = tage / 30.44
+    monatliche_pct = (((letzter_wert / erste_werte) ** (1 / monate)) - 1) * 100 if tage >= 30 else None
+    jaehrliche_pct = (((letzter_wert / erste_werte) ** (365.25 / tage)) - 1) * 100 if tage >= 365 else None
+    gewinn_verlust_euro = letzter_wert - erste_werte
+    return gesamt_pct, monatliche_pct, jaehrliche_pct, gewinn_verlust_euro
+
+
+def perf_sortierwert(e):
+    """Sortierung der Vergleichstabellen: erst Eintraege mit Ø/Jahr (danach), sonst Gesamt."""
+    j = e.get("_jaehrlich")
+    return (1, j) if j is not None else (0, e.get("_perf") or 0.0)
+
+
+def realisierte_rendite_pa(kurs, kaufkurs, tage, min_tage=180):
+    """Realisierte Rendite p.a. seit Kauf - nur ab min_tage (Audit DEP-08), sonst None."""
+    if not kaufkurs or kaufkurs <= 0 or not kurs or kurs <= 0 or tage < min_tage:
+        return None
+    return ((kurs / kaufkurs) ** (365.25 / tage) - 1) * 100
+
+
+def gesamt_perioden_berechnen(beitraege, labels):
+    """Depot-Gesamtsumme je Zeitraum (Audit DEP-07). beitraege: [(aktueller_wert,
+    {label: betrag})] je Position. Basis je Zeitraum = nur die Positionen, die fuer
+    diesen Zeitraum einen Wert liefern. -> [(label, betrag, pct, teilweise)]"""
+    erg = []
+    for lbl in labels:
+        mit = [(w, z[lbl]) for w, z in beitraege if lbl in z]
+        if not mit:
+            continue
+        betrag = sum(b for _, b in mit)
+        basis = sum(w for w, _ in mit) - betrag
+        pct = (betrag / basis * 100) if basis else 0.0
+        erg.append((lbl, betrag, pct, len(mit) < len(beitraege)))
+    return erg
+
+
+def haenge_live_punkt_an(df, heute, kurs):
+    """Live-Kurs als Punkt fuer HEUTE (Audit DEP-10): gibt es die Zeile schon, wird sie
+    aktualisiert, sonst wird der Index um heute verlaengert - statt den gestrigen
+    Schlusskurs zu ueberschreiben. Gleiches Vorgehen wie bei den Vergleichswerten."""
+    if df is None or df.empty or not kurs:
+        return df
+    heute_ts = pd.Timestamp(heute).normalize()
+    letzter = pd.Timestamp(df.index[-1]).normalize()
+    if letzter > heute_ts:
+        return df
+    df = df.copy()
+    if letzter == heute_ts:
+        ts = df.index[-1]
+        df.loc[ts, "Close"] = kurs
+        if "High" in df.columns:
+            df.loc[ts, "High"] = max(float(df.loc[ts, "High"]), kurs)
+        if "Low" in df.columns:
+            df.loc[ts, "Low"] = min(float(df.loc[ts, "Low"]), kurs)
+    else:
+        df.loc[heute_ts] = [kurs] * len(df.columns)
+        df = df.sort_index()
+    return df
+
+
+def _berlin_tage(ts_ms):
+    """ls-tc-Zeitstempel (ms, UTC) -> Kalendertag in Europe/Berlin als naive Mitternacht
+    (Audit DEP-09) - wie der Workflow; passt so auf bdate_range-Indizes."""
+    s = pd.to_datetime(pd.Series(ts_ms), unit="ms", utc=True)
+    return s.dt.tz_convert("Europe/Berlin").dt.normalize().dt.tz_localize(None)
 
 # --- VOLLAUTOMATISCHER LIVE-KURS ABRUF (ls-tc.de, direkter Emittent LS9VFS) ---
 @st.cache_data(ttl=26 * 3600, show_spinner=False)
@@ -1064,10 +1452,13 @@ def historie_zuschnitt(history, start_date, end_date):
         return pd.Series(dtype=float)
     df = pd.DataFrame(history, columns=["ts", "Close"])
     df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
-    df["Date"] = pd.to_datetime(df["ts"], unit="ms")
+    # Kalendertag in Europe/Berlin (Audit DEP-09): ls-tc liefert z. B. 22:00 UTC fuer
+    # den Folgetag - als naive Mitternacht passt der Index zu bdate_range/reindex.
+    df["Date"] = _berlin_tage(df["ts"]).values
     tage = df["Date"].dt.date
     df = df[(tage >= start_date) & (tage <= end_date) & (df["Close"] > 0)]
-    return df.set_index("Date").sort_index()["Close"].astype(float)
+    s = df.set_index("Date").sort_index()["Close"].astype(float)
+    return s[~s.index.duplicated(keep="last")]
 
 
 def get_historical_market_data(start_date, end_date, live_close_fallback):
@@ -1139,14 +1530,9 @@ def get_benchmark_history(instrument_id, start_date, end_date):
             raw.get("series", {}).get("history", {}).get("data")
             or raw.get("history", {}).get("data") or []
         )
-        rows = []
-        for ts_ms, close in history:
-            ts = pd.to_datetime(ts_ms, unit="ms")
-            if start_date <= ts.date() <= end_date:
-                rows.append({"Date": ts, "Close": float(close)})
-        if not rows:
+        s = historie_zuschnitt(history, start_date, end_date)   # Berliner Kalendertage (DEP-09)
+        if s.empty:
             return None
-        s = pd.DataFrame(rows).set_index("Date").sort_index()["Close"]
         return s[s > 0]
     except Exception as e:
         logging.warning(f"Benchmark {instrument_id} nicht ladbar: {e}")
@@ -1223,15 +1609,14 @@ def lade_positionen():
 
 def chronik_eintrag(kategorie, titel, inhalt="", schluessel=None):
     """Automatischer Eintrag in die Chronik (Depot -> Chronik). Fehler werden
-    geschluckt - die Chronik darf keine Speicherung verhindern."""
+    geschluckt - die Chronik darf keine Speicherung verhindern. Schreibt mit
+    Versionspruefung und nie nach einem Lesefehler (chronik.eintragen_github)."""
     try:
         pfad = getattr(config, "STATE_PATH_TRADES_DB", None)
-        if not pfad:
+        if not pfad or not GH_STATE_READY:
             return False
-        liste = gh_read(pfad, []) or []
-        neu, ok = chronik.anhaengen(liste if isinstance(liste, list) else [],
-                                    chronik.neuer_eintrag(kategorie, titel, inhalt, schluessel=schluessel))
-        return gh_write(pfad, neu, message=f"chronik: {str(titel)[:50]} [skip ci]") if ok else False
+        return chronik.eintragen_github(github_store, GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, GITHUB_TOKEN,
+                                        chronik.neuer_eintrag(kategorie, titel, inhalt, schluessel=schluessel))
     except Exception:
         return False
 
@@ -1272,11 +1657,43 @@ _POS_FELDER = [("kaufdatum", "Kaufdatum", lambda v: ".".join(reversed(str(v).spl
                ("instrument_id", "ID", str)]
 
 
-def speichere_positionen(positionen, message="update positionen [skip ci]"):
-    alt = gh_read(STATE_PATH_POSITIONEN, None) or [_position_aus_config()]
-    ok = gh_write(STATE_PATH_POSITIONEN, positionen, message=message)
+def liste_element_index(liste, eid=None, idx=None, name=None):
+    """Position eines Eintrags in einer (frisch gelesenen) Liste: ueber die id, ersatzweise
+    (alte Eintraege ohne id) ueber Index + Name. -> Index oder None."""
+    if eid:
+        for i, x in enumerate(liste):
+            if isinstance(x, dict) and str(x.get("id")) == str(eid):
+                return i
+        return None
+    if idx is not None and 0 <= idx < len(liste) and isinstance(liste[idx], dict) \
+            and liste[idx].get("name") == name:
+        return idx
+    return None
+
+
+def _liste_aktualisieren(pfad, aendern, startbestand, message):
+    """Lesen-Aendern-Schreiben einer Liste (Positionen/Beobachtung) ohne verlorene
+    Updates und nie nach einem Lesefehler. aendern(liste) -> neue Liste | None.
+    -> (geschrieben, alt, neu)"""
+    erg = {}
+
+    def _a(liste):
+        alt = liste if isinstance(liste, list) and liste else startbestand()
+        neu = aendern(copy.deepcopy(alt))
+        erg["alt"], erg["neu"] = alt, neu
+        return neu
+
+    ok, _ = gh_aktualisiere(pfad, _a, default=None, message=message)
+    geschrieben = bool(ok and erg.get("neu") is not None)
+    return geschrieben, erg.get("alt"), erg.get("neu")
+
+
+def aendere_positionen(aendern, message="update positionen [skip ci]"):
+    """-> True nur, wenn wirklich gespeichert wurde."""
+    ok, alt, neu = _liste_aktualisieren(STATE_PATH_POSITIONEN, aendern,
+                                        lambda: [_position_aus_config()], message)
     if ok:
-        _chronik_listen_diff(alt, positionen, "depot", "Position", _POS_FELDER)
+        _chronik_listen_diff(alt, neu, "depot", "Position", _POS_FELDER)
     return ok
 
 
@@ -1286,11 +1703,11 @@ def lade_beobachtung():
     return gh_read_cached(STATE_PATH_BEOBACHTUNG, []) or []
 
 
-def speichere_beobachtung(eintraege, message="update beobachtung [skip ci]"):
-    alt = gh_read(STATE_PATH_BEOBACHTUNG, []) or []
-    ok = gh_write(STATE_PATH_BEOBACHTUNG, eintraege, message=message)
+def aendere_beobachtung(aendern, message="update beobachtung [skip ci]"):
+    """-> True nur, wenn wirklich gespeichert wurde."""
+    ok, alt, neu = _liste_aktualisieren(STATE_PATH_BEOBACHTUNG, aendern, lambda: [], message)
     if ok:
-        _chronik_listen_diff(alt, eintraege, "beobachtung", "Beobachtung", [("instrument_id", "ID", str)])
+        _chronik_listen_diff(alt, neu, "beobachtung", "Beobachtung", [("instrument_id", "ID", str)])
     return ok
 
 
@@ -1312,14 +1729,20 @@ def lade_auflegungen():
 
 
 def speichere_auflegung(instrument_id, datum, kurs=WIKIFOLIO_STARTKURS):
-    """Merkt sich Auflegungsdatum und -kurs dauerhaft. datum=None loescht."""
-    daten = dict(lade_auflegungen())
+    """Merkt sich Auflegungsdatum und -kurs dauerhaft. datum=None loescht.
+    Lesen-Aendern-Schreiben mit Versionspruefung (andere Instrumente bleiben erhalten)."""
     schluessel = str(instrument_id)
-    if datum is None:
-        daten.pop(schluessel, None)
-    else:
-        daten[schluessel] = {"datum": datum.isoformat(), "kurs": float(kurs)}
-    return gh_write(STATE_PATH_AUFLEGUNG, daten, message="update auflegung [skip ci]")
+
+    def _a(daten):
+        daten = dict(daten) if isinstance(daten, dict) else {}
+        if datum is None:
+            daten.pop(schluessel, None)
+        else:
+            daten[schluessel] = {"datum": datum.isoformat(), "kurs": float(kurs)}
+        return daten
+
+    ok, _ = gh_aktualisiere(STATE_PATH_AUFLEGUNG, _a, default={}, message="update auflegung [skip ci]")
+    return ok
 
 
 def auflegung_fuer(instrument_id):
@@ -1456,6 +1879,13 @@ def berechne_zeitraeume(aktueller_kurs, vortag_kurs, historie, heute):
     return zeilen
 
 
+def mc_einsatz(startwert, tage, sparrate_monat=0.0, entnahme_monat=0.0):
+    """Eingesetztes Geld in der Simulation: Startwert + Zahlungen an jedem 21. Handelstag
+    (genau wie in simuliere_bandbreite) - Bezugsgroesse der Verlustwahrscheinlichkeit."""
+    monate = int(tage) // 21
+    return float(startwert) + monate * (float(sparrate_monat or 0) - float(entnahme_monat or 0))
+
+
 def simuliere_bandbreite(startwert, kursreihe, jahre, sparrate_monat=0.0,
                          entnahme_monat=0.0, shrinkage=True, pfade=4000):
     """Monte-Carlo-Simulation moeglicher Wertentwicklungen statt einer
@@ -1517,7 +1947,10 @@ def simuliere_bandbreite(startwert, kursreihe, jahre, sparrate_monat=0.0,
     tage = max(1, int(jahre * 252))
     rng = np.random.default_rng(12345)   # fester Seed: gleiche Eingabe -> gleiches Bild
     z = rng.standard_normal((pfade, tage))
-    schritte = (mu_verwendet - 0.5 * sigma_tag ** 2) + sigma_tag * z
+    # Audit DEP-05: mu_tag ist bereits der Mittelwert der LOG-Renditen (enthaelt -sigma^2/2),
+    # der Anker ln(1,08)/252 ebenfalls eine Log-Rate - KEIN zweiter Abzug. Median der
+    # Endwerte (ohne Ein-/Auszahlungen) = startwert * exp(mu_verwendet * tage).
+    schritte = mu_verwendet + sigma_tag * z
 
     # Sparrate/Entnahme monatlich einrechnen: Pfade schrittweise aufbauen,
     # damit Ein-/Auszahlungen zum jeweils simulierten Kurs wirken.
@@ -1533,8 +1966,12 @@ def simuliere_bandbreite(startwert, kursreihe, jahre, sparrate_monat=0.0,
         endwerte = startwert * np.exp(schritte.sum(axis=1))
 
     perzentile = {p: float(np.percentile(endwerte, p)) for p in (5, 25, 50, 75, 95)}
+    # Audit DEP-06: Verlust = Endwert unter dem insgesamt eingesetzten Geld
+    # (Startwert + Einzahlungen - Entnahmen), nicht nur unter dem Startwert.
+    eingesetzt = mc_einsatz(startwert, tage, sparrate_monat, entnahme_monat)
     kennzahlen = {
-        "verlust_wahrscheinlichkeit": float((endwerte < startwert).mean() * 100),
+        "verlust_wahrscheinlichkeit": float((endwerte < eingesetzt).mean() * 100),
+        "eingesetzt": float(eingesetzt),
         "vola_pa": float(sigma_tag * np.sqrt(252) * 100),
         "mu_roh_pa": float(mu_roh_pa),
         "mu_verwendet_pa": float((np.exp(mu_verwendet * 252) - 1) * 100),
@@ -1748,51 +2185,48 @@ def _suche_instrument_cache(suchbegriff):
 
 def check_and_alert_fetch_failure(is_live_data, is_live_history):
     """Meldet per Discord, wenn Live-Kurs und/oder Chart-Historie gerade NICHT
-    echt sind - mit 30-Min-Cooldown, damit nicht jede Sekunde gepingt wird."""
-    if not DISCORD_WEBHOOK_URL:
+    echt sind (und einmal, wenn sie wieder da sind). Abgesichert (Audit DATA-03):
+    - nur mit lesbarem Zustand (sonst wuerde jede GitHub-Stoerung zum Dauer-Ping),
+    - hoechstens ein Versuch je 30 Minuten (auch fehlgeschlagene Versuche zaehlen),
+    - Versandergebnis wird geprueft, Zustand per Versionspruefung geschrieben.
+    Kurs-Alarme verschickt die App NICHT mehr - das macht allein der Workflow."""
+    if not DISCORD_WEBHOOK_URL or not GH_STATE_READY:
         return
-    state = gh_read_cached(config.STATE_PATH_FETCH_FAIL_ALARM, {"last_alert": None, "war_down": False})
+    pfad = config.STATE_PATH_FETCH_FAIL_ALARM
+    state, lesbar = gh_read_cached_status(pfad, {"last_alert": None, "war_down": False})
+    if not lesbar or not isinstance(state, dict):
+        return
     now = datetime.datetime.now(BERLIN_TZ)
     is_down = (not is_live_data) or (not is_live_history)
-
     war_down = bool(state.get("war_down", False))
-    last_alert_str = state.get("last_alert")
-    last_alert = None
-    if last_alert_str:
+
+    def _zeit(x):
         try:
-            last_alert = datetime.datetime.fromisoformat(last_alert_str)
+            return datetime.datetime.fromisoformat(x) if x else None
         except Exception:
-            pass
-    cooldown_ok = (last_alert is None) or ((now - last_alert).total_seconds() > 30 * 60)
+            return None
+    letzte = [t for t in (_zeit(state.get("last_alert")), _zeit(state.get("letzter_versuch"))) if t]
+    cooldown_ok = (not letzte) or ((now - max(letzte)).total_seconds() > 30 * 60)
 
-    neuer_last_alert = last_alert_str
-
+    neu = {}
     if is_down and cooldown_ok:
-        msg = (f"⚠️ **Datenquelle down ({config.WKN})**\n"
-               f"ls-tc.de liefert gerade keine echten Live-/Chartdaten mehr. "
-               f"App zeigt Fallback-/Synthetikwerte an.\n"
-               f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}")
-        try:
-            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-            neuer_last_alert = now.isoformat()
-        except Exception as e:
-            logging.error(f"Discord Fetch-Fail-Alarm Fehler: {e}")
+        gesendet = _discord_senden(
+            f"⚠️ **Datenquelle down ({config.WKN})**\n"
+            f"ls-tc.de liefert gerade keine echten Live-/Chartdaten. Die App zeigt "
+            f"gekennzeichnete Ersatzwerte und speichert/meldet nichts auf deren Basis.\n"
+            f"Stand: {now.strftime('%d.%m.%Y %H:%M Uhr')}")
+        neu["letzter_versuch"] = now.isoformat()
+        if gesendet:
+            neu["last_alert"] = now.isoformat()
     elif not is_down and war_down:
-        msg = f"✅ **Datenquelle wieder OK ({config.WKN})** — ls-tc.de liefert wieder Live-Daten."
-        try:
-            requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-        except Exception as e:
-            logging.error(f"Discord Fetch-Recover Fehler: {e}")
-
-    # NUR schreiben, wenn sich der Zustand tatsaechlich geaendert hat. Vorher
-    # erzeugte jeder Durchlauf einen GitHub-Commit - bei haeufigen Reruns (jede
-    # Widget-Interaktion loest einen aus) unnoetige API-Last und Rauschen.
-    if war_down != is_down or neuer_last_alert != last_alert_str:
-        gh_write(
-            config.STATE_PATH_FETCH_FAIL_ALARM,
-            {"last_alert": neuer_last_alert, "war_down": is_down},
-            message="update fetch fail alarm state [skip ci]",
-        )
+        if not _discord_senden(f"✅ **Datenquelle wieder OK ({config.WKN})** — ls-tc.de liefert wieder Live-Daten."):
+            logging.warning("Entwarnung 'Datenquelle wieder OK' nicht zugestellt")
+    if war_down != is_down:
+        neu["war_down"] = is_down
+    if neu:
+        gh_aktualisiere(pfad, lambda d: dict(d if isinstance(d, dict) else {}, **neu),
+                        default={"last_alert": None, "war_down": False},
+                        message="update fetch fail alarm state [skip ci]")
 
 
 def tab_label(name, wkn="", max_len=16):
@@ -1857,7 +2291,7 @@ def erstelle_ladeanzeige(platzhalter, phasen):
             f'<div class="loading-pct">{pct} %</div>'
             f'<div class="loading-bar"><div class="loading-bar-fill" '
             f'style="width:{pct}%"></div></div>'
-            f'<div class="loading-text">{text}</div></div>',
+            f'<div class="loading-text">{_h(text)}</div></div>',
             unsafe_allow_html=True,
         )
 
@@ -1885,7 +2319,7 @@ def fortschritt_anzeige(platzhalter):
             f'<div class="loading-pct">{int(pct)} %</div>'
             f'<div class="loading-bar"><div class="loading-bar-fill" '
             f'style="width:{int(pct)}%"></div></div>'
-            f'<div class="loading-text">{text}</div></div>',
+            f'<div class="loading-text">{_h(text)}</div></div>',
             unsafe_allow_html=True,
         )
     return zeichne
@@ -2274,11 +2708,23 @@ def _nutzer():
 
 
 def _sichtbar(ansicht):
-    """Darf der angemeldete Benutzer diese Ansicht sehen? (ohne Login: alles ausser Benutzerverwaltung)"""
+    """Darf der angemeldete Benutzer diese Ansicht sehen? Die Benutzerverwaltung
+    nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
     if ansicht == ANSICHT_BENUTZER:
-        return n is None or n.get("rolle") == "admin"
+        return bool(n) and n.get("rolle") == "admin"
     return login.darf(n, ansicht)
+
+
+def _zugang_pruefen(ansicht=None):
+    """Zugriffspruefung am Anfang jedes inneren Fragments (Audit SEC-10): ein
+    Fragment-Neuaufbau laeuft ohne login.gate(). Abgemeldet/gesperrt -> ganze App neu
+    (Anmeldemaske), fehlendes Recht auf die Ansicht -> Fragment stoppt."""
+    u = login.pruefen(st, gh_read_cached)
+    if ansicht and not _sichtbar(ansicht):
+        st.warning("Kein Zugriff auf diese Ansicht.")
+        st.stop()
+    return u
 
 
 def _abmelden():
@@ -2409,8 +2855,11 @@ def navigation():
                         except TypeError:
                             st.rerun()
             elif login.konfig(st) is None:
-                st.markdown('<div style="text-align:center;font-size:.8rem;color:#f0a27f;margin:6px 0">🔓 Login nicht '
-                            'aktiv – Details unter „Verwaltung → 👥 Benutzer“</div>', unsafe_allow_html=True)
+                # Nur erreichbar, wenn das Login AUSDRUECKLICH abgeschaltet ist - eine fehlende
+                # Konfiguration stoppt login.gate() vorher (fail-closed, Audit SEC-03).
+                st.markdown('<div style="text-align:center;font-size:.8rem;color:#f0a27f;margin:6px 0">🔓 Ohne '
+                            'Anmeldung (Login in den Secrets ausdrücklich abgeschaltet)</div>',
+                            unsafe_allow_html=True)
             farb_css = []
             try:
                 hat_muster = bool((gh_read_cached(PFAD_MUSTERDEPOT, {}) or {}).get("depots"))
@@ -2454,6 +2903,7 @@ def navigation():
 # periodisch, ohne die komplette Seite neu zu bauen/zu scrollen.
 @st.fragment(run_every=NAV_PRUEF_SEK)
 def render_dashboard():
+    _zugang_pruefen()       # Audit SEC-10: auch der periodische Fragment-Neuaufbau prueft die Anmeldung
     now_berlin = datetime.datetime.now(BERLIN_TZ)
     heute_date = now_berlin.date()
 
@@ -2566,7 +3016,8 @@ def render_dashboard():
     def _lade_teile(muster, anzahl):
         zeilen, felder, stand = [], None, None
         for i in range(anzahl):
-            d = gh_read(muster.format(i), None) or {}
+            # streng: ein Lesefehler wirft und landet so NICHT 15 Min. im Cache (DATA-01)
+            d = gh_read_streng(muster.format(i), None) or {}
             felder = d.get("felder") or felder
             stand = d.get("stand") or stand
             zeilen += d.get("zeilen") or []
@@ -2575,10 +3026,16 @@ def render_dashboard():
         return {z[0]: dict(zip(felder, z)) for z in zeilen}, stand
 
     def _q_alle():
-        return _lade_teile("state/qualitaet/alle_{}.json", 6)
+        try:
+            return _lade_teile("state/qualitaet/alle_{}.json", 6)
+        except github_store.LeseFehler:
+            return {}, None
 
     def _p_alle():
-        return _lade_teile("state/top50_alle_{}.json", 4)
+        try:
+            return _lade_teile("state/top50_alle_{}.json", 4)
+        except github_store.LeseFehler:
+            return {}, None
 
     def _index_auswahl(prefix, indizes, regionen):
         """Region + Index als Knoepfe. indizes = {key: {"titel","region","s"}}.
@@ -3387,7 +3844,7 @@ def render_dashboard():
                 x=[min(max(z[zr_key], unten), oben) for z in pts], y=[z["q_ant"] for z in pts],
                 mode="markers", name=titel_kl,
                 marker=dict(color=farbe, size=6 if kl != "nicht" else 5, opacity=0.85 if kl != "nicht" else 0.45),
-                text=[f'{z["name"]} ({z["s"]})<br>Kurs {zr_titel}: {z[zr_key]:+.1f} %<br>'
+                text=[f'{_h(z["name"])} ({_h(z["s"])})<br>Kurs {zr_titel}: {z[zr_key]:+.1f} %<br>'
                       f'Qualität {z["q_ant"]:.0f} % · {z["gesamt"]} Punkte' for z in pts],
                 hovertemplate="%{text}<extra></extra>"))
         for x0, y0, text in ((unten, 99, "Qualität hoch · Kurs schwach"), (oben, 99, "Qualität hoch · Kurs stark"),
@@ -3862,6 +4319,7 @@ def render_dashboard():
 
     @st.fragment
     def _render_top50():
+        _zugang_pruefen("🏆 Watchlist Top 50")
         art = st.pills("Liste", ["⭐ Qualitäts-Score", "🧭 Qualität × Kurs", "📈 Performance",
                                  "🗂️ Gesamtübersicht"],
                        default="⭐ Qualitäts-Score", key="top50_art") or "⭐ Qualitäts-Score"
@@ -3920,7 +4378,8 @@ def render_dashboard():
                 ok = gh_write(*args, **kwargs)
                 gh_read_cached.clear()
                 return ok
-            login.render_verwaltung(st, gh_read, _gh_write_frisch, waehlbar, NAV_NAMEN)
+            login.render_verwaltung(st, gh_read, _gh_write_frisch, waehlbar, NAV_NAMEN,
+                                    gh_aktualisiere=gh_aktualisiere)
         except Exception as e:
             st.error(f"⚠️ Fehler in der Benutzerverwaltung: {e}")
             notify_app_error("Tab-Benutzer", e)
@@ -4007,95 +4466,104 @@ def render_dashboard():
 
     check_and_alert_fetch_failure(is_live_data, is_live_history)
 
-    if not df_chart.empty:
-        df_chart.iloc[-1, df_chart.columns.get_loc("Close")] = aktueller_kurs
-        df_chart.iloc[-1, df_chart.columns.get_loc("High")] = max(df_chart.iloc[-1]["High"], aktueller_kurs)
-        df_chart.iloc[-1, df_chart.columns.get_loc("Low")] = min(df_chart.iloc[-1]["Low"], aktueller_kurs)
+    # Kein Live-Kurs, aber echte Historie: statt eines frei erfundenen Festwerts den
+    # letzten ECHTEN Schlusskurs zeigen (bleibt als "keine Live-Daten" gekennzeichnet).
+    if not is_live_data and is_live_history and not df_chart.empty:
+        aktueller_kurs = float(df_chart["Close"].iloc[-1])
+        vortag_kurs = float(df_chart["Close"].iloc[-2]) if len(df_chart) > 1 else aktueller_kurs
+        fetched_source = "⚠️ letzter Schlusskurs (KEINE Live-Daten)"
+
+    # Audit DEP-04: nur mit ECHTEN Daten (Live-Kurs UND Historie) duerfen Werte in
+    # dauerhafte Zustaende oder Benachrichtigungen fliessen. Die App selbst schreibt
+    # hier ohnehin nichts mehr (Hoechststand/Kursalarme: nur der Workflow, DATA-03).
+    daten_echt = is_live_data and is_live_history
+
+    # Audit DEP-10: Live-Kurs als eigener Punkt fuer HEUTE (Index wird verlaengert,
+    # der gestrige Schlusskurs bleibt erhalten) - die Vergleichswerte haengen ihren
+    # Live-Kurs ebenfalls an heute an, beide Linien enden so am selben Datum.
+    if is_live_data and is_live_history:
+        df_chart = haenge_live_punkt_an(df_chart, heute_date, aktueller_kurs)
 
     df_chart["Startkapital"] = startkapital_aktiv
 
-    # --- HIGH WATERMARK: mit echter Historie initialisieren/korrigieren ---
-    # Der Cron kennt beim allerersten Lauf nur den aktuellen Kurs als "Hoch" -
-    # hier wird das (still, ohne Alarm) auf den tatsächlichen historischen
-    # Höchststand korrigiert, falls der genauer/höher ist.
-    if not df_chart.empty:
-        historischer_hoechststand = float(df_chart["Close"].max())
-        historischer_hoechststand_datum = df_chart["Close"].idxmax()  # echtes Datum des Hochs, nicht "jetzt"
-        hw_state = gh_read_cached(config.STATE_PATH_HIGH_WATERMARK, None)
-        aktuelles_hoch = float(hw_state["high_watermark"]) if hw_state and "high_watermark" in hw_state else 0.0
-        korrigiertes_hoch = max(historischer_hoechststand, aktuelles_hoch)
-
-        if historischer_hoechststand >= aktuelles_hoch:
-            # Die Chart-Historie kennt das (mindestens ebenso) hohe Hoch - deren echtes Datum nutzen
-            high_watermark_datum = historischer_hoechststand_datum.strftime("%d.%m.%Y")
-        else:
-            # Der gespeicherte State (z.B. vom Cron erfasster Intraday-Wert) ist hoeher als
-            # die Tages-Schlusskurse - dessen eigenes gespeichertes Datum nutzen
-            gespeichertes_datum = hw_state.get("erreicht_am") if hw_state else None
-            try:
-                high_watermark_datum = datetime.datetime.fromisoformat(gespeichertes_datum).strftime("%d.%m.%Y") if gespeichertes_datum else "-"
-            except Exception:
-                high_watermark_datum = "-"
-
-        if not hw_state or korrigiertes_hoch > aktuelles_hoch:
-            gh_write(
-                config.STATE_PATH_HIGH_WATERMARK,
-                {"high_watermark": korrigiertes_hoch, "erreicht_am": datetime.datetime.now(BERLIN_TZ).isoformat()},
-                message="app: korrigiere/initialisiere high watermark [skip ci]",
-            )
-        high_watermark_anzeige = korrigiertes_hoch
+    # --- HIGH WATERMARK: NUR ANZEIGE (Audit DATA-03/DEP-04) ---
+    # Den gespeicherten Hoechststand pflegt allein der Workflow (discord_price_alert.py,
+    # inkl. Initialisierung/Selbstheilung aus der Historie und Meldeschwelle). Schriebe
+    # die App ihn mit, wuerde sie dort 'zuletzt_gemeldet' umgehen bzw. bei Ersatzdaten
+    # ein erfundenes Hoch speichern. Angezeigt wird das hoehere aus Speicher und Historie.
+    hw_state = gh_read_cached(config.STATE_PATH_HIGH_WATERMARK, None)
+    try:
+        gespeichertes_hoch = (float(hw_state["high_watermark"])
+                              if isinstance(hw_state, dict) and hw_state.get("high_watermark") is not None else 0.0)
+    except (TypeError, ValueError):
+        gespeichertes_hoch = 0.0
+    hist_hoch, hist_hoch_datum = 0.0, None
+    if is_live_history and not df_chart.empty:       # synthetische Reihe liefert kein Hoch
+        hist_hoch = float(df_chart["Close"].max())
+        hist_hoch_datum = df_chart["Close"].idxmax()
+    if hist_hoch and hist_hoch >= gespeichertes_hoch:
+        high_watermark_anzeige = hist_hoch
+        high_watermark_datum = hist_hoch_datum.strftime("%d.%m.%Y")
+    elif gespeichertes_hoch:
+        high_watermark_anzeige = gespeichertes_hoch
+        try:
+            high_watermark_datum = datetime.datetime.fromisoformat(
+                str(hw_state.get("erreicht_am"))).strftime("%d.%m.%Y")
+        except Exception:
+            high_watermark_datum = "-"
     else:
         high_watermark_anzeige = aktueller_kurs
         high_watermark_datum = "-"
 
     start_dt = pd.to_datetime(kaufdatum_aktiv)
-    def get_entnahme_at_date(ts):
-        months = (ts.year - start_dt.year) * 12 + (ts.month - start_dt.month)
-        if ts.day < start_dt.day:
-            months -= 1
-        return max(0, months) * config.ENTNAHME_PM
 
-    df_chart["Kumulierte_Entnahme"] = [get_entnahme_at_date(ts) for ts in df_chart.index]
+    # --- ENTNAHME: EINE Quelle (Audit DEP-03) ---
+    # Gespeicherte Monatsrate (Standard config.ENTNAHME_PM), erstmals einen Monat nach
+    # dem Kauf, dann monatlich (DateOffset, Monatsenden gekappt - DEP-11). Derselbe
+    # Terminplan und dieselbe Rate gelten fuer Netto (buchhalterisch) und Real (Verkauf).
+    entnahme_state, entnahme_lesbar = gh_read_cached_status(STATE_PATH_ENTNAHME, None)
+    entnahme_gespeichert = entnahme_rate_aus_state(entnahme_state, getattr(config, "ENTNAHME_PM", 0.0))
+    if GH_STATE_READY:
+        entnahme_rate = entnahme_gespeichert
+    else:                                   # ohne persistenten State: nur Sitzungswert
+        entnahme_rate = float(st.session_state.get("haupt_entnommen_input", entnahme_gespeichert) or 0.0)
+    entnahme_termine_liste = entnahme_termine(kaufdatum_aktiv, heute_date)
+    anzahl_entnahmen = len(entnahme_termine_liste)
+    df_chart["Kumulierte_Entnahme"] = kumulierte_entnahme(df_chart.index, entnahme_termine_liste, entnahme_rate)
 
-    entnommen_aktiv = st.session_state.get("haupt_entnommen_input", 0.0)
-    sparrate_aktiv = st.session_state.get("haupt_sparrate_input", 0.0)
+    # --- SPARPLAN: Rate + Startdatum persistent (Audit DEP-02) ---
+    # Rate und Phasen liegen in STATE_PATH_SPARPLAN und belegen das Eingabefeld vor.
+    # Gespeichert/beendet wird NUR per Knopf in den Einstellungen - eine neue Sitzung
+    # (leerer session_state) aendert nichts mehr am gespeicherten Plan.
+    # Jede Einzahlung kauft Anteile zum Kurs am/vor dem Termin; nur ausgefuehrte
+    # Kaeufe zaehlen zum Einstand (DEP-01).
+    sparplan_state, sparplan_lesbar = gh_read_cached_status(config.STATE_PATH_SPARPLAN, {})
+    sparplan_start, sparplan_phasen_liste = sparplan_phasen(sparplan_state)
+    if not GH_STATE_READY:
+        _lokal = float(st.session_state.get("haupt_sparrate_input", 0.0) or 0.0)
+        if _lokal > 0:
+            _ls = st.session_state.setdefault("_sparplan_start_lokal", heute_date.isoformat())
+            sparplan_start = datetime.date.fromisoformat(_ls)
+            sparplan_phasen_liste = [(sparplan_start, _lokal)]
+        else:
+            sparplan_start, sparplan_phasen_liste = None, []
+    sparrate_aktiv = sparplan_phasen_liste[-1][1] if sparplan_phasen_liste else 0.0
+    # Altbestand: Plan laeuft, die Rate wurde frueher aber nicht gespeichert
+    sparplan_ohne_rate = sparplan_start is not None and not sparplan_phasen_liste
 
-    # --- SPARPLAN: Startdatum persistent verfolgen (GitHub-State), damit die
-    # Berechnung nach einem Neustart nicht auf 0 zurueckfaellt. Wird beim
-    # ersten Aktivieren (>0€) auf heute gesetzt, bei 0€ wieder geloescht -
-    # reaktivieren startet die Zaehlung dann wieder neu ab dem Tag.
-    #
-    # Fachlich korrekt: eine Einzahlung kauft zusaetzliche ANTEILE zum
-    # jeweiligen Monats-Kurs (nicht einfach ein fixer, nicht mitwachsender
-    # Betrag) - diese Anteile schwanken danach mit dem Kurs mit, genau wie
-    # die urspruenglichen. Deshalb fliesst das direkt in die Stueckzahl und
-    # damit in den BRUTTO-Wert ein, nicht nur additiv in Netto. ---
-    sparplan_state = gh_read_cached(config.STATE_PATH_SPARPLAN, {})
-    zusaetzliche_stueckzahl_sparplan = 0.0
-    if sparrate_aktiv > 0:
-        if not sparplan_state.get("start_datum"):
-            sparplan_state = {"start_datum": heute_date.isoformat()}
-            if gh_write(config.STATE_PATH_SPARPLAN, sparplan_state, message="sparplan gestartet [skip ci]"):
-                chronik_eintrag("depot", f"💶 Sparplan gestartet: {_de_zahl(sparrate_aktiv)} €/Monat",
-                                "Ab heute wird monatlich zum jeweiligen Kurs nachgekauft (Rechnung).")
-        sparplan_start = datetime.date.fromisoformat(sparplan_state["start_datum"])
-        monate_sparplan = max(0, (heute_date.year - sparplan_start.year) * 12 + (heute_date.month - sparplan_start.month))
-        if heute_date.day < sparplan_start.day:
-            monate_sparplan -= 1
-        monate_sparplan = max(0, monate_sparplan)
-
-        if not df_chart.empty:
-            for k in range(0, monate_sparplan + 1):
-                ziel_datum = pd.Timestamp(sparplan_start) + pd.DateOffset(months=k)
-                passende_tage = df_chart.index[df_chart.index <= ziel_datum]
-                preis_am_einzahlungstag = float(df_chart.loc[passende_tage[-1], "Close"]) if len(passende_tage) else aktueller_kurs
-                if preis_am_einzahlungstag > 0:
-                    zusaetzliche_stueckzahl_sparplan += sparrate_aktiv / preis_am_einzahlungstag
-    else:
-        if sparplan_state.get("start_datum"):
-            if gh_write(config.STATE_PATH_SPARPLAN, {}, message="sparplan gestoppt [skip ci]"):
-                chronik_eintrag("depot", "⏹️ Sparplan gestoppt",
-                                f"Lief seit {'.'.join(reversed(sparplan_state['start_datum'].split('-')))}.")
+    sparplan_termine_liste = (sparplan_termine(sparplan_start, heute_date)
+                              if sparplan_start is not None and sparplan_phasen_liste else [])
+    sparplan_eingezahlt, zusaetzliche_stueckzahl_sparplan = 0.0, 0.0
+    sparplan_ohne_kurse = False
+    if sparplan_termine_liste:
+        if is_live_history and not df_chart.empty:
+            sparplan_eingezahlt, zusaetzliche_stueckzahl_sparplan = sparplan_kaeufe(
+                sparplan_termine_liste, df_chart["Close"],
+                lambda t: sparrate_am(sparplan_phasen_liste, t),
+                ersatzkurs=aktueller_kurs if is_live_data else None,
+            )
+        else:
+            sparplan_ohne_kurse = True      # keine Kaeufe zu synthetischen Kursen (DEP-04)
 
     # --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
     # Zentrierter Ladefortschritt mit Prozentangabe statt Streamlits kleinem
@@ -4193,6 +4661,9 @@ def render_dashboard():
         sichtbar, ein Tap genuegt, und man sieht sofort, welche
         Vergleichsmoeglichkeiten es ueberhaupt gibt."""
         moeglich = [("Ø/Jahr", "jaehrlich"), ("Ø/Mon.", "monatlich"), ("Gesamt", "perf")]
+        if not any(e.get("_jaehrlich") is not None for e in eintraege):
+            # Audit DEP-08: unter 1 Jahr kein Ø/Jahr -> Gesamtrendite als Vorauswahl
+            moeglich = [("Gesamt", "perf"), ("Ø/Mon.", "monatlich"), ("Ø/Jahr", "jaehrlich")]
         for k, titel in [("_q", "3 Mon."), ("_h", "6 Mon."),
                          ("_n", "9 Mon."), ("_z", "12 Mon.")]:
             if any(e.get(k) is not None for e in eintraege):
@@ -4203,7 +4674,7 @@ def render_dashboard():
         wahl = st.pills("Vergleichen nach", beschriftungen,
                         default=beschriftungen[0], key=key)
         zuordnung = dict(moeglich)
-        return zuordnung.get(wahl or beschriftungen[0], "jaehrlich")
+        return zuordnung.get(wahl or beschriftungen[0], moeglich[0][1])
 
     def performance_tabelle_html(eintraege, eigene_kennung=None, fokus="jaehrlich"):
         """Baut die Vergleichstabelle. Bewusst eine gemeinsame Funktion fuer
@@ -4263,14 +4734,14 @@ def render_dashboard():
 
             zeilen += (
                 f'<tr class="{zeilen_klasse}">'
-                f'<td class="pt-wert"><span class="pt-name">{name}</span></td>'
+                f'<td class="pt-wert"><span class="pt-name">{_h(name)}</span></td>'
                 + zelle(e.get("_monatlich"), fett=True, label="Ø/Mon.", spalte="monatlich")
                 + zelle(e.get("_jaehrlich"), fett=True, label="Ø/Jahr", spalte="jaehrlich")
                 + zelle(e.get("_perf"), fett=True, label="Gesamt", spalte="perf")
                 + "".join(zelle(e.get(k), fett=True, label=titel, spalte=k)
                           for k, titel in aktive_zeitraeume)
                 + f'<td class="pt-num pt-stark {euro_klasse}" data-label="+/- €" data-spalte="euro">{fmt(euro or 0, 0)}</td>'
-                + f'<td class="pt-num pt-wknval" data-label="WKN" data-spalte="wkn">{kuerzel or "–"}</td>'
+                + f'<td class="pt-num pt-wknval" data-label="WKN" data-spalte="wkn">{_h(kuerzel) or "–"}</td>'
                 + f'<td class="pt-num pt-seit" data-label="seit" data-spalte="seit">{seit_txt}</td>'
                 '</tr>'
             )
@@ -4291,75 +4762,35 @@ def render_dashboard():
         return (f'<div class="pt-wrap"><table class="pt pt-fokus-{fokus}">'
                 f'<thead><tr>{kopf}</tr></thead><tbody>{zeilen}</tbody></table></div>')
 
-    def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_datum):
-        """Gesamt-%, Ø-monatliche % und Ø-jährliche % (beide CAGR-Stil,
-        laufzeitbereinigt - fair vergleichbar auch bei unterschiedlich langen
-        Zeiträumen) sowie Gewinn/Verlust in € für eine normierte Wertreihe
-        (erster Wert = eingesetztes Kapital)."""
-        gesamt_pct = (letzter_wert / erste_werte - 1) * 100
-        tage = max(1, (end_datum - start_datum).days)
-        monate = tage / 30.44
-        monatliche_pct = (((letzter_wert / erste_werte) ** (1 / monate)) - 1) * 100 if monate > 0 else 0.0
-        jaehrliche_pct = (((1 + monatliche_pct / 100) ** 12) - 1) * 100
-        gewinn_verlust_euro = letzter_wert - erste_werte
-        return gesamt_pct, monatliche_pct, jaehrliche_pct, gewinn_verlust_euro
+    # Kennzahlen je Zeitraum: module-weites berechne_performance_kennzahlen() (Audit DEP-08:
+    # Ø/Jahr erst ab 365 Tagen, sonst None -> "–" in der Tabelle).
 
-    # --- REAL: Entnahme erfolgt tatsächlich durch monatlichen Verkauf von Anteilen
-    # zum jeweils gültigen GELDKURS (Bid, nicht Mid) -> Stückzahl sinkt dauerhaft,
-    # und der Spread schmälert die Rendite zusätzlich realistisch. ---
-    def berechne_reale_stueckzahl(df, start_stueckzahl, entnahme_pm, start_dt, spread_pct):
-        stueckzahl = start_stueckzahl
-        verlauf = []
-        letzter_monat = None
-        for ts, row in df.iterrows():
-            monat_key = (ts.year, ts.month)
-            if letzter_monat is not None and monat_key != letzter_monat:
-                mid_preis = row["Close"]
-                geld_preis = mid_preis * (1 - spread_pct / 100.0)  # realer Verkaufskurs
-                if geld_preis and geld_preis > 0:
-                    verkaufte_stueck = entnahme_pm / geld_preis
-                    stueckzahl = max(0.0, stueckzahl - verkaufte_stueck)
-            letzter_monat = monat_key
-            verlauf.append(stueckzahl)
-        return verlauf
-
+    # --- REAL: Entnahme durch tatsaechlichen Verkauf von Anteilen zum GELDKURS (Mid minus
+    # Spread) - gleicher Terminplan und gleiche Rate wie die Netto-Simulation (DEP-03). ---
     df_chart["Stueckzahl_Real"] = berechne_reale_stueckzahl(
-        df_chart, stueckzahl_aktiv, config.ENTNAHME_PM, start_dt, config.SPREAD_PCT
+        df_chart, stueckzahl_aktiv, entnahme_rate, entnahme_termine_liste, config.SPREAD_PCT
     )
     df_chart["Depotwert_Real"] = df_chart["Close"] * df_chart["Stueckzahl_Real"]
 
-    # --- DISCORD ALERT (klassischer -1%-Alarm, Legacy-Button in Sidebar) ---
-    def send_discord_alert(pct_change, current_price):
-        if not DISCORD_WEBHOOK_URL:
-            return False
-        state = gh_read(config.STATE_PATH_ALARM, {})
-        last_alert_time = None
-        if state.get("last_alert"):
-            try:
-                last_alert_time = datetime.datetime.fromisoformat(state["last_alert"])
-            except Exception:
-                pass
-
-        now = datetime.datetime.now(BERLIN_TZ)
-        if last_alert_time and (now - last_alert_time).total_seconds() < 3600:
-            return False
-
-        msg = f"🚨 **FINANZ DASHBOARD ALARM** 🚨\nDas Wikifolio **{config.WKN}** ist gefallen!\nTagesveränderung: **{pct_change:+.2f}%**\nAktueller Kurs: **{current_price:.3f}€**"
-        try:
-            response = requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-            if response.status_code in (200, 204):
-                gh_write(config.STATE_PATH_ALARM, {"last_alert": now.isoformat()}, message="update alarm state [skip ci]")
-                return True
-        except Exception as e:
-            logging.error(f"Discord Alert Fehler: {e}")
-        return False
+    # Kurs-Alarme (Schwelle/Entwarnung/Allzeithoch) verschickt die App NICHT mehr
+    # (Audit DATA-03): einziger Absender und einziger Schreiber des Alarm-Zustands ist
+    # der GitHub-Workflow discord_price_alert.py. Die App zeigt nur an.
 
     # --- RENDITE-KENNZAHLEN: zwei verschiedene Fragen, zwei Verfahren ---
     # 1) "Wie lief es fuer MICH bisher?" -> Kurs gegen den eigenen Kaufkurs.
     #    Das ist die realisierte Rendite dieser Position und gehoert genau so
     #    auf die Depotwert-Kachel und in die Vergleichstabellen.
     tage_gehalten = max(1, (heute_date - kaufdatum_aktiv).days)
-    erwartete_rendite_pa = (((aktueller_kurs / kaufkurs_aktiv) ** (365.25 / tage_gehalten)) - 1) * 100
+    # Audit DEP-08 / Nutzerentscheid: ab 1 Jahr realisiert p.a., darunter ab 1 Monat
+    # aus der Ø-Monatsrendite hochgerechnet (mit Hinweis), unter 1 Monat None / "n. a."
+    if tage_gehalten >= 365:
+        erwartete_rendite_pa = realisierte_rendite_pa(aktueller_kurs, kaufkurs_aktiv, tage_gehalten, 365)
+        erwartete_rendite_hinweis = None
+    else:
+        _hr = hochgerechnete_rendite_pa(aktueller_kurs, kaufkurs_aktiv, tage_gehalten)
+        erwartete_rendite_pa = _hr[0] if _hr else None
+        erwartete_rendite_hinweis = (f"hochgerechnet aus {_hr[1]:.1f} Monaten (Ø Monatsrendite)"
+                                     if _hr else None)
 
     # 2) "Womit ist kuenftig zu rechnen?" -> robuste Schaetzung aus der
     #    Kurshistorie des PRODUKTS (Trend-Regression + lange Zeitfenster,
@@ -4369,8 +4800,13 @@ def render_dashboard():
     prognose_rendite_pa, prognose_rendite_details = produkt_rendite_pa(
         config.LS_INSTRUMENT_ID, heute_date
     )
+    prognose_rueckfall_hinweis = None
     if prognose_rendite_pa is None:          # zu wenig Historie -> eigener Kauf als Rueckfall
-        prognose_rendite_pa, prognose_rendite_details = erwartete_rendite_pa, []
+        # < 1 Jahr: Ø-Monatsrendite auf ein Jahr hochgerechnet (ab 1 Monat), sonst 0 %
+        prognose_rendite_pa, prognose_rueckfall_hinweis = prognose_rate_rueckfall(
+            aktueller_kurs, kaufkurs_aktiv, tage_gehalten)
+        prognose_rendite_details = ([(prognose_rueckfall_hinweis, prognose_rendite_pa)]
+                                    if prognose_rueckfall_hinweis else [])
     erwarteter_zins_mo = (1 + (prognose_rendite_pa / 100.0)) ** (1 / 12) - 1
 
     # --- SIDEBAR entfernt ---
@@ -4400,61 +4836,17 @@ def render_dashboard():
     letztes_update_zeit = now_berlin.strftime("%d.%m.%Y %H:%M:%S Uhr")
 
 
-    def check_and_send_price_updates(pct_change, current_price):
-        """
-        Nur noch der Schwellen-Alarm bei Über-/Unterschreiten von
-        config.TAGESVERLUST_SCHWELLE_PCT. Die routinemäßigen 5-Minuten-Updates
-        übernimmt ausschließlich der externe GitHub-Actions-Cronjob.
-        """
-        if not DISCORD_WEBHOOK_URL:
-            return
-        if not config.ist_handelszeit(datetime.datetime.now(BERLIN_TZ)):
-            return  # außerhalb der Handelszeiten keine (Fehl-)Alarme auf eingefrorene Kurse
-
-        state = gh_read_cached(config.STATE_PATH_PRICE_ALERT, {"unter_schwelle": False})
-
-        aktuell_unter_schwelle = pct_change <= config.TAGESVERLUST_SCHWELLE_PCT
-        war_unter_schwelle = state.get("unter_schwelle", False)
-
-        if aktuell_unter_schwelle and not war_unter_schwelle:
-            msg = (f"🚨 **SCHWELLE UNTERSCHRITTEN ({config.WKN})** 🚨\n"
-                   f"Tagesveränderung: **{pct_change:+.2f}%** "
-                   f"(Schwelle: {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%)\n"
-                   f"Aktueller Kurs: **{current_price:.3f}€**")
-            try:
-                requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-            except Exception as e:
-                logging.error(f"Discord Schwellen-Alarm Fehler: {e}")
-            state["unter_schwelle"] = True
-
-        elif not aktuell_unter_schwelle and war_unter_schwelle:
-            msg = (f"✅ **Entwarnung ({config.WKN})**\n"
-                   f"Tagesveränderung wieder über {config.TAGESVERLUST_SCHWELLE_PCT:+.1f}%: "
-                   f"**{pct_change:+.2f}%**\n"
-                   f"Aktueller Kurs: **{current_price:.3f}€**")
-            try:
-                requests.post(DISCORD_WEBHOOK_URL, json={"content": msg}, timeout=5)
-            except Exception as e:
-                logging.error(f"Discord Entwarnung Fehler: {e}")
-            state["unter_schwelle"] = False
-
-        # Nur bei echtem Zustandswechsel schreiben (siehe Kommentar oben bei
-        # check_and_alert_fetch_failure) - spart GitHub-Commits bei jedem Rerun.
-        if state.get("unter_schwelle") != war_unter_schwelle:
-            gh_write(config.STATE_PATH_PRICE_ALERT, state, message="update price alert state [skip ci]")
-
-
-    check_and_send_price_updates(tages_verenderung_pct, aktueller_kurs)
-
-    heutige_monate_anzahl = max(0, (now_berlin.year - start_dt.year) * 12 + (now_berlin.month - start_dt.month))
-    if now_berlin.day < start_dt.day:
-        heutige_monate_anzahl -= 1
-
-    gesamt_entnommen = entnommen_aktiv
-    brutto_ist = (stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan) * aktueller_kurs
-    netto_ist = brutto_ist - gesamt_entnommen
-    gewinn_brutto = brutto_ist - startkapital_aktiv
-    rendite_ist_pct = ((aktueller_kurs - kaufkurs_aktiv) / kaufkurs_aktiv) * 100
+    # --- DEPOT-KENNZAHLEN seit Kauf (Audit DEP-01/DEP-03) ---
+    # Einstand = Startkapital + tatsaechlich eingezahlte Sparraten; Netto = Brutto minus
+    # Rate x Anzahl Entnahmetermine seit Kauf (gleicher Plan wie die Real-Variante).
+    _kz = depot_kennzahlen(stueckzahl_aktiv, zusaetzliche_stueckzahl_sparplan, aktueller_kurs,
+                           startkapital_aktiv, sparplan_eingezahlt, entnahme_rate, anzahl_entnahmen)
+    brutto_ist = _kz["brutto"]
+    einstand_aktiv = _kz["einstand"]
+    gewinn_brutto = _kz["gewinn"]
+    rendite_ist_pct = _kz["rendite_pct"]
+    gesamt_entnommen = _kz["entnommen"]
+    netto_ist = _kz["netto"]
 
     # Reale Variante fuer die aktuellen Kennzahlen (Stückzahl nach echten Verkäufen)
     stueckzahl_real_ist = df_chart["Stueckzahl_Real"].iloc[-1] if not df_chart.empty else stueckzahl_aktiv
@@ -4465,7 +4857,7 @@ def render_dashboard():
     sim_b = brutto_ist
     monate_bis_ziel = 0
     while sim_b < 100000.0 and monate_bis_ziel < 600:
-        sim_b = (sim_b * (1 + erwarteter_zins_mo)) - entnommen_aktiv + sparrate_aktiv
+        sim_b = (sim_b * (1 + erwarteter_zins_mo)) - entnahme_rate + sparrate_aktiv
         monate_bis_ziel += 1
 
     monate_namen = {1: "Januar", 2: "Februar", 3: "März", 4: "April", 5: "Mai", 6: "Juni", 
@@ -4479,6 +4871,11 @@ def render_dashboard():
         meilenstein_details_str = f"In ca. {monate_bis_ziel // 12} Jahren & {monate_bis_ziel % 12} Monaten"
     else:
         meilenstein_datum_str, meilenstein_details_str = "> 50 Jahre", "Unrealistisch"
+    if prognose_rueckfall_hinweis and brutto_ist < 100000.0:
+        # Rate stammt aus dem Rueckfall (hochgerechnet bzw. 0 %) - sichtbar kennzeichnen
+        _ms_basis = (prognose_rueckfall_hinweis.split(" – ")[0]
+                     if prognose_rueckfall_hinweis.startswith("Hochgerechnet") else "0 % p.a. (Historie < 1 Monat)")
+        meilenstein_details_str += f" · Basis {prognose_rendite_pa:.1f} % p.a., {_ms_basis}"
 
     richtung = "up" if tages_verenderung_pct >= 0 else "down"
     differenz_zum_vortag = aktueller_kurs - vortag_kurs
@@ -4524,6 +4921,8 @@ def render_dashboard():
     periods_kurs = berechne_zeitraeume(aktueller_kurs, vortag_kurs, _hist_haupt, heute_date)
 
     periods_depot = [(lbl, d * gesamt_stueckzahl_perf, p) for lbl, d, p in periods_kurs]
+    # "seit Kauf": Gewinn gegen den Einstand (Startkapital + Sparraten), Prozent auf
+    # denselben Einstand (Audit DEP-01) - Euro und Prozent passen so zusammen.
     periods_depot.append(("seit Kauf", gewinn_brutto, rendite_ist_pct))
 
     def perf_zeilen_html(zeilen, nachkomma, kopfzeile=None, fusszeile=""):
@@ -4536,16 +4935,16 @@ def render_dashboard():
         if kopfzeile:
             k_label, k_wert = kopfzeile
             html += (
-                f'<div class="perf-row"><span class="perf-label">{k_label}</span>'
+                f'<div class="perf-row"><span class="perf-label">{_h(k_label)}</span>'
                 f'<span class="perf-vals"><span class="neutral">{k_wert}</span></span></div>'
             )
         for label, diff, prozent in zeilen:
-            cls = "up" if diff >= 0 else "down"
+            cls = "up" if round(diff, nachkomma) >= 0 else "down"
             html += (
-                f'<div class="perf-row"><span class="perf-label">{label}</span>'
+                f'<div class="perf-row"><span class="perf-label">{_h(label)}</span>'
                 f'<span class="perf-vals">'
-                f'<span class="{cls}">{"+" if diff >= 0 else ""}{de_zahl(diff, nachkomma)} €</span>'
-                f'<span class="{cls}">{"+" if prozent >= 0 else ""}{de_zahl(prozent, 2)} %</span>'
+                f'<span class="{cls}">{vz_zahl(diff, nachkomma)} €</span>'
+                f'<span class="{cls}">{vz_zahl(prozent, 2)} %</span>'
                 f'</span></div>'
             )
         html += fusszeile
@@ -4652,7 +5051,7 @@ def render_dashboard():
         if b_kurs is None:
             return (
                 '<div class="quote">'
-                f'<div class="q-name">{eintrag.get("name", "")} · {eintrag.get("wkn", "")}</div>'
+                f'<div class="q-name">{_h(eintrag.get("name", ""))} · {_h(eintrag.get("wkn", ""))}</div>'
                 '<div class="price-line">'
                 '<span class="q-price">–</span>'
                 '<span class="meta-chip">keine Live-Daten</span>'
@@ -4690,7 +5089,7 @@ def render_dashboard():
 
         return (
             '<div class="quote">'
-            f'<div class="q-name">{eintrag.get("name", "")} · {eintrag.get("wkn", "")}</div>'
+            f'<div class="q-name">{_h(eintrag.get("name", ""))} · {_h(eintrag.get("wkn", ""))}</div>'
             '<div class="price-line">'
             f'<span class="q-price">{de_zahl(b_kurs)} €</span>'
             '<span class="live-pill"><span class="live-dot"></span>Live</span>'
@@ -4774,6 +5173,7 @@ def render_dashboard():
         # und aller Kacheln, was die spuerbare Wartezeit verursacht hat.
         @st.fragment
         def _render_kursansicht():
+            _zugang_pruefen()      # nur Anmeldung - der Bereich wird auch in anderen Ansichten (verborgen) gebaut
             # Umschalter bewusst adaptiv:
             #   bis 3 Werte -> Pills (ein Tap, alles sichtbar)
             #   ab 4 Werten -> Dropdown (Pills braeuchten sonst 3+ Zeilen)
@@ -4853,12 +5253,19 @@ def render_dashboard():
         # Historie), nicht als eigene Kaufrendite: so steht ueberall im
         # Dashboard dieselbe Zahl, mit der auch simuliert wird. Gewinn und
         # Rendite in den Zeilen darunter bleiben die eigenen, realisierten Werte.
-        '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
+        # Rueckfall < 1 Jahr: als Hochrechnung aus Monatswerten kennzeichnen
+        f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a.'
+        f'{" (hochgerechnet)" if (prognose_rueckfall_hinweis or "").startswith("Hochgerechnet") else ""}</span>'
         f'<span class="stat-chip-val">{prognose_rendite_pa:.1f} %</span></span>'
         '</div>'
         f'{perf_zeilen_html(periods_depot, 2)}'
         f'<div class="card-footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} '
-        f'Anteile{sparplan_zusatz}</div>'
+        f'Anteile{sparplan_zusatz} · Einstand {fmt(einstand_aktiv, 2)}'
+        + (f' (Startkapital {fmt(startkapital_aktiv, 2)} + Sparraten {fmt(sparplan_eingezahlt, 2)})'
+           if sparplan_eingezahlt > 0 else '')
+        + (' · ⚠️ Sparplan ohne echte Kurshistorie nicht eingerechnet' if sparplan_ohne_kurse else '')
+        + (' · ⚠️ Ersatzdaten – keine echten Kurse' if not daten_echt else '')
+        + '</div>'
         '</div>'
     )
     # Alle Positionskacheln werden gesammelt und weiter unten gemeinsam in
@@ -4877,8 +5284,10 @@ def render_dashboard():
 
     # Kennzahlen der Hauptposition als Startwert der Gesamtsumme
     gesamt_wert = brutto_ist
-    gesamt_einstand = startkapital_aktiv
-    gesamt_zeitraeume = {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"}
+    gesamt_einstand = einstand_aktiv          # inkl. Sparraten (Audit DEP-01)
+    # Je Position (aktueller Wert, {Zeitraum: Betrag}) - die Prozentbasis je Zeitraum
+    # bilden nur die Positionen, die dafuer einen Wert liefern (Audit DEP-07).
+    gesamt_beitraege = [(brutto_ist, {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"})]
     positionen_ok = True
 
     # Sammelt fuer jede Position mit echten Kursdaten die Basis-Kennzahlen
@@ -4893,12 +5302,18 @@ def render_dashboard():
         # siehe Kommentar bei prognose_rendite_pa weiter oben.
         "cagr_pa": prognose_rendite_pa,
         "cagr_details": prognose_rendite_details,
+        "cagr_rueckfall_hinweis": prognose_rueckfall_hinweis,
         "kaufdatum": kaufdatum_aktiv,
         "sparrate": sparrate_aktiv,
-        "entnahme": entnommen_aktiv,
+        # Monatliche Entnahme (EINE Quelle, DEP-03) und bisher seit Kauf entnommen
+        "entnahme": entnahme_rate,
+        "entnommen_bisher": gesamt_entnommen,
+        # Einstand inkl. Sparraten (DEP-01) - Basis der Spalte "Gesamter Gewinn"
+        "einstand": einstand_aktiv,
         # Kursreihe fuer die Bandbreiten-Simulation weiter unten (Volatilitaet
         # und Drift werden daraus geschaetzt, nicht nur die Endpunkte).
-        "kursreihe": df_chart["Close"] if not df_chart.empty else None,
+        # Keine Volatilitaet/Drift aus synthetischen Ersatzdaten schaetzen (DEP-04)
+        "kursreihe": df_chart["Close"] if (not df_chart.empty and is_live_history) else None,
         # Fuer den Szenario-Simulator: erlaubt, die Kurshistorie des
         # PRODUKTS zu laden (unabhaengig vom eigenen Kaufzeitpunkt).
         "instrument_id": config.LS_INSTRUMENT_ID,
@@ -4924,7 +5339,7 @@ def render_dashboard():
                 p_kaufdatum = datetime.date.fromisoformat(pos["kaufdatum"])
                 karte = (
                     '<div class="hero">'
-                    f'<div class="hero-label">{p_name} · {pos.get("wkn", "")}</div>'
+                    f'<div class="hero-label">{_h(p_name)} · {_h(pos.get("wkn", ""))}</div>'
                     '<div class="price-line">'
                     f'<span class="hero-val">{fmt(p_einstand, 2)}</span>'
                     '<span class="meta-chip">ohne Kursquelle</span>'
@@ -4960,17 +5375,18 @@ def render_dashboard():
             # in die Gesamtsumme einrechnen
             gesamt_wert += p_wert
             gesamt_einstand += p_einstand
-            for lbl, betrag, _ in p_perioden_depot:
-                if lbl != "seit Kauf":
-                    gesamt_zeitraeume[lbl] = gesamt_zeitraeume.get(lbl, 0.0) + betrag
+            gesamt_beitraege.append((p_wert, {lbl: betrag for lbl, betrag, _ in p_perioden_depot
+                                              if lbl != "seit Kauf"}))
 
             p_tage = max(1, (heute_date - p_kaufdatum).days)
-            p_cagr = (((p_wert / p_einstand) ** (365.25 / p_tage)) - 1) * 100 if p_einstand > 0 and p_wert > 0 else 0.0
-            # Fuer die Prognose die Produkt-Rendite (Median), fuer die Kachel
-            # weiter unten die realisierte Rendite p_cagr - zwei Fragen, zwei Zahlen.
+            # Fuer die Prognose die Produkt-Rendite (Median); Rueckfall auf die eigene
+            # Rendite seit Kauf: ab 1 Jahr realisiert p.a., darunter ab 1 Monat aus der
+            # Ø-Monatsrendite hochgerechnet, sonst 0 % (Audit DEP-08 / Nutzerentscheid).
             p_prognose_pa, p_prognose_details = produkt_rendite_pa(pos["instrument_id"], heute_date)
+            _p_hinweis = None
             if p_prognose_pa is None:
-                p_prognose_pa, p_prognose_details = p_cagr, []
+                p_prognose_pa, _p_hinweis = prognose_rate_rueckfall(p_wert, p_einstand, p_tage)
+                p_prognose_details = [(_p_hinweis, p_prognose_pa)] if _p_hinweis else []
 
             # Sparrate/Entnahme sind bislang nur fuer die Hauptposition
             # konfigurierbar - fuer weitere Positionen daher 0.
@@ -4980,9 +5396,11 @@ def render_dashboard():
                 "aktueller_wert": p_wert,
                 "cagr_pa": p_prognose_pa,
                 "cagr_details": p_prognose_details,
+                "cagr_rueckfall_hinweis": _p_hinweis,
                 "kaufdatum": p_kaufdatum,
                 "sparrate": 0.0,
                 "entnahme": 0.0,
+                "einstand": p_einstand,
                 "kursreihe": p_hist if p_hist is not None and not p_hist.empty else None,
                 "instrument_id": pos["instrument_id"],
                 "wkn": pos.get("wkn", ""),
@@ -4990,10 +5408,11 @@ def render_dashboard():
 
             karte = (
                 '<div class="hero">'
-                f'<div class="hero-label">{pos.get("name", "Position")} · {pos.get("wkn", "")}</div>'
+                f'<div class="hero-label">{_h(pos.get("name", "Position"))} · {_h(pos.get("wkn", ""))}</div>'
                 '<div class="price-line">'
                 f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
-                '<span class="stat-chip"><span class="stat-chip-label">Ø p.a.</span>'
+                f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a.'
+                f'{" (hochgerechnet)" if (_p_hinweis or "").startswith("Hochgerechnet") else ""}</span>'
                 f'<span class="stat-chip-val">{p_prognose_pa:.1f} %</span></span>'
                 f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
                 '</div>'
@@ -5021,13 +5440,15 @@ def render_dashboard():
         # Prozent je Zeitraum aus den summierten €-Betraegen ableiten, NICHT die
         # Einzelprozente mitteln - Positionen haben unterschiedliche Groessen,
         # ein einfacher Mittelwert waere schlicht falsch.
+        # Audit DEP-07: Basis je Zeitraum nur ueber die Positionen, die fuer diesen
+        # Zeitraum einen Betrag liefern; fehlen Positionen, wird die Zeile mit "*"
+        # gekennzeichnet (Fussnote unten).
         gesamt_perioden = []
-        for lbl in ["Tag", "Woche", "Monat", "Jahr"]:
-            if lbl in gesamt_zeitraeume:
-                betrag = gesamt_zeitraeume[lbl]
-                basis = gesamt_wert - betrag
-                pct = (betrag / basis * 100) if basis else 0.0
-                gesamt_perioden.append((lbl, betrag, pct))
+        teilweise_zeitraeume = False
+        for lbl, betrag, pct, teilweise in gesamt_perioden_berechnen(
+                gesamt_beitraege, ["Tag", "Woche", "Monat", "Jahr"]):
+            gesamt_perioden.append((f"{lbl}*" if teilweise else lbl, betrag, pct))
+            teilweise_zeitraeume = teilweise_zeitraeume or teilweise
         gesamt_perioden.append(("seit Kauf", gesamt_gewinn, gesamt_rendite))
 
         # Nur Positionen mit Kursquelle sind in der Summe enthalten - das muss
@@ -5042,6 +5463,10 @@ def render_dashboard():
         hinweis = "" if positionen_ok else " · ⚠️ unvollständig, s. Warnungen oben"
         if anzahl_gezaehlt < anzahl_gesamt:
             hinweis += " · Positionen ohne Kursquelle nicht enthalten"
+        if teilweise_zeitraeume:
+            hinweis += " · * nur Positionen mit Kursdaten für diesen Zeitraum (Prozent auf deren Wert)"
+        if sparplan_eingezahlt > 0:
+            hinweis += f" · inkl. Sparraten {fmt(sparplan_eingezahlt, 2)}"
         gesamt_karte = (
             '<div class="hero gesamt">'
             '<div class="hero-label">Depot gesamt</div>'
@@ -5140,22 +5565,101 @@ def render_dashboard():
         st.caption(f"Ergibt aktuell **{stueckzahl_aktiv:.4f} Anteile** "
                    f"zu {de_zahl(kaufkurs_aktiv, 4)} €")
 
-        sparrate_kwargs = dict(
-            min_value=0.0, step=10.0, key="haupt_sparrate_input",
-            help="Zusätzliche monatliche Einzahlung (Sparplan) - kauft laufend Anteile dazu und "
-                 "fließt in die Zukunfts-Hochrechnungen ein. Ändert die bisherige Chart-Historie nicht.",
-        )
-        if "haupt_sparrate_input" not in st.session_state:
-            sparrate_kwargs["value"] = 0.0
-        st.number_input("Monatliche Sparrate (€)", **sparrate_kwargs)
+        def _vorbelegen(key, gespeichert):
+            """Eingabefeld mit dem GESPEICHERTEN Wert vorbelegen. Aendert sich der gespeicherte
+            Wert (andere Sitzung, Zustand wieder lesbar), wird nachgezogen - aber nur, solange
+            hier nichts Ungespeichertes eingetippt wurde."""
+            basis_key = f"_{key}_basis"
+            basis = st.session_state.get(basis_key)
+            akt = st.session_state.get(key)
+            if akt is None or (basis is not None and abs(float(akt) - basis) < 1e-9
+                               and abs(basis - float(gespeichert)) > 1e-9):
+                st.session_state[key] = float(gespeichert)
+                st.session_state[basis_key] = float(gespeichert)
+            elif basis is None:
+                st.session_state[basis_key] = float(gespeichert)
 
-        ek_kwargs = dict(
-            min_value=0.0, step=10.0, key="haupt_entnommen_input",
-            help="Standard: 0€ - hier frei einstellbar, ganz wie du es tatsächlich entnommen hast.",
+        # --- SPARRATE (Audit DEP-02): vorbelegt aus dem gespeicherten Plan; gespeichert
+        # bzw. beendet wird NUR per Knopf (Beenden zusaetzlich mit Bestaetigung). ---
+        _vorbelegen("haupt_sparrate_input", sparrate_aktiv)
+        st.number_input(
+            "Monatliche Sparrate (€)", min_value=0.0, step=10.0, key="haupt_sparrate_input",
+            help="Zusätzliche monatliche Einzahlung (Sparplan) - kauft ab dem Starttag monatlich "
+                 "Anteile zum jeweiligen Kurs. Eingezahlte Raten zählen zum Einstand, nicht zum Gewinn. "
+                 "Wird erst mit „Sparrate speichern“ übernommen.",
         )
-        if "haupt_entnommen_input" not in st.session_state:
-            ek_kwargs["value"] = entnommen_aktiv
-        st.number_input("Monatliche Entnahme (€)", **ek_kwargs)
+        if sparplan_start is not None:
+            st.caption(f"Sparplan läuft seit {sparplan_start.strftime('%d.%m.%Y')} · "
+                       f"{len(sparplan_termine_liste)} Käufe · eingezahlt {fmt(sparplan_eingezahlt, 2)}")
+        if sparplan_ohne_rate:
+            st.warning("Für den laufenden Sparplan ist noch keine Rate gespeichert (älterer Stand). "
+                       "Bitte die Rate eintragen und speichern - sie gilt dann ab dem Starttag.")
+        if GH_STATE_READY and not sparplan_lesbar:
+            st.warning("Sparplan-Zustand gerade nicht lesbar - Speichern ist bis dahin gesperrt.")
+        _sp_neu = float(st.session_state.get("haupt_sparrate_input") or 0.0)
+        _sp_geaendert = abs(_sp_neu - sparrate_aktiv) > 1e-9 or sparplan_ohne_rate
+        if GH_STATE_READY and sparplan_lesbar and _sp_geaendert:
+            _beenden = _sp_neu <= 0
+            _bestaetigt = True
+            if _beenden:
+                _bestaetigt = st.checkbox(
+                    "Sparplan wirklich beenden (bisherige Sparplan-Käufe fallen aus der Rechnung)",
+                    key="sparplan_beenden_ok")
+            if st.button("🛑 Sparplan beenden" if _beenden else "💾 Sparrate speichern",
+                         key="sparplan_speichern_btn", disabled=not _bestaetigt):
+                if _beenden:
+                    ok, _ = gh_aktualisiere(config.STATE_PATH_SPARPLAN, lambda d: {}, default={},
+                                            message="sparplan gestoppt [skip ci]")
+                    if ok:
+                        chronik_eintrag("depot", "⏹️ Sparplan gestoppt",
+                                        f"Lief seit {sparplan_start.strftime('%d.%m.%Y')}." if sparplan_start else "")
+                        st.session_state.pop("sparplan_beenden_ok", None)
+                        st.session_state["_haupt_sparrate_input_basis"] = 0.0
+                        st.success("Sparplan beendet.")
+                        st.rerun()
+                    else:
+                        st.error("Beenden fehlgeschlagen - der Sparplan-Zustand wurde NICHT geändert.")
+                else:
+                    ok, neu = gh_aktualisiere(
+                        config.STATE_PATH_SPARPLAN,
+                        lambda d: sparplan_state_neu(d, _sp_neu, heute_date), default={},
+                        message="sparplan gespeichert [skip ci]")
+                    if ok:
+                        chronik_eintrag("depot", f"💶 Sparrate gespeichert: {_de_zahl(_sp_neu)} €/Monat",
+                                        "Monatlicher Nachkauf zum jeweiligen Kurs (Rechnung).")
+                        st.session_state["_haupt_sparrate_input_basis"] = _sp_neu
+                        st.success("Sparrate gespeichert.")
+                        st.rerun()
+                    else:
+                        st.error("Speichern fehlgeschlagen - die Sparrate wurde NICHT übernommen.")
+        elif not GH_STATE_READY:
+            st.caption("Ohne persistenten State gilt die Sparrate nur in dieser Sitzung.")
+
+        # --- ENTNAHME (Audit DEP-03): EINE gespeicherte Monatsrate fuer Netto und Real ---
+        _vorbelegen("haupt_entnommen_input", entnahme_rate)
+        st.number_input(
+            "Monatliche Entnahme (€)", min_value=0.0, step=10.0, key="haupt_entnommen_input",
+            help=f"Wird ab einem Monat nach dem Kaufdatum monatlich entnommen und seit Kauf "
+                 f"aufsummiert (Netto = Brutto − Rate × Anzahl Entnahmen). Dieselbe Rate gilt für "
+                 f"die Real-Variante mit Anteilsverkauf. Standard: {_de_zahl(getattr(config, 'ENTNAHME_PM', 0.0))} €.",
+        )
+        st.caption(f"{anzahl_entnahmen} Entnahmen seit Kauf · zusammen {fmt(gesamt_entnommen, 2)}")
+        _en_neu = float(st.session_state.get("haupt_entnommen_input") or 0.0)
+        if GH_STATE_READY and abs(_en_neu - entnahme_rate) > 1e-9:
+            if not entnahme_lesbar:
+                st.warning("Entnahme-Zustand gerade nicht lesbar - Speichern ist bis dahin gesperrt.")
+            elif st.button("💾 Entnahme speichern", key="entnahme_speichern_btn"):
+                ok, _ = gh_aktualisiere(STATE_PATH_ENTNAHME,
+                                        lambda d: dict(d if isinstance(d, dict) else {}, rate=_en_neu),
+                                        default={}, message="entnahme gespeichert [skip ci]")
+                if ok:
+                    chronik_eintrag("depot", f"💸 Monatliche Entnahme: {_de_zahl(_en_neu)} €",
+                                    "Gilt für Netto (Simulation) und Real.")
+                    st.session_state["_haupt_entnommen_input_basis"] = _en_neu
+                    st.success("Entnahme gespeichert.")
+                    st.rerun()
+                else:
+                    st.error("Speichern fehlgeschlagen - die Entnahme wurde NICHT übernommen.")
 
     # Sicherheitsnetz: falls keine Ansicht gegriffen hat (z.B. unbekannter
     # gespeicherter Wert in der Auswahl), darf die Anzeige nicht stehenbleiben.
@@ -5184,13 +5688,12 @@ def render_dashboard():
                      "Instrument-ID hinterlegt - kein Suchen nötig.",
             )
             if v_btn.button("Übernehmen", width="stretch", key="beob_vorlage_btn"):
-                _liste = lade_beobachtung()
-                _liste.append({
+                _neu_eintrag = {
                     "id": f"beob-{int(datetime.datetime.now().timestamp())}",
                     "name": v_wahl, "wkn": "",
                     "instrument_id": _vorschlaege[v_wahl],
-                })
-                if speichere_beobachtung(_liste, "beobachtung aus benchmark [skip ci]"):
+                }
+                if aendere_beobachtung(lambda l: l + [_neu_eintrag], "beobachtung aus benchmark [skip ci]"):
                     st.success(f"„{v_wahl}“ zur Beobachtung hinzugefügt.")
                     st.rerun()
                 else:
@@ -5222,23 +5725,36 @@ def render_dashboard():
                 b_geloescht = bc_del.form_submit_button("🗑️ Entfernen", width="stretch")
 
                 if b_gespeichert:
-                    beob_liste[b_idx] = {
+                    _b_neu = {
                         "id": eintrag.get("id") or f"beob-{int(datetime.datetime.now().timestamp())}",
                         "name": nb_name, "wkn": nb_wkn,
                         "instrument_id": int(nb_inst) if nb_inst else None,
                     }
-                    if speichere_beobachtung(beob_liste, "beobachtung geaendert [skip ci]"):
+
+                    def _b_ersetzen(l, _alt=eintrag, _i=b_idx, _neu=_b_neu):
+                        j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
+                        if j is None:
+                            return None          # Eintrag inzwischen geaendert/entfernt
+                        l[j] = _neu
+                        return l
+                    if aendere_beobachtung(_b_ersetzen, "beobachtung geaendert [skip ci]"):
                         for k in (f"beob_edit_{b_idx}_suche", f"beob_edit_{b_idx}_letzter",
                                   f"beob_edit_{b_idx}_treffer", f"beob_edit_{b_idx}_wahl"):
                             st.session_state.pop(k, None)
                         st.success("Gespeichert.")
                         st.rerun()
                     else:
-                        st.error("Speichern fehlgeschlagen (kein persistenter State?).")
+                        st.error("Speichern fehlgeschlagen (kein persistenter State, Lesefehler "
+                                 "oder Eintrag inzwischen geändert) - nichts gespeichert.")
 
                 if b_geloescht:
-                    beob_liste.pop(b_idx)
-                    if speichere_beobachtung(beob_liste, "beobachtung entfernt [skip ci]"):
+                    def _b_entfernen(l, _alt=eintrag, _i=b_idx):
+                        j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
+                        if j is None:
+                            return None
+                        l.pop(j)
+                        return l
+                    if aendere_beobachtung(_b_entfernen, "beobachtung entfernt [skip ci]"):
                         st.success("Entfernt.")
                         st.rerun()
                     else:
@@ -5274,12 +5790,12 @@ def render_dashboard():
                             "Kursdaten. Bitte die ID prüfen."
                         )
                     else:
-                        beob_liste.append({
+                        _b_anlage = {
                             "id": f"beob-{int(datetime.datetime.now().timestamp())}",
                             "name": bneu_name, "wkn": bneu_wkn,
                             "instrument_id": int(bneu_inst),
-                        })
-                        if speichere_beobachtung(beob_liste, "beobachtung angelegt [skip ci]"):
+                        }
+                        if aendere_beobachtung(lambda l: l + [_b_anlage], "beobachtung angelegt [skip ci]"):
                             for k in ("beob_neu_suche", "beob_neu_letzter",
                                       "beob_neu_treffer", "beob_neu_wahl"):
                                 st.session_state.pop(k, None)
@@ -5348,14 +5864,21 @@ def render_dashboard():
                 geloescht = c_del.form_submit_button("🗑️ Löschen", width="stretch")
 
                 if gespeichert:
-                    alle_positionen[idx] = {
+                    _p_neu = {
                         "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
                         "name": n_name, "wkn": n_wkn,
                         "instrument_id": int(n_inst) if n_inst else None,
                         "kaufdatum": n_kaufdatum.isoformat(), "kaufkurs": float(n_kaufkurs),
                         "startkapital": float(n_kapital),
                     }
-                    if speichere_positionen(alle_positionen, "position geaendert [skip ci]"):
+
+                    def _p_ersetzen(l, _alt=pos, _i=idx, _neu=_p_neu):
+                        j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
+                        if j is None:
+                            return None
+                        l[j] = _neu
+                        return l
+                    if aendere_positionen(_p_ersetzen, "position geaendert [skip ci]"):
                         for k in (f"edit_{idx}_suche", f"edit_{idx}_letzter",
                                   f"edit_{idx}_treffer", f"edit_{idx}_wahl"):
                             st.session_state.pop(k, None)
@@ -5368,8 +5891,13 @@ def render_dashboard():
                     if len(alle_positionen) <= 1:
                         st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
                     else:
-                        alle_positionen.pop(idx)
-                        if speichere_positionen(alle_positionen, "position geloescht [skip ci]"):
+                        def _p_entfernen(l, _alt=pos, _i=idx):
+                            j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
+                            if j is None or len(l) <= 1:
+                                return None
+                            l.pop(j)
+                            return l
+                        if aendere_positionen(_p_entfernen, "position geloescht [skip ci]"):
                             st.success("Gelöscht.")
                             st.rerun()
                         else:
@@ -5417,14 +5945,14 @@ def render_dashboard():
                             "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
                         )
                     else:
-                        alle_positionen.append({
+                        _p_anlage = {
                             "id": f"pos-{int(datetime.datetime.now().timestamp())}",
                             "name": neu_name, "wkn": neu_wkn,
                             "instrument_id": int(neu_inst) if neu_inst else None,
                             "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
                             "startkapital": float(neu_kapital),
-                        })
-                        if speichere_positionen(alle_positionen, "position angelegt [skip ci]"):
+                        }
+                        if aendere_positionen(lambda l: l + [_p_anlage], "position angelegt [skip ci]"):
                             for k in ("neu_suche", "neu_letzter", "neu_treffer", "neu_wahl"):
                                 st.session_state.pop(k, None)
                             if test_kurs is not None:
@@ -5473,13 +6001,13 @@ def render_dashboard():
             <div class="row">
                 <span class="row-label">Netto (Simulation)</span>
                 <span class="row-val">{fmt(netto_ist, 2)}
-                    <span class="row-note">Entnahme nur buchhalterisch abgezogen{sparrate_note}</span>
+                    <span class="row-note">{anzahl_entnahmen} × {fmt(entnahme_rate, 2)} seit Kauf buchhalterisch abgezogen ({fmt(gesamt_entnommen, 2)}){sparrate_note}</span>
                 </span>
             </div>
             <div class="row">
                 <span class="row-label">Netto (real verkauft)</span>
                 <span class="row-val">{fmt(depotwert_real_ist, 2)}
-                    <span class="row-note">{stueckzahl_real_ist:.4f} Anteile nach realer Entnahme, inkl. {config.SPREAD_PCT:.2f} % Spread</span>
+                    <span class="row-note">{stueckzahl_real_ist:.4f} Anteile nach {anzahl_entnahmen} realen Verkäufen à {fmt(entnahme_rate, 2)}, inkl. {config.SPREAD_PCT:.2f} % Spread</span>
                 </span>
             </div>
             <div class="row">
@@ -5569,8 +6097,13 @@ def render_dashboard():
                     st.caption(
                         f"📅 Eigene Position berechnet ab {kaufdatum_aktiv.strftime('%d.%m.%Y')} "
                         f"(Kaufdatum, gegen eingesetztes Kapital){_start_hinweis}"
+                        + (f" · Tabelle und Chart: nur Anfangsbestand ({fmt(startkapital_aktiv, 0)}), "
+                           f"ohne Sparplan-Anteile – die Kachel „seit Kauf“ rechnet sie mit ein "
+                           f"(Einstand {fmt(einstand_aktiv, 0)})" if sparplan_eingezahlt > 0 else "")
+                        + " · Ø/Jahr erst ab 1 Jahr Laufzeit, Ø/Mon. ab 30 Tagen (sonst „–“)"
+                        + ("" if is_live_history else " · ⚠️ SYNTHETISCHE Ersatzdaten, keine echten Kurse")
                     )
-                    performance_liste_haupt.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    performance_liste_haupt.sort(key=perf_sortierwert, reverse=True)   # DEP-08: ohne Ø/Jahr nach Gesamt
                     _fokus = kennzahl_umschalter("fokus_haupt", performance_liste_haupt)
                     st.markdown(
                         performance_tabelle_html(performance_liste_haupt, eigene_kennung=config.WKN,
@@ -5583,7 +6116,8 @@ def render_dashboard():
                         "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
                         f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
                         f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
-                        "70€/Monat wirklich entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
+                        f"{fmt(entnahme_rate, 2)}/Monat (Einstellung „Monatliche Entnahme“) wirklich "
+                        "entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
                         f"{fmt(startkapital_aktiv, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
                         "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
                     )
@@ -5592,7 +6126,7 @@ def render_dashboard():
 
                 fig_wealth = go.Figure()
                 fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
-                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
+                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert" + ("" if is_live_history else " – SYNTHETISCH"), line=dict(color="#00C853", width=2.5)))
 
                 legende_eintraege = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
                 for label, s in benchmark_series.items():
@@ -5628,6 +6162,9 @@ def render_dashboard():
     def _render_ytd():
         try:
             with tab_ytd:
+                if not is_live_history:
+                    st.warning("⚠️ SYNTHETISCHE Ersatzdaten – ls-tc.de liefert gerade keine echte Kurshistorie. "
+                               "Linie/Kennzahlen des Zertifikats sind NICHT echt.")
                 v2_start = pd.Timestamp(config.VERGLEICH2_START_DATUM)
                 v2_kapital = config.VERGLEICH2_STARTKAPITAL
 
@@ -5707,7 +6244,7 @@ def render_dashboard():
 
                 if performance_liste_v2:
                     st.caption(f"📅 Berechnet seit {config.VERGLEICH2_START_DATUM.strftime('%d.%m.%Y')}")
-                    performance_liste_v2.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    performance_liste_v2.sort(key=perf_sortierwert, reverse=True)   # DEP-08: ohne Ø/Jahr nach Gesamt
                     _fokus = kennzahl_umschalter("fokus_v2", performance_liste_v2)
                     st.markdown(
                         performance_tabelle_html(performance_liste_v2, eigene_kennung=config.WKN,
@@ -5751,7 +6288,13 @@ def render_dashboard():
                 # NICHT auf den (ggf. kuerzeren) Zeitraum des Zertifikats
                 # zugeschnitten - sie laufen ueber den vollen 2021-Zeitraum,
                 # nur die Zertifikat-Linie beginnt ggf. spaeter (echte Luecke).
-                df_chart_v3, _ = get_historical_market_data(config.VERGLEICH3_START_DATUM, heute_date, aktueller_kurs)
+                df_chart_v3, _v3_quelle = get_historical_market_data(config.VERGLEICH3_START_DATUM, heute_date, aktueller_kurs)
+                v3_echt = "SYNTHETISCH" not in _v3_quelle          # Audit DEP-04: Ersatzreihe kennzeichnen
+                if v3_echt and is_live_data:                        # DEP-10: gleicher letzter Tag wie Vergleichswerte
+                    df_chart_v3 = haenge_live_punkt_an(df_chart_v3, heute_date, aktueller_kurs)
+                if not v3_echt:
+                    st.warning("⚠️ SYNTHETISCHE Ersatzdaten – ls-tc.de liefert gerade keine echte Kurshistorie. "
+                               "Linie/Kennzahlen des Zertifikats sind NICHT echt.")
                 roh_eigen_v3 = df_chart_v3["Close"] if not df_chart_v3.empty else pd.Series(dtype=float)
 
                 tatsaechlicher_start_v3 = roh_eigen_v3.index.min() if not roh_eigen_v3.empty else None
@@ -5778,7 +6321,8 @@ def render_dashboard():
                     name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
                 ))
                 fig_v3.add_trace(go.Scatter(
-                    x=eigene_reihe_v3.index, y=eigene_reihe_v3, name=f"Hauptindizes Global ({config.WKN})",
+                    x=eigene_reihe_v3.index, y=eigene_reihe_v3,
+                    name=f"Hauptindizes Global ({config.WKN})" + ("" if v3_echt else " – SYNTHETISCH"),
                     line=dict(color="#00C853", width=2.5),
                 ))
                 benchmark_colors_v3 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
@@ -5807,7 +6351,7 @@ def render_dashboard():
                         roh_eigen_v3.iloc[0], roh_eigen_v3.iloc[-1], start_datum_eigen_v3, heute_date
                     )
                     performance_liste_v3.append({
-                        "Wert": f"Hauptindizes Global ({config.WKN})",
+                        "Wert": f"Hauptindizes Global{'' if v3_echt else ' ⚠️ SYNTHETISCH'} ({config.WKN})",
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                         "_q": pct_ueber_tage(roh_eigen_v3, 91),
                         "_h": pct_ueber_tage(roh_eigen_v3, 182),
@@ -5834,7 +6378,7 @@ def render_dashboard():
 
                 if performance_liste_v3:
                     st.caption(f"📅 Berechnet seit {config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')} (bzw. erstem verfügbaren Kurs)")
-                    performance_liste_v3.sort(key=lambda x: x["_jaehrlich"], reverse=True)
+                    performance_liste_v3.sort(key=perf_sortierwert, reverse=True)   # DEP-08: ohne Ø/Jahr nach Gesamt
                     _fokus = kennzahl_umschalter("fokus_v3", performance_liste_v3)
                     st.markdown(
                         performance_tabelle_html(performance_liste_v3, eigene_kennung=config.WKN,
@@ -5877,8 +6421,14 @@ def render_dashboard():
             def load_db():
                 return gh_read(config.STATE_PATH_TRADES_DB, [])
 
-            def save_db(data):
-                gh_write(config.STATE_PATH_TRADES_DB, data, message="update chronik [skip ci]")
+            def notiz_speichern(eintrag):
+                """Lesen-Aendern-Schreiben mit Versionspruefung (keine verlorenen
+                Auto-Eintraege der Workflows, nie nach einem Lesefehler). -> True/False"""
+                ok, _ = gh_aktualisiere(
+                    config.STATE_PATH_TRADES_DB,
+                    lambda d: chronik.anhaengen(d if isinstance(d, list) else [], eintrag)[0],
+                    default=[], message="update chronik [skip ci]")
+                return ok
 
             db_events = [x for x in (load_db() or []) if isinstance(x, dict)]
 
@@ -5936,9 +6486,10 @@ def render_dashboard():
                         if st.form_submit_button("Speichern") and eti:
                             eintrag = chronik.neuer_eintrag("notiz", eti, ei, typ="Notiz", quelle="manuell")
                             eintrag["datum"] = ed.strftime("%Y-%m-%d")
-                            db_neu, _ = chronik.anhaengen(db_events, eintrag)
-                            save_db(db_neu)
-                            st.rerun()
+                            if notiz_speichern(eintrag):
+                                st.rerun()
+                            else:
+                                st.error("Notiz NICHT gespeichert (kein persistenter State oder Lesefehler).")
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -5954,6 +6505,9 @@ def render_dashboard():
     def _render_candle():
         try:
             with tab_candle:
+                if not is_live_history:
+                    st.warning("⚠️ SYNTHETISCHE Ersatzdaten – ls-tc.de liefert gerade keine echte Kurshistorie. "
+                               "Linie/Kennzahlen des Zertifikats sind NICHT echt.")
                 fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
                 fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False)
                 st.plotly_chart(fig_c, width="stretch", key="chart_candlestick")
@@ -5981,6 +6535,7 @@ def render_dashboard():
     # Fragment-Reruns. Die Ansicht zeichnet daher direkt an ihrer Stelle.
     @st.fragment
     def _render_forecast():
+        _zugang_pruefen("🔮 Zukunfts-Prognose")
         try:
             # Ab der zweiten Position eine Auswahl anbieten - bei nur einer
             # Position (Standardfall) waere ein Dropdown mit einem einzigen
@@ -6007,9 +6562,12 @@ def render_dashboard():
             opt_aktueller_wert = opt["aktueller_wert"]
             opt_kaufdatum = opt["kaufdatum"]
             opt_sparrate = opt["sparrate"]
-            opt_entnahme = opt["entnahme"]
-            opt_gewinn = opt_aktueller_wert - opt_startkapital
-            opt_netto = opt_aktueller_wert - opt_entnahme
+            opt_entnahme = opt["entnahme"]                         # Rate je Monat
+            opt_entnommen = float(opt.get("entnommen_bisher") or 0.0)  # bisher seit Kauf
+            # Audit DEP-01: Gewinn gegen den Einstand (Startkapital + eingezahlte Sparraten)
+            opt_einstand = float(opt.get("einstand", opt_startkapital))
+            opt_gewinn = opt_aktueller_wert - opt_einstand
+            opt_netto = opt_aktueller_wert - opt_entnommen
 
             _default_key = f"prognose_rate_{opt['name']}"
             opt_cagr_pa = st.number_input(
@@ -6021,7 +6579,11 @@ def render_dashboard():
             )
             opt_zins_mo = (1 + (opt_cagr_pa / 100.0)) ** (1 / 12) - 1
 
-            if opt.get("cagr_details"):
+            _opt_rueckfall = opt.get("cagr_rueckfall_hinweis")
+            if _opt_rueckfall:
+                # Produkt-Historie zu kurz -> Rate aus dem eigenen Kauf (Nutzerentscheid DEP-08)
+                st.caption(f"⚠️ Vorbelegte Rate {opt['cagr_pa']:+.2f} % p.a.: {_opt_rueckfall}.")
+            elif opt.get("cagr_details"):
                 with st.expander("Wie wurde die vorbelegte Rate ermittelt?", expanded=False):
                     st.caption("Grundlage ist ein **Trend über die gesamte Historie** (Regression durch alle Kurspunkte) plus Zeitfenster **ab 6 Monaten**, daraus der Median. Kürzere Fenster bleiben bewusst außen vor: ein Monat hochgerechnet multipliziert das Zufallsrauschen mit zwölf. Bei kurzer Historie wird das Ergebnis zusätzlich Richtung einer konservativen Marktrendite gedämpft, weil sich aus wenigen Monaten keine verlässliche Jahresrate ablesen lässt.")
                     for _label, _wert in opt["cagr_details"]:
@@ -6045,15 +6607,19 @@ def render_dashboard():
                 st.caption(sparrate_hinweis.strip())
 
             forecast_data = [
-                {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": "0,00€"},
-                {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Gesamter Gewinn": f"+{fmt(opt_gewinn, 2)}", "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnahme, 2)}
+                {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Gesamter Gewinn": fmt_vz(0.0), "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": fmt(0.0, 2)},
+                {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Gesamter Gewinn": fmt_vz(opt_gewinn), "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnommen, 2)}
             ]
 
-            sim_b_prog, sim_n_prog, sim_e_prog = opt_aktueller_wert, opt_netto, opt_entnahme
+            # Fortschreibung: jede kuenftige Sparrate erhoeht den Einstand (DEP-01), jede
+            # Entnahme die kumulierte Entnahme (DEP-03); Vorzeichen abhaengig vom Wert (DEP-13).
+            sim_b_prog, sim_n_prog, sim_e_prog = opt_aktueller_wert, opt_netto, opt_entnommen
+            sim_einstand = opt_einstand
             milestone_added = opt_aktueller_wert >= 100000.0
 
             for m_idx in range(1, 121):
                 sim_b_prog = (sim_b_prog * (1 + opt_zins_mo)) + opt_sparrate
+                sim_einstand += opt_sparrate
                 sim_e_prog += opt_entnahme
                 sim_n_prog = sim_b_prog - sim_e_prog
     
@@ -6063,7 +6629,7 @@ def render_dashboard():
                     forecast_data.append({
                         "Jahr": "100k",
                         "Datum": current_date.strftime("%d.%m.%Y"),
-                        "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
+                        "Gesamter Gewinn": fmt_vz(sim_b_prog - sim_einstand),
                         "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                     })
                     milestone_added = True
@@ -6072,7 +6638,7 @@ def render_dashboard():
                     forecast_data.append({
                         "Jahr": f"Jahr +{m_idx // 12}",
                         "Datum": current_date.strftime("%d.%m.%Y"),
-                        "Gesamter Gewinn": f"+{fmt(sim_b_prog - opt_startkapital, 2)}",
+                        "Gesamter Gewinn": fmt_vz(sim_b_prog - sim_einstand),
                         "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                     })
         
@@ -6082,7 +6648,7 @@ def render_dashboard():
             # ohne Entnahme sind "Netto Depotwert" und "Kumulierte
             # Entnahme" identisch zum Bruttowert bzw. durchgehend 0 und
             # kosten auf dem Smartphone nur seitliche Scrollbreite.
-            if not opt_entnahme:
+            if not opt_entnahme and not opt_entnommen:
                 df_forecast = df_forecast.drop(
                     columns=["Netto Depotwert", "Kumulierte Entnahme"], errors="ignore"
                 )
@@ -6150,7 +6716,9 @@ def render_dashboard():
                 b1, b2 = st.columns(2)
                 b1.metric("Mittleres Ergebnis (Median)", fmt(mc_perzentile[50], 0))
                 b2.metric("Wahrscheinlichkeit eines Verlusts",
-                          f"{mc_kennzahlen['verlust_wahrscheinlichkeit']:.0f} %")
+                          f"{mc_kennzahlen['verlust_wahrscheinlichkeit']:.0f} %",
+                          help="Anteil der Verläufe, die unter dem insgesamt eingesetzten Geld enden "
+                               f"(heutiger Wert + Sparraten − Entnahmen = {fmt(mc_kennzahlen['eingesetzt'], 0)}).")
 
                 st.markdown(
                     '<div class="rows">'
@@ -6187,6 +6755,11 @@ def render_dashboard():
                     else:
                         st.write("- Dämpfung ist **aus**: der rohe Trend wird ungebremst fortgeschrieben.")
                     st.write(f"- Schwankungsbreite: **{mc_kennzahlen['vola_pa']:.0f} % p.a.**")
+                    st.write("- Der verwendete Trend ist eine logarithmische Rate: ohne Ein-/Auszahlungen "
+                             "wächst der **Median** genau mit dieser Rate p.a.; der Durchschnitt aller "
+                             "Verläufe liegt wegen der Schwankung darüber.")
+                    st.write(f"- Verlust heißt: Endwert unter dem eingesetzten Geld "
+                             f"({fmt(mc_kennzahlen['eingesetzt'], 0)} = heutiger Wert + Sparraten − Entnahmen).")
                     st.caption(
                         "Auch das bleibt ein Modell: Es unterstellt, dass sich Schwankungen "
                         "künftig ähnlich verhalten wie bisher, und kennt weder Marktcrashs "
@@ -6228,6 +6801,7 @@ def render_dashboard():
     # Fragment-Reruns. Die Ansicht zeichnet daher direkt an ihrer Stelle.
     @st.fragment
     def _render_scenarios():
+        _zugang_pruefen("📊 Szenario-Simulator (5 Jahre)")
         try:
             st.markdown(
                 '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
@@ -6321,6 +6895,9 @@ def render_dashboard():
                 # der gewaehlte Wert (gecacht) - nicht alle anderen.
                 _inst_id = basis.get("instrument_id")
                 _rate_quelle = "eigener Kauf"
+                if basis.get("cagr_rueckfall_hinweis"):
+                    # < 1 Jahr: hochgerechnete Ø-Monatsrendite bzw. 0 % - Herkunft nennen
+                    _rate_quelle += ", " + basis["cagr_rueckfall_hinweis"].split(" – ")[0]
                 _prod_pa = float(basis.get("cagr_pa") or 0.0)
                 _details = []
                 if _inst_id:
@@ -6365,8 +6942,10 @@ def render_dashboard():
                             if _gespeichert and _b2.button("Entfernen",
                                                            key=f"szenario_aufl_del_{_k}",
                                                            width="stretch"):
-                                speichere_auflegung(_inst_id, None)
-                                st.rerun(scope="fragment")
+                                if speichere_auflegung(_inst_id, None):
+                                    st.rerun(scope="fragment")
+                                else:
+                                    st.error("Entfernen fehlgeschlagen - nichts geändert.")
                             if _gespeichert:
                                 st.caption(f"Aktiv: Auflegung {_gespeichert.strftime('%d.%m.%Y')} "
                                            f"zu {WIKIFOLIO_STARTKURS:.0f} €.")
@@ -6435,7 +7014,7 @@ def render_dashboard():
         
                 _serien_name = f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"
                 if ist_eigene_rate:
-                    _serien_name = f"⭐ {basis_name}: {_serien_name}"
+                    _serien_name = f"⭐ {_h(basis_name)}: {_serien_name}"   # Plotly deutet Teile von HTML
                 scenario_series[_serien_name] = monthly_vals
 
                 if m_to_100k is not None:
@@ -6464,7 +7043,7 @@ def render_dashboard():
                 _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
                            if e["eigene"] else "1px solid #27272A")
                 _marke = (f'<div style="font-size: 0.72rem; font-weight: 700; color: #16C784; '
-                          f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {basis_name.upper()}</div>'
+                          f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {_h(basis_name.upper())}</div>'
                           if e["eigene"] else "")
                 # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
                 # In einem mehrzeiligen f-String entsteht bei leerem
@@ -6557,11 +7136,22 @@ def render_dashboard():
                 st.caption(f"Repo: {GITHUB_REPO} • Branch: {config.GITHUB_STATE_BRANCH}")
             st.write(f"**High Watermark:** {high_watermark_anzeige:.3f}€")
             st.write(f"**Kurs aktuell / Vortag:** {aktueller_kurs:.3f} € / {vortag_kurs:.3f} €")
-            st.write(f"**Prognose-Basis:** realisiert seit Kauf {erwartete_rendite_pa:.2f} % p.a. · "
-                     f"Basis der 100k-Simulation (Produkt-Historie, Median) {prognose_rendite_pa:.2f} % p.a.")
-            if st.button("🔔 Test-Alarm senden", key="test_alarm_btn"):
-                if send_discord_alert(-1.50, aktueller_kurs):
-                    st.success("Test-Alarm gesendet!")
+            _real_txt = (f"{erwartete_rendite_pa:.2f} % p.a."
+                         + (f" ({erwartete_rendite_hinweis})" if erwartete_rendite_hinweis else "")
+                         if erwartete_rendite_pa is not None
+                         else "n. a. (unter 1 Monat Haltedauer)")
+            _basis_quelle = (f"Rückfall eigener Kauf: {prognose_rueckfall_hinweis.split(' – ')[0]}"
+                             if prognose_rueckfall_hinweis else "Produkt-Historie, Median")
+            st.write(f"**Prognose-Basis:** realisiert seit Kauf {_real_txt} · "
+                     f"Basis der 100k-Simulation ({_basis_quelle}) {prognose_rendite_pa:.2f} % p.a.")
+            st.caption("Kurs-Alarme, Entwarnungen und Allzeithoch-Meldungen verschickt ausschließlich der "
+                       "GitHub-Workflow (discord_price_alert.py); die App zeigt nur an.")
+            # Reine Verbindungsprobe: als TEST gekennzeichnet, schreibt KEINEN Alarm-Zustand (DATA-03)
+            if st.button("🔔 Test-Nachricht an Discord senden", key="test_alarm_btn"):
+                if _discord_senden(f"🧪 **TEST ({config.WKN})** – Verbindungstest aus der App, kein Kursalarm."):
+                    st.success("Test-Nachricht gesendet.")
+                else:
+                    st.error("Test-Nachricht NICHT zugestellt (Webhook fehlt oder Discord-Fehler).")
 
             # Abgleich der Kauf-Eckdaten: macht sichtbar, ob die geladene Historie
             # wirklich am Kaufdatum beginnt - genau hier lief die Performance-
@@ -6685,6 +7275,9 @@ try:
 except Exception:
     pass                     # ohne Skript bleibt die reine CSS-Anzeige
 
-st.session_state["_nutzer"] = login.gate(st, gh_read, gh_read_cached, gh_write, chronik_eintrag)
+# Audit SEC-03: login.gate ist fail-closed (ohne [login]-Konfiguration nur Fehlerseite) und
+# schreibt Benutzerdaten per Versionspruefung ueber gh_aktualisiere.
+st.session_state["_nutzer"] = login.gate(st, gh_read, gh_read_cached, gh_write, chronik_eintrag,
+                                         gh_aktualisiere=gh_aktualisiere)
 
 render_dashboard()
