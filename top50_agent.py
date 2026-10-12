@@ -123,6 +123,17 @@ ZAEHLER = {"anfragen": 0, "fehler": 0, "yahoo": 0, "yahoo_fehler": 0, "yahoo_429
            "yahoo_429_folge": 0}
 
 
+def fehlertext(e):
+    """Fehler fuers Log ohne Geheimnisse (Audit SEC-08): requests-Meldungen
+    enthalten die volle URL - bei Yahoo inkl. Sitzungs-Crumb in der Query.
+    Query-Strings werden entfernt, Tokens/Webhook-Pfade maskiert."""
+    text = re.sub(r"\?[^\s'\")]*", "?…", str(e))
+    sauber = getattr(github_store, "sauber", None)
+    if callable(sauber):
+        text = sauber(text)
+    return f"{type(e).__name__}: {text[:200]}"
+
+
 def _session():
     if not hasattr(_lokal, "s"):
         _lokal.s = requests.Session()
@@ -144,7 +155,7 @@ def hole_json(url, params):
         except Exception as e:
             if versuch == 2:
                 ZAEHLER["fehler"] += 1
-                log.warning(f"Abruf fehlgeschlagen ({params}): {e}")
+                log.warning(f"Abruf fehlgeschlagen ({params}): {fehlertext(e)}")
             time.sleep(1.5 * (versuch + 1))
     return None
 
@@ -384,11 +395,28 @@ def yahoo_aufgegeben():
     return ZAEHLER["yahoo_429_folge"] >= YAHOO_MAX_429_FOLGE
 
 
+# Ergebnis des letzten yahoo_json-Aufrufs IM AKTUELLEN THREAD (Audit AGT-01):
+# "ok" | "nicht_gefunden" (HTTP 404 = Symbol/Daten gibt es bei Yahoo nicht) |
+# "fehler" (Timeout, 5xx, 429/Sperre, kein Crumb - technisch, nicht inhaltlich).
+# yahoo_json() liefert in beiden Faellen None; Aufrufer, die "keine Daten" von
+# "heute nicht erreichbar" unterscheiden muessen, fragen danach hier nach.
+_yahoo_status = threading.local()
+
+
+def yahoo_letzter_status():
+    return getattr(_yahoo_status, "letzt", "fehler")
+
+
+def _status(wert):
+    _yahoo_status.letzt = wert
+
+
 def yahoo_json(pfad, params, crumb=False, koerper=None):
     """GET (bzw. POST mit JSON-koerper) gegen Yahoo, abwechselnd query1/query2.
     Bei 429 legt ein gemeinsamer Zeitstempel ALLE Threads kurz schlafen,
     statt dass jeder fuer sich weiter anklopft. crumb=True haengt den
     Sitzungs-Crumb an."""
+    _status("fehler")
     if crumb:
         c = yahoo_crumb()
         if not c:
@@ -419,6 +447,7 @@ def yahoo_json(pfad, params, crumb=False, koerper=None):
                 continue
             ZAEHLER["yahoo_429_folge"] = 0         # Antwort ohne Sperre
             if r.status_code == 404:
+                _status("nicht_gefunden")
                 return None                         # Symbol unbekannt - kein Wiederholen
             if r.status_code == 401 and crumb and versuch == 0:
                 c = yahoo_crumb(neu=True)           # Crumb abgelaufen -> einmal erneuern
@@ -427,10 +456,12 @@ def yahoo_json(pfad, params, crumb=False, koerper=None):
                 params = {**params, "crumb": c}
                 continue
             r.raise_for_status()
-            return r.json()
+            daten = r.json()
+            _status("ok")
+            return daten
         except Exception as e:
             if versuch == 3:
-                log.warning(f"Yahoo-Abruf fehlgeschlagen ({pfad}): {e}")
+                log.warning(f"Yahoo-Abruf fehlgeschlagen ({pfad}): {fehlertext(e)}")
             time.sleep(1.5 * (versuch + 1))
     ZAEHLER["yahoo_fehler"] += 1
     return None
@@ -446,7 +477,7 @@ def yahoo_chart(symbol, tage, intervall="1d"):
     jetzt = int(time.time())
     daten = yahoo_json(f"/v8/finance/chart/{quote(symbol)}", {
         "period1": jetzt - tage * 86400, "period2": jetzt + 86400,
-        "interval": intervall, "events": "div", "includePrePost": "false"})
+        "interval": intervall, "events": "div,splits", "includePrePost": "false"})
     ergebnis = ((daten or {}).get("chart") or {}).get("result") or []
     if not ergebnis:
         return None
@@ -470,9 +501,19 @@ def yahoo_chart(symbol, tage, intervall="1d"):
             continue
         if betrag > 0:
             divs.append((_tag((d or {}).get("date") or ts, versatz), betrag))
+    # Aktiensplits (fuer die Plausibilisierung von Aktienzahl-Spruengen in den
+    # Jahresabschluessen, Audit AGT-14): [(datum, faktor)], 4:1 -> 4.0
+    splits = []
+    for ts, sp in ((r0.get("events") or {}).get("splits") or {}).items():
+        try:
+            faktor = float((sp or {}).get("numerator")) / float((sp or {}).get("denominator"))
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+        if faktor > 0 and faktor != 1.0:
+            splits.append((_tag((sp or {}).get("date") or ts, versatz), faktor))
     if not punkte:
         return None
-    return {"reihe": sorted(punkte.items()), "divs": sorted(divs),
+    return {"reihe": sorted(punkte.items()), "divs": sorted(divs), "splits": sorted(splits),
             "waehrung": meta.get("currency") or "",
             "name": meta.get("longName") or meta.get("shortName") or ""}
 
@@ -494,7 +535,8 @@ def dividendenrendite(chart):
         return None
     rendite = summe / kurs * 100
     # Londoner Werte: Yahoo nennt Kurse in Pence (GBp), Dividenden teils in Pfund
-    if chart["waehrung"] in ("GBp", "GBX") and 0 < rendite < 0.3:
+    # (analog Johannesburg ZAc/Tel Aviv ILA: Kurs in Cent/Agorot, Audit AGT-08)
+    if chart["waehrung"] in ("GBp", "GBX", "ZAc", "ZAC", "ILA") and 0 < rendite < 0.3:
         rendite *= 100
     if rendite > DIV_MAX_PROZENT:
         return None
@@ -529,23 +571,87 @@ def yahoo_symbol_suchen(begriff, land="", endung=None):
 # konstante Faktor 100 keine Rolle - es zaehlt nur die Kursbewegung der
 # Hauptwaehrung.
 HAUPTWAEHRUNG = {"GBp": "GBP", "GBX": "GBP", "ILA": "ILS", "ZAc": "ZAR", "ZAC": "ZAR", "KWF": "KWD"}
-_fx_cache = {}
+_fx_cache = {}                 # nur ERFOLGREICH geladene Reihen
+_fx_fehl = {}                  # w -> (versuche, monotonic des letzten Versuchs)
+_fx_ersatz = set()             # Waehrungen, fuer die gerade der gespeicherte Ersatzkurs gilt
 _fx_lock = threading.Lock()
+_fx_stand = {"geladen": False, "ok": False, "daten": {}}
+STATE_FX = "state/top50_fx.json"   # letzter bekannter Kurs je Waehrung: {w: [datum, kurs]}
+FX_MAX_VERSUCHE = 3            # je Lauf und Waehrung
+FX_WIEDERHOLEN_SEK = 300       # Abstand zwischen zwei Versuchen
+
+
+def _fx_gespeichert():
+    """Letzte bekannte Kurse aus dem State (einmal je Lauf gelesen)."""
+    if not _fx_stand["geladen"]:
+        _fx_stand["geladen"] = True
+        daten, status = lade_state_geprueft(STATE_FX, {})
+        _fx_stand["ok"] = status != "fehler"
+        _fx_stand["daten"] = daten if isinstance(daten, dict) else {}
+    return _fx_stand["daten"]
 
 
 def fx_reihe(waehrung):
     """Tagesreihe 'Einheiten der Waehrung je 1 EUR' (Yahoo 'EURxxx=X').
-    None = Euro (keine Umrechnung), False = nicht ladbar."""
+    None = Euro (keine Umrechnung), False = nicht ladbar.
+
+    Audit AGT-07: ein Fehlschlag wird NICHT fuer den ganzen Lauf gemerkt -
+    nach FX_WIEDERHOLEN_SEK wird erneut versucht (hoechstens FX_MAX_VERSUCHE
+    je Lauf). Bis dahin gilt - falls vorhanden - der zuletzt gespeicherte Kurs
+    (state/top50_fx.json) als einpunktige Reihe; fx_ist_ersatz(w) sagt, dass
+    keine echte Historie vorliegt (fuer Performance-Reihen ungeeignet)."""
     w = HAUPTWAEHRUNG.get(waehrung, (waehrung or "").upper())
     if w in ("", "EUR"):
         return None
     with _fx_lock:
-        if w not in _fx_cache:
+        if w in _fx_cache:
+            return _fx_cache[w]
+        versuche, zuletzt = _fx_fehl.get(w, (0, None))
+        if versuche < FX_MAX_VERSUCHE and (zuletzt is None or time.monotonic() - zuletzt >= FX_WIEDERHOLEN_SEK):
             chart = yahoo_chart(f"EUR{w}=X", YAHOO_HISTORIE_TAGE + 30)
-            _fx_cache[w] = ([t for t, _ in chart["reihe"]], [k for _, k in chart["reihe"]]) if chart else False
-            if not chart:
-                log.warning(f"Wechselkurs EUR/{w} nicht ladbar - Werte in {w} fehlen heute.")
-        return _fx_cache[w]
+            if chart:
+                _fx_cache[w] = ([t for t, _ in chart["reihe"]], [k for _, k in chart["reihe"]])
+                _fx_fehl.pop(w, None)
+                _fx_ersatz.discard(w)
+                return _fx_cache[w]
+            versuche += 1
+            _fx_fehl[w] = (versuche, time.monotonic())
+            log.warning(f"Wechselkurs EUR/{w} nicht ladbar (Versuch {versuche}/{FX_MAX_VERSUCHE}).")
+        ersatz = _fx_gespeichert().get(w)
+        try:
+            tag, kurs = datetime.date.fromisoformat(ersatz[0]), float(ersatz[1])
+        except (TypeError, ValueError, IndexError):
+            return False
+        if kurs <= 0:
+            return False
+        _fx_ersatz.add(w)
+        return [tag], [kurs]
+
+
+def fx_ist_ersatz(waehrung):
+    """True, wenn fuer diese Waehrung gerade nur der gespeicherte Ersatzkurs gilt."""
+    return HAUPTWAEHRUNG.get(waehrung, (waehrung or "").upper()) in _fx_ersatz
+
+
+def fx_stand_speichern():
+    """Merkt den letzten Kurs jeder heute geladenen Waehrung (Ersatz fuer
+    kuenftige Laeufe). Schreibt nur, wenn die Datei sicher gelesen wurde."""
+    with _fx_lock:
+        neu = {w: [reihe[0][-1].isoformat(), reihe[1][-1]] for w, reihe in _fx_cache.items()
+               if reihe and reihe[0]}
+    if not neu:
+        return False
+    alt = _fx_gespeichert()
+    if not _fx_stand["ok"]:
+        log.warning(f"{STATE_FX} nicht lesbar - letzte Wechselkurse werden heute nicht gespeichert.")
+        return False
+    daten = {**alt, **neu}
+    if daten == alt:
+        return True
+    ok = speichere_state(STATE_FX, daten, "wechselkurse: letzter stand [skip ci]")
+    if ok:
+        _fx_stand["daten"] = daten
+    return ok
 
 
 def in_euro(reihe, fx):
@@ -896,8 +1002,8 @@ def lade_indexwert(ticker, name, boerse, standort, ymap):
     if chart is None:
         return symbol, None, None, name
     fx = fx_reihe(chart["waehrung"])
-    if fx is False:
-        return symbol, None, None, name                # Waehrung nicht umrechenbar
+    if fx is False or (fx and fx_ist_ersatz(chart["waehrung"])):
+        return symbol, None, None, name                # Waehrung nicht (historisch) umrechenbar
     reihe = in_euro(chart["reihe"], fx) if fx else chart["reihe"]
     anzeige = schoener_name(chart["name"] or name)
     return symbol, bereinigen(reihe), dividendenrendite(chart), anzeige
@@ -1180,7 +1286,7 @@ VERLAUF_TAGE = 7              # Vergleich mit dem Stand von vor einer Woche
 VERLAUF_BEHALTEN = 10         # so viele Tagesstaende werden aufbewahrt
 
 
-def wochenvergleich(pfad, heute, listen, namen, top_n=TOP_N):
+def wochenvergleich(pfad, heute, listen, namen, top_n=TOP_N, speichern=True):
     """Vergleicht die heutigen Ranglisten mit dem Stand von vor 7 Tagen und
     speichert den heutigen Stand.
 
@@ -1190,9 +1296,16 @@ def wochenvergleich(pfad, heute, listen, namen, top_n=TOP_N):
     Rueckgabe: (referenzdatum oder None, {schluessel: {"vor": {id: platz},
                "raus": [{"id", "name", "vor", "jetzt"}]}}).
     Gibt es noch keinen 7 Tage alten Stand (erste Woche), wird mit dem
-    aeltesten vorhandenen verglichen - das Datum steht dann in der App."""
+    aeltesten vorhandenen verglichen - das Datum steht dann in der App.
+
+    Audit AGT-13: Jeder Stand merkt sich seine Listenlaenge (top_n). "Raus" ist
+    nur, wer in den ersten min(top_n alt, top_n heute) Plaetzen stand und heute
+    nicht mehr in der Top top_n ist - wer nur wegen einer kuerzeren Liste
+    (kleineres n) wegfaellt, gilt nicht als rausgeflogen.
+    speichern=False: nur vergleichen (z. B. beim Probieren verschiedener n)."""
     verlauf = lade_state(pfad, {}) or {}
     staende = verlauf.get("staende") or {}
+    laengen = verlauf.get("top_n") or {}
     heute_s = heute.isoformat()
     frueher = sorted(d for d in staende if d < heute_s)
     ref = None
@@ -1210,14 +1323,19 @@ def wochenvergleich(pfad, heute, listen, namen, top_n=TOP_N):
             platz_alt = {i: r for r, i in enumerate(alt, 1)}
             platz_neu = {i: r for r, i in enumerate(voll, 1)}
             jetzt_top = set(voll[:top_n])
+            # aeltere Staende ohne gespeichertes n: gespeichert wurde voll[:n] -> len(alt) <= n
+            n_alt = laengen.get(ref) or len(alt)
             vergleich[key] = {
                 "vor": {i: platz_alt[i] for i in voll[:top_n] if i in platz_alt},
                 "raus": [{"id": i, "name": namen.get(i, i), "vor": platz_alt[i], "jetzt": platz_neu.get(i)}
-                         for i in alt if i not in jetzt_top],
+                         for i in alt[:min(n_alt, top_n)] if i not in jetzt_top],
             }
-    staende[heute_s] = {key: voll[:top_n] for key, voll in listen.items()}
-    staende = {d: staende[d] for d in sorted(staende)[-VERLAUF_BEHALTEN:]}
-    speichere_state(pfad, {"staende": staende}, "top50: ranglisten-verlauf [skip ci]")
+    if speichern:
+        staende[heute_s] = {key: voll[:top_n] for key, voll in listen.items()}
+        laengen[heute_s] = top_n
+        staende = {d: staende[d] for d in sorted(staende)[-VERLAUF_BEHALTEN:]}
+        laengen = {d: n for d, n in laengen.items() if d in staende}
+        speichere_state(pfad, {"staende": staende, "top_n": laengen}, "top50: ranglisten-verlauf [skip ci]")
     return ref, vergleich
 
 
@@ -1299,20 +1417,63 @@ def index_auswertung(heute, mitglieder, perf_je_id, ymap, index_cache, ergebnis)
 # ---------------------------------------------------------------------------
 # Hauptablauf
 # ---------------------------------------------------------------------------
+# Schutz vor Datenverlust: Pfade, deren letzter Lesevorgang (in IRGENDEINEM
+# Thread) fehlschlug. github_store sperrt put_json nur im lesenden Thread -
+# hier gilt die Sperre prozessweit, bis die Datei wieder gelesen wurde.
+_lesefehler = set()
+_lesefehler_lock = threading.Lock()
+
+
+def _merke_lesefehler(pfad, fehler):
+    with _lesefehler_lock:
+        (_lesefehler.add if fehler else _lesefehler.discard)(pfad)
+
+
 def lade_state(pfad, standard):
+    """Liest eine State-Datei. Bei einem Lesefehler kommt der Leerwert zurueck -
+    die Datei ist dann aber fuer speichere_state gesperrt (kein Ueberschreiben
+    eines Teilstands). Wer den Fehler selbst unterscheiden muss: lade_state_geprueft."""
+    daten, status = lade_state_geprueft(pfad, standard, versuche=1)
+    return daten
+
+
+def lade_state_geprueft(pfad, standard, versuche=2):
+    """-> (daten, status); status "ok" | "fehlt" (Datei gibt es nicht bzw. kein
+    GitHub-Zugang) | "fehler" (nicht lesbar - Rate-Limit, Timeout, 5xx, kaputtes JSON).
+    Bei "fehler" ist daten der Leerwert und die Datei fuer speichere_state gesperrt."""
     if not (GITHUB_REPO and GITHUB_TOKEN):
-        return standard
-    daten, _ = github_store.get_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad,
-                                     GITHUB_TOKEN, default=standard)
-    return daten if daten is not None else standard
+        return standard, "fehlt"
+    for versuch in range(versuche):
+        try:
+            daten, _ = github_store.lese_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad,
+                                              GITHUB_TOKEN, default=None)
+        except github_store.LeseFehler as e:
+            log.warning(f"State {pfad} nicht lesbar (Versuch {versuch + 1}/{versuche}): {e}")
+            if versuch + 1 < versuche:
+                time.sleep(2 * (versuch + 1))
+            continue
+        _merke_lesefehler(pfad, False)
+        return (standard, "fehlt") if daten is None else (daten, "ok")
+    _merke_lesefehler(pfad, True)
+    log.error(f"State {pfad} nicht lesbar - wird in diesem Lauf nicht ueberschrieben.")
+    return standard, "fehler"
 
 
 def speichere_state(pfad, daten, nachricht):
     if not (GITHUB_REPO and GITHUB_TOKEN):
         log.warning(f"Kein GitHub-Zugang - {pfad} wird nicht gespeichert.")
         return False
-    return github_store.put_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, daten,
-                                 GITHUB_TOKEN, message=nachricht)
+    with _lesefehler_lock:
+        gesperrt = pfad in _lesefehler
+    if gesperrt:
+        log.error(f"{pfad} wird nicht gespeichert: letzter Lesevorgang fehlgeschlagen "
+                  f"(sonst wuerde ein Teil-/Leerstand die Datei ueberschreiben).")
+        return False
+    ok = github_store.put_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, daten,
+                               GITHUB_TOKEN, message=nachricht)
+    if not ok:
+        log.error(f"{pfad} konnte nicht gespeichert werden.")
+    return ok
 
 
 # ---------------------------------------------------------------------------
@@ -1692,6 +1853,10 @@ def main():
         sys.exit(1)
 
     speichere_state(STATE_TOP50, ergebnis, "top50: taegliche ranglisten [skip ci]")
+    try:
+        fx_stand_speichern()
+    except Exception as e:
+        log.error(f"Wechselkurs-Stand nicht gespeichert: {e}")
     # Baustein-Katalog des Portfolio-Planers (darf die Ranglisten nie verhindern)
     try:
         katalog_kennzahlen(id_cache, jetzt)
