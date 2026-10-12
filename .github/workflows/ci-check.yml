@@ -1,8 +1,10 @@
-name: Syntax-Check (CI)
+name: Syntax- und Rechen-Check (CI)
 
-# Prueft bei jedem Push/PR, ob alle .py-Dateien gueltiges Python sind -
-# genau der Check, der IndentationError & Co. VOR dem Deploy auf Streamlit
-# Cloud aufgedeckt haette, statt erst live in der App.
+# Prueft bei jedem Push/PR:
+# 1. ob alle .py-Dateien gueltiges Python sind (faengt IndentationError & Co.
+#    VOR dem Deploy auf Streamlit Cloud ab),
+# 2. ob alle Unit-Tests (test_*.py) gruen sind - Finanzformeln, Speicher,
+#    Login, Alarme, Agenten. Die Tests laufen ohne Netz und ohne Streamlit.
 
 on:
   push:
@@ -11,9 +13,17 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-check-${{ github.ref }}
+  cancel-in-progress: true          # bei schnell aufeinanderfolgenden Pushes nur den letzten pruefen
+
 jobs:
-  syntax-check:
+  check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Repo auschecken
         uses: actions/checkout@v4
@@ -29,7 +39,10 @@ jobs:
           find . -name "*.py" -not -path "./.git/*" -print0 | xargs -0 -n1 python -m py_compile
           echo "✅ Alle Python-Dateien sind syntaktisch gueltig."
 
-      - name: requirements.txt gegen Imports abgleichen (Warnhinweis)
-        run: |
-          pip install pipreqs 2>/dev/null || true
-          echo "ℹ️ Hinweis: bei ModuleNotFoundError im Deploy zuerst requirements.txt pruefen."
+      - name: Abhaengigkeiten fuer die Tests installieren
+        run: pip install requests pandas numpy tzdata
+
+      - name: Unit-Tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m unittest discover -p "test_*.py" -v
