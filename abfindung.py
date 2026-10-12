@@ -112,16 +112,22 @@ def est_mit_abfindung(zve_rest, abfindung, fuenftel=True, splitting=False, pv=0.
     return min(mit_fuenftel, est(zve_rest + a, splitting, pv, jahr))
 
 
+def _cent_ab(x):
+    """Bruchteile eines Cents bleiben ausser Ansatz (§ 4 Satz 3 SolZG) -> auf Cent abrunden
+    (kleiner Zuschlag gegen Gleitkomma-Fehler wie 1119.9999999)."""
+    return math.floor(x * 100 + 1e-6) / 100
+
+
 def soli(est_betrag, splitting=False, jahr=STEUERJAHR):
     frei = tarif_jahr(jahr)["soli"] * (2 if splitting else 1)
     if est_betrag <= frei:
         return 0.0
-    return round(min(SOLI_SATZ * est_betrag, SOLI_MILDERUNG * (est_betrag - frei)), 2)
+    return _cent_ab(min(SOLI_SATZ * est_betrag, SOLI_MILDERUNG * (est_betrag - frei)))
 
 
 def steuern(est_betrag, splitting=False, kirche=0.0, jahr=STEUERJAHR):
     s = soli(est_betrag, splitting, jahr)
-    k = round(est_betrag * kirche, 2)
+    k = _cent_ab(est_betrag * kirche) if est_betrag > 0 else 0.0
     return {"est": est_betrag, "soli": s, "kirche": k, "summe": est_betrag + s + k}
 
 
@@ -174,13 +180,15 @@ def variante(e, titel, kurz, teile, rv=0.0, bav=0.0, hinweis="", abzug_extra=0.0
                 a_n = max(a_n - bav_steuerfrei, 0.0)
         if jk == erstes and e.get("werbungskosten"):
             # Kosten, die mit der Abfindung zusammenhaengen (Anwalt, Gericht), mindern die Abfindung
-            # selbst - also auch den Teil mit Fuenftelregel (BFH); ein Rest mindert das uebrige Einkommen
-            wk = float(e["werbungskosten"])
+            # selbst - also auch den Teil mit Fuenftelregel (BFH). Abflussprinzip (§ 11 EStG): Annahme,
+            # die Kosten werden im ersten Auszahlungsjahr bezahlt und dort abgezogen. Hoechstens bis zur
+            # Hoehe der dort ausgezahlten Abfindung - sonst wuerde die "Steuer auf die Abfindung" negativ
+            # (ein Kostenueberhang mindert zwar das uebrige Einkommen, gehoert aber nicht zur Abfindung).
+            wk = max(float(e["werbungskosten"]), 0.0)
             if a_f:
                 weg = min(wk, a_f); a_f -= weg; wk -= weg
             if wk and a_n:
                 weg = min(wk, a_n); a_n -= weg; wk -= weg
-            abzug += wk
         rest = zve + a_n - abzug
         est_wert = est_mit_abfindung(rest, a_f, True, sp, pv, jahr) if a_f else est(rest, sp, pv, jahr)
         if jk == erstes and ermaessigung:
@@ -284,6 +292,15 @@ def hinweise(e):
                   f"das Vorjahresbrutto ({_de(zb['vergleich'])} €). Dann fehlt meist die „Zusammenballung“ und die "
                   "Abfindung wird voll besteuert. Abhilfe: Auszahlung in ein Jahr mit wenig übrigem Einkommen legen.",
                   True))
+    wk = float(e.get("werbungskosten") or 0.0)
+    if wk > float(e.get("abfindung") or 0.0):
+        h.append(("Kosten höher als die Abfindung",
+                  f"Die Kosten rund um die Abfindung ({_de(wk)} €) sind höher als die Abfindung "
+                  f"({_de(e.get('abfindung') or 0.0)} €). Gerechnet wird nur bis zur Höhe der Abfindung – die Steuer "
+                  "auf die Abfindung ist dann 0 €. Der übersteigende Teil "
+                  f"({_de(wk - float(e.get('abfindung') or 0.0))} €) mindert dein übriges Einkommen (Verlustausgleich) "
+                  "und ist hier nicht berücksichtigt – trag ihn ggf. beim zu versteuernden Einkommen ab. "
+                  "Die Kosten selbst sind im Netto nicht abgezogen.", True))
     if e.get("zve2", 0) == 0 and e.get("fuenftel_moeglich"):
         h.append(("Folgejahr mit 0 € gerechnet",
                   "Das Einkommen im nächsten Jahr steht auf 0 € – die Auszahlung im Folgejahr sieht dadurch "
@@ -540,13 +557,18 @@ def anlage_vergleich(betrag, jahre, rendite, art="etf", ausschuettung=0.02, hebe
                      kosten_gruendung=1500.0, kosten_jahr=3000.0, freibetrag=1000.0, kirche=0.0):
     """Jahr fuer Jahr: Vermoegen privat (nach Steuer bei Verkauf) gegen GmbH (in der GmbH nach Verkauf
     und nach Entnahme an dich). Ausschuettungen/Zinsen werden jaehrlich versteuert und wieder angelegt,
-    Kursgewinne erst beim Verkauf. Vereinfachung: konstante Rendite, keine Vorabpauschale."""
+    Kursgewinne erst beim Verkauf. Vereinfachung: konstante Rendite, keine Vorabpauschale.
+    Privat (Aktien-ETF): Teilfreistellung 30 % VOR dem Sparerpauschbetrag (§ 20 Abs. 1 InvStG,
+    steuerpflichtig = 70 % des Ertrags minus Pauschbetrag). Der Pauschbetrag gilt je Jahr nur einmal:
+    beim (gedachten) Verkauf im Jahr j nur der Teil, den die Ausschuettungen dieses Jahres nicht verbraucht haben."""
     pr, gm = privat_saetze(kirche), gmbh_saetze(hebesatz)
     if art == "zins":
         d = rendite
     else:
         d = min(max(ausschuettung, 0.0), rendite)
     g = rendite - d
+    tf_p = 0.70 if art == "etf" else 1.0                    # steuerpflichtiger Anteil privat (Teilfreistellung)
+    abg_p = pr["voll"]                                      # Abgeltungsteuer (+ Soli, ggf. KiSt) auf den Rest
     s_div_p = pr["etf"] if art == "etf" else (pr["zins"] if art == "zins" else pr["aktien_div"])
     s_kurs_p = pr["etf"] if art == "etf" else pr["aktien_kurs"]
     s_div_g = gm["etf"] if art == "etf" else (gm["zins"] if art == "zins" else gm["aktien_div"])
@@ -559,7 +581,9 @@ def anlage_vergleich(betrag, jahre, rendite, art="etf", ausschuettung=0.02, hebe
     for j in range(1, int(jahre) + 1):
         # privat
         div = vp * d
-        st_p = max(div - freibetrag, 0.0) * s_div_p
+        div_stpfl = div * tf_p
+        st_p = max(div_stpfl - freibetrag, 0.0) * abg_p
+        frei_rest = max(freibetrag - div_stpfl, 0.0)        # fuer einen Verkauf in diesem Jahr uebrig
         vp = vp * (1 + g) + div - st_p
         bp += div - st_p
         # GmbH: laufende Kosten mindern den steuerpflichtigen Ertrag
@@ -567,10 +591,15 @@ def anlage_vergleich(betrag, jahre, rendite, art="etf", ausschuettung=0.02, hebe
         st_g = max(div_g - kosten_jahr, 0.0) * s_div_g
         vg = vg * (1 + g) + div_g - st_g - kosten_jahr
         bg += div_g - st_g - kosten_jahr
-        privat_netto = vp - max(vp - bp - freibetrag, 0.0) * s_kurs_p
+        gewinn = vp - bp
+        if gewinn > 0:
+            privat_netto = vp - max(gewinn * tf_p - frei_rest, 0.0) * abg_p
+        else:
+            privat_netto = vp                               # Verlust: keine Steuer (Verlustverrechnung nicht gerechnet)
         gmbh_drin = vg - max(vg - bg, 0.0) * s_kurs_g
         gmbh_privat = gmbh_drin - max(gmbh_drin - einlage, 0.0) * pr["voll"]
-        zeilen.append({"jahr": j, "privat": privat_netto, "gmbh": gmbh_drin, "gmbh_privat": gmbh_privat})
+        zeilen.append({"jahr": j, "privat": privat_netto, "gmbh": gmbh_drin, "gmbh_privat": gmbh_privat,
+                       "steuer_privat_lfd": st_p})
     return {"zeilen": zeilen, "saetze_privat": pr, "saetze_gmbh": gm,
             "s": {"div_p": s_div_p, "kurs_p": s_kurs_p, "div_g": s_div_g, "kurs_g": s_kurs_g}}
 
@@ -1087,6 +1116,9 @@ def render():
                                    help="Mindern die Abfindung selbst (auch den Teil mit Fünftelregel). "
                                         "Übrige Werbungskosten über der Pauschale sind im zu versteuernden "
                                         "Einkommen schon enthalten bzw. dort abzuziehen."))
+        st.caption("Annahme (Abflussprinzip, § 11 EStG): Die Kosten werden im Jahr der (ersten) Auszahlung "
+                   "bezahlt und dort abgezogen – höchstens bis zur Höhe der in diesem Jahr ausgezahlten "
+                   "Abfindung. In einem anderen Jahr bezahlte Kosten wirken nur in jenem Jahr.")
         rv = float(st.number_input("Einzahlung Rentenversicherung (€)", 0.0, 1e6, 0.0, step=1000.0, format="%.0f",
                                    key="abf_rv",
                                    help="Z. B. Ausgleich von Rentenabschlägen aus der Abfindung – als Sonderausgabe "
@@ -1139,8 +1171,12 @@ def render():
                "minus Steuern minus Einzahlungen in Rente/bAV.")
 
     if any(x["steuer"]["summe"] < 0 for x in v):
-        st.caption("Negative Steuern: Die Gestaltungen sparen mehr Steuer, als die Abfindung kostet – sie senken auch "
-                   "die Steuer auf das übrige Einkommen.")
+        if wk > abf:
+            st.caption("Negative Steuern: Die Kosten rund um die Abfindung sind höher als die Abfindung – der Rest "
+                       "senkt die Steuer auf das übrige Einkommen (siehe Hinweis oben).")
+        else:
+            st.caption("Negative Steuern: Die Gestaltungen sparen mehr Steuer, als die Abfindung kostet – sie senken "
+                       "auch die Steuer auf das übrige Einkommen.")
     g = gestaltung_wirkung(e)
     wirk = [x for x in g["massnahmen"] if not x["info"]]
     if wirk:
