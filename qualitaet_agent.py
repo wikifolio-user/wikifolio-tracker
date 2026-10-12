@@ -19,8 +19,11 @@ Ablauf je Lauf (taeglich, siehe .github/workflows/qualitaet.yml):
   2. Fundamentaldaten auffrischen - rollierend: pro Lauf hoechstens
      MAX_AKTUALISIERUNG Werte (fehlende zuerst, dann die aeltesten). Nach
      dem ersten Aufbau (~4 Laeufe) ist jeder Wert hoechstens eine Woche alt.
-     Zwischengespeichert in 32 Teildateien (GitHub liefert Dateien nur bis
-     1 MB direkt aus).
+     Zwischengespeichert in 64 Teildateien (GitHub liefert Dateien nur bis
+     1 MB direkt aus) - schon WAEHREND des Abrufs alle SPEICHERN_NACH Werte,
+     und mit Zeitbudget: nach ZEITBUDGET_ABRUF_SEK werden keine neuen Abrufe
+     mehr gestartet, damit der Lauf vor dem Actions-Timeout fertig wird.
+     Technische Abruffehler ueberschreiben nie einen vorhandenen Eintrag.
   3. Taeglich: aktuelle Kurse -> Bewertung, Reverse-DCF, Szenarien, Score.
   4. Ranglisten nach state/qualitaet.json (schlank), die ausfuehrliche
      Analyse je Aktie nach state/qualitaet/details_<n>.json - die App laedt
@@ -30,11 +33,12 @@ import bisect
 import datetime
 import json
 import math
+import os
 import statistics
 import sys
 import time
 import zlib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from zoneinfo import ZoneInfo
 
 import top50_agent as T
@@ -43,7 +47,8 @@ from top50_universum import KATEGORIEN
 log = T.log
 
 STATE_ERGEBNIS = "state/qualitaet.json"
-STATE_CACHE = "state/qualitaet/kennzahlen_{:02d}.json"
+STATE_CACHE = "state/qualitaet/kennzahlen64_{:02d}.json"     # 64er-Aufteilung (crc32 % 64)
+STATE_CACHE_ALT = "state/qualitaet/kennzahlen_{:02d}.json"   # alte 32er-Aufteilung - nur noch gelesen (Migration)
 STATE_TRENDS = "state/qualitaet/revisionen.json"
 STATE_SEKTOREN = "state/qualitaet/sektoren.json"
 STATE_VERLAUF = "state/qualitaet/verlauf.json"
@@ -52,7 +57,8 @@ STATE_ALLE = "state/qualitaet/alle_{}.json"       # ALLE bewerteten Aktien (Inde
 STATE_GRUPPEN = "state/qualitaet/gruppen.json"    # Kategorien + Indizes -> Symbole
 STATE_VERLAUF_INDIZES = "state/qualitaet/verlauf_indizes.json"
 ALLE_TEILE = 6
-CACHE_TEILE = 32
+CACHE_TEILE = 64              # ~0.5 MB je Teil statt ~0.94 MB bei 32 (Audit AGT-15)
+CACHE_TEILE_ALT = 32          # CACHE_TEILE muss ein Vielfaches davon sein: neuer Teil i <- alter Teil i % 32
 DETAIL_TEILE = 32             # Details fuer ALLE bewerteten Aktien (auch die der Qualitaet-x-Kurs-Liste)
 
 MAX_AKTUALISIERUNG = 3000      # Fundamentaldaten-Abrufe je Lauf (je 2 Anfragen, ~25 Min.)
@@ -62,6 +68,17 @@ TRENDS_FUER_TOP = 200          # Analystenrevisionen fuer die besten N Kandidate
 TRENDS_CACHE_TAGE = 7
 TOP_N = 50
 MAX_JSON_BYTES = 900_000
+# Zeitbudget fuer den Fundamentaldaten-Abruf, gemessen ab Laufbeginn. Danach
+# werden keine neuen Abrufe mehr gestartet (laufende werden fertig). Rest des
+# Laufs (Kurse, Revisionen, Schreiben) braucht erfahrungsgemaess < 20 Min. -
+# Actions bricht nach timeout-minutes (150) ab.
+ZEITBUDGET_ABRUF_SEK = float(os.environ.get("QUALITAET_ZEITBUDGET_MIN", "100")) * 60
+# Zwischenspeichern des Kennzahlen-Caches nach so vielen aufgefrischten Werten.
+# Jedes Speichern schreibt bis zu 64 Teildateien (je 2 API-Aufrufe) - bei 1000
+# bleiben es <= 3 Zwischenstaende je Lauf, gut unter dem GitHub-API-Limit.
+SPEICHERN_NACH = 1000
+CACHE_BEHALTEN_TAGE = 30      # gueltige Kennzahlen bleiben trotz "keine Daten" so lange erhalten
+_uhr = time.monotonic         # in Tests ersetzbar
 
 # DCF-Annahmen (bewusst einfach und fuer alle Werte gleich - vergleichbar)
 DISKONT = 0.09                 # Kapitalkosten Basisfall
@@ -112,6 +129,8 @@ def nach_eur(betrag, waehrung, datum=None):
     if fx is False:
         return None
     tage, kurse = fx
+    if datum is not None and T.fx_ist_ersatz(waehrung) and (tage[0] - datum).days > 10:
+        return None                # nur der gespeicherte Ersatzkurs - keine Historie
     if datum is None:
         pos = len(tage) - 1
     else:
@@ -140,14 +159,22 @@ def punkte_stufen(wert, stufen, umgekehrt=False):
 # ---------------------------------------------------------------------------
 # Datenabruf
 # ---------------------------------------------------------------------------
+class AbrufFehler(Exception):
+    """Yahoo heute technisch nicht erreichbar (Timeout, 5xx, 429) - NICHT
+    gleichbedeutend mit "keine Daten"."""
+
+
 def lade_jahresabschluesse(symbol):
-    """{asOfDate: {Typ: Wert}} + Berichtswaehrung, bis zu ~5 Geschaeftsjahre."""
+    """{asOfDate: {Typ: Wert}} + Berichtswaehrung, bis zu ~5 Geschaeftsjahre.
+    Wirft AbrufFehler bei technischem Fehlschlag; ({}, None) = Yahoo hat keine Daten."""
     jetzt = int(time.time())
     daten = T.yahoo_json(
         f"/ws/fundamentals-timeseries/v1/finance/timeseries/{T.quote(symbol)}",
         {"symbol": symbol, "type": ",".join("annual" + t for t in TYPEN),
          "period1": jetzt - 7 * 366 * 86400, "period2": jetzt + 86400,
          "merge": "false", "padTimeSeries": "true", "lang": "en-US", "region": "US"})
+    if daten is None and T.yahoo_letzter_status() != "nicht_gefunden":
+        raise AbrufFehler("Jahresabschluesse")
     ergebnis = ((daten or {}).get("timeseries") or {}).get("result") or []
     jahre, waehrung = {}, None
     for eintrag in ergebnis:
@@ -218,9 +245,10 @@ def _g(j, *felder):
     return None
 
 
-def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
+def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung, splits=None):
     """Verdichtet die Jahresabschluesse auf alle preisunabhaengigen Kennzahlen.
-    None, wenn die Datenbasis nicht fuer eine Bewertung reicht."""
+    None, wenn die Datenbasis nicht fuer eine Bewertung reicht.
+    splits: [(datum, faktor)] aus der Kurshistorie (4:1 -> 4.0), optional."""
     jahre = []
     for datum in sorted(jahre_roh):
         j = jahre_roh[datum]
@@ -235,9 +263,12 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
         debt = _g(j, "TotalDebt") or 0.0
         cash = _g(j, "CashCashEquivalentsAndShortTermInvestments", "CashAndCashEquivalents") or 0.0
         eq = _g(j, "StockholdersEquity")
+        # Investiertes Kapital EINHEITLICH = Eigenkapital + Finanzschulden (brutto,
+        # ohne Cash-Abzug) - so definiert Yahoo "InvestedCapital"; der Ersatz
+        # rechnet genauso (frueher: Ersatz mit Cash-Abzug -> Jahre nicht
+        # vergleichbar). Brutto, weil Netto bei Cash-reichen Firmen oft <= 0 waere.
         ic = _g(j, "InvestedCapital")
-        if ic is None and eq is not None:
-            ic = eq + debt - cash
+        ic_ersatz = eq + debt if eq is not None else None
         steuer = _g(j, "TaxRateForCalcs")
         steuer = 0.21 if steuer is None else min(max(steuer, 0.0), 0.35)
         jahre.append({
@@ -248,7 +279,7 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
             "sh_ende": _g(j, "OrdinarySharesNumber", "DilutedAverageShares"),
             "fcf": fcf, "capex": abs(j["CapitalExpenditure"]) if j.get("CapitalExpenditure") is not None else None,
             "sbc": _g(j, "StockBasedCompensation"), "zins": abs(j["InterestExpense"]) if j.get("InterestExpense") else None,
-            "steuer": steuer, "debt": debt, "cash": cash, "eq": eq, "ic": ic,
+            "steuer": steuer, "debt": debt, "cash": cash, "eq": eq, "ic": ic, "ic_ersatz": ic_ersatz,
             "gw": _g(j, "GoodwillAndOtherIntangibleAssets", "Goodwill"), "ta": _g(j, "TotalAssets"),
             "ar": _g(j, "AccountsReceivable"), "inv": _g(j, "Inventory"),
             "rueckkauf": abs(j["RepurchaseOfCapitalStock"]) if j.get("RepurchaseOfCapitalStock") else 0.0,
@@ -262,16 +293,86 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
             or sum(1 for j in jahre if j["sh"]) < 2:
         return None
 
+    # Investiertes Kapital fuer ALLE Jahre aus derselben Definition (Audit AGT-04):
+    # Yahoos "InvestedCapital" nur, wenn es fuer jedes Jahr vorliegt - sonst fuer
+    # alle Jahre der Ersatz Eigenkapital + Finanzschulden. Gemischte Reihen
+    # erzeugten Spruenge im ROIC, die nur aus der Definition kamen.
+    if any(j["ic"] is None for j in jahre):
+        for j in jahre:
+            j["ic"] = j["ic_ersatz"]
+
     erst, letzt = jahre[0], jahre[-1]
-    spanne = n - 1
+    # Zeitraeume aus den tatsaechlichen Stichtagen (Luecken/Rumpfjahre), Audit AGT-12
+    tage = [datetime.date.fromisoformat(j["datum"]) for j in jahre]
+
+    def jahre_zwischen(i0, i1):
+        return (tage[i1] - tage[i0]).days / 365.25
+
+    spanne = jahre_zwischen(0, n - 1)
+
+    # --- Aktienzahl: Splits erkennen (Audit AGT-14) ---
+    # Springt die Aktienzahl in EINEM Jahr um mehr als 50 % (bzw. faellt auf
+    # unter 2/3), wird der Sprung bereinigt statt als Verwaesserung/Rueckkauf
+    # gezaehlt (Vorjahre auf heutige Aktienbasis umgerechnet):
+    #  1. Liegt laut Kurshistorie (Yahoo-Chart, events=splits) ein Split im
+    #     Zeitraum und passt sein Verhaeltnis zum Sprung (+-30 %), wird um den
+    #     Split-Faktor bereinigt - ein Rest bleibt echte Verwaesserung.
+    #  2. Sonst: springt der Umsatz NICHT mit (+-33 %), ist es fast sicher ein
+    #     nicht rueckwirkend bereinigter Split -> um den Sprung bereinigen.
+    #  3. Springt der Umsatz mit (Fusion, Kapitalerhoehung fuer einen Zukauf),
+    #     bleibt es echte Verwaesserung.
+    split_ereignisse = []
+    for ereignis in splits or []:
+        try:
+            tag_, faktor_ = ereignis
+            tag_ = tag_ if isinstance(tag_, datetime.date) else datetime.date.fromisoformat(str(tag_))
+            faktor_ = float(faktor_)
+        except (TypeError, ValueError):
+            continue
+        if faktor_ > 0 and faktor_ != 1.0:
+            split_ereignisse.append((tag_, faktor_))
+    split_faktor = [1.0] * n                  # je Jahr: Faktor auf heutige Aktienbasis
+    for i in range(1, n):
+        a, b = jahre[i - 1], jahre[i]
+        if not (a["sh"] and b["sh"] and a["sh"] > 0 and b["sh"] > 0):
+            continue
+        q = b["sh"] / a["sh"]
+        if 1 / 1.5 <= q <= 1.5:
+            continue
+        # Split im Geschaeftsjahr (oder kurz nach dessen Ende, vor dem Bericht)
+        faktor_split = 1.0
+        for tag_, f in split_ereignisse:
+            if tage[i - 1] < tag_ <= tage[i] + datetime.timedelta(days=120):
+                faktor_split *= f
+        if faktor_split != 1.0 and abs(math.log(q / faktor_split)) <= math.log(1.3):
+            faktor = faktor_split
+        elif 0.75 <= b["rev"] / a["rev"] <= 1.33:
+            faktor = q
+        else:
+            continue
+        for k_ in range(i):
+            split_faktor[k_] *= faktor
+    sprung = any(f != 1.0 for f in split_faktor)
+    for j, f in zip(jahre, split_faktor):
+        j["sh_b"] = j["sh"] * f if j["sh"] else j["sh"]
+        # Wochenkurse von Yahoo sind split-bereinigt -> Aktienzahl ebenso
+        j["sh_ende"] = j["sh_ende"] * f if j["sh_ende"] else j["sh_ende"]
 
     # --- Rentabilitaet ---
-    roics = []
+    # ROIC-Basis: Mittel aus Vorjahr und Jahr NUR wenn beide > 0; Jahre mit
+    # Kapital <= 0 werden uebersprungen (sonst entstehen absurde Werte, z. B.
+    # 1580 % bei 120 -> -100). Jahreswerte auf +-100 % begrenzt (Audit AGT-04).
+    roics, roic_letztes_jahr = [], False
     for i, j in enumerate(jahre):
         ic_vor = jahre[i - 1]["ic"] if i > 0 else None
-        basis = (j["ic"] + ic_vor) / 2 if (j["ic"] and ic_vor and ic_vor > 0) else j["ic"]
-        if j["ebit"] is not None and basis and basis > 0:
-            roics.append(j["ebit"] * (1 - j["steuer"]) / basis * 100)
+        if j["ebit"] is None or j["ic"] is None or j["ic"] <= 0:
+            continue
+        basis = (j["ic"] + ic_vor) / 2 if (ic_vor is not None and ic_vor > 0) else j["ic"]
+        roics.append(min(max(j["ebit"] * (1 - j["steuer"]) / basis * 100, -100.0), 100.0))
+        roic_letztes_jahr = i == n - 1
+    # "ROIC zuletzt" nur, wenn das LETZTE Geschaeftsjahr auswertbar war - sonst
+    # stuende ein alter Jahreswert als aktueller da.
+    roic_zuletzt = roics[-1] if roics and roic_letztes_jahr else None
     roes = [j["ni"] / j["eq"] * 100 for j in jahre if j["ni"] is not None and j["eq"] and j["eq"] > 0]
     gm = [j["gp"] / j["rev"] * 100 for j in jahre if j["gp"] is not None]
     om = [j["ebit"] / j["rev"] * 100 for j in jahre if j["ebit"] is not None]
@@ -282,22 +383,27 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
 
     # --- Wachstum (je Aktie!) ---
     def reihe_je_aktie(feld):
-        return [(i, j[feld] / j["sh"]) for i, j in enumerate(jahre) if j.get(feld) is not None and j["sh"]]
+        return [(i, j[feld] / j["sh_b"]) for i, j in enumerate(jahre) if j.get(feld) is not None and j["sh_b"]]
 
     fcfps = reihe_je_aktie("fcf")
-    epsr = [(i, j["eps"]) for i, j in enumerate(jahre) if j["eps"] is not None]
+    # Bei erkanntem Split ist unklar, ob Yahoo das berichtete EPS rueckwirkend
+    # bereinigt hat - dann EPS aus Gewinn / bereinigter Aktienzahl.
+    epsr = [] if sprung else [(i, j["eps"]) for i, j in enumerate(jahre) if j["eps"] is not None]
     if len(epsr) < 2:
         epsr = reihe_je_aktie("ni")
-    sh = [(i, j["sh"]) for i, j in enumerate(jahre) if j["sh"]]
+    sh = [(i, j["sh_b"]) for i, j in enumerate(jahre) if j["sh_b"]]
 
     def cagr_reihe(r):
-        return cagr(r[0][1], r[-1][1], r[-1][0] - r[0][0]) if len(r) >= 2 else None
+        return cagr(r[0][1], r[-1][1], jahre_zwischen(r[0][0], r[-1][0])) if len(r) >= 2 else None
 
     g_umsatz = cagr(erst["rev"], letzt["rev"], spanne)
     g_eps = cagr_reihe(epsr)
     g_fcf = cagr_reihe([(i, j["fcf"]) for i, j in enumerate(jahre) if j["fcf"] is not None])
     g_fcfps = cagr_reihe(fcfps)
     g_aktien = cagr_reihe(sh)
+    # Vorzeichenwechsel positiv -> negativ: CAGR ist dann nicht definiert (None),
+    # darf aber nicht als "unauffaellig" durchgehen (Audit AGT-09)
+    fcf_dreht = bool(len(fcfps) >= 2 and fcfps[0][1] > 0 and fcfps[-1][1] < 0)
     fcfps_steigt = sum(1 for a, b in zip(fcfps, fcfps[1:]) if b[1] > a[1])
     umsatz_steigt = sum(1 for a, b in zip(jahre, jahre[1:]) if b["rev"] > a["rev"])
     umsatz_einbruch = any(b["rev"] < a["rev"] * 0.9 for a, b in zip(jahre, jahre[1:]))
@@ -333,11 +439,11 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
     # --- historische Bewertung (FCF-Rendite zu den Geschaeftsjahresenden) ---
     hist_rendite, hist_kgv = [], []
     if wochenkurse:
-        tage = [t for t, _ in wochenkurse]
+        wtage = [t for t, _ in wochenkurse]
         for j in jahre[:-1] if len(jahre) > 1 else []:
             d = datetime.date.fromisoformat(j["datum"])
-            pos = bisect.bisect_right(tage, d) - 1
-            if pos < 0 or (d - tage[pos]).days > 15 or not j["sh_ende"]:
+            pos = bisect.bisect_right(wtage, d) - 1
+            if pos < 0 or (d - wtage[pos]).days > 15 or not j["sh_ende"]:
                 continue
             mcap = nach_eur(wochenkurse[pos][1] * j["sh_ende"], kurs_waehrung, d)
             fcf_e = nach_eur(j["fcf"], waehrung, d)
@@ -354,15 +460,16 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
         renditen = [math.log(b / a) for a, b in zip(k, k[1:]) if a > 0 and b > 0]
         if len(renditen) > 20:
             vola = statistics.pstdev(renditen) * math.sqrt(52) * 100
-        spitze, dd = k[0], 0.0
-        for p in [p for _, p in wochenkurse[-260:]]:
+        fenster = [p for _, p in wochenkurse[-260:]]
+        spitze, dd = fenster[0], 0.0           # laufendes Hoch ab Fensterbeginn (Audit AGT-03)
+        for p in fenster:
             spitze = max(spitze, p)
             dd = min(dd, p / spitze - 1)
         drawdown = dd * 100
 
     return {
         "wae": waehrung, "gj": letzt["datum"], "gj_erst": erst["datum"], "n": n,
-        "roic": r1(roics[-1]) if roics else None, "roic_avg": r1(statistics.mean(roics)) if roics else None,
+        "roic": r1(roic_zuletzt), "roic_avg": r1(statistics.mean(roics)) if roics else None,
         "roic_min": r1(min(roics)) if roics else None,
         "roic_trend": r1(roics[-1] - roics[0]) if len(roics) >= 2 else None,
         "roe": r1(roes[-1]) if roes else None,
@@ -378,7 +485,8 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
         "g_fcf": r1(g_fcf * 100) if g_fcf is not None else None,
         "g_fcfps": r1(g_fcfps * 100) if g_fcfps is not None else None,
         "g_akt": r1(g_aktien * 100, 2) if g_aktien is not None else None,
-        "fcfps_up": fcfps_steigt, "fcfps_n": max(len(fcfps) - 1, 0),
+        "fcfps_up": fcfps_steigt, "fcfps_n": max(len(fcfps) - 1, 0), "fcf_dreht": fcf_dreht,
+        "akt_sprung": sprung,
         "ums_up": umsatz_steigt, "fcf_pos": sum(1 for f in fcfs if f > 0), "fcf_n": len(fcfs),
         "fcfps": r1(fcfps[-1][1], 3) if fcfps else None,
         "nd": nd, "nd_ebitda": r1(nd_ebitda, 2), "nd_ebitda_vor": r1(nd_ebitda_vor, 2),
@@ -403,16 +511,27 @@ def kennzahlen(symbol, jahre_roh, waehrung, wochenkurse, kurs_waehrung):
 
 def aktualisiere(symbol):
     """Holt Jahresabschluesse + Wochenkurse und verdichtet sie. Rueckgabe:
-    (kennzahlen oder None, grund)."""
-    jahre, waehrung = lade_jahresabschluesse(symbol)
+    (kennzahlen oder None, grund, status) mit status
+      "ok"     - neue Kennzahlen,
+      "fehlt"  - Yahoo hat (inhaltlich) keine/zu wenige Daten,
+      "fehler" - technischer Fehlschlag (Timeout/5xx/429): alter Eintrag bleibt (Audit AGT-01)."""
+    try:
+        jahre, waehrung = lade_jahresabschluesse(symbol)
+    except AbrufFehler:
+        return None, "Abruf fehlgeschlagen", "fehler"
     if not jahre:
-        return None, "keine Abschlussdaten"
+        return None, "keine Abschlussdaten", "fehlt"
     chart = T.yahoo_chart(symbol, 6 * 366, intervall="1wk")
+    if chart is None and T.yahoo_letzter_status() != "nicht_gefunden":
+        # ohne Wochenkurse fehlten Kurshistorie, Drawdown, hist. Bewertung -
+        # lieber den (vollstaendigen) alten Eintrag behalten
+        return None, "Kursabruf fehlgeschlagen", "fehler"
     wochen = chart["reihe"] if chart else []
     kurs_wae = chart["waehrung"] if chart else ""
-    k = kennzahlen(symbol, jahre, waehrung or kurs_wae, wochen, kurs_wae)
+    k = kennzahlen(symbol, jahre, waehrung or kurs_wae, wochen, kurs_wae,
+                   splits=chart.get("splits") if chart else None)
     if k is None:
-        return None, "zu wenige Geschaeftsjahre"
+        return None, "zu wenige Geschaeftsjahre", "fehlt"
     k["kurs_wae"] = kurs_wae
     k["kurs_fb"] = wochen[-1][1] if wochen else None      # Ersatzkurs, falls Uebersicht fehlt
     # Kurshistorie fuer "Qualitaet x Kurs": etwa monatliche Punkte ueber gut
@@ -420,7 +539,7 @@ def aktualisiere(symbol):
     # fuer den Cache, genau genug fuer 6 Monate / 1 Jahr / 3 Jahre.
     k["kh"] = [[t.toordinal(), round(p, 6)] for t, p in wochen[::-1][:180:4]][::-1]
     k["name_y"] = chart["name"] if chart else ""
-    return k, ""
+    return k, "", "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +580,34 @@ def barwert(fcf0, g1, r, jahre=JAHRE_DCF, g_ewig=G_EWIG, g_verlauf="konstant"):
         pv += f / (1 + r) ** t
     endwert = f * (1 + g_ewig) / (r - g_ewig)
     return pv + endwert / (1 + r) ** jahre, endwert / f
+
+
+def dividendenrendite_quote(q, kurs_waehrung, k, mcap, berichts_waehrung):
+    """Dividendenrendite in % (Audit AGT-08).
+    1. v7 'dividendYield' (bereits in Prozent), wenn > 0
+    2. 'trailingAnnualDividendYield' (Anteil), wenn > 0 - bei Kursen in einer
+       Unterwaehrung (GBp/GBX/ZAc/ILA) liefert Yahoo die Dividende teils in der
+       Hauptwaehrung -> 100x zu klein; korrigiert wie top50_agent.dividendenrendite
+       (Rendite < 0.3 % in Pence-Kurswaehrung -> x100)
+    3. Ausschuettung laut Abschluss / Boersenwert
+    Eine 0.0 in einem Feld verdeckt nie ein anderes Feld mit Wert > 0."""
+    qq = q or {}
+    dy, ty = qq.get("dividendYield"), qq.get("trailingAnnualDividendYield")
+    div_r = None
+    if isinstance(dy, (int, float)) and dy > 0:
+        div_r = float(dy)
+    elif isinstance(ty, (int, float)) and ty > 0:
+        div_r = ty * 100
+        if UNTERWAEHRUNG.get(kurs_waehrung) == 100 and 0 < div_r < 0.3:
+            div_r *= 100
+    elif k.get("div"):
+        div_e = nach_eur(k["div"], berichts_waehrung)
+        div_r = div_e / mcap * 100 if div_e is not None and mcap else None
+    elif dy == 0 or ty == 0 or k.get("div") == 0:
+        div_r = 0.0
+    if div_r is not None and not (0 <= div_r <= 25):  # Waehrungs-/Datenfehler
+        div_r = None
+    return div_r
 
 
 def implizites_wachstum(ev, fcf0):
@@ -506,17 +653,7 @@ def bewerte(sym, k, q, rev, stamm):
     ev_ebitda = ev / ebitda if ebitda and ebitda > 0 else None
     ev_fcf = ev / fcf_b if fcf_b and fcf_b > 0 else None
     fcfy = fcf_b / mcap * 100 if fcf_b is not None else None
-    div_r = None
-    qq = q or {}
-    if qq.get("trailingAnnualDividendYield") is not None:
-        div_r = qq["trailingAnnualDividendYield"] * 100
-    elif qq.get("dividendYield") is not None:
-        div_r = qq["dividendYield"]                       # v7: bereits in Prozent
-    elif k.get("div") is not None:
-        div_e = nach_eur(k["div"], wae)
-        div_r = div_e / mcap * 100 if div_e is not None else None
-    if div_r is not None and not (0 <= div_r <= 25):  # Waehrungs-/Datenfehler (z. B. Pence)
-        div_r = None
+    div_r = dividendenrendite_quote(q, kwae, k, mcap, wae)
     if fcfy is not None and fcfy > 40:            # fast sicher Daten-/Waehrungsfehler
         return None
 
@@ -528,11 +665,14 @@ def bewerte(sym, k, q, rev, stamm):
     if (fkgv or kgv) and g_ref > 0.01:
         peg = (fkgv or kgv) / (g_ref * 100)
 
-    # Reverse DCF
+    # Reverse DCF. "konservativ" nur, wenn der Kurs deutlich WENIGER Wachstum
+    # einpreist als erreicht - ohne Untergrenze, die schrumpfende Firmen
+    # (g_ref < 0) belohnt haette (Audit AGT-05).
     g_impl = implizites_wachstum(ev, fcf_b)
     if g_impl is None:
-        erwartung = "nicht berechenbar (FCF ≤ 0)"
-    elif g_impl <= max(0.02, g_ref - 0.03):
+        erwartung = ("nicht berechenbar (Unternehmenswert ≤ 0: Nettocash über Börsenwert)" if ev <= 0
+                     else "nicht berechenbar (FCF ≤ 0)")
+    elif g_impl <= g_ref - 0.03:
         erwartung = "konservativ"
     elif g_impl <= g_ref + 0.02:
         erwartung = "realistisch"
@@ -544,9 +684,15 @@ def bewerte(sym, k, q, rev, stamm):
     # Szenarien (Wert des Eigenkapitals in EUR)
     szen = {}
     if fcf_b and fcf_b > 0:
+        # Bear-Basis: Normaljahr aus der Durchschnittsmarge, hoechstens der
+        # aktuelle FCF. Ist die Durchschnittsmarge <= 0 (FCF erst zuletzt
+        # positiv), waere die Basis negativ - dann die Haelfte des aktuellen FCF
+        # (Audit AGT-10).
+        fcf_norm = nach_eur(k["fm_avg"] / 100 * k["rev"], wae) if k["fm_avg"] is not None else None
+        bear_basis = min(fcf_b, fcf_norm) if fcf_norm is not None and fcf_norm > 0 else \
+            (fcf_b if fcf_norm is None else 0.5 * fcf_b)
         for name, g1, r, basis in (
-                ("bear", max(-0.02, 0.4 * g_ref), DISKONT_BEAR,
-                 min(fcf_b, (nach_eur(k["fm_avg"] / 100 * k["rev"], wae) if k["fm_avg"] is not None else None) or fcf_b) * 0.9),
+                ("bear", max(-0.02, 0.4 * g_ref), DISKONT_BEAR, bear_basis * 0.9),
                 ("base", min(max(0.75 * g_ref, 0.0), 0.15), DISKONT, fcf_b),
                 ("bull", min(max(g_ref * 1.1, 0.03), 0.25), DISKONT_BULL, fcf_b)):
             wert, exit_mult = barwert(basis, g1, r, g_verlauf="abflachend")
@@ -554,7 +700,7 @@ def bewerte(sym, k, q, rev, stamm):
                           "multiple": r1(exit_mult)}
     fair = szen.get("base", {}).get("wert")
     mos = max((1 - mcap / fair) * 100, -200.0) if fair and fair > 0 else None   # -200 = "Kurs >= 3x fairer Wert"
-    bear_verlust = (szen["bear"]["wert"] / mcap - 1) * 100 if "bear" in szen else None
+    bear_verlust = max((szen["bear"]["wert"] / mcap - 1) * 100, -100.0) if "bear" in szen else None
 
     # ---------------- Punkte ----------------
     P, begr = {}, {}
@@ -650,6 +796,8 @@ def bewerte(sym, k, q, rev, stamm):
         flags.append(("Wachstum überwiegend durch Zukäufe (Zukäufe > Free Cashflow)", 4))
     if (k["g_fcfps"] or 0) < -10:
         flags.append((f"FCF je Aktie stark fallend ({k['g_fcfps']:+.0f} % p.a.)", 5))
+    elif k.get("fcf_dreht"):
+        flags.append(("FCF je Aktie von positiv auf negativ gedreht", 5))
     if erwartung == "extrem optimistisch" or (ev_fcf and ev_fcf > 70):
         flags.append(("Sehr hohe eingepreiste Erwartungen (Reverse-DCF)", 5))
     abzug = sum(f[1] for f in flags)
@@ -694,7 +842,7 @@ def bewerte(sym, k, q, rev, stamm):
         staerken.append((mos, f"Sicherheitsmarge {mos:.0f} % zum konservativen fairen Wert"))
     if (k["gm_avg"] or 0) >= 50 and w(k["om_std"], 99) <= 3:
         staerken.append((16, f"Bruttomarge Ø {k['gm_avg']:.0f} %, stabile operative Marge"))
-    if erwartung == "konservativ":
+    if erwartung == "konservativ" and g_impl is not None and g_impl < g_ref:
         staerken.append((17, "Kurs preist weniger Wachstum ein als historisch erreicht"))
     staerken = [t for _, t in sorted(staerken, reverse=True)[:5]]
 
@@ -781,6 +929,37 @@ def bewerte(sym, k, q, rev, stamm):
     }
 
 
+def bewerte_sicher(sym, k, q, rev, stamm):
+    """bewerte() - ein einzelner kaputter/alter Cache-Eintrag darf den Lauf
+    nicht abbrechen (sonst wuerde nichts geschrieben)."""
+    try:
+        return bewerte(sym, k, q, rev, stamm)
+    except Exception as e:
+        log.warning(f"{sym}: Bewertung fehlgeschlagen ({T.fehlertext(e)})")
+        return None
+
+
+def passende_groesse(komplett, groesse, max_bytes=None, n_start=None, n_min=15, schritt=5):
+    """Listenlaenge n so waehlen, dass die FERTIGE Ergebnisdatei (inkl.
+    Wochenvergleich) unter max_bytes bleibt (Audit AGT-06). Erst mit dem
+    endgueltigen n wird der Verlauf gespeichert (komplett(n, True)).
+    Reicht das nicht, faellt als letzter Ausweg der Index-Wochenvergleich weg.
+    -> (ausgabe, n)"""
+    max_bytes = MAX_JSON_BYTES if max_bytes is None else max_bytes
+    n = TOP_N if n_start is None else n_start
+    while n > n_min and groesse(komplett(n, False)) > max_bytes:
+        n = max(n - schritt, n_min)
+    ausgabe = komplett(n, True)
+    if groesse(ausgabe) > max_bytes:
+        ausgabe["vergleich"] = {k_: v for k_, v in ausgabe["vergleich"].items() if not k_.startswith("i:")}
+        ausgabe["vergleich_gekuerzt"] = True
+        log.warning(f"{STATE_ERGEBNIS}: Index-Wochenvergleich weggelassen (Groessengrenze)")
+    if groesse(ausgabe) > max_bytes:
+        log.error(f"{STATE_ERGEBNIS} ist mit {groesse(ausgabe)} Bytes groesser als {max_bytes} "
+                  f"(auch bei n={n}) - wird trotzdem geschrieben, App liest ueber die Blob-API.")
+    return ausgabe, n
+
+
 # ---------------------------------------------------------------------------
 # Hauptablauf
 # ---------------------------------------------------------------------------
@@ -846,8 +1025,149 @@ def universum(heute):
     return stamm, je_kat, index_cache
 
 
+def alter_tage(eintrag, heute):
+    try:
+        return (heute - datetime.date.fromisoformat(eintrag["stand"])).days
+    except Exception:
+        return 9999
+
+
+def lade_cache():
+    """Liest die Kennzahlen-Teile. -> (cache, gesperrt, migriert)
+    gesperrt: Teile, die nicht gelesen werden konnten - weder auffrischen noch
+                schreiben (sonst ueberschriebe ein Teilstand die Datei).
+    migriert: Teile, die es in der 64er-Aufteilung noch nicht gibt und die aus
+                der alten 32er-Aufteilung befuellt wurden - werden in diesem Lauf
+                (auch ohne Aenderung) neu geschrieben. Ist der zugehoerige alte
+                Teil nicht lesbar, wird der neue Teil gesperrt, sonst gingen
+                dessen Daten bei der Umstellung verloren."""
+    cache, status = {}, {}
+    for i in range(CACHE_TEILE):
+        daten, status[i] = T.lade_state_geprueft(STATE_CACHE.format(i), {})
+        if status[i] == "ok" and isinstance(daten, dict):
+            cache.update(daten)
+    gesperrt = {i for i, st in status.items() if st == "fehler"}
+    fehlend = {i for i, st in status.items() if st == "fehlt"}
+    migriert = set()
+    if fehlend:
+        alt_status = {}
+        for j in sorted({i % CACHE_TEILE_ALT for i in fehlend}):
+            daten, alt_status[j] = T.lade_state_geprueft(STATE_CACHE_ALT.format(j), {})
+            if alt_status[j] != "ok" or not isinstance(daten, dict):
+                continue
+            for sym, eintrag in daten.items():
+                if teil(sym) in fehlend:
+                    cache.setdefault(sym, eintrag)
+        for i in fehlend:
+            if alt_status.get(i % CACHE_TEILE_ALT) == "fehler":
+                gesperrt.add(i)
+            else:
+                migriert.add(i)
+        if migriert:
+            log.info(f"Kennzahlen-Cache: {len(migriert)} Teile aus der alten {CACHE_TEILE_ALT}er-Aufteilung uebernommen")
+    return cache, gesperrt, migriert
+
+
+def uebernehme(cache, symbol, k, grund, status, heute):
+    """Traegt ein Abrufergebnis in den Cache ein (Audit AGT-01).
+    ok     -> neue Kennzahlen, neuer Stand
+    fehlt  -> Yahoo hat inhaltlich keine (ausreichenden) Daten: "fehlt" - es sei
+              denn, es gibt gueltige Kennzahlen juenger als CACHE_BEHALTEN_TAGE;
+              die bleiben (ein einzelner leerer Abruf loescht nichts)
+    fehler -> technischer Fehlschlag: alter Eintrag bleibt unveraendert (Stand
+              ebenso), nur 'versuch_am' wird vermerkt."""
+    alt = cache.get(symbol) or {}
+    if status == "ok" and k:
+        cache[symbol] = {"stand": heute.isoformat(), "k": k}
+    elif status == "fehlt":
+        if alt.get("k") and alter_tage(alt, heute) < CACHE_BEHALTEN_TAGE:
+            cache[symbol] = {**alt, "versuch_am": heute.isoformat(), "leer": grund}
+        else:
+            cache[symbol] = {"stand": heute.isoformat(), "fehlt": grund}
+    else:
+        cache[symbol] = {**alt, "versuch_am": heute.isoformat()}
+
+
+def speichere_cache_teile(cache, teile, gesperrt, stamm, heute):
+    """Schreibt die angegebenen Kennzahlen-Teile (nie gesperrte). Werte, die
+    nicht mehr im Universum sind, bleiben noch CACHE_BEHALTEN_TAGE erhalten
+    (falls das Universum heute nur unvollstaendig geladen wurde).
+    -> Menge der erfolgreich geschriebenen Teile."""
+    geschrieben = set()
+    for i in sorted(teile):
+        if i in gesperrt:
+            continue
+        daten = {s: v for s, v in cache.items() if teil(s) == i
+                 and (s in stamm or alter_tage(v, heute) < CACHE_BEHALTEN_TAGE)}
+        if T.speichere_state(STATE_CACHE.format(i), daten, f"qualitaet: kennzahlen teil {i} [skip ci]"):
+            geschrieben.add(i)
+    return geschrieben
+
+
+def abrufen_und_speichern(faellig, cache, stamm, heute, start, gesperrt=(), zu_schreiben=()):
+    """Frischt die faelligen Werte auf (Audit AGT-02):
+    - hoechstens T.YAHOO_PARALLEL Abrufe gleichzeitig (Drossel in yahoo_json
+      unveraendert), neue Abrufe nur, solange Zeitbudget und Yahoo es erlauben
+    - alle SPEICHERN_NACH aufgefrischten Werte werden die geaenderten Teile
+      gespeichert, am Ende (auch bei einer Ausnahme) der Rest.
+    -> Zusammenfassung (dict)."""
+    gesperrt = set(gesperrt)
+    geaendert = set(zu_schreiben) - gesperrt
+    zaehler = {"ok": 0, "fehlt": 0, "fehler": 0, "zwischenspeicher": 0, "abbruch": None,
+               "offen": 0}
+    seit_speichern = 0
+    warteschlange = iter(faellig)
+    laufend = {}
+    gestartet = 0
+    try:
+        with ThreadPoolExecutor(T.YAHOO_PARALLEL) as pool:
+            while True:
+                while len(laufend) < T.YAHOO_PARALLEL and zaehler["abbruch"] is None:
+                    if _uhr() - start >= ZEITBUDGET_ABRUF_SEK:
+                        zaehler["abbruch"] = "Zeitbudget"
+                        break
+                    if T.yahoo_aufgegeben():
+                        zaehler["abbruch"] = "Yahoo-Sperre"
+                        break
+                    s = next(warteschlange, None)
+                    if s is None:
+                        break
+                    laufend[pool.submit(aktualisiere, s)] = s
+                    gestartet += 1
+                if not laufend:
+                    break
+                fertig, _ = wait(laufend, return_when=FIRST_COMPLETED)
+                for f in fertig:
+                    s = laufend.pop(f)
+                    try:
+                        k, grund, status = f.result()
+                    except Exception as e:           # ein kaputter Wert darf den Lauf nicht stoppen
+                        log.warning(f"{s}: Auswertung fehlgeschlagen ({T.fehlertext(e)})")
+                        k, grund, status = None, "Auswertung fehlgeschlagen", "fehler"
+                    zaehler[status] = zaehler.get(status, 0) + 1
+                    uebernehme(cache, s, k, grund, status, heute)
+                    geaendert.add(teil(s))
+                    seit_speichern += 1
+                if seit_speichern >= SPEICHERN_NACH:
+                    # nicht geschriebene Teile bleiben vorgemerkt (naechster
+                    # Zwischenstand bzw. Abschluss versucht sie erneut)
+                    geaendert -= speichere_cache_teile(cache, geaendert, gesperrt, stamm, heute)
+                    zaehler["zwischenspeicher"] += 1
+                    seit_speichern = 0
+    finally:
+        geaendert -= speichere_cache_teile(cache, geaendert, gesperrt, stamm, heute)
+        zaehler["nicht_gespeichert"] = sorted(geaendert)
+        if geaendert:
+            log.error(f"Kennzahlen-Teile {sorted(geaendert)} konnten nicht gespeichert werden.")
+    zaehler["offen"] = len(faellig) - gestartet
+    if zaehler["abbruch"]:
+        log.warning(f"Fundamentaldaten-Abruf vorzeitig beendet ({zaehler['abbruch']}) - "
+                    f"{zaehler['offen']} Werte folgen im naechsten Lauf.")
+    return zaehler
+
+
 def main():
-    start = time.monotonic()
+    start = _uhr()
     jetzt = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
     heute = jetzt.date()
 
@@ -856,10 +1176,11 @@ def main():
     log.info(f"Universum: {len(alle)} Aktien in {len(je_kat)} Kategorien")
 
     # Branche fuer Werte ohne iShares-Sektor (feste Listen) - einmalig, gecacht
-    sektoren = T.lade_state(STATE_SEKTOREN, {}) or {}
+    sektoren, sek_status = T.lade_state_geprueft(STATE_SEKTOREN, {})
+    sektoren = sektoren or {}
     # hoechstens MAX_SEKTOR_ABRUFE je Lauf (erster Aufbau verteilt sich so auf einige Tage)
     fehlend = [s for s in alle if not stamm[s]["branche"] and s not in sektoren][:MAX_SEKTOR_ABRUFE]
-    if fehlend:
+    if fehlend and sek_status != "fehler":       # Datei nicht lesbar: nichts nachschlagen/ueberschreiben
         with ThreadPoolExecutor(T.YAHOO_PARALLEL) as pool:
             for s, (sek, ind) in zip(fehlend, pool.map(lade_sektor, fehlend)):
                 sektoren[s] = [sek, ind]
@@ -869,17 +1190,14 @@ def main():
             stamm[s]["branche"] = sektoren[s][1] or sektoren[s][0]
             stamm[s]["sektor"] = sektoren[s][0]
 
-    # Kennzahlen-Cache laden
-    teile = [T.lade_state(STATE_CACHE.format(i), {}) or {} for i in range(CACHE_TEILE)]
-    cache = {}
-    for t in teile:
-        cache.update(t)
+    # Kennzahlen-Cache laden (inkl. einmaliger Uebernahme der alten 32er-Teile)
+    cache, gesperrt, migriert = lade_cache()
+    if gesperrt:
+        log.error(f"Kennzahlen-Teile {sorted(gesperrt)} nicht lesbar - werden heute weder "
+                  f"aufgefrischt noch geschrieben.")
 
     def alter(s):
-        try:
-            return (heute - datetime.date.fromisoformat(cache[s]["stand"])).days
-        except Exception:
-            return 9999
+        return alter_tage(cache.get(s), heute)
 
     def faellig_ab(s):
         c = cache.get(s) or {}
@@ -895,26 +1213,13 @@ def main():
     for rang, key in enumerate(("aktien", "dividenden", "usa", "europa", "welt", "welt_neben", "em", "nebenwerte", "us_micro")):
         for sym in je_kat.get(key, []):
             vorrang.setdefault(sym, rang)
-    faellig = [s for s in alle if alter(s) >= faellig_ab(s)]
+    faellig = [s for s in alle if teil(s) not in gesperrt and alter(s) >= faellig_ab(s)]
     faellig.sort(key=lambda s: (-min(alter(s), 60), vorrang.get(s, 9), s))
     faellig = faellig[:MAX_AKTUALISIERUNG]
     log.info(f"Fundamentaldaten: {len(faellig)} aufzufrischen (von {len(alle)}), "
-             f"{sum(1 for s in alle if s in cache)} im Cache")
-    geaendert = set()
-    with ThreadPoolExecutor(T.YAHOO_PARALLEL) as pool:
-        for s, (k, grund) in zip(faellig, pool.map(aktualisiere, faellig)):
-            if T.yahoo_aufgegeben():
-                break
-            eintrag = {"stand": heute.isoformat()}
-            if k:
-                eintrag["k"] = k
-            else:
-                eintrag["fehlt"] = grund
-            cache[s] = eintrag
-            geaendert.add(teil(s))
-    for i in sorted(geaendert):
-        daten = {s: v for s, v in cache.items() if teil(s) == i and s in stamm}
-        T.speichere_state(STATE_CACHE.format(i), daten, f"qualitaet: kennzahlen teil {i} [skip ci]")
+             f"{sum(1 for s in alle if (cache.get(s) or {}).get('k'))} im Cache")
+    statistik = abrufen_und_speichern(faellig, cache, stamm, heute, start, gesperrt, set(migriert))
+    log.info(f"Fundamentaldaten: {statistik}")
 
     # Bewertbare Werte (Finanzwerte ohne FCF/EBITDA-Logik ausgenommen)
     bewertbar, finanz, ohne = [], [], 0
@@ -936,7 +1241,7 @@ def main():
     trends = T.lade_state(STATE_TRENDS, {}) or {}
     ergebnisse = {}
     for s in bewertbar:
-        e = bewerte(s, cache[s]["k"], uebersicht.get(s), (trends.get(s) or {}).get("d"), stamm[s])
+        e = bewerte_sicher(s, cache[s]["k"], uebersicht.get(s), (trends.get(s) or {}).get("d"), stamm[s])
         if e:
             ergebnisse[s] = e
     kandidaten = sorted(ergebnisse, key=lambda s: -ergebnisse[s]["gesamt"])[:TRENDS_FUER_TOP]
@@ -955,7 +1260,7 @@ def main():
         T.speichere_state(STATE_TRENDS, {s: v for s, v in trends.items() if trend_alt(s) < 30},
                           "qualitaet: revisionen [skip ci]")
         for s in neu:                                   # mit Revisionen neu bewerten
-            e = bewerte(s, cache[s]["k"], uebersicht.get(s), (trends.get(s) or {}).get("d"), stamm[s])
+            e = bewerte_sicher(s, cache[s]["k"], uebersicht.get(s), (trends.get(s) or {}).get("d"), stamm[s])
             if e:
                 ergebnisse[s] = e
 
@@ -967,7 +1272,8 @@ def main():
     def auswerten(n):
         ausgabe = {"stand": jetzt.isoformat(timespec="minutes"), "reihenfolge": [], "kategorien": {},
                    "werte": {}, "abdeckung": {"universum": len(alle), "mit_kennzahlen": len(alle) - ohne,
-                                              "offen": sum(1 for s in alle if s not in cache),
+                                              "offen": sum(1 for s in alle if not (cache.get(s) or {}).get("k")
+                                                           and not (cache.get(s) or {}).get("fehlt")),
                                               "ohne_daten": sum(1 for s in alle if (cache.get(s) or {}).get("fehlt")),
                                               "bewertet": len(ergebnisse), "finanzwerte": len(finanz)},
                    "annahmen": {"diskont": DISKONT * 100, "g_ewig": G_EWIG * 100, "jahre": JAHRE_DCF}}
@@ -991,45 +1297,36 @@ def main():
                 ausgabe["werte"][s] = zeile(ergebnisse[s])
         return ausgabe
 
-    n = TOP_N
-    ausgabe = auswerten(n)
-    while len(json.dumps(ausgabe, ensure_ascii=False).encode()) > MAX_JSON_BYTES and n > 15:
-        n -= 5
-        ausgabe = auswerten(n)
-    ausgabe["top_n"] = n
+    namen = {s: stamm[s]["name"] for s in stamm}
 
-    # Wochenvergleich: Platz vor 7 Tagen je Liste, Neuaufnahmen, Rausgeflogene
+    def raus_ergaenzen(vergleich):
+        # Rausgeflogene aus einer Einordnungs-Liste: meist nicht "schlechter",
+        # sondern in eine andere Einordnung gewechselt - das dazuschreiben
+        for v in vergleich.values():
+            for r in v["raus"]:
+                if r["jetzt"] is None:
+                    if r["id"] in ergebnisse:
+                        r["klasse"] = ergebnisse[r["id"]]["klasse"]
+                    else:
+                        r["grund"] = "nicht mehr bewertet"
+        return vergleich
+
+    # Volle Ranglisten fuer den Wochenvergleich (unabhaengig von n)
     volle = {}
-    for key, kat_erg in ausgabe["kategorien"].items():
+    for key in ["alle"] + [k for k in KATEGORIEN if k in je_kat]:
         symbole = alle if key == "alle" else je_kat[key]
         bewertet = [s for s in symbole if s in ergebnisse]
         volle[f"{key}|top"] = rangliste(bewertet, len(bewertet))
         for kl in ("prio", "beobachten", "nicht"):
             volle[f"{key}|{kl}"] = rangliste([s for s in bewertet if ergebnisse[s]["klasse"] == kl], len(bewertet))
-    seit, vergleich = T.wochenvergleich(STATE_VERLAUF, heute, volle,
-                                        {s: stamm[s]["name"] for s in stamm}, top_n=n)
-    # Rausgeflogene aus einer Einordnungs-Liste: meist nicht "schlechter",
-    # sondern in eine andere Einordnung gewechselt - das dazuschreiben
-    for v in vergleich.values():
-        for r in v["raus"]:
-            if r["jetzt"] is None:
-                if r["id"] in ergebnisse:
-                    r["klasse"] = ergebnisse[r["id"]]["klasse"]
-                else:
-                    r["grund"] = "nicht mehr bewertet"
-    ausgabe["vergleich_seit"] = seit
-    ausgabe["vergleich"] = vergleich
 
     # Index-Filter: Mitglieder je Index (woechentlich, von beiden Agenten
     # geteilt) + Wochenvergleich der Index-Ranglisten
-    gruppen = {"stand": ausgabe["stand"], "reihenfolge": ausgabe["reihenfolge"], "kategorien": {}, "indizes": {},
+    gruppen = {"stand": jetzt.isoformat(timespec="minutes"), "reihenfolge": [], "kategorien": {}, "indizes": {},
                "regionen": T.INDEX_REGIONEN}
-    for key, kat_erg in ausgabe["kategorien"].items():
-        gruppen["kategorien"][key] = {"titel": kat_erg["titel"]}
-        if key != "alle":
-            gruppen["kategorien"][key]["s"] = [s_ for s_ in je_kat[key] if s_ in ergebnisse]
+    volle_idx = None
     try:
-        indizes = T.index_mitgliedschaften({s_: stamm[s_]["name"] for s_ in stamm}, index_cache, heute)
+        indizes = T.index_mitgliedschaften(namen, index_cache, heute)
         volle_idx = {}
         for key, info in indizes.items():
             mitglieder_idx = [s_ for s_ in info.get("s", []) if s_ in ergebnisse]
@@ -1040,22 +1337,45 @@ def main():
             for kl in ("prio", "beobachten", "nicht"):
                 volle_idx[f"i:{key}|{kl}"] = rangliste([s_ for s_ in mitglieder_idx
                                                         if ergebnisse[s_]["klasse"] == kl], len(mitglieder_idx))
-        _, vergleich_idx = T.wochenvergleich(STATE_VERLAUF_INDIZES, heute, volle_idx,
-                                             {s_: stamm[s_]["name"] for s_ in stamm}, top_n=n)
-        for v in vergleich_idx.values():
-            for r in v["raus"]:
-                if r["jetzt"] is None:
-                    if r["id"] in ergebnisse:
-                        r["klasse"] = ergebnisse[r["id"]]["klasse"]
-                    else:
-                        r["grund"] = "nicht mehr bewertet"
-        ausgabe["vergleich"].update(vergleich_idx)
     except Exception as e:                 # Index-Filter darf den Score nie verhindern
         log.error(f"Index-Zuordnung fehlgeschlagen: {e}", exc_info=True)
-    dauer = time.monotonic() - start
-    ausgabe["laufzeit_sek"] = round(dauer)
-    ausgabe["anfragen"] = T.ZAEHLER["yahoo"]
-    ausgabe["gebremst"] = T.ZAEHLER["yahoo_429"]
+        volle_idx = None
+
+    def komplett(n, speichern):
+        """Gesamte Ausgabe inkl. Wochenvergleich fuer Listenlaenge n."""
+        ausgabe = auswerten(n)
+        ausgabe["top_n"] = n
+        seit, vergleich = T.wochenvergleich(STATE_VERLAUF, heute, volle, namen, top_n=n, speichern=speichern)
+        ausgabe["vergleich_seit"] = seit
+        ausgabe["vergleich"] = raus_ergaenzen(vergleich)
+        if volle_idx is not None:
+            try:
+                _, vergleich_idx = T.wochenvergleich(STATE_VERLAUF_INDIZES, heute, volle_idx, namen,
+                                                     top_n=n, speichern=speichern)
+                ausgabe["vergleich"].update(raus_ergaenzen(vergleich_idx))
+            except Exception as e:
+                log.error(f"Index-Wochenvergleich fehlgeschlagen: {e}", exc_info=True)
+        ausgabe["laufzeit_sek"] = round(_uhr() - start)
+        ausgabe["anfragen"] = T.ZAEHLER["yahoo"]
+        ausgabe["gebremst"] = T.ZAEHLER["yahoo_429"]
+        return ausgabe
+
+    def groesse(obj):
+        return len(json.dumps(obj, ensure_ascii=False).encode())
+
+    # Groesse der FERTIGEN Datei pruefen (inkl. Wochenvergleich, Audit AGT-06):
+    # n verkleinern, bis sie unter MAX_JSON_BYTES liegt; erst mit dem
+    # endgueltigen n den Verlauf speichern.
+    ausgabe, n = passende_groesse(komplett, groesse)
+    log.info(f"{STATE_ERGEBNIS}: {groesse(ausgabe)} Bytes, Top {n}")
+
+    gruppen["stand"] = ausgabe["stand"]
+    gruppen["reihenfolge"] = ausgabe["reihenfolge"]
+    for key, kat_erg in ausgabe["kategorien"].items():
+        gruppen["kategorien"][key] = {"titel": kat_erg["titel"]}
+        if key != "alle":
+            gruppen["kategorien"][key]["s"] = [s_ for s_ in je_kat[key] if s_ in ergebnisse]
+    dauer = _uhr() - start
 
     if not ergebnisse:
         log.error("Kein einziger Wert bewertet - vorhandenes Ergebnis bleibt unveraendert.")
@@ -1080,6 +1400,10 @@ def main():
                           f"qualitaet: alle aktien {i} [skip ci]")
     T.speichere_state(STATE_GRUPPEN, gruppen, "qualitaet: gruppen [skip ci]")
     T.speichere_state(STATE_ERGEBNIS, ausgabe, "qualitaet: taeglicher score [skip ci]")
+    try:
+        T.fx_stand_speichern()        # letzte Wechselkurse als Rueckfall fuer kuenftige Laeufe (AGT-07)
+    except Exception as e:
+        log.error(f"Wechselkurs-Stand nicht gespeichert: {T.fehlertext(e)}")
     klassen = ausgabe["kategorien"]["alle"]["klassen"]
     log.info(f"Fertig in {dauer:.0f}s - {len(ergebnisse)} bewertet "
              f"(Priorität {klassen['prio']}, Beobachten {klassen['beobachten']}, Nicht {klassen['nicht']}), "
