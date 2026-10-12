@@ -18,7 +18,7 @@ Bausteine:
 """
 import math
 
-ENGINE_VERSION = "09.10.2026 · 23:00"   # muss zu planer_ui.PLANER_VERSION passen
+ENGINE_VERSION = "12.10.2026 · 10:00"   # muss zu planer_ui.PLANER_VERSION passen
 
 import planer_daten as D
 
@@ -43,15 +43,19 @@ def future_value(kapital, rendite, jahre, sparrate_monat=0.0):
 
 
 def erforderliche_rendite(start, ziel, jahre, sparrate_monat=0.0):
-    """Benoetigte Jahresrendite; mit Sparrate per Bisektion, ohne = required_cagr."""
+    """Benoetigte Jahresrendite; mit Sparrate per Bisektion, ohne = required_cagr.
+    -> Anteil oder None (kein Ziel, keine Laufzeit oder Ziel selbst mit 1000 % p.a.
+    nicht erreichbar)."""
     if not sparrate_monat:
         return required_cagr(start, ziel, jahre)
-    if not jahre or jahre <= 0:
+    if not jahre or jahre <= 0 or ziel is None or ziel <= 0:
         return None
     if future_value(start, 0.0, jahre, sparrate_monat) >= ziel:
         lo, hi = -0.99, 0.0
     else:
         lo, hi = 0.0, 10.0
+        if future_value(start, hi, jahre, sparrate_monat) < ziel:
+            return None                     # unerreichbar - kein Scheinwert "1000 % p.a."
     for _ in range(100):
         mid = (lo + hi) / 2
         if future_value(start, mid, jahre, sparrate_monat) >= ziel:
@@ -290,7 +294,15 @@ HIST_REIHENFOLGE = (("historical5Y", "5 J. p.a."), ("historical3Y", "3 J. p.a.")
 def ist_rendite(h, methode=None):
     """Tatsaechliche Rendite aus der Kurshistorie: 5 J. p.a., sonst 3 J., sonst
     seit Start (ab 1 Jahr Historie), sonst 1 J. Bei Methode "Historische 10
-    Jahre" zuerst 10 J. -> (wert, bezeichnung) oder (None, None)"""
+    Jahre" zuerst 10 J. -> (wert, bezeichnung) oder (None, None)
+
+    Bei weniger als 1 Jahr Historie liefert diese Funktion bewusst (None, None):
+    die gemessenen Jahreswerte gibt es noch nicht. Fuer diesen Fall rechnet
+    kurze_historie_rendite / kurze_historie_info die durchschnittliche
+    Monatsrendite auf ein Jahr hoch (Entscheidung 12.10.2026, ab 1 vollen Monat):
+    r_m = (1 + seit_start)^(1/monate) - 1, r_pa = (1 + r_m)^12 - 1
+    = (1 + seit_start)^(1/jahre) - 1. Ab 1 Jahr Historie gelten wieder die
+    normalen p.a.-Werte."""
     h = h or {}
     reihenfolge = HIST_REIHENFOLGE
     if methode == "historical10Y":
@@ -298,13 +310,92 @@ def ist_rendite(h, methode=None):
     for feld, text in reihenfolge:
         if h.get(feld) is not None:
             return h[feld], text
-    # Historie juenger als 1 Jahr: tatsaechliche Rendite seit Start, NICHT
-    # hochgerechnet (eine Annualisierung weniger Monate wuerde Werte weit ueber
-    # 100 % p.a. erzeugen). Ab 1 Monat Historie.
-    if h.get("seit_start") is not None and (h.get("jahre") or 0) >= 1.0 / 12.0:
-        mon = max(1, int(round(float(h["jahre"]) * 12)))
-        return h["seit_start"], f"seit Start, {mon} Mon."
+    # Historie juenger als 1 Jahr: kein gemessener Jahreswert - die Hochrechnung
+    # der Ø Monatsrendite (bzw. der gedaempfte Kategorie-Standard unter 1 Monat)
+    # steckt in kurze_historie_rendite / kurze_historie_info.
     return None, None
+
+
+# Rueckfall unter 1 vollem Monat Historie (oder ohne brauchbare Rendite seit Start)
+KURZ_TEXT = "zu kurze Historie – Kategorie-Standard"
+# Hochrechnung der Ø Monatsrendite bei 1 Monat bis < 1 Jahr Historie
+HOCH_PREFIX = "hochgerechnet aus "
+# Mindestbasis 1 voller Monat; "jahre" kommt auf 2 Stellen gerundet (1 Monat = 0,0833 -> 0,08),
+# daher eine kleine Rundungstoleranz - ein halber Monat (0,04) bleibt sicher darunter.
+MIN_JAHRE_HOCHRECHNUNG = 1.0 / 12.0 - 0.005
+
+
+def hochrechnung_monate(h):
+    """Ø Monatsrendite (geometrisch) aufs Jahr hochgerechnet, solange weniger als
+    1 Jahr Historie vorliegt: r_pa = (1 + seit_start)^(1/jahre) - 1.
+    -> (wert p.a., monate) oder (None, None), wenn < 1 Monat, >= 1 Jahr oder
+    seit_start fehlt / nicht endlich / <= -100 %."""
+    h = h or {}
+    try:
+        j = float(h.get("jahre"))
+        g = float(h.get("seit_start"))
+    except (TypeError, ValueError):
+        return None, None
+    if not (math.isfinite(j) and math.isfinite(g)) or g <= -1.0:
+        return None, None
+    if not (MIN_JAHRE_HOCHRECHNUNG <= j < 1.0):
+        return None, None
+    try:
+        wert = (1.0 + g) ** (1.0 / j) - 1.0
+    except OverflowError:
+        return None, None
+    if not math.isfinite(wert):
+        return None, None
+    return wert, j * 12.0
+
+
+def hoch_text(monate):
+    return f"{HOCH_PREFIX}{max(1, int(round(monate)))} Mon. (Ø Monatsrendite)"
+
+
+def kurze_historie(h):
+    """True, wenn Kursdaten vorliegen, aber weniger als 1 Jahr (keine Jahresrendite)."""
+    h = h or {}
+    try:
+        j = float(h.get("jahre"))
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(j) and 0.0 < j < 1.0 and ist_rendite(h)[0] is None
+
+
+def kurze_historie_info(asset, h=None, params=None):
+    """Rendite p.a. bei weniger als 1 Jahr Historie (Entscheidung 12.10.2026):
+    ab 1 vollen Monat die durchschnittliche Monatsrendite aufs Jahr
+    hochgerechnet - r_m = (1 + seit_start)^(1/monate) - 1, r_pa = (1 + r_m)^12 - 1.
+    Unter 1 Monat (oder ohne brauchbare Rendite seit Start) Rueckfall auf den
+    Kategorie-Standard, gedaempft wie vorschlag_renditen - c * Standard +
+    (1 - c) * Anker. Confidence in beiden Faellen hoechstens "ohne_historie".
+    -> (wert, confidence, source-text, sourceType)"""
+    p = params or D.VORSCHLAG
+    j = (h or {}).get("jahre")
+    try:
+        conf = min(confidence_score(j, _typ(asset)), D.CONFIDENCE.get("ohne_historie", 10))
+    except TypeError:
+        conf = D.CONFIDENCE.get("ohne_historie", 10)
+    wert, monate = hochrechnung_monate(h)
+    if wert is not None:
+        return wert, conf, hoch_text(monate), "hochgerechnet"
+    c = conf / 100.0
+    return c * standard_rendite(asset) + (1.0 - c) * p["anker"], conf, KURZ_TEXT, "kategorie_standard"
+
+
+def kurze_historie_rendite(asset, h=None, params=None):
+    """Rendite p.a. bei weniger als 1 Jahr Historie: ab 1 Monat die aufs Jahr
+    hochgerechnete Ø Monatsrendite, darunter der gedaempfte Kategorie-Standard
+    (Details: kurze_historie_info). -> (wert, confidence)"""
+    wert, conf, _src, _typ_ = kurze_historie_info(asset, h, params)
+    return wert, conf
+
+
+def ist_kurz_quelle(source):
+    """True fuer automatisch gesetzte Quellen der < 1-Jahr-Regel (hochgerechnet oder Kategorie-Standard)."""
+    src = str(source or "")
+    return src == KURZ_TEXT or src.startswith(HOCH_PREFIX)
 
 
 # Standardwert je Kategorie, wenn es gar keine Kursdaten gibt (Instrument nicht
@@ -355,7 +446,22 @@ def rendite_fuer(modell, asset, historie=None, methode=None, szenario=None):
                 wert = _szenario_um(wert, sz, modell.get("szenario_regel", D.SZENARIO_REGEL))
             return wert, {"sourceType": "historisch", "source": f"Kurshistorie ({text})",
                           "dataDate": h.get("stand")}, None
-        hinweis_ist = "Keine Kurshistorie (≥ 1 Jahr) – Annahme verwendet"
+        if kurze_historie(h) and not (eigene and not eigene.get("auto") and eigene.get("value") is not None):
+            # < 1 Jahr Historie und keine selbst eingetragene Annahme: Ø Monatsrendite
+            # hochgerechnet (ab 1 Monat), sonst Kategorie-Standard (gedaempft)
+            wert, _conf, quelle, typ_q = kurze_historie_info(asset, h)
+            if methode == "szenario":
+                sz = szenario or modell["rahmen"].get("szenario", "base")
+                wert = _szenario_um(wert, sz, modell.get("szenario_regel", D.SZENARIO_REGEL))
+            mon = max(1, int(round(float(h["jahre"]) * 12)))
+            if typ_q == "hochgerechnet":
+                hinweis = (f"Nur {mon} Mon. Kurshistorie – Rendite p.a. {quelle}, "
+                           "bis 1 Jahr Historie vorliegt")
+            else:
+                hinweis = f"Kurshistorie unter 1 Monat (oder ohne Rendite seit Start) – keine Hochrechnung, {KURZ_TEXT}"
+            return wert, {"sourceType": typ_q, "source": quelle, "dataDate": h.get("stand")}, hinweis
+        hinweis_ist = ("Zu kurze Kurshistorie (< 1 Jahr) – eigene Annahme verwendet" if kurze_historie(h)
+                       else "Keine Kurshistorie (≥ 1 Jahr) – Annahme verwendet")
 
     if methode in ("historical5Y", "historical10Y", "fundamentalModel"):
         h = (historie.get(aid) or {}).get(methode)
@@ -375,11 +481,9 @@ def rendite_fuer(modell, asset, historie=None, methode=None, szenario=None):
         if not basis:
             return None, {}, "Keine Annahme vorhanden"
         regel = modell.get("szenario_regel", D.SZENARIO_REGEL)
-        if sz == "bear":
-            return basis["value"] * regel["bear_faktor"], {"sourceType": "bear", "source": "Standardregel"}, \
-                regel["text"]
-        if sz == "bull":
-            return basis["value"] * regel["bull_faktor"], {"sourceType": "bull", "source": "Standardregel"}, \
+        if sz in ("bear", "bull"):
+            # vorzeichenrichtig wie _szenario_um: Bear < Base < Bull auch bei negativer Basis
+            return _szenario_um(basis["value"], sz, regel), {"sourceType": sz, "source": "Standardregel"}, \
                 regel["text"]
         return basis["value"], basis, hinweis_ist
 
@@ -473,8 +577,38 @@ def _entnahme_monat(ent, m):
     return entnahme_betrag(ent["monatlich"], ent.get("dynamik"), m, ent.get("stufen"))
 
 
+def kredit_rate_monat(raten, m):
+    """Summe der Kreditraten, die im Monat m (1-basiert) aus dem Depot bezahlt werden.
+    raten: [(von_monat, bis_monat, betrag)] oder [{"von", "bis", "betrag"}] - je
+    Monat von..bis (einschliesslich) wird 'betrag' abgezogen."""
+    summe = 0.0
+    for x in raten or []:
+        if isinstance(x, dict):
+            von, bis, betrag = x.get("von", 1), x.get("bis", 0), x.get("betrag", 0.0)
+        else:
+            von, bis, betrag = x
+        if int(von) <= m <= int(bis):
+            summe += float(betrag or 0.0)
+    return summe
+
+
+def _abziehen(werte, betrag, eingezahlt=None):
+    """Betrag anteilig vom Bestand abziehen, hoechstens den vorhandenen Wert.
+    eingezahlt (optional): wird um denselben Anteil gemindert (Auszahlung statt
+    Verlust - der Gewinn je Baustein bleibt richtig). -> tatsaechlich abgezogen"""
+    summe = sum(werte.values())
+    betrag = min(max(betrag, 0.0), max(summe, 0.0))
+    if betrag > 0 and summe > 0:
+        for i in werte:
+            teil = betrag * werte[i] / summe
+            werte[i] = max(werte[i] - teil, 0.0)       # nie negativ (Rundungsreste)
+            if eingezahlt is not None:
+                eingezahlt[i] -= teil
+    return betrag
+
+
 def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None, stress=None,
-               nachkauf=None, scores=None, confidences=None, entnahme=True):
+               nachkauf=None, scores=None, confidences=None, entnahme=True, kredit=True):
     """Monatliche Modellrechnung.
 
     renditen   {asset_id: jahresrendite (netto)}
@@ -483,6 +617,11 @@ def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None,
                 gerade fuer Rueckschlaege bereitstehen).
     stress     Stress-Parameter -> Marktschock nach stress_pfad (sonst glatte Rechnung)
     nachkauf   Tranchenregeln -> Einsatz der Reserve bei Markt-Drawdowns (nur mit stress)
+    rahmen["kredit_raten"]  [(von_monat, bis_monat, betrag)] - Kreditraten, die NUR in
+                diesen Monaten aus dem Depot bezahlt werden (kredit=False: ignorieren).
+    Abzuege (negative Sparrate, Entnahme, Kreditraten) gehen hoechstens bis 0 -
+    was nicht gedeckt ist, steht in "fehlbetrag" (Sparrate/Raten) bzw.
+    "entnahme_fehlbetrag".
     Rueckgabe: dict mit Monats-/Jahreswerten, Endwert, Beitraegen je Asset, Nachkaeufen."""
     rahmen = modell["rahmen"]
     jahre = int(jahre or rahmen["horizont_jahre"])
@@ -490,7 +629,8 @@ def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None,
     rebalancing = rebalancing or {"art": "keins"}
     # gleichzeitige Entnahme waehrend des Aufbaus: {"monatlich", "dynamik", "monate"}
     ent = rahmen.get("entnahme_parallel") if entnahme else None
-    entnommen = 0.0
+    raten = rahmen.get("kredit_raten") if kredit else None
+    entnommen = raten_gezahlt = fehlbetrag = entnahme_fehl = spar_weg = 0.0
     w = gewichte(modell)
     assets = {a["id"]: a for a in aktive_assets(modell)}
     start = float(rahmen["startkapital"])
@@ -519,19 +659,26 @@ def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None,
             if pfad and schock != 1.0:
                 f *= max(1.0 + _beta(assets[i], stress) * (schock - 1.0), 0.0)
             werte[i] *= f
-        # 2) Sparrate nach Zielgewicht, gleichzeitige Entnahme anteilig vom Bestand
-        if sparrate:
+        # 2) Sparrate nach Zielgewicht, gleichzeitige Entnahme und Kreditraten anteilig
+        #    vom Bestand (nie unter 0 - Fehlbetrag wird ausgewiesen)
+        if sparrate > 0:
             for i in w:
                 werte[i] += sparrate * w[i]
                 eingezahlt[i] += sparrate * w[i]
-        aus = _entnahme_monat(ent, m)
-        if aus:
-            summe = sum(werte.values())
-            aus = min(aus, max(summe, 0.0))
-            if summe > 0:
-                for i in w:
-                    werte[i] -= aus * werte[i] / summe
+        elif sparrate < 0:
+            weg = _abziehen(werte, -sparrate, eingezahlt)
+            fehlbetrag += -sparrate - weg
+            spar_weg += weg
+        soll = _entnahme_monat(ent, m)
+        if soll:
+            aus = _abziehen(werte, soll)
             entnommen += aus
+            entnahme_fehl += soll - aus
+        soll = kredit_rate_monat(raten, m)
+        if soll:
+            weg = _abziehen(werte, soll, eingezahlt)
+            raten_gezahlt += weg
+            fehlbetrag += soll - weg
         # 3) Nachkaufreserve (nur im Stresspfad): Tranchen bei Markt-Drawdown
         if pfad:
             markt_hoch = max(markt_hoch, pfad[m])
@@ -575,7 +722,8 @@ def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None,
             verlauf_asset[i].append(werte[i])
 
     endwert = verlauf[-1]
-    gesamt_eingezahlt = start + sparrate * monate
+    # Einzahlungen netto: Start + Sparrate - aus dem Depot bezahlte Kreditraten / negative Sparrate
+    gesamt_eingezahlt = start + max(sparrate, 0.0) * monate - spar_weg - raten_gezahlt
     return {
         "monatswerte": verlauf, "asset_verlauf": verlauf_asset,
         "jahreswerte": [verlauf[j * 12] for j in range(jahre + 1)],
@@ -584,14 +732,18 @@ def projektion(modell, renditen, *, jahre=None, sparrate=None, rebalancing=None,
         "beitraege": {i: werte[i] - eingezahlt[i] for i in w},     # Gewinn je Asset
         "nachkaeufe": nachkaeufe, "rebalancings": rebalancings,
         "max_verlust_pfad": _max_verlust(verlauf), "entnommen": entnommen,
+        "kredit_raten_gezahlt": raten_gezahlt, "fehlbetrag": fehlbetrag, "entnahme_fehlbetrag": entnahme_fehl,
     }
 
 
 def _max_verlust(verlauf):
-    hoch, tief = verlauf[0], 0.0
+    """Groesster Rueckgang vom bisherigen Hoch in % (negativ). Solange noch kein
+    positiver Wert erreicht ist (Start 0 €), gibt es keinen Rueckgang."""
+    hoch, tief = 0.0, 0.0
     for v in verlauf:
         hoch = max(hoch, v)
-        tief = min(tief, v / hoch - 1.0)
+        if hoch > 0:
+            tief = min(tief, v / hoch - 1.0)
     return tief * 100.0
 
 
@@ -645,20 +797,29 @@ def nachkauf_ziele(modell, nachkauf, werte, ziel_risiko, scores=None, confidence
 def zusammenfassung(modell, renditen_netto, **kw):
     rahmen = modell["rahmen"]
     proj = projektion(modell, renditen_netto, **kw)
-    # Portfoliorendite ohne Ein- und Auszahlungen (Sparrate, gleichzeitige Entnahme)
-    ohne_sparen = projektion(modell, renditen_netto, sparrate=0.0, entnahme=False,
-                             **{k: v for k, v in kw.items() if k not in ("sparrate", "entnahme")}) \
-        if (rahmen.get("sparrate_monat") or rahmen.get("entnahme_parallel")) else proj
     jahre = rahmen["horizont_jahre"]
     start, ziel = rahmen["startkapital"], rahmen["zielvermoegen"]
+    # Portfoliorendite ohne Ein- und Auszahlungen (Sparrate, gleichzeitige Entnahme,
+    # Kreditraten). Startkapital 0 (nur Sparrate): mit 1 EUR Start gerechnet - die
+    # Rendite haengt nur von Gewichten und Annahmen ab, nicht vom Betrag.
+    kw0 = {k: v for k, v in kw.items() if k not in ("sparrate", "entnahme", "kredit")}
+    if float(start or 0) <= 0:
+        m1 = dict(modell, rahmen=dict(rahmen, startkapital=1.0))
+        modell_cagr = required_cagr(1.0, projektion(m1, renditen_netto, sparrate=0.0, entnahme=False,
+                                                    kredit=False, **kw0)["endwert"], jahre)
+    else:
+        ohne_sparen = projektion(modell, renditen_netto, sparrate=0.0, entnahme=False, kredit=False, **kw0) \
+            if (rahmen.get("sparrate_monat") or rahmen.get("entnahme_parallel") or rahmen.get("kredit_raten")) \
+            else proj
+        modell_cagr = required_cagr(start, ohne_sparen["endwert"], jahre)
     return {
         "projektion": proj,
         "endwert": proj["endwert"],
         "erforderliche_cagr": erforderliche_rendite_rahmen(rahmen),
-        "modell_cagr": required_cagr(start, ohne_sparen["endwert"], jahre),
+        "modell_cagr": modell_cagr,
         "differenz": proj["endwert"] - ziel,
-        "multiplikator": proj["endwert"] / proj["eingezahlt"] if proj["eingezahlt"] else None,
-        "ziel_erreicht": proj["endwert"] >= ziel,
+        "multiplikator": proj["endwert"] / proj["eingezahlt"] if proj["eingezahlt"] > 0 else None,
+        "ziel_erreicht": proj["endwert"] >= ziel - 0.005,      # Cent-Toleranz (Rundung der Gewichte)
     }
 
 
@@ -686,13 +847,14 @@ def szenario_vergleich(modell, historie=None, **kw):
         proj = projektion(modell, rendite_map(r), **kw)
         stress_proj = projektion(modell, rendite_map(r), stress=modell["stress"], **kw)
         gesamt_gewinn = sum(v for v in proj["beitraege"].values()) or 1.0
+        ew = proj["endwert"]
         ergebnis[sz] = {
-            "endwert": proj["endwert"], "jahreswerte": proj["jahreswerte"],
-            "cagr": required_cagr(rahmen["startkapital"], proj["endwert"], rahmen["horizont_jahre"])
+            "endwert": ew, "jahreswerte": proj["jahreswerte"],
+            "cagr": required_cagr(rahmen["startkapital"], ew, rahmen["horizont_jahre"])
             if not rahmen.get("sparrate_monat") else None,
-            "ziel_erreicht": proj["endwert"] >= rahmen["zielvermoegen"],
-            "abstand": proj["endwert"] - rahmen["zielvermoegen"],
-            "anteil_endwert": {i: v / proj["endwert"] for i, v in proj["endwerte_asset"].items()},
+            "ziel_erreicht": ew >= rahmen["zielvermoegen"],
+            "abstand": ew - rahmen["zielvermoegen"],
+            "anteil_endwert": {i: (v / ew if ew > 0 else 0.0) for i, v in proj["endwerte_asset"].items()},
             "anteil_gewinn": {i: v / gesamt_gewinn for i, v in proj["beitraege"].items()},
             "max_verlust_stress": stress_proj["max_verlust_pfad"],
             "renditen": {i: v["netto"] for i, v in r.items()},
@@ -752,8 +914,15 @@ def confidence_score(jahre, typ, params=None):
 def confidence_fuer(modell, historie=None):
     """{asset_id: score} aus der Laenge der verfuegbaren Historie."""
     historie = historie or {}
-    return {a["id"]: confidence_score((historie.get(a["id"]) or {}).get("jahre"), _typ(a))
-            for a in aktive_assets(modell)}
+    aus = {}
+    for a in aktive_assets(modell):
+        j = (historie.get(a["id"]) or {}).get("jahre")
+        s_ = confidence_score(j, _typ(a))
+        if _typ(a) != "cash" and j is not None and 0 < j < 1.0:
+            # < 1 Jahr: nur hochgerechnet bzw. Kategorie-Standard -> Datenbasis wie "ohne Historie"
+            s_ = min(s_, D.CONFIDENCE.get("ohne_historie", 10))
+        aus[a["id"]] = s_
+    return aus
 
 
 def confidence_adjusted_return(rendite, confidence):
@@ -1096,9 +1265,15 @@ def _wachstumsfaktor(r, jahre, sparrate_rel=0.0):
     """Endwert je 1 EUR Startgewicht (+ Sparrate relativ zum Startkapital)."""
     f = (1.0 + r) ** jahre
     if sparrate_rel:
-        rm = (1.0 + r) ** (1.0 / 12.0)
-        f += sparrate_rel * sum(rm ** (jahre * 12 - k) for k in range(1, jahre * 12 + 1))
+        f += sparrate_rel * _sparfaktor(r, jahre)
     return f
+
+
+def _sparfaktor(r, jahre):
+    """Endwert je 1 EUR monatlicher Sparrate (am Monatsende, monatlich verzinst)."""
+    rm = (1.0 + r) ** (1.0 / 12.0)
+    n = int(jahre) * 12
+    return sum(rm ** (n - k) for k in range(1, n + 1))
 
 
 def optimiere(modell, renditen_netto, confidences, grenzen=None, ziel=None):
@@ -1125,9 +1300,13 @@ def optimiere(modell, renditen_netto, confidences, grenzen=None, ziel=None):
     n = len(ids)
     jahre = int(rahmen["horizont_jahre"])
     start = float(rahmen["startkapital"])
-    spar_rel = float(rahmen.get("sparrate_monat") or 0.0) / start
-    f = [_wachstumsfaktor(renditen_netto[i], jahre, spar_rel) for i in ids]
-    ziel_rel = float(rahmen["zielvermoegen"] if ziel is None else ziel) / start
+    spar = float(rahmen.get("sparrate_monat") or 0.0)
+    # Endwert je Gewichtsanteil in EUR (Start x Wachstum + Sparrate x Sparfaktor), skaliert
+    # auf eine Bezugsgroesse != 0 - funktioniert auch mit Startkapital 0 und nur Sparrate
+    skala = start if start > 0 else (abs(spar) * 12.0 if spar else 1.0)
+    f = [(start * (1.0 + renditen_netto[i]) ** jahre + spar * _sparfaktor(renditen_netto[i], jahre)) / skala
+         for i in ids]
+    ziel_rel = float(rahmen["zielvermoegen"] if ziel is None else ziel) / skala
 
     A_ub, b_ub = [], []
     einzel = float(grenzen.get("einzelasset_max", 100.0)) / 100.0
@@ -1189,9 +1368,9 @@ def optimiere(modell, renditen_netto, confidences, grenzen=None, ziel=None):
             conf = [float(confidences.get(i) or 0.0) for i in ids]
             x3, _ = _simplex(conf, A3, b3, A_eq, b_eq)
             x = x3 if x3 is not None else x2[:n]
-    endwert = start * sum(fi * xi for fi, xi in zip(f, x))
+    endwert = skala * sum(fi * xi for fi, xi in zip(f, x))
     return {"gewichte": {i: 100.0 * max(xi, 0.0) for i, xi in zip(ids, x)},
-            "endwert": endwert, "max_endwert": start * fmax, "erreichbar": erreichbar}
+            "endwert": endwert, "max_endwert": skala * fmax, "erreichbar": erreichbar}
 
 
 # ===========================================================================
@@ -1261,7 +1440,8 @@ def gewichtung_fuer_ziel(modell, renditen_netto, ziel=None, **kw):
             break
         if grenze > 4096:
             g = gewichte_bei(richtung * grenze)
-            return {"gewichte": g, "endwert": e, "erreichbar": False, "max_endwert": e if richtung > 0 else None}
+            return {"gewichte": g, "endwert": e, "erreichbar": False, "max_endwert": e if richtung > 0 else None,
+                    "min_endwert": e if richtung < 0 else None}
         grenze *= 2.0
     lo, hi = 0.0, grenze
     for _ in range(80):
@@ -1272,7 +1452,7 @@ def gewichtung_fuer_ziel(modell, renditen_netto, ziel=None, **kw):
         else:
             lo = mitte
     g = gewichte_bei(richtung * hi)
-    return {"gewichte": g, "endwert": endwert_bei(g), "erreichbar": True, "max_endwert": None}
+    return {"gewichte": g, "endwert": endwert_bei(g), "erreichbar": True, "max_endwert": None, "min_endwert": None}
 
 
 def grenzen_verletzungen(modell, gewichte_pct=None):
@@ -1415,7 +1595,9 @@ def entnahme_fuer(kapital, rendite_pa, *, ziel_restwert=0.0, jahre=30, **kw):
     for _ in range(70):
         mitte = (lo + hi) / 2.0
         p = entnahmeplan(kapital, rendite_pa, mitte, jahre=jahre, max_jahre=jahre, **kw)
-        ok = (p["dauer_monate"] is None or p["dauer_monate"] >= jahre * 12) and p["restwert"] >= ziel_restwert - 1e-6
+        # nur volle Raten zaehlen: laeuft das Depot (auch im letzten Monat) leer, war die
+        # letzte Zahlung nur eine Teilzahlung -> zu hoch
+        ok = p["dauer_monate"] is None and p["restwert"] >= ziel_restwert - 1e-6
         if ok:
             lo = mitte
         else:
@@ -1427,14 +1609,28 @@ def ziel_aus_rendite(modell, rendite_pa):
     """Endwert, der einer gewuenschten Portfoliorendite p.a. entspricht
     (Startkapital + Sparrate, gleiche Monatsrechnung wie die Projektion)."""
     r = modell["rahmen"]
+    if r.get("entnahme_parallel") or r.get("kredit_raten"):
+        return endwert_mit_fluessen(float(r["startkapital"]), float(rendite_pa), int(r["horizont_jahre"]),
+                                    float(r.get("sparrate_monat") or 0.0), r.get("entnahme_parallel"),
+                                    r.get("kredit_raten"))
     return future_value(float(r["startkapital"]), float(rendite_pa), int(r["horizont_jahre"]),
                         float(r.get("sparrate_monat") or 0.0))
+
+
+def _de_jahre(j):
+    try:
+        return f"{max(1, int(round(float(j) * 12)))} Mon."
+    except (TypeError, ValueError):
+        return "unter 1 Jahr"
 
 
 def annahmen_aus_historie(modell, historie, alle=False):
     """Traegt die bisherige Rendite p.a. (Kurshistorie: 5 J., sonst 3 J., sonst
     seit Start, sonst 1 J.) als eigene Annahme ein - fuer alle Bausteine, deren
-    Annahme automatisch gefuehrt wird (auto=True) oder noch fehlt. Selbst
+    Annahme automatisch gefuehrt wird (auto=True) oder noch fehlt. Bei 1 Monat
+    bis < 1 Jahr Historie die aufs Jahr hochgerechnete Ø Monatsrendite
+    (Quelle "hochgerechnet aus N Mon. ..."), darunter der gedaempfte
+    Kategorie-Standard; alte Auto-Werte werden dabei ersetzt. Selbst
     eingetragene Werte bleiben unangetastet, ausser alle=True.
     -> Anzahl geaenderter Annahmen"""
     historie = historie or {}
@@ -1447,6 +1643,25 @@ def annahmen_aus_historie(modell, historie, alle=False):
         if rec is not None and not rec.get("auto") and rec.get("value") is not None and not alle:
             continue
         wert, text = ist_rendite(historie.get(a["id"]))
+        if wert is None and kurze_historie(historie.get(a["id"])):
+            # < 1 Jahr Historie: Ø Monatsrendite aufs Jahr hochgerechnet (ab 1 Monat),
+            # darunter Kategorie-Standard (gedaempft). Alte Auto-Werte werden ersetzt.
+            h = historie.get(a["id"]) or {}
+            std, _conf, quelle, typ_q = kurze_historie_info(a, h)
+            if typ_q == "hochgerechnet":
+                notiz = (f"Kurshistorie kürzer als 1 Jahr ({_de_jahre(h.get('jahre'))}) – Rendite seit Start "
+                         "als Ø Monatsrendite aufs Jahr hochgerechnet; wird ab 1 Jahr Historie durch die "
+                         "gemessene Rendite p.a. ersetzt. Hochrechnung, wenig belastbar – bitte prüfen.")
+            else:
+                notiz = ("Kurshistorie unter 1 Monat (oder ohne Rendite seit Start) – keine Hochrechnung; "
+                         "Standardwert der Kategorie, nach Datenbasis Richtung "
+                         f"{D.VORSCHLAG['anker'] * 100:.0f} % gedämpft. Bitte prüfen.")
+            if rec is None or rec.get("value") is None or abs(rec["value"] - std) > 1e-9 or not rec.get("auto") \
+                    or rec.get("source") != quelle:
+                setze_annahme(modell, a["id"], "manualScenario", std, notiz=notiz,
+                              source=quelle, stand=h.get("stand"), beobachtung=h.get("jahre"), auto=True)
+                geaendert += 1
+            continue
         if wert is None:
             if rec is None or rec.get("value") is None:
                 # gar keine Kursdaten und noch kein Wert: Standard der Kategorie,
@@ -1559,9 +1774,19 @@ def gewichtung_fuer_zielvermoegen(modell, renditen_netto, rebalancing=None):
     if jahre <= 0 or ziel <= 0:
         return {"fehler": "Kein Zielvermögen oder keine Aufbauphase."}
     benoetigt = erforderliche_rendite_rahmen(rahmen)
-    if benoetigt is None:
-        return {"fehler": "Benötigte Rendite nicht berechenbar (Startkapital 0 ohne Sparrate?)."}
     probe = _copy.deepcopy(modell)
+    if benoetigt is None:
+        # Ziel nicht erreichbar (oder Startkapital 0 ohne Sparrate): renditestaerkste
+        # Verteilung zeigen und ehrlich "nicht erreichbar" melden
+        erg = gewichtung_fuer_rendite(probe, renditen_netto, 1e6)
+        if erg.get("fehler"):
+            return erg
+        for a in probe["assets"]:
+            if a["id"] in erg["gewichte"]:
+                a["targetWeight"] = erg["gewichte"][a["id"]]
+        ew = projektion(probe, renditen_netto, rebalancing=rebalancing)["endwert"]
+        return {"gewichte": erg["gewichte"], "benoetigt": None, "rendite": erg["rendite"], "endwert": ew,
+                "erreichbar": ew >= ziel, "min": erg["min"], "max": erg["max"]}
 
     def endwert_bei(t):
         erg = gewichtung_fuer_rendite(probe, renditen_netto, t)
@@ -1637,15 +1862,25 @@ def kaufplan(positionen, betrag, bruchstuecke=False, nachkommastellen=4):
     - bruchstuecke=True: exakte Stueckzahl (gerundet auf 'nachkommastellen').
     -> {"zeilen": [{..., "soll", "stueck", "ist", "abweichung"}], "investiert",
         "cash_soll", "rest", "ohne_kurs": [namen]}"""
-    betrag = max(float(betrag or 0.0), 0.0)
+    def _zahl(x):
+        try:
+            x = float(x)
+        except (TypeError, ValueError):
+            return None
+        return x if math.isfinite(x) else None
+
+    betrag = max(_zahl(betrag) or 0.0, 0.0)
     zeilen, ohne_kurs = [], []
     for p in positionen:
-        soll = betrag * float(p.get("anteil") or 0.0)
-        z = dict(p, soll=soll, stueck=0.0, ist=0.0)
-        kurs = p.get("kurs")
+        anteil = max(_zahl(p.get("anteil")) or 0.0, 0.0)          # NaN/inf/negativ -> 0
+        soll = betrag * anteil
+        kurs = _zahl(p.get("kurs"))
+        if kurs is not None and kurs <= 0:
+            kurs = None                                           # nur endliche Kurse > 0 sind handelbar
+        z = dict(p, anteil=anteil, kurs=kurs, soll=soll, stueck=0.0, ist=0.0)
         if p.get("cash"):
             z["ist"] = soll
-        elif kurs and kurs > 0:
+        elif kurs is not None:
             if bruchstuecke:
                 f = 10 ** nachkommastellen
                 z["stueck"] = math.floor(soll / kurs * f) / f
@@ -1655,7 +1890,7 @@ def kaufplan(positionen, betrag, bruchstuecke=False, nachkommastellen=4):
         else:
             ohne_kurs.append(p.get("name"))
         zeilen.append(z)
-    handelbar = [z for z in zeilen if not z.get("cash") and z.get("kurs")]
+    handelbar = [z for z in zeilen if not z.get("cash") and z.get("kurs") is not None]
     rest = betrag - sum(z["ist"] for z in zeilen)
     mindest = []
     if not bruchstuecke and betrag > 0:
@@ -1881,12 +2116,19 @@ def zeit_bis_ziel(start, rendite_pa, ziel, sparrate=0.0, entnahme=0.0, dynamik_p
     return None, verlauf
 
 
-def endwert_mit_fluessen(start, rendite, jahre, sparrate=0.0, entnahme=None):
-    """Endwert bei monatlicher Verzinsung, Sparrate und gleichzeitiger Entnahme."""
+def endwert_mit_fluessen(start, rendite, jahre, sparrate=0.0, entnahme=None, kredit_raten=None):
+    """Endwert bei monatlicher Verzinsung, Sparrate, gleichzeitiger Entnahme und
+    Kreditraten aus dem Depot - Abzuege wie in der Projektion hoechstens bis 0."""
     rm = (1.0 + rendite) ** (1.0 / 12.0) - 1.0 if rendite > -1 else -1.0
     wert = float(start)
     for m in range(1, int(round(jahre * 12)) + 1):
-        wert = wert * (1 + rm) + sparrate - _entnahme_monat(entnahme, m)
+        wert = wert * (1 + rm)
+        if sparrate > 0:
+            wert += sparrate
+        else:
+            wert = max(wert + sparrate, 0.0)
+        wert = max(wert - _entnahme_monat(entnahme, m), 0.0)
+        wert = max(wert - kredit_rate_monat(kredit_raten, m), 0.0)
     return wert
 
 
@@ -1897,18 +2139,19 @@ def erforderliche_rendite_rahmen(rahmen):
     jahre = int(rahmen.get("horizont_jahre") or 0)
     spar = float(rahmen.get("sparrate_monat") or 0.0)
     ent = rahmen.get("entnahme_parallel")
-    if not ent:
+    raten = rahmen.get("kredit_raten")
+    if not ent and not raten:
         return erforderliche_rendite(start, ziel, jahre, spar)
     if jahre <= 0 or ziel <= 0:
         return None
     lo, hi = -0.99, 0.5
-    while endwert_mit_fluessen(start, hi, jahre, spar, ent) < ziel and hi < 100:
+    while endwert_mit_fluessen(start, hi, jahre, spar, ent, raten) < ziel and hi < 100:
         hi *= 2
-    if endwert_mit_fluessen(start, hi, jahre, spar, ent) < ziel:
+    if endwert_mit_fluessen(start, hi, jahre, spar, ent, raten) < ziel:
         return None
     for _ in range(100):
         mitte = (lo + hi) / 2
-        if endwert_mit_fluessen(start, mitte, jahre, spar, ent) >= ziel:
+        if endwert_mit_fluessen(start, mitte, jahre, spar, ent, raten) >= ziel:
             hi = mitte
         else:
             lo = mitte
@@ -1928,7 +2171,10 @@ def gewichtung_fuer_cagr(modell, renditen_netto, ziel_cagr, rebalancing=None):
     probe = _copy.deepcopy(modell)
     probe["rahmen"] = dict(probe["rahmen"], sparrate_monat=0.0)
     probe["rahmen"].pop("entnahme_parallel", None)
-    start = float(probe["rahmen"]["startkapital"]) or 1.0
+    probe["rahmen"].pop("kredit_raten", None)
+    if float(probe["rahmen"].get("startkapital") or 0) <= 0:
+        probe["rahmen"]["startkapital"] = 1.0       # Rendite p.a. haengt nicht vom Betrag ab
+    start = float(probe["rahmen"]["startkapital"])
 
     def cagr_bei(t):
         erg = gewichtung_fuer_rendite(probe, renditen_netto, t)
