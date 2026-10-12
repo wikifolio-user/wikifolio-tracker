@@ -12,6 +12,12 @@ on:
 permissions:
   contents: write
 
+# Gemeinsame Gruppe mit dem Top-50-Agenten: laufende Jobs werden nicht
+# abgebrochen, ein neuer Lauf wartet. ACHTUNG: GitHub haelt je Gruppe nur EINEN
+# wartenden Lauf - kommt ein weiterer hinzu, wird der bisher wartende
+# verworfen (Status "cancelled"). Es KANN also ein Lauf verloren gehen, z. B.
+# wenn waehrend eines langen Laufs zwei weitere (geplant/manuell) anstehen.
+# Der naechste planmaessige Lauf holt das nach (rollierender Cache).
 concurrency:
   group: yahoo-abrufe
   cancel-in-progress: false
@@ -19,8 +25,10 @@ concurrency:
 jobs:
   score:
     runs-on: ubuntu-latest
-    # Erste Läufe bauen die Fundamentaldaten auf (je Lauf bis zu 1.500 Werte),
-    # danach frischt jeder Lauf nur noch rund ein Siebtel auf.
+    # Erste Läufe bauen die Fundamentaldaten auf (je Lauf bis zu 3.000 Werte),
+    # danach frischt jeder Lauf nur noch rund ein Siebtel auf. Der Agent hat
+    # ein eigenes Zeitbudget fuer den Abruf (QUALITAET_ZEITBUDGET_MIN, Standard
+    # 100) und speichert den Cache zwischendurch - deutlich unter diesem Timeout.
     timeout-minutes: 150
     steps:
       - name: Repo auschecken
