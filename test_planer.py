@@ -445,8 +445,8 @@ class Entnahme(unittest.TestCase):
     def test_annuitaet(self):
         r = 1.05 ** (1 / 12) - 1
         annuitaet = 100000 * r / (1 - (1 + r) ** -360)
-        self.assertAlmostEqual(E.entnahme_fuer(100000, 0.05, jahre=30), annuitaet, delta=1)
-        self.assertAlmostEqual(E.entnahme_fuer(100000, 0.05, jahre=30, ziel_restwert=100000), 100000 * r, delta=1)
+        self.assertAlmostEqual(E.entnahme_fuer(100000, 0.05, jahre=30), annuitaet, delta=0.01)
+        self.assertAlmostEqual(E.entnahme_fuer(100000, 0.05, jahre=30, ziel_restwert=100000), 100000 * r, delta=0.01)
 
     def test_dauerhaft(self):
         p = E.entnahmeplan(100000, 0.06, 300, jahre=30)
@@ -603,11 +603,12 @@ class RenditeGewichtung(unittest.TestCase):
 
 
 class LueckenFuellen(unittest.TestCase):
-    def test_junge_historie_seit_start(self):
-        w, t = E.ist_rendite({"jahre": 0.5, "seit_start": 0.4})
-        self.assertAlmostEqual(w, 0.4)                     # nicht hochgerechnet
-        self.assertIn("6 Mon.", t)
+    def test_junge_historie_keine_gemessene_jahresrendite(self):   # gemessene p.a.-Werte erst ab 1 Jahr
+        self.assertEqual(E.ist_rendite({"jahre": 0.5, "seit_start": 0.4}), (None, None))
         self.assertEqual(E.ist_rendite({"jahre": 0.02, "seit_start": 0.1}), (None, None))
+        self.assertTrue(E.kurze_historie({"jahre": 0.5, "seit_start": 0.4}))
+        self.assertFalse(E.kurze_historie({"jahre": 1.5, "gesamt_cagr": 0.2}))
+        self.assertFalse(E.kurze_historie({}))
 
     def test_ohne_kursdaten_standardwert(self):
         m = D.seed_modell()
@@ -618,8 +619,17 @@ class LueckenFuellen(unittest.TestCase):
         a = E.annahme(m, aid, "manualScenario")
         self.assertAlmostEqual(a["value"], E.STANDARD_RENDITE["wikifolio"])
         self.assertTrue(a["auto"])
-        # sobald Kursdaten da sind, wird der Standard ersetzt
+        # unter 1 Monat Kursdaten: weiter Kategorie-Standard (gedaempft: 0,1*8 % + 0,9*8 % = 8 %)
+        E.annahmen_aus_historie(m, {aid: {"jahre": 0.04, "seit_start": 0.3}})
+        self.assertAlmostEqual(E.annahme(m, aid, "manualScenario")["value"], 0.08)
+        self.assertEqual(E.annahme(m, aid, "manualScenario")["source"], "zu kurze Historie – Kategorie-Standard")
+        # 6 Monate +30 %: hochgerechnet 1,3^2 - 1 = 69 % p.a.
         E.annahmen_aus_historie(m, {aid: {"jahre": 0.5, "seit_start": 0.3}})
+        self.assertAlmostEqual(E.annahme(m, aid, "manualScenario")["value"], 0.69, places=12)
+        self.assertEqual(E.annahme(m, aid, "manualScenario")["source"],
+                         "hochgerechnet aus 6 Mon. (Ø Monatsrendite)")
+        # sobald >= 1 Jahr Kursdaten da sind, wird der Standard ersetzt
+        E.annahmen_aus_historie(m, {aid: {"jahre": 1.5, "gesamt_cagr": 0.3}})
         self.assertAlmostEqual(E.annahme(m, aid, "manualScenario")["value"], 0.3)
         for x in m["assets"]:
             if x["category"] != "cash":
@@ -789,6 +799,661 @@ class MindestensEinStueck(unittest.TestCase):
                {"id": "c", "name": "Reserve", "anteil": 0.999, "cash": True}]
         r = E.kaufplan(pos, 10000)
         self.assertEqual(r["zeilen"][0]["stueck"], 0.0)
+
+
+# ===========================================================================
+# Audit-Fixes (PLAN-01 .. PLAN-09) - Referenzwerte unabhaengig gerechnet
+# ===========================================================================
+import math
+import sys
+import types
+
+
+def _ui_laden():
+    """planer_ui importieren; ohne Streamlit/Plotly (Testumgebung) mit Minimal-Attrappen."""
+    try:
+        import planer_ui as U
+        return U
+    except ImportError:
+        pass
+
+    class _Egal:
+        def __getattr__(self, k):
+            return _Egal()
+
+        def __call__(self, *a, **k):
+            if len(a) == 1 and callable(a[0]) and not k:
+                return a[0]
+            return _Egal()
+
+    def _deko(*a, **k):
+        if len(a) == 1 and callable(a[0]):
+            return a[0]
+        return lambda f: f
+
+    def _modul(name, **attr):
+        mod = types.ModuleType(name)
+        mod.__dict__.update(attr)
+
+        def _attr(n):
+            if n.startswith("__"):
+                raise AttributeError(n)
+            return _Egal()
+        mod.__getattr__ = _attr
+        if name == "plotly":
+            mod.__path__ = []
+        return mod
+
+    for name in ("streamlit", "plotly", "plotly.graph_objects"):
+        if name not in sys.modules:
+            try:
+                __import__(name)
+            except ImportError:
+                sys.modules[name] = _modul(name, session_state={}, cache_data=_deko, cache_resource=_deko,
+                                           fragment=_deko, column_config=_Egal(), Figure=_Egal)
+    if not hasattr(sys.modules["plotly"], "graph_objects"):
+        sys.modules["plotly"].graph_objects = sys.modules["plotly.graph_objects"]
+    try:
+        import planer_ui as U
+        return U
+    except Exception:            # pragma: no cover - UI nicht ladbar: UI-Tests werden uebersprungen
+        return None
+
+
+U = _ui_laden()
+
+
+def _annuitaet(betrag, zins_pa, monate):
+    """Unabhaengig: Annuitaet mit Monatszins zins_pa/12 (wie Bankformel)."""
+    q = zins_pa / 12.0
+    return betrag * q / (1 - (1 + q) ** -monate)
+
+
+def _schleife(start, r_pa, monate, spar=0.0, raten=()):
+    """Unabhaengige Monatsschleife: geometrischer Monatssatz (1+r)^(1/12)-1, erst
+    Verzinsung, dann Sparrate, dann Kreditraten (von, bis, betrag), nie unter 0."""
+    rm = (1 + r_pa) ** (1 / 12) - 1
+    v = float(start)
+    for k in range(1, monate + 1):
+        v = v * (1 + rm) + spar
+        for von, bis, b in raten:
+            if von <= k <= bis:
+                v = max(v - b, 0.0)
+    return v
+
+
+def _gleiche_renditen(m, r):
+    return {a["id"]: r for a in E.aktive_assets(m)}
+
+
+class KreditFormeln(unittest.TestCase):
+    def test_kredit_rate(self):
+        self.assertAlmostEqual(E.kredit_rate(50000, 0.06, 5), 966.6401, places=4)
+        self.assertAlmostEqual(E.kredit_rate(50000, 0.06, 5), _annuitaet(50000, 0.06, 60), places=8)
+
+    def test_restschuld_nach_24_monaten(self):
+        rate = E.kredit_rate(50000, 0.06, 5)
+        s = 50000.0
+        for _ in range(24):                    # unabhaengige Tilgungsschleife
+            s = s * (1 + 0.06 / 12) - rate
+        self.assertAlmostEqual(s, 31774.44, places=2)
+        self.assertAlmostEqual(E.kredit_restschuld(50000, rate, 0.06, 24), s, places=6)
+
+
+class StartkapitalNull(unittest.TestCase):        # PLAN-01
+    def _m(self):
+        m = D.seed_modell()
+        m["rahmen"]["startkapital"] = 0.0
+        m["rahmen"]["sparrate_monat"] = 500.0
+        return m
+
+    def test_projektion_gleich_future_value(self):
+        m = self._m()
+        r = 0.07
+        p = E.projektion(m, _gleiche_renditen(m, r))
+        n = int(m["rahmen"]["horizont_jahre"]) * 12
+        rm = (1 + r) ** (1 / 12) - 1
+        geschlossen = 500 * ((1 + rm) ** n - 1) / rm          # Rentenendwert, Zahlung am Monatsende
+        self.assertAlmostEqual(p["endwert"], geschlossen, places=6)
+        self.assertAlmostEqual(p["endwert"], E.future_value(0, r, m["rahmen"]["horizont_jahre"], 500), places=6)
+        self.assertEqual(p["max_verlust_pfad"], 0.0)
+
+    def test_max_verlust_ab_null(self):
+        self.assertAlmostEqual(E._max_verlust([0.0, 100.0, 50.0]), -50.0)
+        self.assertEqual(E._max_verlust([0.0, 0.0]), 0.0)
+
+    def test_engine_funktionen_ohne_fehler(self):
+        m = self._m()
+        r = renditen(m)
+        o = E.optimiere(m, r, E.confidence_fuer(m))
+        self.assertNotIn("fehler", o)
+        # optimiere: Endwert = Summe Gewicht x Sparfaktor (unabhaengig, Sparrate 500)
+        jahre = int(m["rahmen"]["horizont_jahre"])
+        erw = sum(o["gewichte"][i] / 100.0 * 500 * sum(((1 + r[i]) ** (1 / 12)) ** (jahre * 12 - k)
+                                                      for k in range(1, jahre * 12 + 1)) for i in o["gewichte"])
+        self.assertAlmostEqual(o["endwert"], erw, delta=1e-6 * erw)
+        s = E.szenario_vergleich(m)
+        self.assertGreater(s["base"]["endwert"], 0)
+        g = E.gewichtung_fuer_ziel(m, r, ziel=45000)
+        self.assertTrue(g["erreichbar"])
+        self.assertAlmostEqual(g["endwert"], 45000, delta=1)
+        zv = E.gewichtung_fuer_zielvermoegen(dict(m, rahmen=dict(m["rahmen"], zielvermoegen=45000)), r)
+        self.assertAlmostEqual(zv["endwert"], 45000, delta=5)
+        c = E.gewichtung_fuer_cagr(m, r, 0.15)
+        self.assertNotIn("fehler", c)
+        self.assertTrue(c["erreichbar"])
+        self.assertAlmostEqual(c["rendite"], 0.15, delta=1e-4)
+        m15 = dict(m, rahmen=dict(m["rahmen"], startkapital=15000.0))      # Rendite unabhaengig vom Betrag
+        self.assertAlmostEqual(E.gewichtung_fuer_cagr(m15, r, 0.15)["rendite"], c["rendite"], delta=1e-6)
+        z = E.zusammenfassung(m, _gleiche_renditen(m, 0.07))
+        self.assertAlmostEqual(z["modell_cagr"], 0.07, places=9)
+
+    @unittest.skipIf(U is None, "planer_ui nicht ladbar")
+    def test_ui_rechnung(self):
+        U.st.session_state = {}
+        m = self._m()
+        R = U._rechne(m, {}, None)                  # Standard: Entnahme parallel - darf nicht abstuerzen
+        self.assertGreaterEqual(R["zus"]["endwert"], 0)
+        m["entnahme"]["aktiv"] = False
+        m["rahmen"]["rendite_modus"] = "aus"
+        R = U._rechne(m, {}, None)
+        self.assertAlmostEqual(R["zus"]["endwert"], E.projektion(m, R["r_calc"], rebalancing=R["reb"])["endwert"])
+        self.assertGreater(R["zus"]["endwert"], 0)
+
+
+class KreditRatenMonatsgenau(unittest.TestCase):        # PLAN-02 / PLAN-09
+    def test_projektion_kredit_raten(self):
+        m = D.seed_modell()
+        m["rahmen"].update(startkapital=65000.0, sparrate_monat=0.0, horizont_jahre=20)
+        rate = round(_annuitaet(50000, 0.06, 60), 2)
+        m["rahmen"]["kredit_raten"] = [(1, 60, rate)]
+        r = 0.09972
+        p = E.projektion(m, _gleiche_renditen(m, r))
+        ref = _schleife(65000, r, 240, raten=[(1, 60, rate)])
+        self.assertAlmostEqual(p["endwert"], ref, places=4)
+        self.assertAlmostEqual(ref, 127306.89, delta=0.01)
+        self.assertAlmostEqual(p["kredit_raten_gezahlt"], 60 * rate, places=6)
+        self.assertEqual(p["fehlbetrag"], 0.0)
+        # ohne Raten-Einfluss: Modellrendite bleibt die Rendite der Bausteine
+        self.assertAlmostEqual(E.zusammenfassung(m, _gleiche_renditen(m, r))["modell_cagr"], r, places=9)
+
+    def test_raten_nie_unter_null(self):
+        m = D.seed_modell()
+        m["rahmen"].update(startkapital=1000.0, sparrate_monat=0.0, horizont_jahre=1)
+        m["rahmen"]["kredit_raten"] = [(1, 12, 500.0)]
+        p = E.projektion(m, _gleiche_renditen(m, 0.0))
+        self.assertEqual(p["endwert"], 0.0)
+        self.assertTrue(all(v >= 0 for vs in p["asset_verlauf"].values() for v in vs))
+        self.assertAlmostEqual(p["kredit_raten_gezahlt"], 1000.0)
+        self.assertAlmostEqual(p["fehlbetrag"], 12 * 500.0 - 1000.0)
+
+    def test_negative_sparrate_nie_unter_null(self):
+        m = D.seed_modell()
+        m["rahmen"].update(startkapital=1000.0, sparrate_monat=-300.0, horizont_jahre=1)
+        p = E.projektion(m, _gleiche_renditen(m, 0.0))
+        self.assertEqual(p["endwert"], 0.0)
+        self.assertTrue(all(v >= 0 for v in p["endwerte_asset"].values()))
+        self.assertAlmostEqual(p["fehlbetrag"], 12 * 300.0 - 1000.0)
+
+    def test_erforderliche_rendite_mit_raten(self):
+        r = {"startkapital": 65000.0, "zielvermoegen": 127306.887, "horizont_jahre": 20, "sparrate_monat": 0.0,
+             "kredit_raten": [(1, 60, round(_annuitaet(50000, 0.06, 60), 2))]}
+        self.assertAlmostEqual(E.erforderliche_rendite_rahmen(r), 0.09972, delta=1e-7)
+
+    @unittest.skipIf(U is None, "planer_ui nicht ladbar")
+    def test_ui_kredit_rahmen_und_rechnung(self):
+        U.st.session_state = {}
+        m = D.seed_modell()
+        m["rahmen"].update(rendite_modus="manuell", rendite_manuell=8.0, horizont_jahre=20)
+        m["entnahme"]["aktiv"] = False
+        rate = round(E.kredit_rate(50000, 0.06, 5), 2)
+        m["kredit"] = {"kredite": [{"name": "K", "betrag": 50000.0, "rate": rate, "jahre": 5, "zins": 6.0}],
+                       "aktiv": True, "aktiv_v2": True, "rate_aus": "investment", "rate_aus_v2": True}
+        kr = U._kredit_rahmen(m)
+        self.assertEqual(kr["raten"], [(1, 60, rate)])
+        self.assertAlmostEqual(kr["restschuld"], 0.0, places=1)
+        eff = U._mit_krediten(m)["rahmen"]
+        self.assertEqual(eff["startkapital"], m["rahmen"]["startkapital"] + 50000.0)
+        self.assertEqual(float(eff.get("sparrate_monat") or 0), float(m["rahmen"].get("sparrate_monat") or 0))
+        R = U._rechne(m, {}, None)
+        satz = next(iter(R["r_calc"].values()))
+        ref = _schleife(eff["startkapital"], satz, 240, spar=float(eff.get("sparrate_monat") or 0),
+                        raten=[(1, 60, rate)])
+        self.assertAlmostEqual(R["zus"]["endwert"], ref, delta=0.01)
+        if abs(satz - 0.09972) < 1e-9 and eff["startkapital"] == 65000 and not eff.get("sparrate_monat"):
+            self.assertAlmostEqual(R["zus"]["endwert"], 127306.89, delta=0.01)      # Auditor-Referenz r9
+        # Raten aus der Entnahme / dem Einkommen: kein zusaetzlicher Abzug
+        m["kredit"]["rate_aus"] = "einkommen"
+        self.assertEqual(U._kredit_rahmen(m)["raten"], [])
+
+
+@unittest.skipIf(U is None, "planer_ui nicht ladbar")
+class VorschlagEffektiv(unittest.TestCase):        # PLAN-03
+    def _pruefe(self, m, ziel, grenzen):
+        U.st.session_state = {}
+        m["rahmen"]["zielvermoegen"] = ziel
+        R = U._rechne(m, {}, None)
+        v = U._vorschlag(m, R, "ziel", "vermoegen", None, grenzen)
+        self.assertEqual(v["art"], "ok", v["text"])
+        R2 = U._rechne(U._mit_gewichten(m, v["gewichte"]), {}, None)
+        netto = R2["zus"]["endwert_netto"]
+        self.assertGreaterEqual(netto, ziel - 0.01)
+        self.assertLessEqual(netto, ziel + 1.0)
+        self.assertTrue(R2["zus"]["ziel_erreicht"])
+
+    def _basis(self):
+        m = D.seed_modell()
+        m["rahmen"]["rendite_modus"] = "aus"
+        return m
+
+    def test_mit_entnahme(self):
+        m = self._basis()
+        m["entnahme"]["monatlich"] = 200.0
+        self.assertIsNotNone(U._entnahme_parallel(m))
+        self._pruefe(m, 30000, False)
+        self._pruefe(m, 33000, True)
+
+    def test_mit_kredit(self):
+        m = self._basis()
+        m["entnahme"]["aktiv"] = False
+        m["kredit"] = {"kredite": [{"name": "K", "betrag": 20000.0, "rate": 400.0, "jahre": 5, "zins": 6.0}],
+                       "aktiv": True, "aktiv_v2": True, "rate_aus": "investment", "rate_aus_v2": True}
+        self._pruefe(m, 60000, False)
+        self._pruefe(m, 90000, True)
+
+    def test_mit_restschuld(self):
+        m = self._basis()
+        m["entnahme"]["aktiv"] = False
+        m["kredit"] = {"kredite": [{"name": "K", "betrag": 30000.0, "rate": 0.0, "jahre": 10, "zins": 5.0}],
+                       "aktiv": True, "aktiv_v2": True, "rate_aus": "investment", "rate_aus_v2": True}
+        self.assertAlmostEqual(U._kredit_rahmen(m)["restschuld"], 30000.0, places=6)   # nur Zinsen gezahlt
+        self._pruefe(m, 50000, False)
+
+    def test_unerreichbar_ehrlich(self):
+        m = self._basis()
+        m["entnahme"]["monatlich"] = 200.0
+        m["rahmen"]["zielvermoegen"] = 10 ** 6
+        U.st.session_state = {}
+        R = U._rechne(m, {}, None)
+        v = U._vorschlag(m, R, "ziel", "vermoegen", None, False)
+        self.assertEqual(v["art"], "fehler")
+        self.assertIn("nicht erreichbar", v["text"])
+
+
+def _schleife_bausteine(start, gew_pct, renditen, monate, spar=0.0, entnahme=lambda k: 0.0, raten=()):
+    """Unabhaengige Monatsschleife je Baustein (ohne Rebalancing): Wachstum je Baustein mit
+    (1+r)^(1/12), Sparrate nach Zielgewicht, Entnahme und Kreditraten anteilig nach Wert,
+    nie unter 0. -> Endwert"""
+    s_ = sum(gew_pct.values())
+    w = {i: g / s_ for i, g in gew_pct.items()}
+    v = {i: start * w[i] for i in w}
+    for k in range(1, monate + 1):
+        for i in v:
+            v[i] *= (1 + renditen[i]) ** (1 / 12)
+            v[i] += spar * w[i]
+        abzug = entnahme(k) + sum(b for von, bis, b in raten if von <= k <= bis)
+        ges = sum(v.values())
+        abzug = min(abzug, ges)
+        if ges > 0:
+            v = {i: max(x - abzug * x / ges, 0.0) for i, x in v.items()}
+    return sum(v.values())
+
+
+@unittest.skipIf(U is None, "planer_ui nicht ladbar")
+class VorschlagStandardEntnahme(unittest.TestCase):        # PLAN-03 mit Standard-Entnahme (1.000 €/Monat, +2 % p.a.)
+    def _basis(self):
+        m = D.seed_modell()
+        m["rahmen"].update(rendite_modus="aus", startkapital=200000.0)
+        m["rebalancing"] = {"art": "keins"}
+        self.assertEqual(m["entnahme"]["monatlich"], 1000.0)          # Standard des Ausgangsmodells
+        self.assertEqual(m["entnahme"]["dynamik_pa"], 2.0)
+        return m
+
+    def _uebernehmen(self, m, ziel, grenzen):
+        U.st.session_state = {}
+        m["rahmen"]["zielvermoegen"] = ziel
+        R = U._rechne(m, {}, None)
+        v = U._vorschlag(m, R, "ziel", "vermoegen", None, grenzen)
+        self.assertEqual(v["art"], "ok", v["text"])
+        m2 = U._mit_gewichten(m, v["gewichte"])
+        R2 = U._rechne(m2, {}, None)
+        return m2, R2
+
+    def _unabhaengig(self, m2, R2, raten=(), restschuld=0.0):
+        n = int(m2["rahmen"]["horizont_jahre"]) * 12
+        gew = {a["id"]: float(a["targetWeight"]) for a in E.aktive_assets(m2) if float(a["targetWeight"] or 0) > 0}
+        start = float(m2["rahmen"]["startkapital"]) + sum(float(k["betrag"]) for k in
+                                                          (m2.get("kredit") or {}).get("kredite", []) if raten)
+        return _schleife_bausteine(start, gew, R2["r_calc"], n, entnahme=lambda k: 1000.0 * 1.02 ** ((k - 1) // 12),
+                                   raten=raten) - restschuld
+
+    def test_ohne_grenzen(self):
+        m = self._basis()
+        for ziel in (260000.0, 400000.0):
+            m2, R2 = self._uebernehmen(m, ziel, False)
+            self.assertAlmostEqual(R2["zus"]["endwert_netto"], ziel, delta=1.0)
+            self.assertAlmostEqual(self._unabhaengig(m2, R2), ziel, delta=1.0)
+            self.assertTrue(R2["zus"]["ziel_erreicht"])
+
+    def test_mit_grenzen(self):
+        m = self._basis()
+        m2, R2 = self._uebernehmen(m, 700000.0, True)
+        self.assertGreaterEqual(R2["zus"]["endwert_netto"], 700000.0 - 0.01)
+        self.assertLessEqual(R2["zus"]["endwert_netto"], 700000.0 + 1.0)
+        self.assertAlmostEqual(self._unabhaengig(m2, R2), R2["zus"]["endwert_netto"], delta=0.01)
+
+    def test_mit_kredit_und_entnahme(self):
+        m = self._basis()
+        rate = round(_annuitaet(50000, 0.06, 60), 2)                     # 966,64 €
+        m["kredit"] = {"kredite": [{"name": "K", "betrag": 50000.0, "rate": rate, "jahre": 5, "zins": 6.0}],
+                       "aktiv": True, "aktiv_v2": True, "rate_aus": "investment", "rate_aus_v2": True}
+        for ziel, grenzen in ((260000.0, False), (750000.0, True)):
+            m2, R2 = self._uebernehmen(m, ziel, grenzen)
+            self.assertGreaterEqual(R2["zus"]["endwert_netto"], ziel - 0.01)
+            self.assertLessEqual(R2["zus"]["endwert_netto"], ziel + 1.0)
+            # Laufzeit 5 J. = Aufbau 5 J. -> Restschuld 0; Raten Monat 1..60
+            self.assertAlmostEqual(self._unabhaengig(m2, R2, raten=[(1, 60, rate)]), R2["zus"]["endwert_netto"],
+                                   delta=0.05)
+
+    def test_ziel_unter_minimum_ehrlich(self):
+        m = self._basis()
+        U.st.session_state = {}
+        m["rahmen"]["zielvermoegen"] = 100000.0
+        R = U._rechne(m, {}, None)
+        v = U._vorschlag(m, R, "ziel", "vermoegen", None, False)
+        self.assertEqual(v["art"], "fehler")
+        self.assertIn("kleinsten", v["text"])
+        v = U._vorschlag(m, R, "ziel", "vermoegen", None, True)
+        self.assertEqual(v["art"], "warnung")            # nicht mehr "ok", obwohl weit ueber dem Ziel
+        self.assertIn("übertroffen", v["text"])
+
+
+@unittest.skipIf(U is None, "planer_ui nicht ladbar")
+class FehlbetragAnzeige(unittest.TestCase):        # PLAN-09 in der Oberflaeche
+    def test_kreditraten_ueber_depot(self):
+        U.st.session_state = {}
+        m = D.seed_modell()
+        m["rahmen"].update(rendite_modus="manuell", rendite_manuell=8.0, horizont_jahre=10, startkapital=0.0,
+                           sparrate_monat=0.0)
+        m["entnahme"]["aktiv"] = False
+        rate = round(_annuitaet(10000, 0.20, 120), 2)                    # 20 % Zins -> 193,26 €
+        self.assertAlmostEqual(rate, 193.26, places=2)
+        m["kredit"] = {"kredite": [{"name": "K", "betrag": 10000.0, "rate": rate, "jahre": 10, "zins": 20.0}],
+                       "aktiv": True, "aktiv_v2": True, "rate_aus": "investment", "rate_aus_v2": True}
+        R = U._rechne(m, {}, None)
+        satz = next(iter(R["r_calc"].values()))
+        # unabhaengig: Depot 10.000 €, Raten bis 0 €, Rest ungedeckt
+        rm = (1 + satz) ** (1 / 12) - 1
+        v, gezahlt = 10000.0, 0.0
+        for _k in range(120):
+            v *= 1 + rm
+            weg = min(rate, v)
+            v -= weg
+            gezahlt += weg
+        self.assertEqual(v, 0.0)
+        z = R["zus"]
+        self.assertEqual(z["endwert"], 0.0)
+        self.assertAlmostEqual(z["projektion"]["kredit_raten_gezahlt"], gezahlt, places=6)
+        self.assertAlmostEqual(z["fehlbetrag"], 120 * rate - gezahlt, places=6)
+        self.assertGreater(z["fehlbetrag"], 1000)
+        self.assertTrue(all(x >= 0 for vs in z["projektion"]["asset_verlauf"].values() for x in vs))
+        txt = U._fehlbetrag_text(z)
+        self.assertIn("nicht gedeckt", txt)
+        self.assertIn(U._de(z["fehlbetrag"]), txt)
+        self.assertEqual(U._fehlbetrag_text({"fehlbetrag": 0.0, "entnahme_fehlbetrag": 0.0}), "")
+
+
+class EntnahmeAnnuitaetGrenze(unittest.TestCase):        # PLAN-05 Gegenprobe per Schleife
+    def test_cent_mehr_reicht_nicht(self):
+        w = E.entnahme_fuer(300000, 0.05, jahre=25)
+        rm = 1.05 ** (1 / 12) - 1
+
+        def rest(rate):
+            k = 300000.0
+            for _ in range(300):
+                k = k * (1 + rm) - rate
+            return k
+        self.assertGreaterEqual(rest(w), -0.01)          # 300 volle Raten gedeckt
+        self.assertLess(rest(w + 0.01), 0.0)              # 1 Cent mehr: letzte Rate nicht voll
+        self.assertAlmostEqual(w, 1734.41, delta=0.01)
+        # nominale Konvention (5 %/12) gaebe einen anderen Wert - Engine nutzt die geometrische
+        nominal = 300000 * (0.05 / 12) / (1 - (1 + 0.05 / 12) ** -300)
+        self.assertGreater(abs(nominal - w), 1.0)
+
+
+class SzenarioNegativeBasis(unittest.TestCase):        # PLAN-04
+    def test_rendite_fuer_negative_basis(self):
+        m = D.seed_modell()
+        a = [x for x in E.aktive_assets(m) if x.get("renditequelle") != "historisch" and E._typ(x) != "cash"][0]
+        E.setze_annahme(m, a["id"], "manualScenario", -0.10)
+        m["annahmen"] = [x for x in m["annahmen"]
+                         if not (x["assetId"] == a["id"] and x["sourceType"] in ("base", "bear", "bull"))]
+        w = {sz: E.rendite_fuer(m, a, methode="szenario", szenario=sz)[0] for sz in ("bear", "base", "bull")}
+        self.assertLess(w["bear"], w["base"])
+        self.assertLess(w["base"], w["bull"])
+        regel = m.get("szenario_regel", D.SZENARIO_REGEL)
+        self.assertAlmostEqual(w["bear"], -0.10 - (1 - regel["bear_faktor"]) * 0.10)
+        self.assertAlmostEqual(w["bull"], -0.10 + (regel["bull_faktor"] - 1) * 0.10)
+
+
+class EntnahmeVolleRaten(unittest.TestCase):        # PLAN-05
+    def test_annuitaet_300k(self):
+        rm = 1.05 ** (1 / 12) - 1              # Monatskonvention der Engine (geometrisch)
+        w = 300000 * rm / (1 - (1 + rm) ** -300)
+        self.assertAlmostEqual(w, 1734.41, delta=0.01)
+        self.assertAlmostEqual(E.entnahme_fuer(300000, 0.05, jahre=25), w, delta=0.01)
+        p = E.entnahmeplan(300000, 0.05, E.entnahme_fuer(300000, 0.05, jahre=25), jahre=25, max_jahre=25)
+        self.assertIsNone(p["dauer_monate"])     # alle 300 Raten voll gezahlt
+
+
+class ErforderlicheRenditeNone(unittest.TestCase):        # PLAN-06
+    def test_unerreichbar_und_ohne_ziel(self):
+        self.assertIsNone(E.erforderliche_rendite(1000, 1e15, 1, 1))
+        self.assertIsNone(E.erforderliche_rendite(1000, 0, 5, 100))
+        self.assertIsNone(E.erforderliche_rendite(1000, -5, 5, 100))
+        r = E.erforderliche_rendite(0, 20000, 5, 300)
+        self.assertAlmostEqual(E.future_value(0, r, 5, 300), 20000, delta=0.01)
+
+    @unittest.skipIf(U is None, "planer_ui nicht ladbar")
+    def test_ui_unerreichbar(self):
+        U.st.session_state = {}
+        m = D.seed_modell()
+        m["rahmen"].update(startkapital=100.0, sparrate_monat=1.0, zielvermoegen=1e12, horizont_jahre=2)
+        m["entnahme"]["aktiv"] = False
+        R = U._rechne(m, {}, None)
+        self.assertIsNone(R["zus"]["erforderliche_cagr"])
+        self.assertEqual(U._pct_ziel(None), "nicht erreichbar")
+        self.assertTrue(U._ziel_unerreichbar(m))
+        self.assertEqual(U._auto_modus(m), "ziel")
+        U._auto_gewichtung(m, R)
+        auto = U.st.session_state["planer_autogew"]
+        self.assertFalse(auto["erreichbar"])
+        self.assertIsNone(auto["benoetigt"])
+
+
+class KaufplanUngueltigeKurse(unittest.TestCase):        # PLAN-07
+    def _bilanz(self, e, betrag):
+        self.assertAlmostEqual(e["investiert"] + e["cash_soll"] + e["rest"] - e["ueberzogen"], betrag, places=6)
+
+    def test_ungueltige_kurse(self):
+        pos = [{"id": "neg", "name": "Neg", "anteil": 0.2, "kurs": -5.0},
+               {"id": "nan", "name": "NaN", "anteil": 0.2, "kurs": float("nan")},
+               {"id": "inf", "name": "Inf", "anteil": 0.1, "kurs": float("inf")},
+               {"id": "null", "name": "Null", "anteil": 0.1, "kurs": 0.0},
+               {"id": "ok", "name": "Ok", "anteil": 0.3, "kurs": 10.0},
+               {"id": "c", "name": "Reserve", "anteil": 0.1, "cash": True}]
+        e = E.kaufplan(pos, 1000)
+        z = {x["id"]: x for x in e["zeilen"]}
+        for i in ("neg", "nan", "inf", "null"):
+            self.assertEqual(z[i]["stueck"], 0.0, i)
+            self.assertEqual(z[i]["ist"], 0.0, i)
+        self.assertEqual(sorted(e["ohne_kurs"]), sorted(["Neg", "NaN", "Inf", "Null"]))
+        self.assertEqual(z["ok"]["stueck"], 30.0)
+        self.assertEqual(e["mindest"], [])
+        self._bilanz(e, 1000)
+        self._bilanz(E.kaufplan(pos, 1000, bruchstuecke=True), 1000)
+
+    def test_ungueltiger_anteil(self):
+        e = E.kaufplan([{"id": "a", "name": "A", "anteil": float("nan"), "kurs": 5.0},
+                        {"id": "b", "name": "B", "anteil": float("inf"), "kurs": 5.0},
+                        {"id": "c", "name": "C", "anteil": 0.5, "kurs": 5.0}], 1000)
+        z = {x["id"]: x for x in e["zeilen"]}
+        self.assertEqual(z["a"]["stueck"], 0.0)
+        self.assertEqual(z["b"]["stueck"], 0.0)
+        self.assertEqual(z["c"]["stueck"], 100.0)
+        self._bilanz(e, 1000)
+
+    def test_mindeststueck_und_korb_bleiben(self):
+        pos = [{"id": "a", "name": "Teuer", "anteil": 0.01, "kurs": 400.0},
+               {"id": "k:x", "name": "X", "teil_von": "Korb", "anteil": 0.001, "kurs": 500.0},
+               {"id": "c", "name": "Reserve", "anteil": 0.989, "cash": True}]
+        e = E.kaufplan(pos, 10000)
+        z = {x["id"]: x for x in e["zeilen"]}
+        self.assertEqual(z["a"]["stueck"], 1.0)
+        self.assertEqual(z["k:x"]["stueck"], 0.0)
+        self._bilanz(e, 10000)
+
+
+class JungeHistorie(unittest.TestCase):        # Entscheidung 12.10.2026: Ø Monatsrendite hochrechnen
+    # Referenzwerte von Hand (unabhaengig vom Code):
+    #   6 Mon. +5 %:  r_m = 1,05^(1/6) - 1; r_pa = (1 + r_m)^12 - 1 = 1,05^2 - 1 = 0,1025
+    #   3 Mon. -6 %:  r_pa = 0,94^4 - 1 = 0,78074896 - 1 = -0,21925104
+    #   Szenario-Regel: Bear = Basis - 50 % * |Basis|, Bull = Basis + 20 % * |Basis|
+    #     +10,25 %: Bear 5,125 %, Bull 12,3 %;  -21,925104 %: Bear -32,887656 %, Bull -17,5400832 %
+    #   Rueckfall (< 1 Monat), Halbleiter: c * 12 % + (1 - c) * 8 %, c = Confidence/100 <= 0,10
+    def _m(self):
+        m = D.seed_modell()
+        a = D._asset("semi_jung", "Halbleiter jung", "semiconductor", 0.0)
+        a["renditequelle"] = "historisch"
+        a["targetWeight"] = 10.0
+        m["assets"].append(a)
+        return m, a
+
+    def test_hochrechnung_referenzwerte(self):
+        w, mon = E.hochrechnung_monate({"jahre": 0.5, "seit_start": 0.05})
+        self.assertAlmostEqual(w, 0.1025, places=12)
+        self.assertAlmostEqual(mon, 6.0)
+        w, mon = E.hochrechnung_monate({"jahre": 0.25, "seit_start": -0.06})
+        self.assertAlmostEqual(w, -0.21925104, places=12)
+        # Monatsweg identisch: (1 + r_m)^12 - 1
+        r_m = 1.05 ** (1 / 6) - 1
+        self.assertAlmostEqual(E.hochrechnung_monate({"jahre": 0.5, "seit_start": 0.05})[0], (1 + r_m) ** 12 - 1,
+                               places=12)
+        # Mindestbasis 1 Monat (gerundete "jahre" 0,08 zaehlt noch), keine Hochrechnung darunter / ab 1 Jahr
+        self.assertIsNotNone(E.hochrechnung_monate({"jahre": 0.08, "seit_start": 0.01})[0])
+        for h in ({"jahre": 0.04, "seit_start": 0.05}, {"jahre": 0.5}, {"jahre": 0.5, "seit_start": None},
+                  {"jahre": 0.5, "seit_start": float("nan")}, {"jahre": 0.5, "seit_start": float("inf")},
+                  {"jahre": 0.5, "seit_start": -1.0}, {"jahre": 1.0, "seit_start": 0.2}, {}, None):
+            self.assertEqual(E.hochrechnung_monate(h), (None, None), h)
+
+    def test_rendite_fuer_hochgerechnet(self):
+        m, a = self._m()
+        hist = {a["id"]: {"jahre": 0.5, "seit_start": 0.05, "stand": "2026-10-01"}}
+        w, herkunft, hinweis = E.rendite_fuer(m, a, hist, methode="manualScenario")
+        self.assertAlmostEqual(w, 0.1025, places=12)
+        self.assertEqual(herkunft["source"], "hochgerechnet aus 6 Mon. (Ø Monatsrendite)")
+        self.assertEqual(herkunft["sourceType"], "hochgerechnet")
+        self.assertIn("6 Mon.", hinweis)
+        self.assertIn("hochgerechnet", hinweis)
+        sz = {s_: E.rendite_fuer(m, a, hist, methode="szenario", szenario=s_)[0] for s_ in ("bear", "base", "bull")}
+        self.assertAlmostEqual(sz["bear"], 0.05125, places=12)
+        self.assertAlmostEqual(sz["base"], 0.1025, places=12)
+        self.assertAlmostEqual(sz["bull"], 0.123, places=12)
+        # negativ: 3 Mon. -6 %, Bear/Bull vorzeichenrichtig
+        hist = {a["id"]: {"jahre": 0.25, "seit_start": -0.06}}
+        self.assertAlmostEqual(E.rendite_fuer(m, a, hist, methode="manualScenario")[0], -0.21925104, places=12)
+        sz = {s_: E.rendite_fuer(m, a, hist, methode="szenario", szenario=s_)[0] for s_ in ("bear", "bull")}
+        self.assertAlmostEqual(sz["bear"], -0.32887656, places=12)
+        self.assertAlmostEqual(sz["bull"], -0.17540083, places=8)
+        self.assertLess(sz["bear"], -0.21925104)
+        self.assertGreater(sz["bull"], -0.21925104)
+
+    def test_rueckfall_unter_einem_monat(self):
+        m, a = self._m()
+        hist = {a["id"]: {"jahre": 0.04, "seit_start": 0.40}}          # ca. halber Monat
+        w, herkunft, hinweis = E.rendite_fuer(m, a, hist, methode="manualScenario")
+        # bisherige Daempfung: c = Confidence/100 (bei 0,04 J. sehr klein), c * 12 % + (1 - c) * 8 %;
+        # die 40 % seit Start fliessen NICHT ein
+        c = min(E.confidence_score(0.04, "semiconductor"), D.CONFIDENCE["ohne_historie"]) / 100.0
+        self.assertLessEqual(c, 0.10)
+        self.assertAlmostEqual(w, c * 0.12 + (1 - c) * 0.08, places=12)
+        self.assertTrue(0.08 <= w <= 0.084)
+        self.assertEqual(herkunft["source"], "zu kurze Historie – Kategorie-Standard")
+        self.assertEqual(herkunft["sourceType"], "kategorie_standard")
+        self.assertIn("keine Hochrechnung", hinweis)
+        sz = {s_: E.rendite_fuer(m, a, hist, methode="szenario", szenario=s_)[0] for s_ in ("bear", "bull")}
+        self.assertAlmostEqual(sz["bear"], w * 0.5, places=12)
+        self.assertAlmostEqual(sz["bull"], w * 1.2, places=12)
+        # ohne Rendite seit Start ebenfalls Rueckfall
+        self.assertAlmostEqual(E.rendite_fuer(m, a, {a["id"]: {"jahre": 0.5}}, methode="manualScenario")[0],
+                               0.084, places=12)
+        self.assertEqual(E.kurze_historie_rendite(a, {"jahre": 0.04, "seit_start": 0.4}),
+                         E.kurze_historie_rendite(a, {"jahre": 0.04}))
+        self.assertLessEqual(E.kurze_historie_rendite(a, {"jahre": 0.04})[1], D.CONFIDENCE["ohne_historie"])
+
+    def test_ab_einem_jahr_unveraendert(self):
+        m, a = self._m()
+        self.assertAlmostEqual(E.rendite_fuer(m, a, {a["id"]: {"jahre": 1.2, "historical1Y": 0.25,
+                                                                "seit_start": 0.9}},
+                                              methode="manualScenario")[0], 0.25)
+        w, herkunft, _ = E.rendite_fuer(m, a, {a["id"]: {"jahre": 1.5, "gesamt_cagr": 0.12, "seit_start": 0.185}},
+                                        methode="manualScenario")
+        self.assertAlmostEqual(w, 0.12)
+        self.assertEqual(herkunft["sourceType"], "historisch")
+
+    def test_eigene_annahme_hat_vorrang(self):
+        m, a = self._m()
+        E.setze_annahme(m, a["id"], "manualScenario", 0.05)            # selbst eingetragen (auto=False)
+        hist = {a["id"]: {"jahre": 0.5, "seit_start": 0.4}}
+        w, herkunft, hinweis = E.rendite_fuer(m, a, hist, methode="manualScenario")
+        self.assertAlmostEqual(w, 0.05)
+        self.assertIn("< 1 Jahr", hinweis)
+        a["renditequelle"] = "annahme"
+        E.annahmen_aus_historie(m, hist)
+        rec = E.annahme(m, a["id"], "manualScenario")
+        self.assertAlmostEqual(rec["value"], 0.05)
+        self.assertFalse(rec["auto"])
+
+    def test_annahmen_aus_historie_und_confidence(self):
+        m, a = self._m()
+        a["renditequelle"] = "annahme"
+        # Altbestand der vorherigen Regel (Kategorie-Standard, auto) wird ersetzt
+        E.setze_annahme(m, a["id"], "manualScenario", 0.084, auto=True,
+                        source="zu kurze Historie – Kategorie-Standard")
+        n = E.annahmen_aus_historie(m, {a["id"]: {"jahre": 0.5, "seit_start": 0.05}})
+        self.assertGreaterEqual(n, 1)
+        rec = E.annahme(m, a["id"], "manualScenario")
+        self.assertAlmostEqual(rec["value"], 0.1025, places=12)
+        self.assertEqual(rec["source"], "hochgerechnet aus 6 Mon. (Ø Monatsrendite)")
+        self.assertIn("hochgerechnet", rec["notes"])
+        self.assertTrue(rec["auto"])
+        self.assertEqual(E.annahmen_aus_historie(m, {a["id"]: {"jahre": 0.5, "seit_start": 0.05}}), 0)
+        conf = E.confidence_fuer(m, {a["id"]: {"jahre": 0.9}})
+        self.assertEqual(conf[a["id"]], D.CONFIDENCE["ohne_historie"])
+        self.assertLessEqual(E.kurze_historie_rendite(a, {"jahre": 0.5, "seit_start": 0.05})[1], 10)
+        conf5 = E.confidence_fuer(m, {a["id"]: {"jahre": 5.0}})
+        self.assertGreater(conf5[a["id"]], D.CONFIDENCE["ohne_historie"])
+        if U is not None:
+            self.assertEqual(U._basis_text(m, a), "Hochger. ⚠")
+        # unter 1 Monat: zurueck auf Kategorie-Standard
+        E.annahmen_aus_historie(m, {a["id"]: {"jahre": 0.04, "seit_start": 0.05}})
+        rec = E.annahme(m, a["id"], "manualScenario")
+        self.assertEqual(rec["source"], "zu kurze Historie – Kategorie-Standard")
+        self.assertTrue(0.08 <= rec["value"] <= 0.084)
+        if U is not None:
+            self.assertEqual(U._basis_text(m, a), "Kurz-Hist. ⚠")
+        # ab 1 Jahr: gemessene Rendite p.a. ersetzt die Hochrechnung
+        E.annahmen_aus_historie(m, {a["id"]: {"jahre": 1.1, "historical1Y": 0.07, "seit_start": 0.08}})
+        rec = E.annahme(m, a["id"], "manualScenario")
+        self.assertAlmostEqual(rec["value"], 0.07)
+        self.assertTrue(rec["source"].startswith("Kurshistorie ("))
+
+
+class Versionsmarker(unittest.TestCase):
+    @unittest.skipIf(U is None, "planer_ui nicht ladbar")
+    def test_versionen_gleich(self):
+        self.assertEqual(E.ENGINE_VERSION, "12.10.2026 · 10:00")
+        self.assertEqual(U.PLANER_VERSION, E.ENGINE_VERSION)
 
 
 if __name__ == "__main__":
