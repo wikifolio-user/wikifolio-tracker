@@ -3,13 +3,23 @@
 Rechenweise (deutsche Bankpraxis): Innerhalb einer Zinsperiode einfache (lineare)
 Verzinsung je angefangenem Monat, am Periodenende Gutschrift (Zinseszins) oder Auszahlung.
 Relativer Periodenzins = Zinssatz p.a. x Periodenlaenge / 12. Vorschuessig = Einzahlung am
-Monatsanfang (der Monat zaehlt mit), nachschuessig = am Monatsende.
+Monatsanfang (der Monat zaehlt mit), nachschuessig = am Monatsende. Bei Sparintervallen > 1 Monat
+wird vorschuessig am Anfang des Intervalls, nachschuessig am Ende des Intervalls eingezahlt
+(z. B. jaehrlich nachschuessig = am Jahresende, im ersten Jahr also ohne Zinsen).
+Zinsgutschrift und Sparerpauschbetrag richten sich nach dem KALENDERJAHR (wie bei Banken):
+jaehrliche Gutschrift zum 31.12., halb-/vierteljaehrlich zum Ende des Kalenderhalbjahres/-quartals,
+ausgehend vom Monat des Startdatums (monatsgenau). Der Rest am Laufzeitende wird zum Laufzeitende
+gutgeschrieben. Bei Start am 1. Januar entspricht das genau den Vertragsjahren.
+Cent-Rundung wie auf dem Kontoauszug: jede Zinsgutschrift wird kaufmaennisch auf den Cent gerundet
+(ab 0,5 Cent auf), die Steuer darauf auf den Cent abgerundet (Bruchteile eines Cents bleiben ausser Ansatz).
 Optional: Dynamik (Erhoehung der Rate), Festlegungsfrist (danach keine Raten mehr, Kapital
 verzinst sich weiter), Abgeltungsteuer mit Sparerpauschbetrag je Kalenderjahr.
 Jede Groesse (Anfangskapital, Rate, Dynamik, Zinssatz, Laufzeit, Endkapital) kann berechnet werden.
 """
 import datetime
 import math
+import re
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 INTERVALLE = {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich", 12: "jährlich"}
 ZIEL_FELDER = {"e": "Endkapital", "a": "Anfangskapital", "s": "Sparrate", "dy": "Dynamik", "z": "Zinssatz",
@@ -17,6 +27,12 @@ ZIEL_FELDER = {"e": "Endkapital", "a": "Anfangskapital", "s": "Sparrate", "dy": 
 STANDARD = {"a": 0.0, "s": 100.0, "si": 1, "ea": "v", "dy": 0.0, "dya": "j", "z": 5.0, "zp": 12, "ze": 1,
             "n": 10, "ne": "j", "f": 0, "fe": "j", "e": 0.0, "calc": "e", "st": 0.0, "fb": 1000.0, "am": "", "sd": "", "sp": "", "ep": ""}
 ABGELTUNG = 26.375
+# Wertebereiche wie in den Eingabefeldern (fuer Links von aussen)
+GRENZEN = {"a": (0.0, 1e10), "s": (0.0, 1e9), "dy": (0.0, 100.0), "z": (-99.0, 100.0), "n": (0, 1200),
+           "f": (0, 1200), "e": (0.0, 1e12), "st": (0.0, 60.0), "fb": (0.0, 1e6)}
+AUSWAHL = {"ea": ("v", "n"), "dya": ("j", "i"), "ne": ("j", "m"), "fe": ("j", "m")}
+MAX_PLAN_MONATE = 1200                                  # Plaene in Phasen: hoechstens 100 Jahre
+MAX_BETRAG = 1e12
 
 
 # ===========================================================================
@@ -26,25 +42,90 @@ def _monate(wert, einheit):
     return int(round(float(wert))) * (12 if einheit == "j" else 1)
 
 
+def _zahl_text(v):
+    """Zahl verlustfrei als kurzer Text (fuer Link und Plaene): 1000.0 -> '1000', 123456.78 -> '123456.78'."""
+    v = float(v)
+    if v.is_integer() and abs(v) < 1e15:
+        return str(int(v))
+    return repr(v)
+
+
+def _phasen_teile(text):
+    """Text in einzelne 'JxB'-Teile zerlegen; Komma als Dezimalzeichen wird erkannt:
+    '0,5x100' -> ['0.5x100'], '1x100,5' -> ['1x100.5'], '1x1000,3x500' -> ['1x1000', '3x500']."""
+    roh = [t.strip().lower().replace(" ", "") for t in re.split(r"[,;]", str(text or ""))]
+    teile = []
+    i = 0
+    while i < len(roh):
+        t = roh[i]
+        if t and "x" not in t and re.fullmatch(r"\d+", t):
+            if i + 1 < len(roh) and re.match(r"\d+x", roh[i + 1]):
+                teile.append(t + "." + roh[i + 1])       # '0,5x100' -> Jahre mit Dezimalkomma
+                i += 2
+                continue
+            if teile and "." not in teile[-1].split("x", 1)[1]:
+                teile[-1] = teile[-1] + "." + t          # '1x100,5' -> Betrag mit Dezimalkomma
+        elif t:
+            teile.append(t)
+        i += 1
+    return teile
+
+
+_CENT = Decimal("0.01")
+_MIKRO = Decimal("0.000001")
+
+
+def _dezimal(x):
+    """float -> Decimal, vorher auf 1/10.000 Cent geglaettet: Gleitkomma-Rest wie 47.4799999999
+    (eigentlich genau 47,48) soll nicht ueber die Cent-Rundung entscheiden."""
+    return Decimal(repr(float(x))).quantize(_MIKRO, rounding=ROUND_HALF_UP)
+
+
+def _cent_kaufm(x):
+    """Kaufmaennisch auf Cent runden (ab 0,5 Cent auf, negative Werte betragsmaessig)."""
+    if not math.isfinite(x) or abs(x) >= 1e13:            # Cent hier bedeutungslos (Decimal-Genauigkeit)
+        return x
+    return float(_dezimal(x).quantize(_CENT, rounding=ROUND_HALF_UP))
+
+
+def _cent_ab(x):
+    """Auf Cent abrunden (Steuer: Bruchteile eines Cents bleiben ausser Ansatz)."""
+    if not math.isfinite(x) or abs(x) >= 1e13:
+        return x
+    return float(_dezimal(x).quantize(_CENT, rounding=ROUND_DOWN))
+
+
 def phasen(text):
-    """'1x1000,3x500' -> [(12, 1000.0), (36, 500.0)]  (Jahre x Euro pro Monat, nacheinander ab Start)."""
+    """'1x1000,3x500' -> [(12, 1000.0), (36, 500.0)]  (Jahre x Euro pro Monat, nacheinander ab Start).
+    Robust fuer Links: 'X' wie 'x', Dezimalkomma, keine inf/nan, insgesamt hoechstens MAX_PLAN_MONATE."""
     aus = []
-    for teil in str(text or "").split(","):
-        if "x" not in teil:
+    summe = 0
+    for teil in _phasen_teile(text):
+        if teil.count("x") != 1:
             continue
         try:
             j, b = teil.split("x", 1)
             j, b = float(j), float(b)
         except ValueError:
             continue
-        if j > 0 and b >= 0:
-            aus.append((int(round(j * 12)), b))
+        if not (math.isfinite(j) and math.isfinite(b)) or j <= 0 or b < 0:
+            continue
+        monate = int(round(min(j, MAX_PLAN_MONATE / 12.0) * 12))
+        monate = min(monate, MAX_PLAN_MONATE - summe)
+        if monate <= 0:
+            continue
+        aus.append((monate, min(b, MAX_BETRAG)))
+        summe += monate
+        if summe >= MAX_PLAN_MONATE:
+            break
     return aus
 
 
 def phasen_text(liste):
-    """[(Jahre, Betrag)] -> '1x1000,3x500'"""
-    return ",".join(f"{j:g}x{b:g}" for j, b in liste if j > 0)
+    """[(Jahre, Betrag)] -> '1x1000,3x500' (Betrag verlustfrei, Jahre auf 6 Nachkommastellen)."""
+    def jahre(j):
+        return _zahl_text(round(float(j), 6))
+    return ",".join(f"{jahre(j)}x{_zahl_text(b)}" for j, b in liste if j > 0)
 
 
 def phase_betrag(ph, m):
@@ -58,7 +139,12 @@ def phase_betrag(ph, m):
 
 
 def rechne(p):
-    """p: Parameter (siehe STANDARD). -> dict mit Endkapital, Summen, Jahrestabelle, Monatsverlauf."""
+    """p: Parameter (siehe STANDARD). -> dict mit Endkapital, Summen, Jahrestabelle, Monatsverlauf.
+    Zinsgutschrift (Zinsperiode zp) und Freibetrag nach Kalenderjahr ab dem Monat des Startdatums
+    (startdatum(p)): Monat m endet im Kalendermonat (Startmonat - 1 + m) mod 12; Gutschrift, wenn das
+    ein Periodenende ist (jaehrlich: Dezember), sowie am Laufzeitende. Freibetrag neu ab Januar.
+    Jede Gutschrift wird kaufmaennisch auf Cent gerundet, die Steuer darauf auf Cent abgerundet.
+    Die Jahrestabelle ("jahre") zeigt weiterhin die Stände je Vertragsjahr (Jahrestag)."""
     k = float(p["a"])
     rate0 = float(p["s"])
     si = int(p["si"])
@@ -88,9 +174,14 @@ def rechne(p):
     entnommen = 0.0
     leer_monat = None
     ent_kum = [0.0]
+    versatz = startdatum(p).month - 1                       # Monate vom 1.1. bis zum Startmonat
     for m in range(1, n_ges + 1):
         einz = 0.0
         ent = 0.0
+        # Sparintervall: vorschuessig am Intervallanfang (Monat 1, 1+si, ...), nachschuessig am
+        # Intervallende (Monat si, 2*si, ...); intervall_start = erster Monat des Intervalls
+        faellig = (m - 1) % si == 0 if vorschuessig else m % si == 0
+        intervall_start = m if vorschuessig else m - si + 1
         if sp_ph:                                           # Sparplan in Phasen (monatlich) statt fester Rate
             einz = phase_betrag(sp_ph, m)
             if einz:
@@ -99,9 +190,9 @@ def rechne(p):
                 jz["ein"] += einz
                 if vorschuessig:
                     verzinst += einz
-        elif m <= n_spar and (m - 1) % si == 0:
+        elif m <= n_spar and faellig:
             if dyn:
-                schritte = (m - 1) // 12 if p["dya"] == "j" else (m - 1) // si
+                schritte = (intervall_start - 1) // 12 if p["dya"] == "j" else (intervall_start - 1) // si
                 rate = rate0 * (1 + dyn) ** schritte
             einz = rate
             k += einz
@@ -125,27 +216,34 @@ def rechne(p):
             jz["ent"] += ent
         if ep_ph and leer_monat is None and phase_betrag(ep_ph, m) > 0 and k <= 0.005:
             leer_monat = m
-        if m % zp == 0 or m == n_ges:                       # Zinsgutschrift am Periodenende / Laufzeitende
-            z_ = periode_zins
+        kal = versatz + m                                   # Kalendermonate seit Jahresbeginn (Ende Monat m)
+        if kal % zp == 0 or m == n_ges:                     # Gutschrift am Ende der Kalenderperiode / Laufzeitende
+            z_ = _cent_kaufm(periode_zins)                  # Gutschrift auf Cent (kaufmaennisch)
             st_ = 0.0
             if steuer and z_ > 0:
                 steuerbar = max(z_ - frei_rest, 0.0)
                 frei_rest = max(frei_rest - z_, 0.0)
-                st_ = steuerbar * steuer
+                st_ = _cent_ab(steuerbar * steuer)          # Steuer auf Cent abgerundet
             zinsen_ges += z_
             steuer_ges += st_
             jz["zins"] += z_
             jz["steuer"] += st_
             zins_netto_kum += z_ - st_
             if zinseszins:
-                k += z_ - st_
+                k = round(k + z_ - st_, 9)                  # Gleitkomma-Staub (1e-16) entfernen
             else:
-                ausgezahlt += z_ - st_
+                ausgezahlt = round(ausgezahlt + z_ - st_, 9)
             verzinst = k
             periode_zins = 0.0
+        if kal % 12 == 0:
+            frei_rest = freib                               # Sparerpauschbetrag je Kalenderjahr
         verlauf.append(k)
-        # Chart: aufgelaufene, noch nicht gutgeschriebene Zinsen schon mitzeigen (glatter Verlauf)
-        offen = periode_zins * (1 - steuer) if periode_zins else 0.0
+        # Chart: aufgelaufene, noch nicht gutgeschriebene Zinsen schon mitzeigen (glatter Verlauf);
+        # Steuer darauf erst, soweit der restliche Freibetrag des Kalenderjahres verbraucht ist
+        if periode_zins > 0 and steuer:
+            offen = periode_zins - max(periode_zins - frei_rest, 0.0) * steuer
+        else:
+            offen = periode_zins
         ein_kum.append(einzahlungen)
         ent_kum.append(entnommen)
         zins_kum.append(zins_netto_kum + offen)
@@ -154,7 +252,6 @@ def rechne(p):
             jahre.append({"jahr": (m - 1) // 12 + 1, "monat": m, "ein": jz["ein"], "zins": jz["zins"],
                           "steuer": jz["steuer"], "ent": jz["ent"], "stand": k})
             jz = {"ein": 0.0, "zins": 0.0, "steuer": 0.0, "ent": 0.0}
-            frei_rest = freib
     return {"end": k, "einzahlungen": einzahlungen, "zinsen": zinsen_ges, "steuer": steuer_ges,
             "ausgezahlt": ausgezahlt, "jahre": jahre, "verlauf": verlauf, "monate": n_ges, "spar_monate": n_spar,
             "ein_kum": ein_kum, "zins_kum": zins_kum, "wert": wert, "start": float(p["a"]),
@@ -164,52 +261,102 @@ def rechne(p):
 
 def loese(p):
     """Berechnet die in p["calc"] gewaehlte Groesse so, dass das Endkapital p["e"] erreicht wird.
+    Ergebnis ist immer der kleinste Wert, der das Ziel sicher erreicht (Betraege auf den Cent,
+    Prozentsaetze auf 4 Nachkommastellen aufgerundet). Zinssatz bei Zinsauszahlung (ze=0): Ziel =
+    Endkapital + ausgezahlte Zinsen (der Kontostand allein haengt dann nicht vom Zins ab).
     -> (p mit eingesetztem Wert, Ergebnis, Hinweis)"""
     ziel = p["calc"]
     if ziel == "e":
         return p, rechne(p), ""
     soll = float(p["e"])
     q = dict(p)
+    # Zinsauszahlung (kein Zinseszins): der Kontostand haengt nicht vom Zinssatz ab -> fuer den
+    # Zinssatz zaehlen Endkapital + ausgezahlte Zinsen (wie in noetiger_zins)
+    mit_auszahlung = ziel == "z" and not int(p.get("ze", 1))
+    hinweis_aus = ("Zinsen werden ausgezahlt: Ziel = Endkapital + ausgezahlte Zinsen."
+                   if mit_auszahlung else "")
 
     def end(wert, feld):
         q[feld] = wert
-        return rechne(q)["end"]
+        r_ = rechne(q)
+        return r_["end"] + (r_["ausgezahlt"] if mit_auszahlung else 0.0)
     if ziel in ("a", "s"):
-        f0, f1 = end(0.0, ziel), end(1.0, ziel)
-        steigung = f1 - f0
-        if steigung <= 0:
-            return p, rechne(p), "Nicht berechenbar (z. B. keine Sparzeit für die Rate)."
-        wert = (soll - f0) / steigung
-        if wert < 0:
+        # Endkapital steigt monoton mit Anfangskapital/Rate (auch mit Steuer und Entnahmeplan,
+        # dort aber nicht linear) -> Bisektion statt linearer Hochrechnung
+        f0 = end(0.0, ziel)
+        if f0 >= soll:
             q[ziel] = 0.0
             return q, rechne(q), "Das Endkapital wird schon ohne diesen Betrag erreicht."
-        # Steuer macht es leicht nichtlinear -> kurz nachjustieren
-        for _ in range(30):
-            d = end(wert, ziel) - soll
-            if abs(d) < 0.005:
+        grenze = GRENZEN[ziel][1]
+        hi = 1.0
+        while end(hi, ziel) < soll:
+            if hi >= grenze:
+                if end(grenze, ziel) <= f0 + 1e-9:
+                    return p, rechne(p), "Nicht berechenbar (z. B. keine Sparzeit für die Rate)."
+                q[ziel] = grenze
+                return q, rechne(q), f"Auch mit {_de(grenze, 0)} € nicht erreichbar."
+            hi = min(hi * 2, grenze)
+        lo = 0.0
+        for _ in range(60):
+            mi = (lo + hi) / 2
+            if end(mi, ziel) >= soll:
+                hi = mi
+            else:
+                lo = mi
+        wert = math.ceil(hi * 100) / 100                   # auf den Cent aufrunden -> Ziel sicher erreicht
+        for _ in range(1000):
+            if end(wert, ziel) >= soll:
                 break
-            wert -= d / steigung
-        q[ziel] = math.ceil(wert * 100 - 1e-6) / 100       # auf den Cent aufrunden -> Ziel sicher erreicht
+            wert = round(wert + 0.01, 2)
+        for _ in range(3):                                 # kleinster Cent-Betrag, der das Ziel erreicht
+            if wert >= 0.01 and end(round(wert - 0.01, 2), ziel) >= soll:
+                wert = round(wert - 0.01, 2)
+            else:
+                break
+        q[ziel] = wert
         return q, rechne(q), ""
     if ziel in ("z", "dy"):
         lo, hi = (-0.99 * 100, 100.0) if ziel == "z" else (0.0, 100.0)
         if end(hi, ziel) < soll:
             q[ziel] = hi
-            return q, rechne(q), f"Auch mit {hi:.0f} % nicht erreichbar."
-        if end(lo, ziel) > soll:
+            return q, rechne(q), " ".join(x for x in (f"Auch mit {hi:.0f} % nicht erreichbar.", hinweis_aus) if x)
+        if end(lo, ziel) >= soll:
             q[ziel] = lo
-            return q, rechne(q), "Wird schon mit dem kleinsten Wert erreicht."
+            return q, rechne(q), " ".join(x for x in ("Wird schon mit dem kleinsten Wert erreicht.", hinweis_aus)
+                                          if x)
         for _ in range(100):
             mi = (lo + hi) / 2
             if end(mi, ziel) >= soll:
                 hi = mi
             else:
                 lo = mi
-        q[ziel] = round(hi, 4)
-        return q, rechne(q), ""
+        wert = math.ceil(hi * 1e4) / 1e4                   # aufrunden (4 Stellen) -> Ziel sicher erreicht
+        for _ in range(100):
+            if end(wert, ziel) >= soll or wert >= 100.0:
+                break
+            wert = round(wert + 1e-4, 4)
+        q[ziel] = wert
+        return q, rechne(q), hinweis_aus
     if ziel == "n":
         q["ne"] = "m"
-        for monate in range(0, 12 * 100 + 1):
+        max_n = GRENZEN["n"][1]
+        if float(p["z"]) >= 0 and not phasen(p.get("ep")) and float(p["s"]) >= 0:
+            # ohne Entnahmen und negative Zinsen steigt das Endkapital mit jedem Monat -> Bisektion
+            # (statt bis zu 1.200 Rechnungen); Ergebnis unten noch einmal geprueft
+            if end(max_n, "n") < soll:
+                q["n"] = max_n
+                return q, rechne(q), "In 100 Jahren nicht erreichbar."
+            lo, hi = -1, max_n
+            while hi - lo > 1:
+                mi = (lo + hi) // 2
+                if end(mi, "n") >= soll:
+                    hi = mi
+                else:
+                    lo = mi
+            if end(hi, "n") >= soll and (hi == 0 or end(hi - 1, "n") < soll):
+                q["n"] = hi
+                return q, rechne(q), ""
+        for monate in range(0, max_n + 1):
             if end(monate, "n") >= soll:
                 q["n"] = monate
                 return q, rechne(q), ""
@@ -217,13 +364,33 @@ def loese(p):
     return p, rechne(p), ""
 
 
+IMMER_ERREICHT = float("-inf")       # noetiger_zins: Ziel wird mit jedem Zinssatz (auch -99 %) erreicht
+
+
 def noetiger_zins(p, ziel_end):
-    """Zinssatz p.a., bei dem das Endkapital genau ziel_end erreicht (sonst None)."""
-    q = dict(p, calc="z", e=float(ziel_end))
-    q2, r2, hinweis = loese(q)
-    if hinweis:
+    """Zinssatz p.a., bei dem das Endkapital ziel_end erreicht.
+    -> Zinssatz (auf 4 Stellen aufgerundet), None = selbst mit 100 % nicht erreichbar,
+       IMMER_ERREICHT (-inf) = wird schon mit dem kleinsten Zinssatz erreicht.
+    Bei Zinsauszahlung (ze=0) zaehlen die ausgezahlten Zinsen mit (Kontostand + ausgezahlt),
+    sonst waere Kapitalerhalt bei Entnahmen nie erreichbar."""
+    soll = float(ziel_end)
+    mit_auszahlung = not int(p.get("ze", 1))
+
+    def wert(z):
+        r = rechne(dict(p, z=z))
+        return r["end"] + (r["ausgezahlt"] if mit_auszahlung else 0.0)
+    lo, hi = GRENZEN["z"]
+    if wert(hi) < soll:
         return None
-    return float(q2["z"])
+    if wert(lo) >= soll:
+        return IMMER_ERREICHT
+    for _ in range(60):
+        mi = (lo + hi) / 2
+        if wert(mi) >= soll:
+            hi = mi
+        else:
+            lo = mi
+    return math.ceil(hi * 1e4) / 1e4
 
 
 def entnahme_analyse(p, r, wachstum=0.02):
@@ -253,15 +420,27 @@ def entnahme_analyse(p, r, wachstum=0.02):
             ab += monate
             continue
         test = dict(STANDARD, a=k0, s=0.0, si=1, ea=p["ea"], z=z_akt, zp=p["zp"], ze=p["ze"], n=1, ne="j",
-                    f=0, st=p.get("st", 0.0), fb=p.get("fb", 1000.0), ep=f"1x{betrag:g}", sp="")
+                    f=0, st=p.get("st", 0.0), fb=p.get("fb", 1000.0), ep=f"1x{_zahl_text(betrag)}", sp="",
+                    sd=plus_monate(sd, ab).isoformat(), am="")
         erhalt = noetiger_zins(test, k0)
         wachs = noetiger_zins(test, k0 * (1 + wachstum))
         jr = rechne(test)
-        deckung = jr["zinsen"] / (12 * betrag) if betrag else None
+        # Deckung mit den Zinsen NACH Steuer - passt damit zu "Erhalt" (Kapital bleibt gleich <=> Deckung >= 100 %)
+        deckung = (jr["zinsen"] - jr["steuer"]) / (12 * betrag) if betrag else None
         phasen_.append({"von": plus_monate(sd, ab), "bis": plus_monate(sd, ab + monate) - datetime.timedelta(days=1),
                         "betrag": betrag, "kapital": k0, "erhalt": erhalt, "wachstum": wachs, "deckung": deckung})
         ab += monate
-    return {"gesamt": gesamt, "phasen": phasen_, "wachstum": wachstum, "zins": z_akt, "eingezahlt": eingezahlt}
+    return {"gesamt": gesamt, "phasen": phasen_, "wachstum": wachstum, "zins": z_akt, "eingezahlt": eingezahlt,
+            "auszahlung": not int(p.get("ze", 1))}
+
+
+def _noetig_text(x):
+    """Noetiger Zinssatz als Text (None = nicht erreichbar, IMMER_ERREICHT = jeder Zinssatz reicht)."""
+    if x is None:
+        return "über 100 %"
+    if x == IMMER_ERREICHT:
+        return "jeder Zinssatz"
+    return f"{_de(x, 2)} %"
 
 
 # ===========================================================================
@@ -274,8 +453,16 @@ def aus_url(qp):
         if k in qp:
             roh = qp[k]
             try:
-                p[k] = type(std)(float(roh)) if isinstance(std, (int, float)) and not isinstance(std, bool) else str(roh)
-            except (TypeError, ValueError):
+                if isinstance(std, (int, float)) and not isinstance(std, bool):
+                    x = float(str(roh).strip().replace(",", "."))
+                    if not math.isfinite(x):
+                        continue                       # inf/nan -> Standard
+                    if k in GRENZEN:
+                        x = min(max(x, GRENZEN[k][0]), GRENZEN[k][1])
+                    p[k] = type(std)(x)
+                else:
+                    p[k] = str(roh)
+            except (TypeError, ValueError, OverflowError):
                 pass
     if p["si"] not in INTERVALLE:
         p["si"] = 1
@@ -283,18 +470,25 @@ def aus_url(qp):
         p["zp"] = 12
     if p["calc"] not in ZIEL_FELDER:
         p["calc"] = "e"
+    p["ze"] = 1 if p["ze"] else 0
+    for k, erlaubt in AUSWAHL.items():
+        if p[k] not in erlaubt:
+            p[k] = STANDARD[k]
+    for feld, fmt in (("sd", "%Y-%m-%d"), ("am", "%Y-%m")):
+        if p[feld] and _datum(p[feld], fmt) is None:
+            p[feld] = ""                               # ungueltiges/unplausibles Datum -> heute
     return p
 
 
 def in_url(p):
-    """Nur Abweichungen vom Standard in den Link (kurz und lesbar)."""
+    """Nur Abweichungen vom Standard in den Link (kurz, lesbar und verlustfrei)."""
     aus = {"ansicht": "zins"}
     for k, std in STANDARD.items():
         if k == "e" and p.get("calc", "e") == "e":
             continue                                   # Endkapital wird dann berechnet
         v = p.get(k, std)
         if v != std:
-            aus[k] = (f"{v:g}" if isinstance(v, float) else str(v))
+            aus[k] = (_zahl_text(v) if isinstance(v, float) else str(v))
     return aus
 
 
@@ -313,14 +507,25 @@ def _laufzeit_text(monate):
            (f"{m} Monat{'e' if m != 1 else ''}" if m else "") or "keine"
 
 
+JAHR_MIN, JAHR_MAX = 1900, 2200         # plausibler Bereich fuer das Startdatum
+
+
+def _datum(text, fmt):
+    """Datum aus Text oder None (auch bei Jahren ausserhalb JAHR_MIN..JAHR_MAX)."""
+    try:
+        d = datetime.datetime.strptime(str(text), fmt).date()
+    except (TypeError, ValueError):
+        return None
+    return d if JAHR_MIN <= d.year <= JAHR_MAX else None
+
+
 def startdatum(p):
     """Startdatum aus p["sd"] (JJJJ-MM-TT), alt: p["am"] (JJJJ-MM) - sonst heute."""
     for feld, fmt in (("sd", "%Y-%m-%d"), ("am", "%Y-%m")):
         if p.get(feld):
-            try:
-                return datetime.datetime.strptime(str(p[feld]), fmt).date()
-            except ValueError:
-                pass
+            d = _datum(p[feld], fmt)
+            if d is not None:
+                return d
     return datetime.date.today()
 
 
@@ -527,25 +732,27 @@ def pdf_bericht(p, r, hinweis="", link="", analyse=None):
     if analyse:
         pdf.ueberschrift("Entnahme & Zinsen")
         g, z = analyse["gesamt"], analyse["zins"]
-        pdf.absatz(f"Gerechnet mit {_de(z, 2)} % p.a. Für Kapitalerhalt über die ganze Laufzeit (Endkapital = "
-                   f"eingezahlte {_de(analyse['eingezahlt'])} €) sind "
-                   + (f"{_de(g['erhalt'], 2)} % p.a." if g["erhalt"] is not None else "über 100 %") + " nötig, für "
-                   f"zusätzlich +{_de(analyse['wachstum'] * 100, 1)} % Wachstum p.a. "
-                   + (f"{_de(g['wachstum'], 2)} % p.a." if g["wachstum"] is not None else "über 100 %") + "", 8.5)
+        pdf.absatz(f"Gerechnet mit {_de(z, 2)} % p.a. Für Kapitalerhalt über die ganze Laufzeit (Endkapital"
+                   + (" + ausgezahlte Zinsen" if analyse.get("auszahlung") else "") + " = "
+                   f"eingezahlte {_de(analyse['eingezahlt'])} €) ist nötig: " + _noetig_text(g["erhalt"])
+                   + f"; für zusätzlich +{_de(analyse['wachstum'] * 100, 1)} % Wachstum p.a.: "
+                   + _noetig_text(g["wachstum"]) + ".", 8.5)
         pdf.tabelle(["Zeitraum", "Entnahme/Monat", "Kapital am Start", "Erhalt", f"+{_de(analyse['wachstum'] * 100, 1)} %",
                      "Deckung"],
                     [[f"{x['von'].strftime('%d.%m.%Y')} - {x['bis'].strftime('%d.%m.%Y')}", f"{_de(x['betrag'])} €",
-                      f"{_de(x['kapital'])} €", f"{_de(x['erhalt'], 2)} %" if x["erhalt"] is not None else "-",
-                      f"{_de(x['wachstum'], 2)} %" if x["wachstum"] is not None else "-",
+                      f"{_de(x['kapital'])} €", _noetig_text(x["erhalt"]) if x["erhalt"] is not None else "-",
+                      _noetig_text(x["wachstum"]) if x["wachstum"] is not None else "-",
                       f"{_de((x['deckung'] or 0) * 100, 0)} %"] for x in analyse["phasen"]],
                     [1.9, 1, 1.1, 0.7, 0.7, 0.7], groesse=8)
         pdf.absatz("Erhalt = Zinssatz, bei dem die Zinsen eines Jahres die Entnahmen dieses Jahres genau decken (Kapital "
-                   "bleibt gleich). Deckung = Anteil der Entnahmen, den die Zinsen beim gewählten Zinssatz decken.", 7.5)
+                   "bleibt gleich). Deckung = Anteil der Entnahmen, den die Zinsen (nach Steuer) beim gewählten Zinssatz decken.", 7.5)
     if link:
         pdf.y -= 6
         pdf.absatz("Permanentlink: " + link, 7.5, farbe=(0.2, 0.3, 0.6))
     pdf.absatz("Rechenweise: innerhalb der Zinsperiode lineare Verzinsung je Monat, Zinsgutschrift am Ende der "
-               "Zinsperiode (Bankpraxis). Szenariorechnung ohne Gewähr.", 7.5)
+               "Zinsperiode im Kalenderjahr (jährlich zum 31.12.) und zum Laufzeitende, Sparerpauschbetrag je "
+               "Kalenderjahr (Bankpraxis); Zinsen je Gutschrift kaufmännisch auf Cent gerundet, Steuer auf Cent "
+               "abgerundet. Szenariorechnung ohne Gewähr.", 7.5)
     return pdf.bytes()
 
 
@@ -569,16 +776,21 @@ def analyse_html(a):
     def status(noetig):
         if noetig is None:
             return '<span style="color:#e66767">⚠ selbst mit 100 % nicht erreichbar</span>'
+        if noetig == IMMER_ERREICHT:
+            return '<span style="color:#4cc38a">✓ erreicht (mit jedem Zinssatz)</span>'
         if z >= noetig - 1e-9:
             return f'<span style="color:#4cc38a">✓ erreicht ({_de(z, 2)} % ≥ {_de(noetig, 2)} %)</span>'
         return f'<span style="color:#f0a27f">⚠ fehlen {_de(noetig - z, 2)} Prozentpunkte</span>'
 
     def wert(x):
+        if x == IMMER_ERREICHT:
+            return "jeder"
         return f"{_de(x, 2)} %" if x is not None else "–"
+    aus_txt = (" + ausgezahlte Zinsen" if a.get("auszahlung") else "")
     zeilen_g = (
         f'<div style="display:grid;grid-template-columns:1fr auto;gap:6px 10px;font-size:.86rem;margin:4px 0 12px">'
-        f'<div>Kapitalerhalt über die ganze Laufzeit<br><span style="color:#a9a79c;font-size:.74rem">Endkapital = alles '
-        f'Eingezahlte ({_de(a["eingezahlt"], 0)} €)</span></div><div style="text-align:right"><b>{wert(g["erhalt"])}</b>'
+        f'<div>Kapitalerhalt über die ganze Laufzeit<br><span style="color:#a9a79c;font-size:.74rem">Endkapital'
+        f'{aus_txt} = alles Eingezahlte ({_de(a["eingezahlt"], 0)} €)</span></div><div style="text-align:right"><b>{wert(g["erhalt"])}</b>'
         f'<br><span style="font-size:.74rem">{status(g["erhalt"])}</span></div>'
         f'<div>Zusätzlich +{_de(a["wachstum"] * 100, 1)} % Wachstum p.a.</div><div style="text-align:right">'
         f'<b>{wert(g["wachstum"])}</b><br><span style="font-size:.74rem">{status(g["wachstum"])}</span></div></div>')
@@ -601,7 +813,9 @@ def analyse_html(a):
             f'font-variant-numeric:tabular-nums"><thead><tr>{th}</tr></thead><tbody>{"".join(tr)}</tbody></table>'
             '<div style="font-size:.72rem;color:#a9a79c;margin-top:6px">Erhalt = Zinssatz, bei dem die Zinsen eines Jahres '
             'die Entnahmen dieser Phase genau decken (Kapital bleibt gleich). Deckung = so viel der Entnahmen zahlen die '
-            f'Zinsen beim gewählten Zinssatz von {_de(z, 2)} %.</div>')
+            f'Zinsen (nach Steuer) beim gewählten Zinssatz von {_de(z, 2)} %.'
+            + (' Zinsen werden ausgezahlt (kein Zinseszins): Kapitalerhalt zählt Kontostand plus ausgezahlte Zinsen.'
+               if a.get("auszahlung") else "") + '</div>')
 
 
 def tabelle_html(za, r):
