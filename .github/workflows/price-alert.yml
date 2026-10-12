@@ -1,19 +1,34 @@
-name: LS9VFS Kurs-Alarm (5 Min)
+name: LS9VFS Kurs-Alarm (Handelszeiten)
 
+# KOSTEN (ALM-02): Jeder gestartete Job wird von GitHub auf volle Minuten
+# aufgerundet - auch ein Lauf, der sofort wieder endet. Deshalb laeuft der
+# Workflow nur noch Mo-Fr in einem UTC-Fenster, das die L&S-Handelszeit
+# 07:30-23:00 Europe/Berlin in Sommer- UND Winterzeit abdeckt, und beendet
+# sich ausserhalb der Handelszeit im ersten Schritt (vor Checkout/Python/pip).
+# Der externe Pinger (repository_dispatch) sollte ebenfalls nur Mo-Fr
+# 07:30-23:00 (Europe/Berlin) feuern - das laesst sich nur beim Pinger-Dienst
+# selbst einstellen (cron-job.org: Zeitplan "Benutzerdefiniert", Zeitzone
+# Europe/Berlin, Wochentage Mo-Fr, Stunden 7-22). Jeder Ping ausserhalb der
+# Handelszeit kostet trotz Sofort-Ende 1 Minute.
+#
+# Dieser Workflow ist der EINZIGE Absender der Kurs-Alarme (Schwelle,
+# Entwarnung, Allzeithoch, Kurs-Update) - auch fuer die Hauptposition.
 on:
-  # FALLBACK: laeuft weiter, falls der externe Pinger (siehe unten) mal
-  # ausfaellt - GitHub deprioritisiert schedule-Trigger aber generell
-  # gegenueber Event-Triggern, deshalb kommt repository_dispatch als
-  # PRIMAERER Ausloeser dazu. Intervall hier bewusst auf 15 Min gesenkt,
-  # da es ohnehin nur als Sicherheitsnetz dient - der Pinger deckt die
-  # eigentlichen 5-Minuten-Laeufe ab, doppeltes *-/5-Polling waere unnoetig.
+  # FALLBACK, falls der externe Pinger ausfaellt: Mo-Fr alle 15 Minuten von
+  # 05:30 bis 22:00 UTC. Cron kennt nur UTC - das Fenster ist die Vereinigung
+  # beider Zeitzonen-Lagen von 07:30-23:00 Berlin:
+  #   Sommerzeit (UTC+2): 07:30-23:00 Berlin = 05:30-21:00 UTC
+  #   Winterzeit (UTC+1): 07:30-23:00 Berlin = 06:30-22:00 UTC
+  # Je nach Jahreszeit liegen so 5-6 Laeufe pro Tag knapp ausserhalb der
+  # Handelszeit; sie enden im ersten Schritt (ca. 5 s, abgerechnet 1 Minute).
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "30,45 5 * * 1-5"     # 05:30, 05:45 UTC
+    - cron: "*/15 6-21 * * 1-5"   # 06:00 ... 21:45 UTC
+    - cron: "0 22 * * 1-5"        # 22:00 UTC (= 23:00 Berlin im Winter)
 
   # PRIMAERER Ausloeser: ein externer Cron-Dienst (z.B. cron-job.org) ruft
-  # alle 5 Minuten die GitHub-API auf und loest damit dieses Event aus.
-  # Event-getriggerte Workflows werden von GitHub NICHT deprioritisiert -
-  # das ist der eigentliche Fix fuer die unzuverlaessigen Lauf-Abstaende.
+  # die GitHub-API auf und loest damit dieses Event aus. Event-getriggerte
+  # Workflows werden von GitHub NICHT deprioritisiert.
   # "event_type" muss exakt zum Payload passen, den der externe Dienst sendet.
   repository_dispatch:
     types: [price-check]
@@ -21,32 +36,60 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: write   # State-Branch ueber die Contents-API schreiben
 
 concurrency:
   group: price-alert
-  # WICHTIG bei zwei Ausloesern: verhindert, dass ein schedule-Fallback-Lauf
-  # und ein Pinger-Lauf sich gegenseitig ueberlappen und denselben State
-  # gleichzeitig schreiben. Laeuft bereits einer, wird der naechste nicht
-  # abgebrochen, sondern wartet - kein verlorener Lauf, nur serialisiert.
+  # Verhindert, dass zwei Laeufe (Fallback-Schedule + Pinger) gleichzeitig
+  # denselben State schreiben. Laeuft bereits einer, wartet der naechste.
+  # ACHTUNG: GitHub haelt pro Gruppe nur EINEN wartenden Lauf - kommt ein
+  # weiterer dazu, wird der bisher wartende abgebrochen (cancelled). Das ist
+  # hier gewollt: der neueste Lauf prueft ohnehin den aktuellsten Kurs.
   cancel-in-progress: false
 
 jobs:
   check-price:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
+      # Billiger erster Schritt: entscheidet anhand der Berliner Ortszeit, ob
+      # ueberhaupt etwas zu tun ist. Ausserhalb der Handelszeit werden alle
+      # folgenden Schritte uebersprungen (kein Checkout, kein Python, kein pip).
+      - name: Handelszeit pruefen (Europe/Berlin)
+        id: gate
+        env:
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: |
+          tag=$(TZ=Europe/Berlin date +%u)                # 1=Mo ... 7=So
+          hhmm=$((10#$(TZ=Europe/Berlin date +%H%M)))     # z.B. 730, 2300
+          if [ "$tag" -le 5 ] && [ "$hhmm" -ge 730 ] && [ "$hhmm" -le 2300 ]; then
+            echo "handelszeit=true" >> "$GITHUB_OUTPUT"
+            echo "Handelszeit ($(TZ=Europe/Berlin date '+%a %H:%M') Berlin) - Kurspruefung laeuft."
+          else
+            echo "handelszeit=false" >> "$GITHUB_OUTPUT"
+            echo "Ausserhalb der Handelszeit ($(TZ=Europe/Berlin date '+%a %H:%M') Berlin) - nichts zu tun."
+            # Dead-Man's-Switch wie bisher auch ausserhalb der Handelszeit gruen halten.
+            if [ -n "$HEALTHCHECK_URL" ]; then
+              curl -fs -m 10 -o /dev/null "$HEALTHCHECK_URL" || echo "Healthcheck-Ping fehlgeschlagen."
+            fi
+          fi
+
       - name: Repo auschecken
+        if: steps.gate.outputs.handelszeit == 'true'
         uses: actions/checkout@v4
 
       - name: Python einrichten
+        if: steps.gate.outputs.handelszeit == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Abhängigkeiten installieren
+        if: steps.gate.outputs.handelszeit == 'true'
         run: pip install requests tzdata
 
       - name: Kurs prüfen und ggf. Discord informieren
+        if: steps.gate.outputs.handelszeit == 'true'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
