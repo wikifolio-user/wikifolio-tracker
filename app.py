@@ -4541,8 +4541,18 @@ def render_dashboard():
                 ok = gh_write(*args, **kwargs)
                 gh_read_cached.clear()
                 return ok
+            def _daten_loeschen(name):
+                # Datenordner state/benutzer/<name>/ entfernen (nie Admin- oder gemeinsame Daten)
+                o = nutzerdaten.ordner({"name": name, "rolle": "benutzer"})
+                if not o or not GH_STATE_READY:
+                    return False, 0
+                ok, anzahl = github_store.loesche_ordner(GITHUB_REPO, config.GITHUB_STATE_BRANCH, o, GITHUB_TOKEN,
+                                                         message=f"benutzerdaten {nutzerdaten.slug(name)} geloescht")
+                gh_read_cached.clear()
+                return ok, anzahl
+
             login.render_verwaltung(st, gh_read, _gh_write_frisch, waehlbar, NAV_NAMEN,
-                                    gh_aktualisiere=gh_aktualisiere)
+                                    gh_aktualisiere=gh_aktualisiere, daten_loeschen=_daten_loeschen)
         except Exception as e:
             st.error(f"⚠️ Fehler in der Benutzerverwaltung: {e}")
             notify_app_error("Tab-Benutzer", e)
