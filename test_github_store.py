@@ -120,6 +120,40 @@ class GitHubStoreTests(unittest.TestCase):
         self.assertTrue(G.put_json("o/r", "b", "f.json", {"v": 3}, "t"))
         self.assertEqual(self.gh.dateien["f.json"][0], {"v": 3})
 
+    def test_loesche_ordner_nur_benutzerdaten(self):
+        geloescht = []
+
+        def fake_get(url, headers=None, params=None, timeout=None):
+            pfad = url.split("/contents/", 1)[1]
+            if pfad == "state/benutzer/anna":
+                return _Antwort(200, [{"type": "file", "path": "state/benutzer/anna/positionen.json", "sha": "a1"},
+                                      {"type": "dir", "path": "state/benutzer/anna/planer"}])
+            if pfad == "state/benutzer/anna/planer":
+                return _Antwort(200, [{"type": "file", "path": "state/benutzer/anna/planer/szenarien.json",
+                                       "sha": "a2"}])
+            return _Antwort(404)
+
+        def fake_delete(url, headers=None, json=None, timeout=None):
+            geloescht.append((url.split("/contents/", 1)[1], json["sha"]))
+            return _Antwort(200)
+
+        with mock.patch.object(G.requests, "get", fake_get), mock.patch.object(G.requests, "delete", fake_delete,
+                                                                                 create=True):
+            ok, n = G.loesche_ordner("o/r", "b", "state/benutzer/anna", "t")
+            self.assertTrue(ok)
+            self.assertEqual(n, 2)
+            self.assertEqual(sorted(p for p, _ in geloescht),
+                             ["state/benutzer/anna/planer/szenarien.json", "state/benutzer/anna/positionen.json"])
+            # gemeinsame / Admin-Daten sind nie loeschbar
+            for verboten in ("state", "state/benutzer", "state/positionen.json", "state/benutzer/../x", ""):
+                self.assertEqual(G.loesche_ordner("o/r", "b", verboten, "t"), (False, 0))
+            self.assertEqual(len(geloescht), 2)
+
+    def test_loesche_ordner_lesefehler_loescht_nichts(self):
+        with mock.patch.object(G.requests, "get", lambda *a, **k: _Antwort(503)), \
+                mock.patch.object(G.requests, "delete", lambda *a, **k: self.fail("darf nicht loeschen"), create=True):
+            self.assertEqual(G.loesche_ordner("o/r", "b", "state/benutzer/anna", "t"), (False, 0))
+
     def test_log_schwaerzt_geheimnisse(self):
         t = G.sauber("POST https://discord.com/api/webhooks/123/abcDEF failed, Bearer ghp_abcdefghijklmnop")
         self.assertNotIn("abcDEF", t)
