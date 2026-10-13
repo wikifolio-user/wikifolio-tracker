@@ -16,6 +16,7 @@ import config
 import github_store
 import chronik
 import login
+import nutzerdaten
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1000,6 +1001,22 @@ def gh_aktualisiere(path, aendern, default=None, message="update state [skip ci]
     return ok, neu
 
 
+# --- BENUTZERBEZOGENE SPEICHERORTE (nutzerdaten.py) ---
+# Admin und App ohne Login: bisherige Pfade unveraendert. Jeder andere Benutzer:
+# state/benutzer/<name>/<datei> - existiert dort nichts, startet er leer (0).
+# Gemeinsame Marktdaten (Top-Listen, Qualitaet, Katalog, Kurse, Alarm-Zustaende)
+# laufen NIE hierueber. Gecachte Leser bekommen den aufgeloesten Pfad als Argument
+# und sind damit automatisch je Benutzer getrennt zwischengespeichert.
+def upfad(basis):
+    """Speicherort einer Datei fuer den angemeldeten Benutzer."""
+    return nutzerdaten.pfad(basis, st.session_state.get("_nutzer"))
+
+
+def eigener_bereich():
+    """True fuer normale Benutzer (eigene Daten), False fuer Admin / ohne Login."""
+    return nutzerdaten.ist_eigener_bereich(st.session_state.get("_nutzer"))
+
+
 def _discord_senden(text):
     """Eine Discord-Nachricht. -> True nur bei HTTP 2xx (Ergebnis wird geprueft)."""
     if not DISCORD_WEBHOOK_URL:
@@ -1219,6 +1236,19 @@ def entnahme_rate_aus_state(state, standard):
     except (TypeError, ValueError):
         pass
     return max(0.0, float(standard or 0.0))
+
+
+def entnahme_standard(eigen):
+    """Entnahme ohne gespeicherten Wert: Admin config.ENTNAHME_PM, normale Benutzer 0."""
+    return 0.0 if eigen else float(getattr(config, "ENTNAHME_PM", 0.0) or 0.0)
+
+
+def haupt_position_aktiv(eigen, sparplan_phasen_liste, sparplan_eingezahlt=0.0):
+    """Gibt es eine Hauptposition (Depotwert-Kachel, Vermoegens-Charts)? Admin / ohne
+    Login immer; normale Benutzer nur mit eigenem Sparplan (Startkapital 0)."""
+    if not eigen:
+        return True
+    return bool(sparplan_phasen_liste) or float(sparplan_eingezahlt or 0.0) > 0
 
 
 def hochgerechnete_rendite_pa(kurs, kaufkurs, tage, min_tage=30):
@@ -1600,25 +1630,63 @@ def lade_positionen():
 
     Nutzt den 60s-Cache: die Liste wird bei jedem Rerun mehrfach gebraucht,
     ein ungecachter GitHub-API-Call pro Aufruf hat das Umschalten spuerbar
-    ausgebremst. gh_write() leert den Cache, Aenderungen sind also sofort da."""
-    positionen = gh_read_cached(STATE_PATH_POSITIONEN, None)
-    if not positionen:
-        return [_position_aus_config()]
-    return positionen
+    ausgebremst. gh_write() leert den Cache, Aenderungen sind also sofort da.
+
+    Normale Benutzer (eigener Bereich) lesen ihre eigene Datei und starten OHNE
+    Startbestand - die config-Hauptposition gehoert dem Admin."""
+    eigen = eigener_bereich()
+    return positionen_oder_start(gh_read_cached(upfad(STATE_PATH_POSITIONEN), None), eigen)
 
 
-def chronik_eintrag(kategorie, titel, inhalt="", schluessel=None):
-    """Automatischer Eintrag in die Chronik (Depot -> Chronik). Fehler werden
-    geschluckt - die Chronik darf keine Speicherung verhindern. Schreibt mit
-    Versionspruefung und nie nach einem Lesefehler (chronik.eintragen_github)."""
+def positionen_startbestand(eigen):
+    """Startbestand, solange noch keine Positionsliste gespeichert ist:
+    Admin / ohne Login die config-Position, normale Benutzer nichts (leeres Depot)."""
+    return [] if eigen else [_position_aus_config()]
+
+
+def positionen_oder_start(positionen, eigen):
+    """Gespeicherte Liste oder (leer / nicht vorhanden) den Startbestand."""
+    if positionen:
+        return positionen
+    return positionen_startbestand(eigen)
+
+
+def depot_aufteilung(alle_positionen, eigen):
+    """-> (Name der Hauptposition, weitere Positionen). Admin / ohne Login: die erste
+    Position ist die Hauptposition (speist Charts/Prognose), der Rest sind weitere.
+    Normale Benutzer: die Hauptposition ist hoechstens ihr Sparplan auf das config-
+    Zertifikat - ALLE gespeicherten Positionen sind eigene, weitere Positionen."""
+    alle_positionen = list(alle_positionen or [])
+    if eigen:
+        return f"Sparplan {config.WKN}", alle_positionen
+    name = (alle_positionen[0].get("name", "Depotwert")
+            if alle_positionen and isinstance(alle_positionen[0], dict) else "Depotwert")
+    return name, alle_positionen[1:]
+
+
+def _chronik_schreiben(pfad, kategorie, titel, inhalt="", schluessel=None):
     try:
-        pfad = getattr(config, "STATE_PATH_TRADES_DB", None)
         if not pfad or not GH_STATE_READY:
             return False
         return chronik.eintragen_github(github_store, GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, GITHUB_TOKEN,
                                         chronik.neuer_eintrag(kategorie, titel, inhalt, schluessel=schluessel))
     except Exception:
         return False
+
+
+def chronik_eintrag(kategorie, titel, inhalt="", schluessel=None):
+    """Automatischer Eintrag in die Chronik (Depot -> Chronik). Fehler werden
+    geschluckt - die Chronik darf keine Speicherung verhindern. Schreibt mit
+    Versionspruefung und nie nach einem Lesefehler (chronik.eintragen_github).
+    Ziel ist die Chronik des angemeldeten Benutzers (Admin: die gemeinsame,
+    in die auch die Workflows schreiben; normale Benutzer: ihre eigene)."""
+    pfad = getattr(config, "STATE_PATH_TRADES_DB", None)
+    return _chronik_schreiben(upfad(pfad) if pfad else None, kategorie, titel, inhalt, schluessel)
+
+
+def chronik_eintrag_global(kategorie, titel, inhalt="", schluessel=None):
+    """Eintrag in die gemeinsame (Admin-)Chronik - fuer Anmeldungen."""
+    return _chronik_schreiben(getattr(config, "STATE_PATH_TRADES_DB", None), kategorie, titel, inhalt, schluessel)
 
 
 def _de_zahl(x, nk=2):
@@ -1690,8 +1758,9 @@ def _liste_aktualisieren(pfad, aendern, startbestand, message):
 
 def aendere_positionen(aendern, message="update positionen [skip ci]"):
     """-> True nur, wenn wirklich gespeichert wurde."""
-    ok, alt, neu = _liste_aktualisieren(STATE_PATH_POSITIONEN, aendern,
-                                        lambda: [_position_aus_config()], message)
+    eigen = eigener_bereich()
+    ok, alt, neu = _liste_aktualisieren(upfad(STATE_PATH_POSITIONEN), aendern,
+                                        lambda: positionen_startbestand(eigen), message)
     if ok:
         _chronik_listen_diff(alt, neu, "depot", "Position", _POS_FELDER)
     return ok
@@ -1700,12 +1769,12 @@ def aendere_positionen(aendern, message="update positionen [skip ci]"):
 def lade_beobachtung():
     """Beobachtete Werte (reine Kursanzeige, NICHT im Depot). Standard ist eine
     leere Liste - ohne Eintraege verhaelt sich die App exakt wie vorher."""
-    return gh_read_cached(STATE_PATH_BEOBACHTUNG, []) or []
+    return gh_read_cached(upfad(STATE_PATH_BEOBACHTUNG), []) or []
 
 
 def aendere_beobachtung(aendern, message="update beobachtung [skip ci]"):
     """-> True nur, wenn wirklich gespeichert wurde."""
-    ok, alt, neu = _liste_aktualisieren(STATE_PATH_BEOBACHTUNG, aendern, lambda: [], message)
+    ok, alt, neu = _liste_aktualisieren(upfad(STATE_PATH_BEOBACHTUNG), aendern, lambda: [], message)
     if ok:
         _chronik_listen_diff(alt, neu, "beobachtung", "Beobachtung", [("instrument_id", "ID", str)])
     return ok
@@ -1724,8 +1793,21 @@ def ist_wikifolio(wkn="", name=""):
 
 
 def lade_auflegungen():
-    """{instrument_id (str): {"datum": "YYYY-MM-DD", "kurs": 100.0}}"""
-    return gh_read_cached(STATE_PATH_AUFLEGUNG, {}) or {}
+    """{instrument_id (str): {"datum": "YYYY-MM-DD", "kurs": 100.0}}
+    Normale Benutzer: eigene Eintraege, ersatzweise die gemeinsamen (Auflegungsdaten
+    sind Produktdaten - so rechnet die Prognose ohne eigene Angabe wie beim Admin)."""
+    eigene = gh_read_cached(upfad(STATE_PATH_AUFLEGUNG), {}) or {}
+    if not eigener_bereich():
+        return eigene
+    return auflegungen_zusammen(gh_read_cached(STATE_PATH_AUFLEGUNG, {}) or {}, eigene)
+
+
+def auflegungen_zusammen(gemeinsam, eigene):
+    """Eigene Auflegungsdaten vor den gemeinsamen."""
+    aus = dict(gemeinsam) if isinstance(gemeinsam, dict) else {}
+    if isinstance(eigene, dict):
+        aus.update(eigene)
+    return aus
 
 
 def speichere_auflegung(instrument_id, datum, kurs=WIKIFOLIO_STARTKURS):
@@ -1741,7 +1823,7 @@ def speichere_auflegung(instrument_id, datum, kurs=WIKIFOLIO_STARTKURS):
             daten[schluessel] = {"datum": datum.isoformat(), "kurs": float(kurs)}
         return daten
 
-    ok, _ = gh_aktualisiere(STATE_PATH_AUFLEGUNG, _a, default={}, message="update auflegung [skip ci]")
+    ok, _ = gh_aktualisiere(upfad(STATE_PATH_AUFLEGUNG), _a, default={}, message="update auflegung [skip ci]")
     return ok
 
 
@@ -2692,7 +2774,85 @@ def kurse_neu_laden():
         pass
 
 
+# --- GEMERKTE RECHNER-EINGABEN (je Benutzer, nutzerdaten.eingaben_*) ---
+# Bereich -> (Schluessel-Praefix, nicht zu merkende Schluessel). Gemerkt werden nur
+# einfache Werte; interne/fluechtige Schluessel (Init-Merker, berechnete Anzeige-
+# felder, Tabellen-Editoren, Knoepfe, PDF, Container) bleiben aussen vor.
+RECHNER_EINGABEN = {
+    "zinsrechner": ("zr_", re.compile(r"^zr_init$|^zr_dis_|_tab_|_ver$|_neu$|_an$|_pdf$|_chart$|^zr_sd_d$"
+                                      r"|_karte|_form$")),
+    "abfindung": ("abf_", re.compile(r"_tab_|^abf_fj|_pdf$|_karte|_form$|^abf_av_betrag$")),
+}
+
+
+def eingaben_sammeln(session_state, prefix, ausnahmen=None):
+    """Einfache Werte (Zahl, Text, Bool, None) aller Schluessel mit diesem Praefix."""
+    werte = {}
+    for k in list(session_state.keys()):
+        k = str(k)
+        if not k.startswith(prefix) or (ausnahmen is not None and ausnahmen.search(k)):
+            continue
+        v = session_state[k]
+        if v is None or isinstance(v, (bool, int, float, str)):
+            werte[k] = v
+    return werte
+
+
+def rechner_vorbelegen(bereich):
+    """Gemerkte Eingaben (Datei, ersatzweise neuere Werte dieser Sitzung) vor dem
+    Zeichnen der Felder einsetzen. -> dict der bekannten Werte (fuer render)."""
+    gespeichert = {}
+    if GH_STATE_READY:
+        try:
+            gespeichert = nutzerdaten.eingaben_laden(gh_read_cached, _nutzer(), bereich)
+        except Exception:
+            gespeichert = {}
+    sitzung = (st.session_state.get(f"_eingaben_{bereich}_offen")
+               or (st.session_state.get(f"_eingaben_{bereich}") or {}).get("werte"))
+    if sitzung:
+        gespeichert = dict(gespeichert, **sitzung)
+    nutzerdaten.eingaben_vorbelegen(st.session_state, gespeichert, {k: k for k in gespeichert})
+    return gespeichert
+
+
+def rechner_merken(bereich, sofort=False):
+    """Nach dem Zeichnen: geaenderte Eingaben fuer die naechste Anmeldung merken
+    (hoechstens alle nutzerdaten.MIN_ABSTAND_SEK, nur bei Aenderung)."""
+    if not GH_STATE_READY or bereich not in RECHNER_EINGABEN:
+        return False
+    prefix, ausnahmen = RECHNER_EINGABEN[bereich]
+    werte = eingaben_sammeln(st.session_state, prefix, ausnahmen)
+    merk = f"_eingaben_{bereich}"
+    if merk not in st.session_state:
+        # Ausgangsstand dieser Sitzung (Gemerktes bzw. Standard) - noch nichts zu speichern;
+        # zeit 0: die erste echte Aenderung wird sofort gespeichert
+        st.session_state[merk] = {"werte": nutzerdaten._sauber(werte), "zeit": 0}
+        return False
+    try:
+        return nutzerdaten.eingaben_merken(gh_aktualisiere, st.session_state, _nutzer(), bereich, werte,
+                                           sofort=sofort)
+    except Exception as e:
+        logging.warning(f"Eingaben '{bereich}' nicht gemerkt: {type(e).__name__}")
+        return False
+
+
+def eingaben_offene_speichern():
+    """Zurueckgehaltene (gedrosselte) Eingaben sofort speichern - beim Verlassen
+    einer Ansicht und beim Abmelden."""
+    if not GH_STATE_READY:
+        return
+    for bereich in RECHNER_EINGABEN:
+        offen = st.session_state.get(f"_eingaben_{bereich}_offen")
+        if offen is None:
+            continue
+        try:
+            nutzerdaten.eingaben_merken(gh_aktualisiere, st.session_state, _nutzer(), bereich, offen, sofort=True)
+        except Exception as e:
+            logging.warning(f"Offene Eingaben '{bereich}' nicht gespeichert: {type(e).__name__}")
+
+
 def _nav_waehle(ansicht):
+    eingaben_offene_speichern()
     st.session_state["ansicht_aktiv"] = ansicht
     # ein Permanentlink gilt nur fuer seine Ansicht - beim Wechsel aus der Adresse entfernen
     try:
@@ -2728,6 +2888,7 @@ def _zugang_pruefen(ansicht=None):
 
 
 def _abmelden():
+    eingaben_offene_speichern()
     login.abmelden(st)
     try:
         st.query_params.clear()
@@ -2862,7 +3023,7 @@ def navigation():
                             unsafe_allow_html=True)
             farb_css = []
             try:
-                hat_muster = bool((gh_read_cached(PFAD_MUSTERDEPOT, {}) or {}).get("depots"))
+                hat_muster = bool((gh_read_cached(upfad(PFAD_MUSTERDEPOT), {}) or {}).get("depots"))
             except Exception:
                 hat_muster = False
             for titel, ansichten in NAV_ZEILEN:
@@ -4362,6 +4523,8 @@ def render_dashboard():
                 "suche_instrument": suche_instrument, "get_kurshistorie": get_kurshistorie,
                 "gh_read": gh_read, "gh_write": gh_write, "gh_read_taeglich": gh_read_taeglich,
                 "chronik": chronik_eintrag, "heute": heute_date, "benchmarks": getattr(config, "BENCHMARKS", {}) or {},
+                # benutzerbezogene Speicherorte (Admin: unveraendert), siehe nutzerdaten.py
+                "upfad": upfad, "nutzer": _nutzer(), "gh_aktualisiere": gh_aktualisiere,
             })
         except Exception as e:
             st.error(f"⚠️ Fehler im Portfolio-Planer: {e}")
@@ -4388,7 +4551,11 @@ def render_dashboard():
     if gewaehlte_ansicht == ANSICHT_ZINS:
         try:
             import zinsrechner
-            zinsrechner.render(_app_url())
+            # Normale Benutzer starten bei 0, der Admin mit den bisherigen Standardwerten;
+            # danach gelten die gemerkten Eingaben (je Benutzer)
+            _gemerkt = rechner_vorbelegen("zinsrechner")
+            zinsrechner.render(_app_url(), gespeichert=_gemerkt, null=eigener_bereich())
+            rechner_merken("zinsrechner")
         except Exception as e:
             st.error(f"⚠️ Fehler im Zinseszinsrechner: {e}")
             notify_app_error("Tab-Zinsrechner", e)
@@ -4397,7 +4564,9 @@ def render_dashboard():
     if gewaehlte_ansicht == ANSICHT_ABFINDUNG:
         try:
             import abfindung
-            abfindung.render()
+            _gemerkt = rechner_vorbelegen("abfindung")
+            abfindung.render(gespeichert=_gemerkt, null=eigener_bereich())
+            rechner_merken("abfindung")
         except Exception as e:
             st.error(f"⚠️ Fehler im Abfindungsrechner: {e}")
             notify_app_error("Tab-Abfindungsrechner", e)
@@ -4408,7 +4577,8 @@ def render_dashboard():
         try:
             import planer_ui
             planer_ui.render_musterdepot({"gh_read": gh_read, "gh_write": gh_write, "get_live_kurs": get_live_kurs,
-                                          "chronik": chronik_eintrag})
+                                          "chronik": chronik_eintrag, "upfad": upfad, "nutzer": _nutzer(),
+                                          "gh_aktualisiere": gh_aktualisiere})
         except Exception as e:
             st.error(f"⚠️ Fehler im Musterdepot: {e}")
             notify_app_error("Tab-Musterdepot", e)
@@ -4432,8 +4602,13 @@ def render_dashboard():
     # --- KAUFDATUM, KAUFKURS, KAPITAL: manuell anpassbar ---
     # Still aus dem gespeicherten Zustand lesen (Standard: config-Werte) - die
     # sichtbaren Eingabefelder stehen weiter unten im Eingaben-Expander.
-    startkapital_aktiv = st.session_state.get("haupt_startkapital_input", float(config.STARTKAPITAL))
-    kaufdatum_aktiv = st.session_state.get("haupt_kaufdatum_input", config.KAUFDATUM)
+    # Normale Benutzer (eigener Bereich): die config-Hauptposition gehoert dem Admin -
+    # kein Startkapital, Kaufdatum bleibt nur Zeitraum der Marktdaten (Charts/Candlestick).
+    eigen = eigener_bereich()
+    startkapital_aktiv = (0.0 if eigen
+                          else st.session_state.get("haupt_startkapital_input", float(config.STARTKAPITAL)))
+    kaufdatum_aktiv = (config.KAUFDATUM if eigen
+                       else st.session_state.get("haupt_kaufdatum_input", config.KAUFDATUM))
     if isinstance(kaufdatum_aktiv, datetime.datetime):
         kaufdatum_aktiv = kaufdatum_aktiv.date()
 
@@ -4464,7 +4639,8 @@ def render_dashboard():
     df_chart, hist_source_name = get_historical_market_data(kaufdatum_aktiv, heute_date, aktueller_kurs)
     is_live_history = "SYNTHETISCH" not in hist_source_name
 
-    check_and_alert_fetch_failure(is_live_data, is_live_history)
+    if not eigen:       # Datenquellen-Alarm (Discord + gemeinsamer Zustand): nur Admin / ohne Login
+        check_and_alert_fetch_failure(is_live_data, is_live_history)
 
     # Kein Live-Kurs, aber echte Historie: statt eines frei erfundenen Festwerts den
     # letzten ECHTEN Schlusskurs zeigen (bleibt als "keine Live-Daten" gekennzeichnet).
@@ -4517,27 +4693,13 @@ def render_dashboard():
 
     start_dt = pd.to_datetime(kaufdatum_aktiv)
 
-    # --- ENTNAHME: EINE Quelle (Audit DEP-03) ---
-    # Gespeicherte Monatsrate (Standard config.ENTNAHME_PM), erstmals einen Monat nach
-    # dem Kauf, dann monatlich (DateOffset, Monatsenden gekappt - DEP-11). Derselbe
-    # Terminplan und dieselbe Rate gelten fuer Netto (buchhalterisch) und Real (Verkauf).
-    entnahme_state, entnahme_lesbar = gh_read_cached_status(STATE_PATH_ENTNAHME, None)
-    entnahme_gespeichert = entnahme_rate_aus_state(entnahme_state, getattr(config, "ENTNAHME_PM", 0.0))
-    if GH_STATE_READY:
-        entnahme_rate = entnahme_gespeichert
-    else:                                   # ohne persistenten State: nur Sitzungswert
-        entnahme_rate = float(st.session_state.get("haupt_entnommen_input", entnahme_gespeichert) or 0.0)
-    entnahme_termine_liste = entnahme_termine(kaufdatum_aktiv, heute_date)
-    anzahl_entnahmen = len(entnahme_termine_liste)
-    df_chart["Kumulierte_Entnahme"] = kumulierte_entnahme(df_chart.index, entnahme_termine_liste, entnahme_rate)
-
     # --- SPARPLAN: Rate + Startdatum persistent (Audit DEP-02) ---
     # Rate und Phasen liegen in STATE_PATH_SPARPLAN und belegen das Eingabefeld vor.
     # Gespeichert/beendet wird NUR per Knopf in den Einstellungen - eine neue Sitzung
     # (leerer session_state) aendert nichts mehr am gespeicherten Plan.
     # Jede Einzahlung kauft Anteile zum Kurs am/vor dem Termin; nur ausgefuehrte
     # Kaeufe zaehlen zum Einstand (DEP-01).
-    sparplan_state, sparplan_lesbar = gh_read_cached_status(config.STATE_PATH_SPARPLAN, {})
+    sparplan_state, sparplan_lesbar = gh_read_cached_status(upfad(config.STATE_PATH_SPARPLAN), {})
     sparplan_start, sparplan_phasen_liste = sparplan_phasen(sparplan_state)
     if not GH_STATE_READY:
         _lokal = float(st.session_state.get("haupt_sparrate_input", 0.0) or 0.0)
@@ -4565,6 +4727,26 @@ def render_dashboard():
         else:
             sparplan_ohne_kurse = True      # keine Kaeufe zu synthetischen Kursen (DEP-04)
 
+    # --- ENTNAHME: EINE Quelle (Audit DEP-03) ---
+    # Gespeicherte Monatsrate (Standard config.ENTNAHME_PM, normale Benutzer 0), erstmals
+    # einen Monat nach dem Kauf, dann monatlich (DateOffset, Monatsenden gekappt - DEP-11).
+    # Derselbe Terminplan und dieselbe Rate gelten fuer Netto (buchhalterisch) und Real
+    # (Verkauf). Normale Benutzer: ab ihrem eigenen Sparplan-Start (sonst keine Termine).
+    entnahme_state, entnahme_lesbar = gh_read_cached_status(upfad(STATE_PATH_ENTNAHME), None)
+    entnahme_gespeichert = entnahme_rate_aus_state(entnahme_state, entnahme_standard(eigen))
+    if GH_STATE_READY:
+        entnahme_rate = entnahme_gespeichert
+    else:                                   # ohne persistenten State: nur Sitzungswert
+        entnahme_rate = float(st.session_state.get("haupt_entnommen_input", entnahme_gespeichert) or 0.0)
+    _entnahme_ab = sparplan_start if eigen else kaufdatum_aktiv
+    entnahme_termine_liste = entnahme_termine(_entnahme_ab, heute_date) if _entnahme_ab else []
+    anzahl_entnahmen = len(entnahme_termine_liste)
+    df_chart["Kumulierte_Entnahme"] = kumulierte_entnahme(df_chart.index, entnahme_termine_liste, entnahme_rate)
+
+    # Hauptposition (Kachel "Depotwert", Charts, 100k-Meilenstein): Admin / ohne Login immer,
+    # normale Benutzer nur mit eigenem Sparplan (kein Startkapital - das gehoert dem Admin).
+    haupt_aktiv = haupt_position_aktiv(eigen, sparplan_phasen_liste, sparplan_eingezahlt)
+
     # --- BENCHMARKS: gleiche Handelstage, normiert auf dasselbe Startkapital ---
     # Zentrierter Ladefortschritt mit Prozentangabe statt Streamlits kleinem
     # "Running get_benchmark_history(...)"-Widget oben rechts (per CSS
@@ -4588,9 +4770,13 @@ def render_dashboard():
                 startdaten[label] = erstes_datum
         return series, startdaten
 
-    benchmark_series, benchmark_start_daten = lade_benchmarks_mit_fortschritt(
-        df_chart.index, kaufdatum_aktiv, startkapital_aktiv
-    )
+    # Nur fuer den Vermoegensaufbau-Chart der Hauptposition (Admin) gebraucht
+    if eigen:
+        benchmark_series, benchmark_start_daten = {}, {}
+    else:
+        benchmark_series, benchmark_start_daten = lade_benchmarks_mit_fortschritt(
+            df_chart.index, kaufdatum_aktiv, startkapital_aktiv
+        )
 
     # --- SIMULATION (bisheriges Verhalten): Stückzahl bleibt konstant, Entnahme
     # wird nur buchhalterisch vom Bruttowert abgezogen. ---
@@ -4998,6 +5184,72 @@ def render_dashboard():
         )
         return gewaehlt
 
+    def positions_anlage_formular(prefix):
+        """Neue Position anlegen (Suche + Formular). prefix trennt die Schluessel - das
+        Formular steht in den Einstellungen ("neu") und im leeren Depot ("leer")."""
+        gewaehlt = instrument_suchblock(prefix)
+        # Schluessel haengen am gewaehlten Treffer - so uebernimmt das Formular eine neue
+        # Suche als Vorbelegung (gleiches Muster wie beim Bearbeiten)
+        sfx = f"{prefix}_{gewaehlt['instrument_id'] if gewaehlt else 0}"
+
+        with st.form(f"pos_form_{prefix}", clear_on_submit=True):
+            neu_name = st.text_input(
+                "Name", value=(gewaehlt["name"] if gewaehlt else ""),
+                placeholder="z. B. MSCI World ETF", key=f"{sfx}_f_name")
+            neu_wkn = st.text_input(
+                "WKN / ISIN",
+                value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
+                placeholder="z. B. A0RPWH", key=f"{sfx}_f_wkn")
+            neu_inst = st.number_input(
+                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
+                help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
+                     "(0) bleiben - dann werden für diese Position keine Kurse geladen "
+                     "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
+                key=f"{sfx}_f_inst",
+            )
+            neu_datum = st.date_input("Kaufdatum", value=heute_date, key=f"{prefix}_f_datum")
+            neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0,
+                                       key=f"{prefix}_f_kurs")
+            neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0,
+                                          key=f"{prefix}_f_kapital")
+
+            if st.form_submit_button("➕ Position anlegen", width="stretch"):
+                if not neu_name or neu_kurs <= 0 or neu_kapital <= 0:
+                    st.error("Bitte Name, Kaufkurs und Kapital ausfüllen.")
+                else:
+                    # Instrument-ID, falls angegeben, vor dem Speichern pruefen -
+                    # verhindert stumme Fehlkonfiguration. Ohne ID wird die
+                    # Position angelegt und spaeter als "keine Kursquelle" markiert.
+                    test_kurs = None
+                    if neu_inst:
+                        test_kurs, _, _ = get_live_kurs(int(neu_inst))
+
+                    if neu_inst and test_kurs is None:
+                        st.error(
+                            f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
+                            "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
+                        )
+                    else:
+                        _p_anlage = {
+                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
+                            "name": neu_name, "wkn": neu_wkn,
+                            "instrument_id": int(neu_inst) if neu_inst else None,
+                            "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
+                            "startkapital": float(neu_kapital),
+                        }
+                        if aendere_positionen(lambda l: l + [_p_anlage], "position angelegt [skip ci]"):
+                            for k in (f"{prefix}_suche", f"{prefix}_letzter", f"{prefix}_treffer", f"{prefix}_wahl"):
+                                st.session_state.pop(k, None)
+                            if test_kurs is not None:
+                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
+                            else:
+                                st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
+                                           "Instrument-ID kann oben jederzeit ergänzt werden.")
+                            st.rerun()
+                        else:
+                            st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
+
     # ---------- HIGH WATERMARK: als Zeile in der Kurskachel ----------
     # Bewusst KEINE eigene Kachel mehr: der Hoechststand ist eine Eigenschaft
     # des Kurses, keine gleichrangige Kennzahl. Als Zeile unter Vortag/Tag/
@@ -5272,7 +5524,10 @@ def render_dashboard():
     # einem horizontal wischbaren Container ausgegeben (Swipe statt langer
     # Scrollstrecke - auf dem Smartphone deutlich angenehmer).
     # (Label, HTML) je Position - das Label wird zur Tab-Beschriftung.
-    positions_karten = [(alle_positionen[0].get("name", "Depotwert"), depot_karte)]
+    # Normale Benutzer: KEINE Kachel der Admin-Hauptposition - nur ein eigener Sparplan
+    # erzeugt sie; alle gespeicherten Positionen sind "weitere" Positionen.
+    haupt_name, weitere_positionen = depot_aufteilung(alle_positionen, eigen)
+    positions_karten = [(haupt_name, depot_karte)] if haupt_aktiv else []
 
     # =================================================================
     # WEITERE POSITIONEN + GESAMTUEBERSICHT
@@ -5280,14 +5535,14 @@ def render_dashboard():
     # Die erste Position ist die oben ausfuehrlich dargestellte Hauptposition
     # (sie speist auch alle Tabs/Charts). Jede weitere Position bekommt eine
     # eigene Kachel im selben Design; darunter folgt die Depot-Gesamtsumme.
-    weitere_positionen = alle_positionen[1:] if len(alle_positionen) > 1 else []
 
-    # Kennzahlen der Hauptposition als Startwert der Gesamtsumme
-    gesamt_wert = brutto_ist
-    gesamt_einstand = einstand_aktiv          # inkl. Sparraten (Audit DEP-01)
+    # Kennzahlen der Hauptposition als Startwert der Gesamtsumme (ohne Hauptposition: 0)
+    gesamt_wert = brutto_ist if haupt_aktiv else 0.0
+    gesamt_einstand = einstand_aktiv if haupt_aktiv else 0.0     # inkl. Sparraten (Audit DEP-01)
     # Je Position (aktueller Wert, {Zeitraum: Betrag}) - die Prozentbasis je Zeitraum
     # bilden nur die Positionen, die dafuer einen Wert liefern (Audit DEP-07).
-    gesamt_beitraege = [(brutto_ist, {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"})]
+    gesamt_beitraege = ([(brutto_ist, {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"})]
+                        if haupt_aktiv else [])
     positionen_ok = True
 
     # Sammelt fuer jede Position mit echten Kursdaten die Basis-Kennzahlen
@@ -5295,7 +5550,7 @@ def render_dashboard():
     # in der Zukunfts-Prognose weiter unten. Beobachtungswerte fehlen hier
     # bewusst: ohne investiertes Kapital ergibt eine Kapitalprognose keinen Sinn.
     prognose_optionen = [{
-        "name": alle_positionen[0].get("name", "Depotwert"),
+        "name": haupt_name,
         "startkapital": startkapital_aktiv,
         "aktueller_wert": brutto_ist,
         # Zukunftsrate (Produkt-Historie), NICHT die eigene Kaufrendite -
@@ -5318,7 +5573,7 @@ def render_dashboard():
         # PRODUKTS zu laden (unabhaengig vom eigenen Kaufzeitpunkt).
         "instrument_id": config.LS_INSTRUMENT_ID,
         "wkn": config.WKN,
-    }]
+    }] if haupt_aktiv else []
 
     _pos_gesamt = len(weitere_positionen)
 
@@ -5433,7 +5688,7 @@ def render_dashboard():
     prognose_optionen.extend(prognose_beobachtung_optionen)
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
-    if weitere_positionen:
+    if (1 if haupt_aktiv else 0) + len(weitere_positionen) >= 2:
         gesamt_gewinn = gesamt_wert - gesamt_einstand
         gesamt_rendite = (gesamt_gewinn / gesamt_einstand * 100) if gesamt_einstand else 0.0
 
@@ -5453,8 +5708,9 @@ def render_dashboard():
 
         # Nur Positionen mit Kursquelle sind in der Summe enthalten - das muss
         # sichtbar sein, sonst wirkt eine unvollstaendige Summe wie die volle.
-        anzahl_gezaehlt = sum(1 for p in alle_positionen if p.get("instrument_id"))
-        anzahl_gesamt = len(alle_positionen)
+        _gezaehlte = ([{"instrument_id": config.LS_INSTRUMENT_ID}] if eigen and haupt_aktiv else []) + alle_positionen
+        anzahl_gezaehlt = sum(1 for p in _gezaehlte if p.get("instrument_id"))
+        anzahl_gesamt = len(_gezaehlte)
         if anzahl_gezaehlt < anzahl_gesamt:
             positions_chip = f"{anzahl_gezaehlt} von {anzahl_gesamt} Positionen"
         else:
@@ -5493,8 +5749,19 @@ def render_dashboard():
         for tab, (_, karte_html) in zip(st.tabs(tab_labels), positions_karten):
             with tab:
                 st.markdown(karte_html, unsafe_allow_html=True)
-    else:
+    elif positions_karten:
         st.markdown(positions_karten[0][1], unsafe_allow_html=True)
+    elif not alle_positionen:
+        # ---------- LEERES DEPOT (normaler Benutzer ohne eigene Daten) ----------
+        st.markdown(
+            '<div class="hero">'
+            '<div class="hero-label">Mein Depot</div>'
+            '<div class="price-line"><span class="hero-val">Noch kein eigenes Depot</span></div>'
+            '<div class="card-footnote">Lege deine erste Position an – sie wird für deine nächste '
+            'Anmeldung gespeichert. Sparrate und Entnahme findest du unter ⚙️ Einstellungen.</div>'
+            '</div>', unsafe_allow_html=True)
+        with st.expander("➕ Erste Position anlegen", expanded=True):
+            positions_anlage_formular("leer")
 
 
 
@@ -5513,57 +5780,64 @@ def render_dashboard():
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
     st.markdown('<div class="abschnitt">⚙️ Einstellungen</div>', unsafe_allow_html=True)
 
-    with st.expander("🛠️ Kauf, Kapital, Sparrate und Entnahme anpassen", expanded=False):
+    with st.expander("🛠️ Sparrate und Entnahme anpassen" if eigen
+                     else "🛠️ Kauf, Kapital, Sparrate und Entnahme anpassen", expanded=False):
         # Felder bewusst untereinander (keine Spalten) - auf dem Smartphone
         # sind nebeneinanderliegende Zahlenfelder samt Steppern sehr fummelig.
-        kd_kwargs = dict(
-            key="haupt_kaufdatum_input",
-            help="Bestimmt den Startpunkt aller Berechnungen und Charts.",
-        )
-        if "haupt_kaufdatum_input" not in st.session_state:
-            kd_kwargs["value"] = kaufdatum_aktiv
-        st.date_input("Kaufdatum", **kd_kwargs)
-
-        st.checkbox(
-            "Kaufkurs automatisch aus der Kurshistorie am Kaufdatum holen",
-            key="haupt_kaufkurs_auto", value=kaufkurs_auto,
-            help="Nimmt den letzten Schlusskurs am oder vor dem Kaufdatum. "
-                 "Ausschalten, um deinen tatsächlich gezahlten Kurs einzutragen "
-                 "(z. B. inkl. Spread oder bei untertägigem Kauf).",
-        )
-
-        if kaufkurs_auto:
-            if kaufkurs_ermittelt:
-                st.success(
-                    f"Kurs am {kaufdatum_aktiv.strftime('%d.%m.%Y')}: "
-                    f"**{de_zahl(kaufkurs_ermittelt, 4)} €** "
-                    f"→ {startkapital_aktiv / kaufkurs_ermittelt:.4f} Anteile"
-                )
-            else:
-                st.warning(
-                    f"Für den {kaufdatum_aktiv.strftime('%d.%m.%Y')} liegt kein Kurs vor "
-                    f"(Historie reicht nicht zurück). Es gilt ersatzweise "
-                    f"{de_zahl(kaufkurs_aktiv, 4)} €."
-                )
+        if eigen:
+            # Kauf/Kapital gehoeren zur Admin-Hauptposition - eigene Kaeufe sind Positionen
+            st.caption("Eigene Käufe legst du unter „➕ Positionen verwalten“ an. Hier stellst du einen "
+                       f"monatlichen Sparplan auf {config.WKN} und deine monatliche Entnahme ein – beides "
+                       "startet bei 0 € und wird für deine nächste Anmeldung gespeichert.")
         else:
-            kk_kwargs = dict(
-                min_value=0.0, step=0.01, format="%.4f", key="haupt_kaufkurs_input",
-                help="Dein tatsächlich gezahlter Kurs je Anteil.",
+            kd_kwargs = dict(
+                key="haupt_kaufdatum_input",
+                help="Bestimmt den Startpunkt aller Berechnungen und Charts.",
             )
-            if "haupt_kaufkurs_input" not in st.session_state:
-                kk_kwargs["value"] = kaufkurs_aktiv
-            st.number_input("Kaufkurs (€)", **kk_kwargs)
+            if "haupt_kaufdatum_input" not in st.session_state:
+                kd_kwargs["value"] = kaufdatum_aktiv
+            st.date_input("Kaufdatum", **kd_kwargs)
 
-        ak_kwargs = dict(
-            min_value=0.0, step=100.0, key="haupt_startkapital_input",
-            help="Investiertes Kapital - die Stückzahl ergibt sich daraus "
-                 "automatisch (Kapital ÷ Kaufkurs).",
-        )
-        if "haupt_startkapital_input" not in st.session_state:
-            ak_kwargs["value"] = startkapital_aktiv
-        st.number_input("Anfangskapital (€)", **ak_kwargs)
-        st.caption(f"Ergibt aktuell **{stueckzahl_aktiv:.4f} Anteile** "
-                   f"zu {de_zahl(kaufkurs_aktiv, 4)} €")
+            st.checkbox(
+                "Kaufkurs automatisch aus der Kurshistorie am Kaufdatum holen",
+                key="haupt_kaufkurs_auto", value=kaufkurs_auto,
+                help="Nimmt den letzten Schlusskurs am oder vor dem Kaufdatum. "
+                     "Ausschalten, um deinen tatsächlich gezahlten Kurs einzutragen "
+                     "(z. B. inkl. Spread oder bei untertägigem Kauf).",
+            )
+
+            if kaufkurs_auto:
+                if kaufkurs_ermittelt:
+                    st.success(
+                        f"Kurs am {kaufdatum_aktiv.strftime('%d.%m.%Y')}: "
+                        f"**{de_zahl(kaufkurs_ermittelt, 4)} €** "
+                        f"→ {startkapital_aktiv / kaufkurs_ermittelt:.4f} Anteile"
+                    )
+                else:
+                    st.warning(
+                        f"Für den {kaufdatum_aktiv.strftime('%d.%m.%Y')} liegt kein Kurs vor "
+                        f"(Historie reicht nicht zurück). Es gilt ersatzweise "
+                        f"{de_zahl(kaufkurs_aktiv, 4)} €."
+                    )
+            else:
+                kk_kwargs = dict(
+                    min_value=0.0, step=0.01, format="%.4f", key="haupt_kaufkurs_input",
+                    help="Dein tatsächlich gezahlter Kurs je Anteil.",
+                )
+                if "haupt_kaufkurs_input" not in st.session_state:
+                    kk_kwargs["value"] = kaufkurs_aktiv
+                st.number_input("Kaufkurs (€)", **kk_kwargs)
+
+            ak_kwargs = dict(
+                min_value=0.0, step=100.0, key="haupt_startkapital_input",
+                help="Investiertes Kapital - die Stückzahl ergibt sich daraus "
+                     "automatisch (Kapital ÷ Kaufkurs).",
+            )
+            if "haupt_startkapital_input" not in st.session_state:
+                ak_kwargs["value"] = startkapital_aktiv
+            st.number_input("Anfangskapital (€)", **ak_kwargs)
+            st.caption(f"Ergibt aktuell **{stueckzahl_aktiv:.4f} Anteile** "
+                       f"zu {de_zahl(kaufkurs_aktiv, 4)} €")
 
         def _vorbelegen(key, gespeichert):
             """Eingabefeld mit dem GESPEICHERTEN Wert vorbelegen. Aendert sich der gespeicherte
@@ -5608,7 +5882,7 @@ def render_dashboard():
             if st.button("🛑 Sparplan beenden" if _beenden else "💾 Sparrate speichern",
                          key="sparplan_speichern_btn", disabled=not _bestaetigt):
                 if _beenden:
-                    ok, _ = gh_aktualisiere(config.STATE_PATH_SPARPLAN, lambda d: {}, default={},
+                    ok, _ = gh_aktualisiere(upfad(config.STATE_PATH_SPARPLAN), lambda d: {}, default={},
                                             message="sparplan gestoppt [skip ci]")
                     if ok:
                         chronik_eintrag("depot", "⏹️ Sparplan gestoppt",
@@ -5621,7 +5895,7 @@ def render_dashboard():
                         st.error("Beenden fehlgeschlagen - der Sparplan-Zustand wurde NICHT geändert.")
                 else:
                     ok, neu = gh_aktualisiere(
-                        config.STATE_PATH_SPARPLAN,
+                        upfad(config.STATE_PATH_SPARPLAN),
                         lambda d: sparplan_state_neu(d, _sp_neu, heute_date), default={},
                         message="sparplan gespeichert [skip ci]")
                     if ok:
@@ -5641,7 +5915,7 @@ def render_dashboard():
             "Monatliche Entnahme (€)", min_value=0.0, step=10.0, key="haupt_entnommen_input",
             help=f"Wird ab einem Monat nach dem Kaufdatum monatlich entnommen und seit Kauf "
                  f"aufsummiert (Netto = Brutto − Rate × Anzahl Entnahmen). Dieselbe Rate gilt für "
-                 f"die Real-Variante mit Anteilsverkauf. Standard: {_de_zahl(getattr(config, 'ENTNAHME_PM', 0.0))} €.",
+                 f"die Real-Variante mit Anteilsverkauf. Standard: {_de_zahl(entnahme_standard(eigen))} €.",
         )
         st.caption(f"{anzahl_entnahmen} Entnahmen seit Kauf · zusammen {fmt(gesamt_entnommen, 2)}")
         _en_neu = float(st.session_state.get("haupt_entnommen_input") or 0.0)
@@ -5649,7 +5923,7 @@ def render_dashboard():
             if not entnahme_lesbar:
                 st.warning("Entnahme-Zustand gerade nicht lesbar - Speichern ist bis dahin gesperrt.")
             elif st.button("💾 Entnahme speichern", key="entnahme_speichern_btn"):
-                ok, _ = gh_aktualisiere(STATE_PATH_ENTNAHME,
+                ok, _ = gh_aktualisiere(upfad(STATE_PATH_ENTNAHME),
                                         lambda d: dict(d if isinstance(d, dict) else {}, rate=_en_neu),
                                         default={}, message="entnahme gespeichert [skip ci]")
                 if ok:
@@ -5814,13 +6088,15 @@ def render_dashboard():
             )
         st.caption(
             "WKN oder ISIN ins Suchfeld eingeben – Name und Instrument-ID werden "
-            "automatisch übernommen. Die erste Position ist die Hauptposition, "
-            "sie speist zusätzlich alle Charts und Prognose-Tabs."
+            "automatisch übernommen. "
+            + ("Deine Positionen werden nur für dich gespeichert und erscheinen bei der nächsten Anmeldung wieder."
+               if eigen else
+               "Die erste Position ist die Hauptposition, sie speist zusätzlich alle Charts und Prognose-Tabs.")
         )
 
         # --- Bestehende Positionen bearbeiten/loeschen ---
         for idx, pos in enumerate(alle_positionen):
-            rolle = "Hauptposition" if idx == 0 else f"Position {idx + 1}"
+            rolle = "Hauptposition" if idx == 0 and not eigen else f"Position {idx + 1}"
             st.markdown("---")
             st.markdown(f"**{rolle}: {pos.get('name', '')}**")
 
@@ -5888,12 +6164,14 @@ def render_dashboard():
                         st.error("Speichern fehlgeschlagen (kein persistenter State?).")
 
                 if geloescht:
-                    if len(alle_positionen) <= 1:
+                    # Admin: die Hauptposition bleibt immer; normale Benutzer duerfen alles loeschen
+                    _min_rest = 0 if eigen else 1
+                    if len(alle_positionen) <= _min_rest:
                         st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
                     else:
-                        def _p_entfernen(l, _alt=pos, _i=idx):
+                        def _p_entfernen(l, _alt=pos, _i=idx, _min=_min_rest):
                             j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
-                            if j is None or len(l) <= 1:
+                            if j is None or len(l) <= _min:
                                 return None
                             l.pop(j)
                             return l
@@ -5907,62 +6185,7 @@ def render_dashboard():
         st.markdown("---")
         st.markdown("**Neue Position hinzufügen**")
 
-        gewaehlt = instrument_suchblock("neu")
-
-        with st.form("pos_form_neu", clear_on_submit=True):
-            neu_name = st.text_input(
-                "Name", value=(gewaehlt["name"] if gewaehlt else ""),
-                placeholder="z. B. MSCI World ETF")
-            neu_wkn = st.text_input(
-                "WKN / ISIN",
-                value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
-                placeholder="z. B. A0RPWH")
-            neu_inst = st.number_input(
-                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
-                value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
-                help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
-                     "(0) bleiben - dann werden für diese Position keine Kurse geladen "
-                     "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
-            )
-            neu_datum = st.date_input("Kaufdatum", value=heute_date)
-            neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0)
-            neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0)
-
-            if st.form_submit_button("➕ Position anlegen", width="stretch"):
-                if not neu_name or neu_kurs <= 0 or neu_kapital <= 0:
-                    st.error("Bitte Name, Kaufkurs und Kapital ausfüllen.")
-                else:
-                    # Instrument-ID, falls angegeben, vor dem Speichern pruefen -
-                    # verhindert stumme Fehlkonfiguration. Ohne ID wird die
-                    # Position angelegt und spaeter als "keine Kursquelle" markiert.
-                    test_kurs = None
-                    if neu_inst:
-                        test_kurs, _, _ = get_live_kurs(int(neu_inst))
-
-                    if neu_inst and test_kurs is None:
-                        st.error(
-                            f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
-                            "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
-                        )
-                    else:
-                        _p_anlage = {
-                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
-                            "name": neu_name, "wkn": neu_wkn,
-                            "instrument_id": int(neu_inst) if neu_inst else None,
-                            "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
-                            "startkapital": float(neu_kapital),
-                        }
-                        if aendere_positionen(lambda l: l + [_p_anlage], "position angelegt [skip ci]"):
-                            for k in ("neu_suche", "neu_letzter", "neu_treffer", "neu_wahl"):
-                                st.session_state.pop(k, None)
-                            if test_kurs is not None:
-                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
-                            else:
-                                st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
-                                           "Instrument-ID kann oben jederzeit ergänzt werden.")
-                            st.rerun()
-                        else:
-                            st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
+        positions_anlage_formular("neu")
 
     _einst_bereich.__exit__(None, None, None)
     _depot_bereich.__enter__()
@@ -5970,54 +6193,59 @@ def render_dashboard():
     # ---------- DATENZEILEN: Sekundaerwerte, eingeklappt ----------
     # Meilenstein und Anfangskapital sind Kontext, keine taeglich relevanten
     # Kennzahlen - eingeklappt konkurrieren sie nicht mit Kurs und Depotwert.
-    st.markdown('<div class="abschnitt">📄 Weitere Informationen</div>', unsafe_allow_html=True)
+    # Normale Benutzer: nur mit eigenem Sparplan (Hauptposition); Meilenstein/Anfangskapital
+    # beziehen sich auf das Startkapital der Admin-Hauptposition und entfallen dort.
+    if haupt_aktiv:
+        st.markdown('<div class="abschnitt">📄 Weitere Informationen</div>', unsafe_allow_html=True)
 
-    with st.expander("🎯 Meilenstein und Anfangskapital", expanded=False):
-        st.markdown(f"""
-    <div class="rows">
-        <div class="row">
-            <span class="row-label">100k-Meilenstein</span>
-            <span class="row-val">{meilenstein_datum_str}
-                <span class="row-note">{meilenstein_details_str}</span>
-            </span>
-        </div>
-        <div class="row">
-            <span class="row-label">Anfangskapital</span>
-            <span class="row-val">{fmt(startkapital_aktiv, 2)}
-                <span class="row-note">Kauf am {kaufdatum_aktiv.strftime('%d.%m.%Y')} zu {de_zahl(kaufkurs_aktiv, 2)} €</span>
-            </span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # --- NETTO-WERTE + Kosten: nur bei Bedarf einblenden ---
-    sparrate_note = (
-        f" · inkl. {zusaetzliche_stueckzahl_sparplan:.4f} Sparplan-Anteile ({fmt(kumulierte_sparrate_marktwert, 2)})"
-        if zusaetzliche_stueckzahl_sparplan > 0 else ""
-    )
-    with st.expander("💶 Netto-Werte und laufende Kosten", expanded=False):
-        st.markdown(f"""
+    if not eigen:
+        with st.expander("🎯 Meilenstein und Anfangskapital", expanded=False):
+            st.markdown(f"""
         <div class="rows">
             <div class="row">
-                <span class="row-label">Netto (Simulation)</span>
-                <span class="row-val">{fmt(netto_ist, 2)}
-                    <span class="row-note">{anzahl_entnahmen} × {fmt(entnahme_rate, 2)} seit Kauf buchhalterisch abgezogen ({fmt(gesamt_entnommen, 2)}){sparrate_note}</span>
+                <span class="row-label">100k-Meilenstein</span>
+                <span class="row-val">{meilenstein_datum_str}
+                    <span class="row-note">{meilenstein_details_str}</span>
                 </span>
             </div>
             <div class="row">
-                <span class="row-label">Netto (real verkauft)</span>
-                <span class="row-val">{fmt(depotwert_real_ist, 2)}
-                    <span class="row-note">{stueckzahl_real_ist:.4f} Anteile nach {anzahl_entnahmen} realen Verkäufen à {fmt(entnahme_rate, 2)}, inkl. {config.SPREAD_PCT:.2f} % Spread</span>
-                </span>
-            </div>
-            <div class="row">
-                <span class="row-label">Laufende Kosten</span>
-                <span class="row-val">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f} % p.a.
-                    <span class="row-note">Zertifikatsgebühr, bereits im Kurs eingepreist</span>
+                <span class="row-label">Anfangskapital</span>
+                <span class="row-val">{fmt(startkapital_aktiv, 2)}
+                    <span class="row-note">Kauf am {kaufdatum_aktiv.strftime('%d.%m.%Y')} zu {de_zahl(kaufkurs_aktiv, 2)} €</span>
                 </span>
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+    if haupt_aktiv:
+        # --- NETTO-WERTE + Kosten: nur bei Bedarf einblenden ---
+        sparrate_note = (
+            f" · inkl. {zusaetzliche_stueckzahl_sparplan:.4f} Sparplan-Anteile ({fmt(kumulierte_sparrate_marktwert, 2)})"
+            if zusaetzliche_stueckzahl_sparplan > 0 else ""
+        )
+        with st.expander("💶 Netto-Werte und laufende Kosten", expanded=False):
+            st.markdown(f"""
+            <div class="rows">
+                <div class="row">
+                    <span class="row-label">Netto (Simulation)</span>
+                    <span class="row-val">{fmt(netto_ist, 2)}
+                        <span class="row-note">{anzahl_entnahmen} × {fmt(entnahme_rate, 2)} seit Kauf buchhalterisch abgezogen ({fmt(gesamt_entnommen, 2)}){sparrate_note}</span>
+                    </span>
+                </div>
+                <div class="row">
+                    <span class="row-label">Netto (real verkauft)</span>
+                    <span class="row-val">{fmt(depotwert_real_ist, 2)}
+                        <span class="row-note">{stueckzahl_real_ist:.4f} Anteile nach {anzahl_entnahmen} realen Verkäufen à {fmt(entnahme_rate, 2)}, inkl. {config.SPREAD_PCT:.2f} % Spread</span>
+                    </span>
+                </div>
+                <div class="row">
+                    <span class="row-label">Laufende Kosten</span>
+                    <span class="row-val">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f} % p.a.
+                        <span class="row-note">Zertifikatsgebühr, bereits im Kurs eingepreist</span>
+                    </span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
     _depot_bereich.__exit__(None, None, None)
 
@@ -6153,7 +6381,16 @@ def render_dashboard():
             notify_app_error("Tab-Vermoegensaufbau", e)
     if gewaehlte_ansicht == "📈 Vermögens- & Substanzaufbau":
         melde("ansicht", 0.3, "Baue Vermögensaufbau auf …")
-        _render_wealth()
+        if eigen:
+            # Der Chart rechnet mit Startkapital und Kaufdatum der Hauptposition (Admin)
+            with tab_wealth:
+                st.info("📈 Der Vermögensaufbau-Chart bezieht sich auf das Depot mit Startkapital "
+                        "(Hauptposition). "
+                        + ("Deine eigenen Positionen siehst du im 🏠 Depot und in der 🔮 Zukunfts-Prognose."
+                           if alle_positionen or haupt_aktiv else
+                           "Noch kein eigenes Depot – lege deine erste Position im 🏠 Depot an."))
+        else:
+            _render_wealth()
         lade_fertig()
 
     # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
@@ -6418,14 +6655,18 @@ def render_dashboard():
     # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _render_trades():
         try:
+            # Admin: gemeinsame Chronik (auch Workflow-Alarme, Anmeldungen);
+            # normale Benutzer: eigene Chronik (eigene Notizen und Depot-Ereignisse)
+            _chronik_pfad = upfad(config.STATE_PATH_TRADES_DB)
+
             def load_db():
-                return gh_read(config.STATE_PATH_TRADES_DB, [])
+                return gh_read(_chronik_pfad, [])
 
             def notiz_speichern(eintrag):
                 """Lesen-Aendern-Schreiben mit Versionspruefung (keine verlorenen
                 Auto-Eintraege der Workflows, nie nach einem Lesefehler). -> True/False"""
                 ok, _ = gh_aktualisiere(
-                    config.STATE_PATH_TRADES_DB,
+                    _chronik_pfad,
                     lambda d: chronik.anhaengen(d if isinstance(d, list) else [], eintrag)[0],
                     default=[], message="update chronik [skip ci]")
                 return ok
@@ -6433,9 +6674,14 @@ def render_dashboard():
             db_events = [x for x in (load_db() or []) if isinstance(x, dict)]
 
             with tab_trades:
-                st.caption("Wird automatisch gefüllt: Kurs-Alarme, Entwarnungen und neue Allzeithochs aus dem "
-                           "Discord-Workflow, Änderungen an Depot-Positionen und beobachteten Werten, Sparplan "
-                           "Start/Stopp, Musterdepots und gespeicherte Planungen. Eigene Notizen sind weiter möglich.")
+                if eigen:
+                    st.caption("Deine persönliche Chronik: wird automatisch mit Änderungen an deinen "
+                               "Depot-Positionen, beobachteten Werten, Sparplan und Entnahme gefüllt. "
+                               "Eigene Notizen sind jederzeit möglich.")
+                else:
+                    st.caption("Wird automatisch gefüllt: Kurs-Alarme, Entwarnungen und neue Allzeithochs aus dem "
+                               "Discord-Workflow, Änderungen an Depot-Positionen und beobachteten Werten, Sparplan "
+                               "Start/Stopp, Musterdepots und gespeicherte Planungen. Eigene Notizen sind weiter möglich.")
                 anzahl = {}
                 for ev in db_events:
                     k_ = chronik.kategorie_von(ev)
@@ -6536,6 +6782,11 @@ def render_dashboard():
     @st.fragment
     def _render_forecast():
         _zugang_pruefen("🔮 Zukunfts-Prognose")
+        if not prognose_optionen:
+            # normaler Benutzer ohne eigene Positionen/Beobachtungswerte
+            st.info("🔮 Noch kein eigenes Depot – lege im 🏠 Depot deine erste Position an "
+                    "(oder beobachte einen Wert), dann erscheint hier die Prognose.")
+            return
         try:
             # Ab der zweiten Position eine Auswahl anbieten - bei nur einer
             # Position (Standardfall) waere ein Dropdown mit einem einzigen
@@ -7146,8 +7397,9 @@ def render_dashboard():
                      f"Basis der 100k-Simulation ({_basis_quelle}) {prognose_rendite_pa:.2f} % p.a.")
             st.caption("Kurs-Alarme, Entwarnungen und Allzeithoch-Meldungen verschickt ausschließlich der "
                        "GitHub-Workflow (discord_price_alert.py); die App zeigt nur an.")
-            # Reine Verbindungsprobe: als TEST gekennzeichnet, schreibt KEINEN Alarm-Zustand (DATA-03)
-            if st.button("🔔 Test-Nachricht an Discord senden", key="test_alarm_btn"):
+            # Reine Verbindungsprobe: als TEST gekennzeichnet, schreibt KEINEN Alarm-Zustand (DATA-03).
+            # Discord bleibt dem Admin vorbehalten.
+            if not eigen and st.button("🔔 Test-Nachricht an Discord senden", key="test_alarm_btn"):
                 if _discord_senden(f"🧪 **TEST ({config.WKN})** – Verbindungstest aus der App, kein Kursalarm."):
                     st.success("Test-Nachricht gesendet.")
                 else:
@@ -7156,20 +7408,21 @@ def render_dashboard():
             # Abgleich der Kauf-Eckdaten: macht sichtbar, ob die geladene Historie
             # wirklich am Kaufdatum beginnt - genau hier lief die Performance-
             # Tabelle frueher gegen einen anderen Startwert als die Kachel.
-            st.markdown("**Kauf-Eckdaten**")
-            _cfg_kd = config.KAUFDATUM.strftime("%d.%m.%Y")
-            _akt_kd = kaufdatum_aktiv.strftime("%d.%m.%Y")
-            st.write(f"- Kaufdatum aktiv: **{_akt_kd}**" + (f" (config.py: {_cfg_kd})" if _akt_kd != _cfg_kd else " (= config.py)"))
-            st.write(f"- Kaufkurs aktiv: **{kaufkurs_aktiv:.4f} €** "
-                     f"({'automatisch aus Historie' if kaufkurs_auto and kaufkurs_ermittelt else 'manuell/Fallback'}"
-                     f", config.py: {config.ANFANGSKURS:.4f} €)")
-            st.write(f"- Stückzahl: **{stueckzahl_aktiv:.4f}** ({fmt(startkapital_aktiv, 2)} ÷ {kaufkurs_aktiv:.4f} €)")
-            if not df_chart.empty:
-                _ds, _de = df_chart.index.min(), df_chart.index.max()
-                _warnung = " ⚠️ weicht vom Kaufdatum ab" if _ds.date() != kaufdatum_aktiv else ""
-                st.write(f"- Kursdaten von **{_ds.strftime('%d.%m.%Y')}** bis {_de.strftime('%d.%m.%Y')}"
-                         f" ({len(df_chart)} Handelstage){_warnung}")
-                st.write(f"- Erster Schlusskurs der Reihe: **{df_chart['Close'].iloc[0]:.4f} €**")
+            if not eigen:       # Eckdaten der Admin-Hauptposition
+                st.markdown("**Kauf-Eckdaten**")
+                _cfg_kd = config.KAUFDATUM.strftime("%d.%m.%Y")
+                _akt_kd = kaufdatum_aktiv.strftime("%d.%m.%Y")
+                st.write(f"- Kaufdatum aktiv: **{_akt_kd}**" + (f" (config.py: {_cfg_kd})" if _akt_kd != _cfg_kd else " (= config.py)"))
+                st.write(f"- Kaufkurs aktiv: **{kaufkurs_aktiv:.4f} €** "
+                         f"({'automatisch aus Historie' if kaufkurs_auto and kaufkurs_ermittelt else 'manuell/Fallback'}"
+                         f", config.py: {config.ANFANGSKURS:.4f} €)")
+                st.write(f"- Stückzahl: **{stueckzahl_aktiv:.4f}** ({fmt(startkapital_aktiv, 2)} ÷ {kaufkurs_aktiv:.4f} €)")
+                if not df_chart.empty:
+                    _ds, _de = df_chart.index.min(), df_chart.index.max()
+                    _warnung = " ⚠️ weicht vom Kaufdatum ab" if _ds.date() != kaufdatum_aktiv else ""
+                    st.write(f"- Kursdaten von **{_ds.strftime('%d.%m.%Y')}** bis {_de.strftime('%d.%m.%Y')}"
+                             f" ({len(df_chart)} Handelstage){_warnung}")
+                    st.write(f"- Erster Schlusskurs der Reihe: **{df_chart['Close'].iloc[0]:.4f} €**")
 
 
 
@@ -7277,7 +7530,7 @@ except Exception:
 
 # Audit SEC-03: login.gate ist fail-closed (ohne [login]-Konfiguration nur Fehlerseite) und
 # schreibt Benutzerdaten per Versionspruefung ueber gh_aktualisiere.
-st.session_state["_nutzer"] = login.gate(st, gh_read, gh_read_cached, gh_write, chronik_eintrag,
+st.session_state["_nutzer"] = login.gate(st, gh_read, gh_read_cached, gh_write, chronik_eintrag_global,
                                          gh_aktualisiere=gh_aktualisiere)
 
 render_dashboard()
