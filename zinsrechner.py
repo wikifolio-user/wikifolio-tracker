@@ -1016,37 +1016,69 @@ def _kopf(symbol, titel, text=""):
             + "</div></div>")
 
 
+def _phasen_setzen(session_state, feld, liste):
+    """Phasenliste [(jahre, betrag)] als Text speichern und die Eingabefelder neu aufbauen."""
+    session_state[f"zr_{feld}"] = phasen_text([(j, b) for j, b in liste if j > 0])
+    session_state[f"zr_{feld}_ver"] = session_state.get(f"zr_{feld}_ver", 0) + 1
+    session_state[f"zr_{feld}_leer"] = not liste          # bewusst leer -> kein Beispiel nachladen
+
+
 def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p):
-    """Plan in Phasen (Jahre x Euro pro Monat) - Tabelle direkt bearbeitbar. -> Text fuer p[feld]."""
-    aktiv = st.toggle(titel, value=bool(st.session_state.get(f"zr_{feld}")), key=f"zr_{feld}_an", help=hilfe)
+    """Plan in Phasen (Jahre x Euro pro Monat): je Phase eine Zeile mit zwei Feldern und
+    einem eigenen 🗑️-Knopf, dazu „Phase hinzufügen“ und „Alle löschen“. -> Text fuer p[feld]."""
+    ss = st.session_state
+    aktiv = st.toggle(titel, value=bool(ss.get(f"zr_{feld}")), key=f"zr_{feld}_an", help=hilfe)
     if not aktiv:
-        st.session_state[f"zr_{feld}"] = ""
+        ss[f"zr_{feld}"] = ""
+        ss.pop(f"zr_{feld}_leer", None)
         return ""
-    liste = phasen(st.session_state.get(f"zr_{feld}")) or phasen(beispiel)
-    jl = [(mo / 12, b) for mo, b in liste]
-    ver = st.session_state.get(f"zr_{feld}_ver", 0)
-    df = pd.DataFrame([{"Jahre": float(j), "€ pro Monat": float(b), "🗑️": False} for j, b in jl])
-    ed = st.data_editor(df, key=f"zr_{feld}_tab_{ver}", hide_index=True, width="stretch", num_rows="fixed",
-                        column_config={
-                            "Jahre": st.column_config.NumberColumn("Jahre", min_value=0.0833, max_value=100.0,
-                                                                   step=0.5, format="%.2g",
-                                                                   help="Dauer dieser Phase (0,5 = 6 Monate)"),
-                            "€ pro Monat": st.column_config.NumberColumn("€ pro Monat", min_value=0.0, step=50.0,
-                                                                         format="%.2f"),
-                            "🗑️": st.column_config.CheckboxColumn("🗑️", help="Antippen = Phase löschen")})
-    neu = [(float(z["Jahre"] or 0), float(z["€ pro Monat"] or 0)) for _, z in ed.iterrows()
-           if not bool(z.get("🗑️")) and float(z["Jahre"] or 0) > 0]
-    if st.button("➕ Phase hinzufügen", key=f"zr_{feld}_neu", width="stretch"):
-        neu.append((1.0, 0.0))
-        st.session_state[f"zr_{feld}_ver"] = ver + 1
-    if len(neu) != len(jl):
-        st.session_state[f"zr_{feld}_ver"] = ver + 1
-    text = phasen_text(neu)
-    st.session_state[f"zr_{feld}"] = text
+    liste = [(mo / 12, b) for mo, b in phasen(ss.get(f"zr_{feld}"))]
+    if not liste and not ss.get(f"zr_{feld}_leer"):
+        liste = [(mo / 12, b) for mo, b in phasen(beispiel)]   # beim Einschalten ein Beispiel
+    ver = ss.get(f"zr_{feld}_ver", 0)
+
+    def loeschen(i):
+        rest = [x for k, x in enumerate(_aktuell()) if k != i]
+        _phasen_setzen(ss, feld, rest)
+
+    def hinzufuegen():
+        _phasen_setzen(ss, feld, _aktuell() + [(1.0, 0.0)])
+
+    def alle_loeschen():
+        _phasen_setzen(ss, feld, [])
+
+    def _aktuell():
+        aus = []
+        for i, (j, b) in enumerate(liste):
+            jj = ss.get(f"zr_{feld}_j_{ver}_{i}", j)
+            bb = ss.get(f"zr_{feld}_b_{ver}_{i}", b)
+            aus.append((float(jj or 0), float(bb or 0)))
+        return aus
+
+    if not liste:
+        st.caption("Noch keine Phase – unten „➕ Phase hinzufügen“ antippen.")
+    for i, (j, b) in enumerate(liste):
+        c1, c2, c3 = st.columns([2, 3, 1], vertical_alignment="bottom")
+        c1.number_input("Jahre" if i == 0 else f"Jahre ({i + 1}.)", min_value=0.0833, max_value=100.0,
+                        value=float(max(j, 0.0833)), step=0.5, format="%.2g", key=f"zr_{feld}_j_{ver}_{i}",
+                        label_visibility="visible" if i == 0 else "collapsed",
+                        help="Dauer dieser Phase (0,5 = 6 Monate)")
+        c2.number_input("€ pro Monat" if i == 0 else f"€ pro Monat ({i + 1}.)", min_value=0.0, value=float(b),
+                        step=50.0, format="%.2f", key=f"zr_{feld}_b_{ver}_{i}",
+                        label_visibility="visible" if i == 0 else "collapsed")
+        c3.button("🗑️", key=f"zr_{feld}_del_{ver}_{i}", on_click=loeschen, args=(i,),
+                  help=f"Phase {i + 1} löschen", width="stretch")
+    k1, k2 = st.columns(2)
+    k1.button("➕ Phase hinzufügen", key=f"zr_{feld}_neu", on_click=hinzufuegen, width="stretch")
+    k2.button("🧹 Alle löschen", key=f"zr_{feld}_leeren", on_click=alle_loeschen, width="stretch",
+              disabled=not liste)
+
+    text = phasen_text([(jj, bb) for jj, bb in _aktuell() if jj > 0])
+    ss[f"zr_{feld}"] = text
     zeilen = phasen_zeitraeume(dict(p, **{feld: text}), feld)
     if zeilen:
-        st.caption(" · ".join(f"{a.strftime('%d.%m.%Y')}–{b.strftime('%d.%m.%Y')}: {_de(x)} €/Monat"
-                              for a, b, x in zeilen) + f" · danach 0 €")
+        st.caption(" · ".join(f"{a.strftime('%d.%m.%Y')}–{e.strftime('%d.%m.%Y')}: {_de(x)} €/Monat"
+                              for a, e, x in zeilen) + " · danach 0 €")
     return text
 
 
