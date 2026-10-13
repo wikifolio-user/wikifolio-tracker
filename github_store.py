@@ -194,6 +194,70 @@ def aktualisiere_json(repo, branch, path, token, aendern, default=None, message=
 aendere_json = aktualisiere_json   # anderer Name, gleiche Funktion
 
 
+def _liste(repo, branch, path, token):
+    """Alle Dateien (pfad, sha) unter einem Ordner, rekursiv. Ordner fehlt -> [].
+    Lesefehler -> LeseFehler (dann wird nichts geloescht)."""
+    url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
+    try:
+        r = requests.get(url, headers=_headers(token), params={"ref": branch}, timeout=10)
+    except Exception as e:
+        raise LeseFehler(f"{path}: {type(e).__name__}") from None
+    if r.status_code == 404:
+        return []
+    if r.status_code != 200:
+        raise LeseFehler(f"{path}: HTTP {r.status_code}")
+    eintraege = r.json()
+    if isinstance(eintraege, dict):                     # Pfad ist eine Datei
+        return [(eintraege["path"], eintraege["sha"])]
+    dateien = []
+    for e in eintraege:
+        if e.get("type") == "dir":
+            dateien += _liste(repo, branch, e["path"], token)
+        elif e.get("type") == "file":
+            dateien.append((e["path"], e["sha"]))
+    return dateien
+
+
+def loesche_ordner(repo, branch, path, token, message="delete", max_retries=3):
+    """Loescht alle Dateien unter path (z. B. den Datenordner eines geloeschten Benutzers).
+    -> (ok, anzahl_geloescht). Nur Pfade unterhalb von state/benutzer/ sind erlaubt -
+    so kann ein Fehler nie gemeinsame Daten treffen. Die Git-Historie enthaelt die
+    Dateien weiter, bis squash-state-history.yml die Historie komprimiert."""
+    path = str(path or "").strip("/")
+    if not path.startswith("state/benutzer/") or ".." in path or path.count("/") < 2:
+        logging.error(f"github_store.loesche_ordner: Pfad nicht erlaubt ({path})")
+        return False, 0
+    try:
+        dateien = _liste(repo, branch, path, token)
+    except LeseFehler as e:
+        logging.error(f"github_store.loesche_ordner: nicht lesbar, nichts geloescht ({e})")
+        return False, 0
+    geloescht, fehler = 0, 0
+    for datei, sha in dateien:
+        url = f"{GITHUB_API}/repos/{repo}/contents/{datei}"
+        for versuch in range(max_retries):
+            try:
+                r = requests.delete(url, headers=_headers(token), timeout=15,
+                                    json={"message": f"{message} [skip ci]", "sha": sha, "branch": branch})
+            except Exception as e:
+                logging.warning(f"github_store.loesche_ordner: {datei} {type(e).__name__}")
+                r = None
+            if r is not None and r.status_code in (200, 404):
+                geloescht += 1 if r.status_code == 200 else 0
+                break
+            if r is not None and r.status_code in (409, 422):   # inzwischen geaendert -> sha neu
+                try:
+                    _, sha = lese_json(repo, branch, datei, token)
+                except LeseFehler:
+                    pass
+                if not sha:
+                    break                                       # schon weg
+            time.sleep(1 + versuch)
+        else:
+            fehler += 1
+    return fehler == 0, geloescht
+
+
 def append_csv_line(repo, branch, path, line, token, header=None, message="append data", max_retries=3):
     """Haengt eine Zeile an eine CSV-Datei an (liest, haengt an, schreibt mit dem
     gelesenen sha zurueck). Bei Konflikt komplett neu lesen und wiederholen;
