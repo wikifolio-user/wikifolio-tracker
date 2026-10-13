@@ -599,10 +599,12 @@ def _admin_pw_hinweis(st, cfg):
     st.code(HASH_HINWEIS, language="bash")
 
 
-def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=None):
+def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=None, daten_loeschen=None):
     """ansichten: Liste der waehlbaren Ansichten (Schluessel), namen: {schluessel: Anzeigename}.
     gh_aktualisiere (optional): app.gh_aktualisiere - alle Aenderungen dann als sicheres
-    Lesen-Aendern-Schreiben mit Versionspruefung (Audit DATA-02)."""
+    Lesen-Aendern-Schreiben mit Versionspruefung (Audit DATA-02).
+    daten_loeschen (optional): Funktion(name) -> (ok, anzahl) - loescht beim Loeschen eines
+    Benutzers auch alle seine gespeicherten Daten (Depot, Planer, Rechner, Chronik)."""
     cfg = konfig(st)
     if cfg is None:
         st.warning("Login ist **nicht aktiv** – " + diagnose(st))
@@ -729,19 +731,38 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
                 else:
                     st.error(SPEICHERFEHLER)
             if c4.button("🗑️ Löschen", key=f"bv_del_{nn}", width="stretch"):
-                def fn(d, nn=nn):
-                    if nn not in d["benutzer"]:
-                        return None
-                    d["benutzer"].pop(nn, None)
-                    return d
-
-                if _aendern(fn, f"loeschen {nn}"):
-                    for a in ansichten:
-                        st.session_state.pop(_schalter_key(f"rechte_{nn}", a), None)
-                    st.session_state["rechte_meldung"] = f"✅ „{nn}“ gelöscht."
+                st.session_state[f"bv_del_frage_{nn}"] = True
+            if st.session_state.get(f"bv_del_frage_{nn}"):
+                st.warning(f"**„{nn}“ wirklich löschen?** Der Zugang und **alle seine Daten** (Depot, "
+                           "Beobachtungsliste, Planer, Rechner-Eingaben, Chronik) werden unwiderruflich gelöscht.")
+                j1, j2 = st.columns(2)
+                if j2.button("Abbrechen", key=f"bv_del_nein_{nn}", width="stretch"):
+                    st.session_state.pop(f"bv_del_frage_{nn}", None)
                     st.rerun()
-                else:
-                    st.error(SPEICHERFEHLER)
+                if j1.button("🗑️ Endgültig löschen", key=f"bv_del_ja_{nn}", width="stretch", type="primary"):
+                    def fn(d, nn=nn):
+                        if nn not in d["benutzer"]:
+                            return None
+                        d["benutzer"].pop(nn, None)
+                        return d
+
+                    if _aendern(fn, f"loeschen {nn}"):
+                        for a in ansichten:
+                            st.session_state.pop(_schalter_key(f"rechte_{nn}", a), None)
+                        st.session_state.pop(f"bv_del_frage_{nn}", None)
+                        meldung = f"✅ „{nn}“ gelöscht."
+                        if daten_loeschen is not None:
+                            try:
+                                ok, anzahl = daten_loeschen(nn)
+                            except Exception:
+                                ok, anzahl = False, 0
+                            meldung += (f" {anzahl} Datei(en) mit seinen Daten entfernt." if ok else
+                                        " ⚠️ Seine Daten konnten nicht vollständig gelöscht werden – "
+                                        "bitte später erneut einen Benutzer gleichen Namens anlegen und löschen.")
+                        st.session_state["rechte_meldung"] = meldung
+                        st.rerun()
+                    else:
+                        st.error(SPEICHERFEHLER)
             neu_pw = st.text_input("🔑 Neues Passwort", type="password", key=f"bv_pw_{nn}",
                                    placeholder=f"mind. {MIN_LAENGE} Zeichen")
             if st.button("Passwort setzen", key=f"bv_pwb_{nn}", width="stretch"):
