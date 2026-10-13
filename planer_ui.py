@@ -1226,6 +1226,8 @@ def _stufen_bilanz(m, R, e, r):
     n_auf = jahre * 12
     parallel = bool(_entnahme_parallel(m))
     werte = R["zus"]["projektion"].get("monatswerte") or []
+    asset_v = R["zus"]["projektion"].get("asset_verlauf") or {}
+    r_je = R.get("r_calc", R["r"])
     try:
         _, r_ent, _, plan = _entnahme_rechnen(m, R, e)
         rm_ent = (1 + r_ent) ** (1 / 12) - 1
@@ -1240,13 +1242,18 @@ def _stufen_bilanz(m, R, e, r):
         mon_ent = (x["ab_jahr"] - 1) * 12                    # Entnahme-Monate davor
         t = mon_ent if (parallel or jahre == 0) else n_auf + mon_ent   # Monate ab heute
         betrag = E.entnahme_betrag(e["monatlich"], float(e["dynamik_pa"]) / 100.0, mon_ent + 1, e["stufen"])
+        gewinn = None
         if t < len(werte) and t < n_auf:
-            wert, rate, sp = werte[t], rm, spar - E.kredit_rate_monat(raten, t + 1)
+            wert, sp = werte[t], spar - E.kredit_rate_monat(raten, t + 1)
+            # Gewinn je Baustein mit SEINER Rendite (nicht dem 5-Jahres-Durchschnitt)
+            gewinn = sum(v[t] * ((1 + r_je.get(i, 0.0)) ** (1 / 12) - 1) for i, v in asset_v.items()
+                         if t < len(v)) if asset_v else wert * rm
         elif 0 <= t - n_auf < len(nach):
-            wert, rate, sp = nach[t - n_auf], rm_ent, 0.0
+            wert, sp = nach[t - n_auf], 0.0
+            gewinn = wert * rm_ent
         else:
-            wert, rate, sp = None, rm, 0.0
-        saldo = None if wert is None else wert * rate + sp - betrag
+            wert, sp = None, 0.0
+        saldo = None if wert is None else gewinn + sp - betrag
         aus.append({"ab_jahr": x["ab_jahr"], "betrag": betrag, "wert": wert, "saldo": saldo,
                     "in_jahren": t / 12})
     return aus
@@ -1262,9 +1269,13 @@ def _monatsbilanz(m, R):
     k = _kredite(m) if m.get("kredit") else {}
     eff = _mit_krediten(m)["rahmen"]
     z = R["zus"]
-    r = z.get("modell_cagr")
-    if r is None:
-        r = sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in E.gewichte(m).items())
+    r_je = R.get("r_calc", R["r"])
+    gew = E.gewichte(m)
+    # Rendite im ersten Jahr = gewichteter Mittelwert der Bausteine. Die "modellierte Rendite p.a."
+    # (CAGR ueber den ganzen Aufbau) kann viel hoeher liegen, wenn ein Baustein mit sehr hoher
+    # Annahme ohne Rebalancing immer groesser wird - fuer den Monatsgewinn am Start waere sie falsch.
+    r = sum(g * r_je.get(i, 0.0) for i, g in gew.items())
+    r_cagr = z.get("modell_cagr")
     kr = _kredit_rahmen(m)
     kredite = [x for x in (k.get("kredite") or []) if _kredite_aktiv(m) and _kredit_konditionen(x)[0] is not None]
     # warum ist ein eingetragener Kredit NICHT im Kapital? (sichtbar machen)
@@ -1281,8 +1292,8 @@ def _monatsbilanz(m, R):
     raten = sum(_kredit_rate_eff(x) for x in kredite)
     ek = float(rahmen["startkapital"])
     kapital = ek + (kr["summe"] if kr else 0.0)
-    gewinn_jahr = kapital * r
-    gewinn_monat = kapital * ((1 + r) ** (1 / 12) - 1)
+    gewinn_jahr = sum(kapital * g * r_je.get(i, 0.0) for i, g in gew.items())
+    gewinn_monat = sum(kapital * g * ((1 + r_je.get(i, 0.0)) ** (1 / 12) - 1) for i, g in gew.items())
     jahre = int(rahmen.get("horizont_jahre") or 0)
     ent_sofort = bool(e.get("aktiv", True)) and (bool(_entnahme_parallel(m)) or jahre == 0)
     entnahme = float(e["monatlich"]) if ent_sofort else 0.0
@@ -1292,6 +1303,7 @@ def _monatsbilanz(m, R):
     spar = float(rahmen.get("sparrate_monat") or 0.0)
     saldo = gewinn_monat + spar - entnahme - raten_depot
     return {"ek": ek, "kredite": kredite, "kredit_summe": kr["summe"] if kr else 0.0, "kapital": kapital, "r": r,
+            "r_cagr": r_cagr,
             "gewinn_jahr": gewinn_jahr, "gewinn_monat": gewinn_monat, "spar": spar, "entnahme": entnahme,
             "entnahme_spaeter": float(e["monatlich"]) if (e.get("aktiv", True) and not ent_sofort) else 0.0,
             "raten": raten, "raten_depot": raten_depot, "raten_einkommen": raten if (kredite and art == "einkommen") else 0.0,
@@ -1313,8 +1325,8 @@ def _monatsbilanz_anzeigen(platz, m, R):
         zeilen.append(z(f"+ {_esc(x['name'])} (Kredit)", f"{_de(x['betrag'])} €"))
     if b["kredit_summe"]:
         zeilen.append(z("= investiertes Kapital", f"{_de(b['kapital'])} €", fett=True))
-    zeilen.append(z(f"Gewinn bei {_pct(b['r'])} p.a.", f"{_de(b['gewinn_jahr'])} €/Jahr"))
-    zeilen.append(z("→ Gewinn pro Monat", f"+{_de(b['gewinn_monat'])} €", "pl-gut", fett=True))
+    zeilen.append(z(f"Gewinn im 1. Jahr bei Ø {_pct(b['r'])} p.a. (gewichtet)", f"{_de(b['gewinn_jahr'])} €/Jahr"))
+    zeilen.append(z("→ Gewinn im 1. Monat (mit Zinseszins)", f"+{_de(b['gewinn_monat'])} €", "pl-gut", fett=True))
     if b["spar"]:
         zeilen.append(z("+ Sparrate", f"+{_de(b['spar'])} €", "pl-gut"))
     if b["entnahme"]:
@@ -1350,10 +1362,14 @@ def _monatsbilanz_anzeigen(platz, m, R):
         for x in b["stufen"]:
             t = f'Ab Jahr {x["ab_jahr"]}: Entnahme <b>{_de(x["betrag"])} €/Monat</b>'
             if x["saldo"] is not None:
-                t += (f' · Depot dann ≈ {_eur(x["wert"])} · Monatsbilanz <b class="{"pl-gut" if x["saldo"] >= 0 else "pl-schlecht"}">'
+                t += (f' · Depot dann {_eur(x["wert"])} · Monatsbilanz <b class="{"pl-gut" if x["saldo"] >= 0 else "pl-schlecht"}">'
                       f'{"+" if x["saldo"] >= 0 else "−"}{_de(abs(x["saldo"]))} €</b>')
             teile.append(t)
         stufen_html = '<div class="pl-zeile" style="margin-top:4px">' + "<br>".join(teile) + "</div>"
+    if b.get("r_cagr") is not None and b["r_cagr"] - b["r"] > 0.05:
+        extra.append(f"Hinweis: Am Start wächst das Depot mit Ø {_pct(b['r'])} p.a. Die modellierte Rendite von "
+                     f"{_pct(b['r_cagr'])} ist der Durchschnitt über den ganzen Aufbau – sie steigt, weil Bausteine "
+                     "mit hoher Annahme ohne Rebalancing einen immer größeren Anteil bekommen.")
     if b["kredit_ohne_aufbau"] and not b["nicht"]:
         extra.append("Kredite werden nur bei einer Aufbauphase (> 0 Jahre) aufs Startkapital gerechnet.")
     with platz.container():
@@ -1379,6 +1395,30 @@ def _fehlbetrag_text(z):
         return ""
     return ("⚠ Depot im Aufbau aufgebraucht (Wert 0 €): " + " · ".join(teile)
             + " – diese Beträge müssten aus dem Einkommen kommen.")
+
+
+def _plausibilitaet(m, R, port_r):
+    """Warnungen, wenn das Modell von wenigen extremen Annahmen getragen wird."""
+    z = R["zus"]
+    proj = z["projektion"]
+    r_je = R.get("r_calc", R["r"])
+    gew = E.gewichte(m)
+    aus = []
+    hoch = [(i, r_je.get(i, 0.0)) for i, g in gew.items() if g > 0 and r_je.get(i, 0.0) > 0.5]
+    if hoch:
+        aus.append("Sehr hohe Renditeannahme: " + ", ".join(
+            f"{_asset(m, i)['name']} {_pct(r_)} p.a." for i, r_ in sorted(hoch, key=lambda x: -x[1])[:3])
+            + " – über Jahre kaum erreichbar; bitte die Annahme prüfen (z. B. kurze Historie hochgerechnet).")
+    cagr = z.get("modell_cagr")
+    ende = proj.get("endwerte_asset") or {}
+    summe = sum(ende.values()) or 0.0
+    if cagr is not None and summe > 0 and cagr - port_r > 0.05:
+        haupt = max(ende, key=ende.get)
+        anteil_ende = ende[haupt] / summe
+        aus.append(f"Die modellierte Rendite ({_pct(cagr)}) liegt weit über der Startrendite ({_pct(port_r)}): "
+                   f"{_asset(m, haupt)['name']} wächst von {_pct(gew.get(haupt, 0.0))} auf {_pct(anteil_ende)} "
+                   "des Depots (ohne Rebalancing) und trägt fast den ganzen Endwert.")
+    return aus
 
 
 def _kpis(platz, m, R):
@@ -1418,6 +1458,9 @@ def _kpis(platz, m, R):
         _kacheln([k1, k2, k3, k4])
         proj = z["projektion"]
         zeilen = []
+        if jahre_n > 0:
+            for t in _plausibilitaet(m, R, port_r):
+                zeilen.append(f'<b class="pl-schlecht">⚠ {_esc(t)}</b>')
         if jahre_n > 0:
             zeilen.append(f'Multiplikator <b>{_de(z["multiplikator"], 2)}×</b>'
                           + (f' · Einzahlungen gesamt {_de(proj["eingezahlt"])} €' if rahmen.get("sparrate_monat") else ""))
