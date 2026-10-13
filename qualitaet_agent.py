@@ -919,6 +919,9 @@ def bewerte(sym, k, q, rev, stamm):
         "p6": kursentwicklung.get(182), "p12": kursentwicklung.get(365), "p36": kursentwicklung.get(1095),
         # Punkte
         "p": P, "flags": [[t, a] for t, a in flags], "gesamt": gesamt,
+        # Teilpunkte kompakt fuer die transparente Rangliste (bewertung.py):
+        # Qualitaet/20, Wachstum/15, FCF/15, Bilanz/10, Management/10, Moat/10, Bewertung/15, Chance/5
+        "pt": [P[x] for x in ("qualitaet", "wachstum", "fcf", "bilanz", "management", "moat", "bewertung", "chance")],
         "q_ant": r1(qual_anteil * 100, 0), "b_ant": r1(bew_anteil * 100, 0),
         "moat": "stark" if P["moat"] >= 8 else "mittel" if P["moat"] >= 5 else "schwach" if P["moat"] >= 3 else "gering",
         "mgmt": "gut" if P["management"] >= 8 else "solide" if P["management"] >= 5 else "schwach",
@@ -979,7 +982,7 @@ ZEILEN_FELDER = ("name", "br", "kurs", "kwae", "mcap", "g_ums", "g_eps", "g_fcf"
 
 ALLE_FELDER = ["s", "name", "br", "kurs", "kwae", "mcap", "g_ums", "g_eps", "g_fcf", "g_fcfps", "roic", "om",
                "fm", "nde", "akt", "fkgv", "ev_ebit", "fcfy", "moat", "mgmt", "bew", "risiko", "gesamt",
-               "klasse", "q_ant", "b_ant", "mos", "p6", "p12", "p36", "div", "div_q", "d"]
+               "klasse", "q_ant", "b_ant", "mos", "p6", "p12", "p36", "div", "div_q", "netcash", "rev90", "pt", "d"]
 
 
 def zeile(e):
