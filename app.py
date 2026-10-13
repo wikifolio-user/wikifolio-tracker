@@ -7480,7 +7480,7 @@ _LADE_JS = """
     var start = 0, timer = null, sichtbar = false, wert = 0, ende = null;
     function setze(p) { wert = p; pct.textContent = Math.floor(p) + ' %'; fill.style.width = p + '%'; }
     function tick() {
-      var t = (Date.now() - start) / 1000 - 0.5;
+      var t = (Date.now() - start) / 1000 - 0.9;
       var ov = D.querySelector('.loading-overlay');
       var genau = null;
       if (ov) {
