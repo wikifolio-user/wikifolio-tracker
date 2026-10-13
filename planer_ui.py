@@ -5301,16 +5301,18 @@ def render(h):
     _hinweis("Szenariorechnung / keine Prognose – alle Renditen sind Annahmen oder historische Ausgangswerte, "
              "keine Erwartung und keine Anlageempfehlung.")
 
-    ansicht = st.pills("Ansicht", ANSICHTEN, default=ANSICHTEN[0], key="pl_ansicht",
-                       help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
-                            "(für Erfahrene) – beide arbeiten mit demselben Modell.") or ANSICHTEN[0]
+    with st.container(key="pl_nav_ansicht"):
+        ansicht = st.pills("Ansicht", ANSICHTEN, default=ANSICHTEN[0], key="pl_ansicht",
+                           help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
+                                "(für Erfahrene) – beide arbeiten mit demselben Modell.") or ANSICHTEN[0]
     gefuehrt = ansicht == ANSICHTEN[0]
     status_platz = st.empty()
     platz = {"bilanz": None, "kpi": None}
     if gefuehrt:
-        schritt = st.pills("Schritt", list(range(len(SCHRITTE))), default=0, key="pl_schritt",
-                           format_func=lambda i: f"{i + 1} {SCHRITTE[i]['icon']} {SCHRITTE[i]['titel']}",
-                           label_visibility="collapsed")
+        with st.container(key="pl_nav_schritt"):
+            schritt = st.pills("Schritt", list(range(len(SCHRITTE))), default=0, key="pl_schritt",
+                               format_func=lambda i: f"{i + 1} {SCHRITTE[i]['icon']} {SCHRITTE[i]['titel']}",
+                               label_visibility="collapsed")
         schritt = 0 if schritt is None else int(schritt)
         stepper_platz = st.empty()
         warn_platz = st.empty()
@@ -5326,17 +5328,20 @@ def render(h):
             _schritt_kopf(schritt)
             unter = None
             if seiten_liste:
-                unter = st.pills("Unterseite", seiten_liste, default=seiten_liste[0], key=f"pl_wz_seite_{schritt}",
-                                 label_visibility="collapsed") or seiten_liste[0]
+                with st.container(key="pl_nav_unter"):
+                    unter = st.pills("Unterseite", seiten_liste, default=seiten_liste[0],
+                                     key=f"pl_wz_seite_{schritt}", label_visibility="collapsed") or seiten_liste[0]
     else:
         platz["bilanz"] = _rahmen(m)
         platz["kpi"] = st.empty()
         warn_platz = st.empty()
-        haupt = st.pills("Bereich", HAUPT, default=HAUPT[0], key="pl_haupt") or HAUPT[0]
-        unter = None
-        if UNTER[haupt]:
-            unter = st.pills("Unterseite", UNTER[haupt], default=UNTER[haupt][0],
-                             key=f"pl_unter_{HAUPT.index(haupt)}", label_visibility="collapsed") or UNTER[haupt][0]
+        with st.container(key="pl_nav_bereich"):
+            haupt = st.pills("Bereich", HAUPT, default=HAUPT[0], key="pl_haupt") or HAUPT[0]
+            unter = None
+            if UNTER[haupt]:
+                unter = st.pills("Unterseite", UNTER[haupt], default=UNTER[haupt][0],
+                                 key=f"pl_unter_{HAUPT.index(haupt)}", label_visibility="collapsed") \
+                    or UNTER[haupt][0]
 
     with st.spinner("Lade historische Daten …"):
         try:
@@ -5443,7 +5448,8 @@ def render(h):
                     _vorschau(m, R)
         with inhalt:
             st.divider()
-            _schritt_navigation(pruef, schritt)
+            with st.container(key="pl_nav_knoepfe"):
+                _schritt_navigation(pruef, schritt)
 
     status = _auto_speichern(m, h)
     if status:
