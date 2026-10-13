@@ -1449,10 +1449,198 @@ class JungeHistorie(unittest.TestCase):        # Entscheidung 12.10.2026: Ø Mon
         self.assertTrue(rec["source"].startswith("Kurshistorie ("))
 
 
+class _FakeStore:
+    """GitHub-Speicher als dict: gh_read / gh_write / gh_aktualisiere wie in app.py."""
+    def __init__(self, daten=None, lese_fehler=False):
+        import copy
+        self._copy = copy.deepcopy
+        self.d = copy.deepcopy(daten or {})
+        self.writes = []
+        self.lese_fehler = lese_fehler
+
+    def gh_read(self, pfad, default=None):
+        return self._copy(self.d.get(pfad, default))
+
+    def gh_write(self, pfad, obj, message=""):
+        self.d[pfad] = self._copy(obj)
+        self.writes.append(pfad)
+        return True
+
+    def gh_aktualisiere(self, pfad, aendern, default=None, message=""):
+        if self.lese_fehler:
+            return False, None
+        neu = aendern(self._copy(self.d.get(pfad, default)))
+        if neu is None:
+            return True, self._copy(self.d.get(pfad, default))
+        self.d[pfad] = self._copy(neu)
+        self.writes.append(pfad)
+        return True, neu
+
+    def hilfen(self, nutzer="-", mit_aktualisiere=True):
+        h = {"gh_read": self.gh_read, "gh_write": self.gh_write}
+        if nutzer != "-":
+            h["nutzer"] = nutzer
+        if mit_aktualisiere:
+            h["gh_aktualisiere"] = self.gh_aktualisiere
+        return h
+
+
+ANNA = {"name": "Anna Müller", "rolle": "nutzer"}
+ADMIN = {"name": "Chef", "rolle": "admin"}
+PFAD_ANNA = "state/benutzer/anna-muller/planer/szenarien.json"
+PFAD_ADMIN = "state/planer/szenarien.json"
+
+
+@unittest.skipIf(U is None, "planer_ui nicht ladbar")
+class NutzerBereiche(unittest.TestCase):        # 13.10.2026: alle Planer-Eingaben je Benutzer
+    def setUp(self):
+        U.st.session_state = {}
+
+    def _sitzung(self, h):
+        """Erster Durchlauf einer Sitzung: Modell laden, Ausgangsstand merken (wie render)."""
+        U.st.session_state = {}
+        m = U._modell(h)
+        U._auto_speichern(m, h)
+        return m
+
+    def test_pfade(self):
+        self.assertEqual(U.szenarien_pfad(None), PFAD_ADMIN)
+        self.assertEqual(U.szenarien_pfad(ADMIN), PFAD_ADMIN)
+        self.assertEqual(U.szenarien_pfad(ANNA), PFAD_ANNA)
+        self.assertEqual(U.musterdepot_pfad(None), "state/musterdepot.json")
+        self.assertEqual(U.musterdepot_pfad(ADMIN), "state/musterdepot.json")
+        self.assertEqual(U.musterdepot_pfad(ANNA), "state/benutzer/anna-muller/musterdepot.json")
+        s = _FakeStore()
+        self.assertEqual(U._pfad(s.hilfen(), U.PFAD_SZENARIEN), PFAD_ADMIN)        # Schluessel fehlt
+        self.assertEqual(U._pfad(s.hilfen(None), U.PFAD_SZENARIEN), PFAD_ADMIN)
+        self.assertEqual(U._pfad(s.hilfen(ANNA), U.PFAD_MUSTERDEPOT), "state/benutzer/anna-muller/musterdepot.json")
+        # gemeinsame Daten bleiben global
+        self.assertEqual(U.PFAD_KATALOG, "state/planer/katalog.json")
+
+    def test_leeres_modell(self):
+        m = U.leer_modell()
+        r = m["rahmen"]
+        for k in ("startkapital", "sparrate_monat", "zielvermoegen", "horizont_jahre"):
+            self.assertEqual(r[k], 0, k)
+        self.assertTrue(m["assets"])                                    # Vorlagen bleiben in der Liste
+        for a in m["assets"]:
+            self.assertFalse(a["enabled"], a["id"])
+            self.assertEqual(a["targetWeight"], 0.0, a["id"])
+        self.assertEqual(E.gewichte_summe(m), 0.0)
+        self.assertNotIn("kredit", m)
+        self.assertFalse(m["entnahme"]["aktiv"])
+        self.assertEqual(m["entnahme"]["monatlich"], 0.0)
+        self.assertEqual(m["kaufplan"]["betrag"], 0.0)
+        # alles rechnet ohne Ausnahme
+        R = U._rechne(m, {}, None)
+        self.assertEqual(R["zus"]["endwert"], 0)
+        r_ = renditen(m)
+        self.assertEqual(E.projektion(m, r_)["endwert"], 0)
+        E.szenario_vergleich(m)
+        E.optimiere(m, r_, E.confidence_fuer(m))
+        E.risiko_kennzahlen(m, r_, E.confidence_fuer(m), {})
+        self.assertIsNone(U._benoetigt(m))
+        self.assertIsNone(U._auto_modus(m))
+        self.assertEqual(len(U._leer_hinweise(m)), 2)
+        self.assertEqual(U._kauf_positionen(m, {}, {}), [])
+        # mit Zielvermoegen, aber ohne aktive Bausteine: keine Ausnahme
+        m["rahmen"].update(startkapital=1000.0, horizont_jahre=5, zielvermoegen=50000.0)
+        R = U._rechne(m, {}, None)
+        U._auto_gewichtung(m, R)
+        self.assertEqual(len(U._leer_hinweise(m)), 1)
+
+    def test_neuer_benutzer_startet_leer_admin_mit_beispiel(self):
+        s = _FakeStore()
+        m = self._sitzung(s.hilfen(ANNA))
+        self.assertEqual(m["rahmen"]["startkapital"], 0)
+        self.assertEqual(E.gewichte_summe(m), 0)
+        m = self._sitzung(s.hilfen(ADMIN))
+        self.assertEqual(m["rahmen"]["startkapital"], D.seed_modell()["rahmen"]["startkapital"])
+        self.assertAlmostEqual(E.gewichte_summe(m), 100.0)
+        m = self._sitzung(s.hilfen())                                   # ohne Login / alte app.py
+        self.assertAlmostEqual(E.gewichte_summe(m), 100.0)
+        self.assertEqual(s.writes, [])                                  # Oeffnen allein speichert nichts
+
+    def test_speichern_und_wiederherstellen(self):
+        admin_alt = {"szenarien": {"Aktuelles Modell": {"modell": D.seed_modell()}}, "aktiv": "Aktuelles Modell"}
+        s = _FakeStore({PFAD_ADMIN: admin_alt})
+        h = s.hilfen(ANNA)
+        m = self._sitzung(h)
+        self.assertEqual(U._auto_speichern(m, h), None)                 # nichts geaendert
+        self.assertEqual(s.writes, [])
+        m["rahmen"]["startkapital"] = 5000.0
+        m["assets"][0]["enabled"], m["assets"][0]["targetWeight"] = True, 100.0
+        self.assertEqual(U._auto_speichern(m, h)[0], "ok")
+        self.assertEqual(s.writes, [PFAD_ANNA])
+        U._auto_speichern(m, h)                                         # unveraendert -> kein zweiter Commit
+        self.assertEqual(s.writes, [PFAD_ANNA])
+        self.assertEqual(s.d[PFAD_ADMIN], admin_alt)                    # Admin-Daten unberuehrt
+        # naechste Anmeldung
+        m2 = self._sitzung(h)
+        self.assertEqual(m2["rahmen"]["startkapital"], 5000.0)
+        self.assertTrue(m2["assets"][0]["enabled"])
+        self.assertEqual(U.st.session_state["planer_name"], "Aktuelles Modell")
+        self.assertEqual(s.writes, [PFAD_ANNA])
+        # anderer Benutzer sieht davon nichts
+        m3 = self._sitzung(s.hilfen({"name": "Bob", "rolle": "nutzer"}))
+        self.assertEqual(m3["rahmen"]["startkapital"], 0)
+
+    def test_admin_pfad_unveraendert(self):
+        alt = D.seed_modell()
+        alt["rahmen"]["startkapital"] = 12345.0
+        s = _FakeStore({PFAD_ADMIN: {"szenarien": {"Aktuelles Modell": {"modell": alt}, "Defensiver": {"modell": alt}},
+                                     "aktiv": "Aktuelles Modell"}})
+        for h in (s.hilfen(ADMIN), s.hilfen(), s.hilfen(None, mit_aktualisiere=False)):
+            m = self._sitzung(h)
+            self.assertEqual(m["rahmen"]["startkapital"], 12345.0)
+        m["rahmen"]["sparrate_monat"] = 100.0
+        self.assertEqual(U._auto_speichern(m, h)[0], "ok")              # alter Weg gh_read + gh_write
+        self.assertEqual(s.writes, [PFAD_ADMIN])
+        self.assertIn("Defensiver", s.d[PFAD_ADMIN]["szenarien"])       # andere Szenarien bleiben
+        self.assertEqual(s.d[PFAD_ADMIN]["szenarien"]["Aktuelles Modell"]["modell"]["rahmen"]["sparrate_monat"], 100.0)
+
+    def test_benutzerwechsel_in_derselben_sitzung(self):
+        s = _FakeStore()
+        hA = s.hilfen(ADMIN)
+        U.st.session_state = {}
+        self.assertAlmostEqual(E.gewichte_summe(U._modell(hA)), 100.0)
+        m = U._modell(s.hilfen(ANNA))                                   # ohne Neuladen der Seite
+        self.assertEqual(E.gewichte_summe(m), 0)
+        self.assertEqual(U.st.session_state["planer_konto"], "state/benutzer/anna-muller")
+
+    def test_lesefehler_schreibt_nichts(self):
+        s = _FakeStore({PFAD_ANNA: {"szenarien": {"Aktuelles Modell": {"modell": D.seed_modell()}}}}, lese_fehler=True)
+        h = s.hilfen(ANNA)
+        m = self._sitzung(h)
+        m["rahmen"]["startkapital"] = 1.0
+        self.assertEqual(U._auto_speichern(m, h)[0], "lesefehler")
+        self.assertEqual(s.writes, [])
+
+    def test_aendern_speichern(self):
+        s = _FakeStore({"x.json": {"depots": {"A": 1}}})
+        for h in (s.hilfen(ANNA), s.hilfen(ANNA, mit_aktualisiere=False)):
+            self.assertTrue(U._aendern_speichern(h, "x.json", lambda d: dict(d, depots=dict(d["depots"], B=2)), "m"))
+        self.assertEqual(s.d["x.json"]["depots"], {"A": 1, "B": 2})
+        self.assertTrue(U._aendern_speichern(s.hilfen(ANNA), "x.json", lambda d: None, "m"))   # nichts zu tun
+        self.assertEqual(len(s.writes), 2)
+        self.assertFalse(U._aendern_speichern(_FakeStore(lese_fehler=True).hilfen(ANNA), "x.json", lambda d: d, "m"))
+        self.assertEqual(U._lesen(_FakeStore(lese_fehler=True).hilfen(ANNA), "x.json", {}), ({}, False))
+        self.assertEqual(U._lesen(s.hilfen(ANNA), "x.json", {})[1], True)
+
+    def test_hash_ignoriert_auto_annahmen(self):
+        m = D.seed_modell()
+        auto = next(a for a in m["annahmen"] if a.get("auto"))
+        h0 = U._hash(m)
+        auto["value"] = (auto.get("value") or 0) + 0.05                 # aus der Kurshistorie nachgefuehrt
+        self.assertEqual(U._hash(m), h0)
+        E.setze_annahme(m, auto["assetId"], auto["sourceType"], 0.33)   # eigene Eingabe
+        self.assertNotEqual(U._hash(m), h0)
+
+
 class Versionsmarker(unittest.TestCase):
     @unittest.skipIf(U is None, "planer_ui nicht ladbar")
     def test_versionen_gleich(self):
-        self.assertEqual(E.ENGINE_VERSION, "12.10.2026 · 10:00")
+        self.assertEqual(E.ENGINE_VERSION, "13.10.2026 · 09:00")
         self.assertEqual(U.PLANER_VERSION, E.ENGINE_VERSION)
 
 
