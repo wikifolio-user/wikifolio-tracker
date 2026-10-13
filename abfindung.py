@@ -928,6 +928,78 @@ def pdf_bericht(e, v, erstellt=None, fj=None, fe=None, av=None, avp=None):
 # ===========================================================================
 # Oberflaeche (Streamlit)
 # ===========================================================================
+# Zahlenfelder eines neuen (normalen) Benutzers beim ersten Start: 0 (bzw. das Minimum
+# des Felds, wo 0 nicht erlaubt ist). Der Admin startet mit den Standardwerten der Felder.
+NULL_WERTE = {
+    "abf_summe": 0.0, "abf_brutto": 0.0, "abf_zve1": 0.0, "abf_zve2": 0.0,
+    "abf_alg1": 0.0, "abf_alg2": 0.0, "abf_wk": 0.0, "abf_rv": 0.0, "abf_bav": 0.0, "abf_dienst": 0,
+    "abf_g_kp": 0.0, "abf_g_ga": 0.0, "abf_g_mon": 0, "abf_g_zins": 0.0, "abf_g_erh": 0.0,
+    "abf_g_miete": 0.0, "abf_g_sonst": 0.0, "abf_g_inv": 0.0, "abf_g_anl": 0.0, "abf_g_kwp": 0.0,
+    "abf_g_pvk": 0.0, "abf_g_kvbeitrag": 0.0, "abf_g_sp": 0.0, "abf_g_vs": 0.0, "abf_g_rr": 0.0,
+    "abf_g_fb": 0.0, "abf_g_hw": 0.0, "abf_g_san": 0.0,
+    "abf_av_jahre": 1, "abf_av_r": 0.0, "abf_av_aus": 0.0, "abf_av_heb": 200.0, "abf_av_kg": 0.0,
+    "abf_av_kj": 0.0,
+}
+# Weitere gemerkte Felder: Zahl (darf leer sein), Schalter, Auswahl (nur gueltige Optionen)
+ZAHL_LEER = {"abf_vorjahr": 0.0, "abf_av_betrag": 0.0}
+SCHALTER = ("abf_zve_auto", "abf_fuenftel", "abf_g_immo", "abf_g_firma", "abf_g_solar", "abf_g_kv",
+            "abf_g_spende", "abf_g_ruerup", "abf_g_fortbildung", "abf_g_handwerker", "abf_g_sanierung")
+AUSWAHL_FELDER = {
+    "abf_jahr1": lambda: list(JAHRE),
+    "abf_veranl": lambda: ["Einzeln", "Zusammen (Splitting)"],
+    "abf_kirche": lambda: ["keine", "8 % (BY, BW)", "9 % (übrige Länder)"],
+    "abf_g_jahr": lambda: ["Dieses Jahr", "Folgejahr"],
+    "abf_g_afa": lambda: list(AFA_ARTEN),
+    "abf_av_art": lambda: list(ANLAGEARTEN),
+}
+
+
+def _start(st, key, wert, name="value"):
+    """Startwert eines Felds nur, solange die Sitzung noch keinen Wert hat (sonst gilt die
+    Sitzung - z. B. gemerkte Eingaben). Verhindert Streamlits Doppelbelegungs-Warnung."""
+    return {} if key in st.session_state else {name: wert}
+
+
+def _gueltig(key, wert):
+    """Gemerkten Wert fuer ein Feld pruefen/umwandeln -> (ok, wert)."""
+    if key in NULL_WERTE or key in ZAHL_LEER:
+        if wert is None and key in ZAHL_LEER:
+            return True, None
+        if isinstance(wert, bool) or not isinstance(wert, (int, float)) or wert != wert:
+            return False, None
+        typ = type(NULL_WERTE.get(key, ZAHL_LEER.get(key)))
+        return True, typ(wert)
+    if key in SCHALTER:
+        return isinstance(wert, bool), wert
+    if key in AUSWAHL_FELDER:
+        return wert in AUSWAHL_FELDER[key](), wert
+    return False, None
+
+
+def startwerte(session_state, gespeichert=None, null=False):
+    """Vor dem Zeichnen: gemerkte Eingaben einsetzen (nur fehlende Felder) und alle bereits
+    gesetzten Werte pruefen (ungueltige Auswahl/Typ -> entfernt bzw. umgewandelt);
+    null=True: fehlende Zahlenfelder starten bei 0 (neuer Benutzer)."""
+    for key in list(session_state.keys()):
+        key = str(key)
+        if key in NULL_WERTE or key in ZAHL_LEER or key in SCHALTER or key in AUSWAHL_FELDER:
+            ok, wert = _gueltig(key, session_state[key])
+            if not ok:
+                del session_state[key]
+            elif wert is not None and (type(wert) is not type(session_state[key]) or wert != session_state[key]):
+                session_state[key] = wert
+    for key, roh in (gespeichert or {}).items():
+        if key in session_state:
+            continue
+        ok, wert = _gueltig(key, roh)
+        if ok:
+            session_state[key] = wert
+    if null:
+        for key, wert in NULL_WERTE.items():
+            if key not in session_state:
+                session_state[key] = wert
+
+
 def _gestaltungen_eingabe(st):
     """Eingaben fuer die Gestaltungen -> dict fuer e["gest"]."""
     g = {}
@@ -944,65 +1016,65 @@ def _gestaltungen_eingabe(st):
         if schalter("immo", "🏠 Vermietete Immobilie kaufen"):
             c1, c2 = st.columns(2)
             immo = {"aktiv": True,
-                    "kaufpreis": c1.number_input("Kaufpreis (€)", 0.0, 1e8, 300000.0, step=10000.0, format="%.0f",
+                    "kaufpreis": c1.number_input("Kaufpreis (€)", 0.0, 1e8, **_start(st, "abf_g_kp", 300000.0), step=10000.0, format="%.0f",
                                                  key="abf_g_kp"),
-                    "gebaeude_anteil": c2.number_input("Gebäudeanteil (%)", 0.0, 100.0, 80.0, step=5.0,
+                    "gebaeude_anteil": c2.number_input("Gebäudeanteil (%)", 0.0, 100.0, **_start(st, "abf_g_ga", 80.0), step=5.0,
                                                        key="abf_g_ga", help="Grund und Boden wird nicht abgeschrieben")}
             c3, c4 = st.columns(2)
             arten = list(AFA_ARTEN)
             immo["afa"] = c3.selectbox("Abschreibung", arten, format_func=lambda k: AFA_ARTEN[k][0], key="abf_g_afa")
-            immo["monate"] = c4.number_input("Monate vermietet/besessen im Jahr", 0, 12, 6, key="abf_g_mon")
+            immo["monate"] = c4.number_input("Monate vermietet/besessen im Jahr", 0, 12, **_start(st, "abf_g_mon", 6), key="abf_g_mon")
             c5, c6 = st.columns(2)
-            immo["zinsen"] = c5.number_input("Kreditzinsen im Jahr (€)", 0.0, 1e7, 4000.0, step=500.0, format="%.0f",
+            immo["zinsen"] = c5.number_input("Kreditzinsen im Jahr (€)", 0.0, 1e7, **_start(st, "abf_g_zins", 4000.0), step=500.0, format="%.0f",
                                              key="abf_g_zins")
-            immo["erhaltung"] = c6.number_input("Renovierung / Erhaltung (€)", 0.0, 1e7, 0.0, step=1000.0,
+            immo["erhaltung"] = c6.number_input("Renovierung / Erhaltung (€)", 0.0, 1e7, **_start(st, "abf_g_erh", 0.0), step=1000.0,
                                                 format="%.0f", key="abf_g_erh")
             c7, c8 = st.columns(2)
-            immo["miete"] = c7.number_input("Mieteinnahmen im Jahr (€)", 0.0, 1e7, 5000.0, step=500.0, format="%.0f",
+            immo["miete"] = c7.number_input("Mieteinnahmen im Jahr (€)", 0.0, 1e7, **_start(st, "abf_g_miete", 5000.0), step=500.0, format="%.0f",
                                             key="abf_g_miete")
-            immo["sonstige"] = c8.number_input("Sonstige Kosten (Verwaltung, Grundsteuer …, €)", 0.0, 1e7, 1000.0,
+            immo["sonstige"] = c8.number_input("Sonstige Kosten (Verwaltung, Grundsteuer …, €)", 0.0, 1e7, **_start(st, "abf_g_sonst", 1000.0),
                                                step=250.0, format="%.0f", key="abf_g_sonst")
             g["immo"] = immo
         if schalter("firma", "🏢 Selbstständig machen / Einzelunternehmen gründen",
                     "Investitionsabzugsbetrag: 50 % geplanter Anschaffungen schon vorab absetzen"):
             c1, c2 = st.columns(2)
             g["firma"] = {"aktiv": True,
-                          "invest": c1.number_input("Geplante Investitionen in 3 Jahren (€)", 0.0, 1e7, 40000.0,
+                          "invest": c1.number_input("Geplante Investitionen in 3 Jahren (€)", 0.0, 1e7, **_start(st, "abf_g_inv", 40000.0),
                                                     step=1000.0, format="%.0f", key="abf_g_inv",
                                                     help="Maschinen, Fahrzeug (betrieblich > 90 %), Technik …"),
-                          "anlauf": c2.number_input("Anlaufkosten / Verlust im 1. Jahr (€)", 0.0, 1e7, 5000.0,
+                          "anlauf": c2.number_input("Anlaufkosten / Verlust im 1. Jahr (€)", 0.0, 1e7, **_start(st, "abf_g_anl", 5000.0),
                                                     step=500.0, format="%.0f", key="abf_g_anl")}
         if schalter("solar", "☀️ Solaranlage kaufen"):
             c1, c2 = st.columns(2)
             g["solar"] = {"aktiv": True,
-                          "kwp": c1.number_input("Leistung (kWp)", 0.0, 10000.0, 50.0, step=5.0, key="abf_g_kwp",
+                          "kwp": c1.number_input("Leistung (kWp)", 0.0, 10000.0, **_start(st, "abf_g_kwp", 50.0), step=5.0, key="abf_g_kwp",
                                                  help="Bis 30 kWp steuerfrei (keine Ersparnis), darüber Gewerbe"),
-                          "kosten": c2.number_input("Kosten netto (€)", 0.0, 1e8, 50000.0, step=5000.0, format="%.0f",
+                          "kosten": c2.number_input("Kosten netto (€)", 0.0, 1e8, **_start(st, "abf_g_pvk", 50000.0), step=5000.0, format="%.0f",
                                                     key="abf_g_pvk")}
         if schalter("kv", "🏥 Kranken-/Pflegeversicherung vorauszahlen",
                     "Für privat oder freiwillig gesetzlich Versicherte"):
             g["kv"] = {"aktiv": True, "jahresbeitrag": st.number_input(
-                "Jahresbeitrag Basis-Kranken- und Pflegeversicherung (€)", 0.0, 1e6, 6000.0, step=500.0,
+                "Jahresbeitrag Basis-Kranken- und Pflegeversicherung (€)", 0.0, 1e6, **_start(st, "abf_g_kvbeitrag", 6000.0), step=500.0,
                 format="%.0f", key="abf_g_kvbeitrag")}
         if schalter("spende", "🎗️ Spende / Zustiftung an gemeinnützige Stiftung"):
             c1, c2 = st.columns(2)
             g["spende"] = {"aktiv": True,
-                           "spende": c1.number_input("Spenden (€)", 0.0, 1e8, 1000.0, step=500.0, format="%.0f",
+                           "spende": c1.number_input("Spenden (€)", 0.0, 1e8, **_start(st, "abf_g_sp", 1000.0), step=500.0, format="%.0f",
                                                      key="abf_g_sp"),
-                           "stiftung": c2.number_input("Zustiftung Vermögensstock (€)", 0.0, 1e8, 0.0, step=1000.0,
+                           "stiftung": c2.number_input("Zustiftung Vermögensstock (€)", 0.0, 1e8, **_start(st, "abf_g_vs", 0.0), step=1000.0,
                                                        format="%.0f", key="abf_g_vs")}
         if schalter("ruerup", "🧓 Basisrente (Rürup) einzahlen"):
-            g["ruerup"] = {"aktiv": True, "betrag": st.number_input("Einzahlung Rürup (€)", 0.0, 1e7, 10000.0,
+            g["ruerup"] = {"aktiv": True, "betrag": st.number_input("Einzahlung Rürup (€)", 0.0, 1e7, **_start(st, "abf_g_rr", 10000.0),
                                                                     step=1000.0, format="%.0f", key="abf_g_rr")}
         if schalter("fortbildung", "🎓 Fortbildung, Umschulung, Arbeitsmittel"):
-            g["fortbildung"] = {"aktiv": True, "betrag": st.number_input("Kosten (€)", 0.0, 1e7, 3000.0, step=500.0,
+            g["fortbildung"] = {"aktiv": True, "betrag": st.number_input("Kosten (€)", 0.0, 1e7, **_start(st, "abf_g_fb", 3000.0), step=500.0,
                                                                          format="%.0f", key="abf_g_fb")}
         if schalter("handwerker", "🔧 Handwerker im eigenen Haushalt"):
             g["handwerker"] = {"aktiv": True, "lohn": st.number_input("Arbeitskosten laut Rechnung (€)", 0.0, 1e6,
-                                                                      3000.0, step=500.0, format="%.0f",
+                                                                      **_start(st, "abf_g_hw", 3000.0), step=500.0, format="%.0f",
                                                                       key="abf_g_hw")}
         if schalter("sanierung", "🌿 Energetische Sanierung (selbst genutztes Haus)"):
-            g["sanierung"] = {"aktiv": True, "kosten": st.number_input("Sanierungskosten (€)", 0.0, 1e7, 30000.0,
+            g["sanierung"] = {"aktiv": True, "kosten": st.number_input("Sanierungskosten (€)", 0.0, 1e7, **_start(st, "abf_g_san", 30000.0),
                                                                        step=1000.0, format="%.0f", key="abf_g_san")}
     return g
 
@@ -1035,9 +1107,13 @@ ABF_FJ_CSS = """<style>
 </style>"""
 
 
-def render():
+def render(gespeichert=None, null=False):
+    """gespeichert: gemerkte Eingaben ({"abf_summe": ...}); null=True: neuer (normaler)
+    Benutzer - ohne gemerkte Werte starten alle Zahlenfelder bei 0."""
     import streamlit as st
     import pandas as pd
+
+    startwerte(st.session_state, gespeichert, null)
 
     import zinsrechner as _zr
     # gleiche, klare Eingabe-Optik wie im Zinseszinsrechner: Karten je Schritt, umrandete Felder
@@ -1052,9 +1128,9 @@ def render():
     k1_ = form.container(border=True, key="abf_karte_summe")
     k1_.markdown(_zr._kopf("1", "Abfindung", "Bruttobetrag laut Aufhebungsvertrag / Vergleich").replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
-    abf = k1_.number_input("💶 Abfindungssumme brutto (€)", 0.0, 1e8, 50000.0, step=1000.0, format="%.0f",
+    abf = k1_.number_input("💶 Abfindungssumme brutto (€)", 0.0, 1e8, **_start(st, "abf_summe", 50000.0), step=1000.0, format="%.0f",
                            key="abf_summe")
-    j1 = int(k1_.selectbox("📅 Auszahlung geplant im Jahr", JAHRE, index=JAHRE.index(STEUERJAHR), key="abf_jahr1",
+    j1 = int(k1_.selectbox("📅 Auszahlung geplant im Jahr", JAHRE, **_start(st, "abf_jahr1", JAHRE.index(STEUERJAHR), "index"), key="abf_jahr1",
                            help="Ab diesem Jahr wird gerechnet; das Jahr danach dient als Vergleich "
                                 "(„Auszahlung im Folgejahr“)."))
     j2 = j1 + 1
@@ -1066,11 +1142,11 @@ def render():
     k2_ = form.container(border=True, key="abf_karte_einkommen")
     k2_.markdown(_zr._kopf("2", "Einkommen ohne Abfindung", f"Im Auszahlungsjahr {j1} und im Jahr danach ({j2})").replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
-    brutto = float(k2_.number_input(f"Jahresbrutto {j1} (€)", 0.0, 1e8, 60000.0,
+    brutto = float(k2_.number_input(f"Jahresbrutto {j1} (€)", 0.0, 1e8, **_start(st, "abf_brutto", 60000.0),
                                     step=1000.0, format="%.0f", key="abf_brutto",
                                     help="Gehalt dieses Jahr ohne Abfindung. Grundlage für das zu versteuernde "
                                          "Einkommen und die bereits gezahlten Rentenbeiträge."))
-    zve_auto = k2_.toggle("Zu versteuerndes Einkommen automatisch schätzen (ca. 80 % vom Brutto)", value=True,
+    zve_auto = k2_.toggle("Zu versteuerndes Einkommen automatisch schätzen (ca. 80 % vom Brutto)", **_start(st, "abf_zve_auto", True, "value"),
                           key="abf_zve_auto")
     if zve_auto:
         zve1 = round(brutto * 0.8, -2)
@@ -1078,14 +1154,14 @@ def render():
                          format="%.0f", disabled=True)
     else:
         zve1 = float(k2_.number_input(f"Zu versteuerndes Einkommen {j1} (€)", -1e6, 1e8,
-                                      round(brutto * 0.8, -2), step=1000.0, format="%.0f", key="abf_zve1",
+                                      **_start(st, "abf_zve1", round(brutto * 0.8, -2)), step=1000.0, format="%.0f", key="abf_zve1",
                                       help="Steht im letzten Steuerbescheid"))
     vorjahr = k2_.number_input(f"Jahresbrutto {j1 - 1} (€) – für die Prüfung der Fünftelregel", 0.0, 1e8,
                                value=None, step=1000.0, format="%.0f", key="abf_vorjahr",
                                placeholder="optional, z. B. 62000",
                                help="Die Fünftelregel gilt nur, wenn du im Auszahlungsjahr mit Abfindung mehr "
                                     "einnimmst als bei normaler Weiterarbeit (Vergleich: Vorjahr).")
-    zve2 = float(k2_.number_input(f"Zu versteuerndes Einkommen {j2} (€)", -1e6, 1e8, 0.0, step=1000.0,
+    zve2 = float(k2_.number_input(f"Zu versteuerndes Einkommen {j2} (€)", -1e6, 1e8, **_start(st, "abf_zve2", 0.0), step=1000.0,
                                   format="%.0f", key="abf_zve2",
                                   help="Ohne Abfindung – 0 bei Arbeitslosigkeit, sonst neues Gehalt × ca. 80 %."))
 
@@ -1097,7 +1173,7 @@ def render():
                            help="Bei Zusammenveranlagung das Einkommen beider Partner eintragen.")
     kirche = {"keine": 0.0, "8 % (BY, BW)": 0.08, "9 % (übrige Länder)": 0.09}[
         k3_.selectbox("Kirchensteuer", ["keine", "8 % (BY, BW)", "9 % (übrige Länder)"], key="abf_kirche")]
-    fuenftel = k3_.toggle("Fünftelregelung anwendbar", value=True, key="abf_fuenftel",
+    fuenftel = k3_.toggle("Fünftelregelung anwendbar", **_start(st, "abf_fuenftel", True, "value"), key="abf_fuenftel",
                           help="Zahlung in einem Jahr und zusammen mit dem übrigen Einkommen mehr, als ohne "
                                "Kündigung verdient worden wäre (Zusammenballung).")
 
@@ -1106,12 +1182,12 @@ def render():
     k4_.markdown(_zr._kopf("4", "Optional: Steuer senken", "Nur ausfüllen, wenn es auf dich zutrifft").replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     with k4_.expander("🛠️ Arbeitslosengeld, Werbungskosten, Rente, bAV", expanded=False):
-        alg1 = float(st.number_input(f"Arbeitslosengeld {j1} (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
+        alg1 = float(st.number_input(f"Arbeitslosengeld {j1} (€)", 0.0, 1e6, **_start(st, "abf_alg1", 0.0), step=500.0, format="%.0f",
                                      key="abf_alg1", help="Steuerfrei, erhöht aber den Steuersatz "
                                                           "(Progressionsvorbehalt)"))
-        alg2 = float(st.number_input(f"Arbeitslosengeld {j2} (€)", 0.0, 1e6, 0.0, step=500.0, format="%.0f",
+        alg2 = float(st.number_input(f"Arbeitslosengeld {j2} (€)", 0.0, 1e6, **_start(st, "abf_alg2", 0.0), step=500.0, format="%.0f",
                                      key="abf_alg2"))
-        wk = float(st.number_input("Kosten rund um die Abfindung, z. B. Anwalt, Gericht (€)", 0.0, 1e6, 0.0,
+        wk = float(st.number_input("Kosten rund um die Abfindung, z. B. Anwalt, Gericht (€)", 0.0, 1e6, **_start(st, "abf_wk", 0.0),
                                    step=100.0, format="%.0f", key="abf_wk",
                                    help="Mindern die Abfindung selbst (auch den Teil mit Fünftelregel). "
                                         "Übrige Werbungskosten über der Pauschale sind im zu versteuernden "
@@ -1119,13 +1195,13 @@ def render():
         st.caption("Annahme (Abflussprinzip, § 11 EStG): Die Kosten werden im Jahr der (ersten) Auszahlung "
                    "bezahlt und dort abgezogen – höchstens bis zur Höhe der in diesem Jahr ausgezahlten "
                    "Abfindung. In einem anderen Jahr bezahlte Kosten wirken nur in jenem Jahr.")
-        rv = float(st.number_input("Einzahlung Rentenversicherung (€)", 0.0, 1e6, 0.0, step=1000.0, format="%.0f",
+        rv = float(st.number_input("Einzahlung Rentenversicherung (€)", 0.0, 1e6, **_start(st, "abf_rv", 0.0), step=1000.0, format="%.0f",
                                    key="abf_rv",
                                    help="Z. B. Ausgleich von Rentenabschlägen aus der Abfindung – als Sonderausgabe "
                                         "abziehbar bis zum Höchstbetrag"))
-        bav = float(st.number_input("Umwandlung in bAV (€)", 0.0, 1e6, 0.0, step=1000.0, format="%.0f",
+        bav = float(st.number_input("Umwandlung in bAV (€)", 0.0, 1e6, **_start(st, "abf_bav", 0.0), step=1000.0, format="%.0f",
                                     key="abf_bav", help="Teil der Abfindung in die betriebliche Altersversorgung"))
-        dienst = int(st.number_input("Dienstjahre (für bAV)", 0, 60, 10, step=1, key="abf_dienst"))
+        dienst = int(st.number_input("Dienstjahre (für bAV)", 0, 60, **_start(st, "abf_dienst", 10), step=1, key="abf_dienst"))
     with k4_:
         gest = _gestaltungen_eingabe(st)
 
@@ -1250,22 +1326,22 @@ def render():
     # --- Langfrist: privat oder Investment-GmbH ---
     with st.expander("🏦 Langfrist: Netto-Abfindung privat anlegen oder Investment-GmbH?", expanded=False):
         c1, c2 = st.columns(2)
-        av_betrag = float(c1.number_input("Anlagebetrag (€)", 0.0, 1e9, float(round(beste["netto"], -2)),
+        av_betrag = float(c1.number_input("Anlagebetrag (€)", 0.0, 1e9, **_start(st, "abf_av_betrag", float(round(beste["netto"], -2))),
                                           step=5000.0, format="%.0f", key="abf_av_betrag",
                                           help="Vorbelegt mit dem Netto der günstigsten Variante"))
-        av_jahre = int(c2.number_input("Jahre", 1, 50, 20, key="abf_av_jahre"))
+        av_jahre = int(c2.number_input("Jahre", 1, 50, **_start(st, "abf_av_jahre", 20), key="abf_av_jahre"))
         c3, c4 = st.columns(2)
-        av_rendite = float(c3.number_input("Rendite p.a. (%)", -10.0, 50.0, 7.0, step=0.5, key="abf_av_r")) / 100
-        av_art = c4.selectbox("Anlage", list(ANLAGEARTEN), format_func=ANLAGEARTEN.get, index=1, key="abf_av_art")
+        av_rendite = float(c3.number_input("Rendite p.a. (%)", -10.0, 50.0, **_start(st, "abf_av_r", 7.0), step=0.5, key="abf_av_r")) / 100
+        av_art = c4.selectbox("Anlage", list(ANLAGEARTEN), format_func=ANLAGEARTEN.get, **_start(st, "abf_av_art", 1, "index"), key="abf_av_art")
         c5, c6 = st.columns(2)
-        av_aus = float(c5.number_input("davon Ausschüttung/Dividende p.a. (%)", 0.0, 50.0, 2.0, step=0.5,
+        av_aus = float(c5.number_input("davon Ausschüttung/Dividende p.a. (%)", 0.0, 50.0, **_start(st, "abf_av_aus", 2.0), step=0.5,
                                        key="abf_av_aus", disabled=av_art == "zins")) / 100
-        av_heb = float(c6.number_input("Gewerbesteuer-Hebesatz der Gemeinde (%)", 200.0, 900.0, 400.0, step=10.0,
+        av_heb = float(c6.number_input("Gewerbesteuer-Hebesatz der Gemeinde (%)", 200.0, 900.0, **_start(st, "abf_av_heb", 400.0), step=10.0,
                                        key="abf_av_heb"))
         c7, c8 = st.columns(2)
-        av_kg = float(c7.number_input("GmbH-Gründung einmalig (€)", 0.0, 1e6, 1500.0, step=250.0, format="%.0f",
+        av_kg = float(c7.number_input("GmbH-Gründung einmalig (€)", 0.0, 1e6, **_start(st, "abf_av_kg", 1500.0), step=250.0, format="%.0f",
                                       key="abf_av_kg", help="Notar, Handelsregister, Beratung"))
-        av_kj = float(c8.number_input("GmbH-Kosten pro Jahr (€)", 0.0, 1e6, 3000.0, step=250.0, format="%.0f",
+        av_kj = float(c8.number_input("GmbH-Kosten pro Jahr (€)", 0.0, 1e6, **_start(st, "abf_av_kj", 3000.0), step=250.0, format="%.0f",
                                       key="abf_av_kj", help="Bilanz, Steuererklärungen, Kammer, Konto"))
         avp = {"betrag": av_betrag, "jahre": av_jahre, "rendite": av_rendite, "art": av_art,
                "ausschuettung": av_aus, "hebesatz": av_heb, "kosten_gruendung": av_kg, "kosten_jahr": av_kj}
