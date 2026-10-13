@@ -7465,7 +7465,9 @@ _LADE_JS = """
       ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; flex-shrink:0; }' +
       '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }' +
       '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#21252C; overflow:hidden; }' +
-      '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#16C784; transition:width .2s linear; }';
+      '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#16C784; transition:width .2s linear; }' +
+      /* reine Navigation (Ansicht/Schritt/Unterseite): Inhalt nicht abdunkeln */
+      'html.lade-still [data-stale="true"], html.lade-still .stale-element { opacity:1 !important; transition:none !important; }';
     D.head.appendChild(st);
     var b = D.createElement('div');
     b.id = 'lade-banner';
@@ -7478,6 +7480,16 @@ _LADE_JS = """
        und genauem Stand - die Zahl laeuft so nur vorwaerts, von 0 bis 100 %. Folgt direkt
        ein weiterer Ladeschritt (innerhalb 0,6 s), laeuft die Zahl einfach weiter. */
     var start = 0, timer = null, sichtbar = false, wert = 0, ende = null;
+    /* Klicks auf reine Navigation (Container mit Key "pl_nav...") zeigen keinen Ladebalken:
+       die Seite wird zwar neu gerechnet, das dauert aber nur Sekundenbruchteile. Dauert es
+       ausnahmsweise laenger als 4 s, erscheint der Balken doch. */
+    var navKlick = 0, still = false;
+    function merkeNav(e) {
+      var t = e.target;
+      if (t && t.closest && t.closest('[class*="st-key-pl_nav"]')) navKlick = Date.now();
+    }
+    D.addEventListener('pointerdown', merkeNav, true);
+    D.addEventListener('keydown', merkeNav, true);
     function setze(p) { wert = p; pct.textContent = Math.floor(p) + ' %'; fill.style.width = p + '%'; }
     function tick() {
       var t = (Date.now() - start) / 1000 - 0.9;
@@ -7489,6 +7501,7 @@ _LADE_JS = """
         var tt = (ov.querySelector('.loading-text') || {}).textContent;
         if (tt) txt.textContent = tt;
       }
+      if (still && !sichtbar && t < 3.1) return;
       if (t < 0 && genau === null && !sichtbar) return;
       if (!sichtbar) { b.style.display = 'block'; sichtbar = true; }
       var schaetz = 95 * (1 - Math.exp(-Math.max(t, 0) / 3.5));
@@ -7515,10 +7528,18 @@ _LADE_JS = """
       var s = app.getAttribute('data-test-script-state');
       var laeuft = (s === 'running' || s === 'rerunRequested');
       if (laeuft && !timer) {
-        if (!sichtbar) { start = Date.now(); setze(0); }   /* sonst: laeuft vom bisherigen Stand weiter */
+        if (!sichtbar) {
+          start = Date.now(); setze(0);
+          still = (Date.now() - navKlick) < 2500;
+          D.documentElement.classList.toggle('lade-still', still);
+        }   /* sonst: laeuft vom bisherigen Stand weiter */
         if (ende) { clearTimeout(ende); ende = null; }
         timer = setInterval(tick, 100);
-      } else if (!laeuft && timer) { fertig(); }
+      } else if (!laeuft && timer) {
+        fertig();
+        if (still) { still = false; navKlick = 0; setTimeout(function () {
+          if (!timer) D.documentElement.classList.remove('lade-still'); }, 400); }
+      }
     }
     new MutationObserver(pruefe).observe(D.body, { attributes: true, subtree: true,
                                                    attributeFilter: ['data-test-script-state'] });
