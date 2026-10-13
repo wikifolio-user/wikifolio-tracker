@@ -88,6 +88,15 @@ CSS = """
 .pl-sub { font-size: 0.72rem; color: var(--label, #8A9099); font-weight: 600; }
 .pl-zeile { font-size: 0.8rem; color: #D6D9DE; margin: 2px 0 12px 2px; line-height: 1.5; }
 .q-kpi-v.pl-klein { font-size: 1.05rem; }
+/* Ergebnis-Kacheln: so viele Spalten wie Platz ist (nie zu schmal), Werte ohne Umbruch */
+.q-kpis.pl-kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.pl-kpis .q-kpi { padding: 10px 12px 9px; display: flex; flex-direction: column; gap: 3px; }
+.pl-kpis .q-kpi-l { line-height: 1.3; min-height: 1.7em; }
+.pl-kpis .q-kpi-v { font-size: clamp(1.05rem, 2.1vw, 1.4rem); white-space: nowrap; overflow: hidden;
+                    text-overflow: ellipsis; line-height: 1.25; }
+.pl-kpis .pl-sub { font-size: 0.72rem; line-height: 1.35; }
+@media (max-width: 700px) { .q-kpis.pl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                            .pl-kpis .q-kpi-v { font-size: 1.12rem; } }
 .pt.ue td.pt-wert.ue-fix { min-width: 110px; max-width: 170px; }
 .pl-formhinweis { font-size: 0.8rem; color: #D6D9DE; background: rgba(76, 154, 255, 0.10);
                   border: 1px solid rgba(76, 154, 255, 0.35); border-radius: 8px; padding: 7px 10px; margin: 4px 0 8px; }
@@ -185,13 +194,13 @@ def _esc(t):
     return html.escape(str(t))
 
 
-def _kacheln(eintraege, klein=False):
+def _kacheln(eintraege, klein=False, klasse=""):
     zellen = "".join(
         f'<div class="q-kpi"><div class="q-kpi-l">{_esc(l)}</div>'
         f'<div class="q-kpi-v{" pl-klein" if klein else ""}">{v}</div>'
         + (f'<div class="pl-sub">{s}</div>' if s else "") + "</div>"
         for l, v, s in eintraege)
-    st.markdown(f'<div class="q-kpis">{zellen}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="q-kpis {klasse}">{zellen}</div>', unsafe_allow_html=True)
 
 
 def _tabelle(kopf, zeilen, links=(0,)):
@@ -1812,24 +1821,23 @@ def _kpis(platz, m, R):
         else:
             k1 = ("Benötigte Rendite p.a.", (_pct(z["erforderliche_cagr"]) if z["erforderliche_cagr"] is not None
                                              else "nicht erreichbar") if ziel > 0 else "–",
-                  (f'{_de(rahmen["startkapital"])} €'
-                   + (f' + {_de(z["kredit"]["summe"])} € Kredit' if z.get("kredit") else "")
-                   + f' → {_de(ziel)} € in {jahre_n} J.') if ziel > 0 else "kein Ziel gesetzt")
+                  (_kurz_eur(rahmen["startkapital"])
+                   + (f' + {_kurz_eur(z["kredit"]["summe"])} Kredit' if z.get("kredit") else "")
+                   + f' → {_kurz_eur(ziel)} in {jahre_n} J.') if ziel > 0 else "kein Ziel gesetzt")
             k2 = ("Modellierte Rendite p.a.", _pct(z["modell_cagr"]), D.METHODEN[rahmen["methode"]])
             if z.get("kredit"):
-                k3 = ("Modell-Endwert", _eur(z["endwert_netto"]),
-                      f'nach {jahre_n} J., nach Restschuld {_de(z["kredit"]["restschuld"])} €'
-                      + (f' · Ziel {_de(ziel)} €' if ziel > 0 else ""))
+                k3 = ("Modell-Endwert", "≈ " + _kurz_eur(E.runden_ungefaehr(z["endwert_netto"])),
+                      f'nach {jahre_n} J., abzgl. Restschuld {_kurz_eur(z["kredit"]["restschuld"])}')
             else:
-                k3 = ("Modell-Endwert", _eur(z["endwert"]), f'nach {jahre_n} J.' + (f' · Ziel {_de(ziel)} €' if ziel > 0 else ""))
+                k3 = ("Modell-Endwert", "≈ " + _kurz_eur(E.runden_ungefaehr(z["endwert"])), f'nach {jahre_n} J.')
         if ziel > 0 and jahre_n > 0:
             k4 = ("Abstand zum Ziel", f'<span class="{farbe}">{"+" if diff >= 0 else "−"}'
-                                      f'{_de(abs(E.runden_ungefaehr(diff) or 0))} €</span>',
-                  "Ziel im Modell erreicht" if z["ziel_erreicht"] else "Ziel im Modell nicht erreicht")
+                                      f'{_kurz_eur(abs(E.runden_ungefaehr(diff) or 0))}</span>',
+                  f'Ziel {_kurz_eur(ziel)} ' + ("✓ erreicht" if z["ziel_erreicht"] else "nicht erreicht"))
         else:
             k4 = ("Portfolio-Rendite p.a." if jahre_n > 0 else "Positionen", _pct(port_r) if jahre_n > 0
                   else str(sum(1 for g in w.values() if g > 0)), "gewichtet" if jahre_n > 0 else "mit Gewicht")
-        _kacheln([k1, k2, k3, k4])
+        _kacheln([k1, k2, k3, k4], klasse="pl-kpis")
         proj = z["projektion"]
         zeilen = []
         if jahre_n > 0:
