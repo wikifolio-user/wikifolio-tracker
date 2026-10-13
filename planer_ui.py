@@ -2794,6 +2794,103 @@ def _auf_stuecke(m, hist_assets, hist_korb):
     return geaendert, max(rest, 0.0), cash_assets[0]["name"] if cash_assets else None
 
 
+URTEIL_KURZ = {"attraktiv": "🟢 attraktiv", "eingeschraenkt": "🟡 mit Einschr.", "unattraktiv": "🔴 eher nicht"}
+
+
+def _baustein_typ(a):
+    k = a.get("category")
+    if k in ("cash", "stock_basket"):
+        return None
+    return {"wikifolio": "wikifolio", "single_stock": "aktie"}.get(k, "etf")
+
+
+def _bausteine_bewertung(m, h, hist_assets=None):
+    """Score + Analyse je Baustein - gleiche Methode wie im Katalog „Alle Werte“.
+    Werte aus der Watchlist werden dort gefunden (WKN/ISIN/Symbol); sonst wird aus der
+    Kurshistorie des Planers gerechnet und gegen dieselbe Vergleichsgruppe bewertet.
+    -> ({asset_id: {"z", "b", "a", "quelle"}}, stand_txt, q_stand_txt)"""
+    hist_assets = hist_assets or {}
+    roh, _titel, stand = _gross_daten(h)
+    qvoll, q_stand = _q_voll(h)
+    basis = []
+    for z in roh:
+        r = {"r1": z.get("1J"), "r3": _pa(z.get("3J"), 3), "r5": _pa(z.get("5J"), 5), "r10": _pa(z.get("10J"), 10)}
+        basis.append(dict(z, **r, qd=qvoll.get(z["kennung"]) if z["typ"] == "aktie" else None))
+    if not basis:
+        return {}, None, None
+    strategie = st.session_state.get("pl_gk_strat") or "Ausgewogen"
+    modell = BW.Modell(basis, strategie)
+    ctx = AN.kontext(basis)
+    nach_kennung = {str(z["kennung"] or "").upper(): z for z in basis}
+    nach_isin = {z["isin"]: z for z in basis if z.get("isin")}
+    _, stand_k = _sc_alter(stand)
+    _, stand_q = _sc_alter(q_stand)
+    aus = {}
+    for a in m["assets"]:
+        typ = _baustein_typ(a)
+        if not typ:
+            continue
+        z = None
+        for k in (a.get("ticker"), a.get("yahoo")):
+            if k and str(k).upper() in nach_kennung:
+                z = nach_kennung[str(k).upper()]
+                break
+        if z is None and a.get("isin") in nach_isin:
+            z = nach_isin[a["isin"]]
+        if z is not None and z["typ"] == typ:
+            z = dict(z, name=a["name"])
+            quelle = "Watchlist (täglich vom Agenten berechnet)"
+        else:
+            ha = hist_assets.get(a["id"]) or {}
+
+            def pz(feld, f=100.0):
+                v = ha.get(feld)
+                return None if v is None else round(float(v) * f, 2)
+            vola = ha.get("vola1y") if ha.get("vola1y") is not None else ha.get("vola")
+            z = {"typ": typ, "kat": a.get("category"), "name": a["name"], "kennung": a.get("ticker") or a["id"],
+                 "isin": a.get("isin"), "r1": pz("historical1Y"), "r3": pz("historical3Y"),
+                 "r5": pz("historical5Y"), "r10": pz("historical10Y"),
+                 "vola": None if vola is None else round(float(vola) * 100, 1),
+                 "maxdd": ha.get("maxdd"), "jahre": ha.get("jahre"), "div": None,
+                 "qd": qvoll.get(a.get("yahoo") or a.get("ticker") or "") if typ == "aktie" else None}
+            quelle = "Kurshistorie des Planers (nicht in der Watchlist)" if ha and not ha.get("fehler") else \
+                "keine Kursdaten"
+        b = modell.bewerte(z)
+        if not b:
+            continue
+        an = AN.analysiere(z, b, ctx, stand=stand_k, q_stand=stand_q)
+        aus[a["id"]] = {"z": z, "b": b, "a": an, "quelle": quelle, "ctx": ctx, "stand": stand_k,
+                        "q_stand": stand_q}
+    return aus, stand_k, stand_q
+
+
+def _bausteine_analyse_anzeigen(m, h, bew):
+    """Analysebox + aufklappbare Detailanalyse je aktivem Baustein."""
+    aktiv = [a for a in m["assets"] if a.get("enabled") and a["id"] in bew]
+    if not aktiv:
+        return
+    _abschnitt("🧠 Analyse der Bausteine")
+    st.caption("Score, Analysebox und Detailanalyse wie im Katalog „🌐 Alle Werte“ – Strategie "
+               f"„{(next(iter(bew.values()))['b'])['strategie']}“ (dort umstellbar). Gekennzeichnet: Fakt · Externe "
+               "Prognose · Modell/Annahme · Einschätzung.")
+    for a in sorted(aktiv, key=lambda x: -bew[x["id"]]["b"]["score_genau"]):
+        e = bew[a["id"]]
+        b, an = e["b"], e["a"]
+        with st.expander(f'{a["name"]} · Score {b["score"]} · {an["emoji"]} {an["urteil_text"]} · '
+                         f'{_pct(float(a.get("targetWeight") or 0) / 100)}'):
+            st.markdown(
+                f'<div class="sc-karte"><div class="sc-kopf"><span class="sc-name">{_esc(a["name"])}</span>'
+                f'<span class="sc-typ">{_esc(BW.KLASSEN[e["z"]["typ"]])}</span>'
+                f'<span class="sc-wert {_sc_farbe(b["score"])}">{b["score"]}<small>/100</small></span></div>'
+                f'<div class="sc-balken"><div class="sc-bg-{BW.ampel(b["score"])}" style="width:{b["score"]}%"></div>'
+                f'</div>{_sc_teile_html(b)}<div class="sc-meta">Datenqualität {b["datenqualitaet"]} · '
+                f'{b["abdeckung"] * 100:.0f} % der Kriterien · Quelle: {_esc(e["quelle"])}</div></div>'
+                + _analyse_box_html(an), unsafe_allow_html=True)
+            if st.toggle("🔬 Detailanalyse", key=_k(f"bs_det_{a['id']}")):
+                detail = _q_detail(h, e["z"])
+                _detailanalyse(AN.analysiere(e["z"], b, e["ctx"], detail=detail, stand=e["stand"],
+                                             q_stand=e["q_stand"]) if detail else an)
+
 def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     _abschnitt("Bausteine")
     if getattr(E, "ENGINE_VERSION", None) != PLANER_VERSION:
@@ -2805,6 +2902,11 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     summe = E.gewichte_summe(m) or 1.0
     bruch = bool((m.get("kaufplan") or {}).get("bruch"))
     stueck, kp = _stueck_je_baustein(m, start, hist_assets, hist_korb)
+    try:
+        bew, _, _ = _bausteine_bewertung(m, h, hist_assets)
+    except Exception as ex:            # Bewertung darf die Tabelle nie blockieren
+        bew = {}
+        st.caption(f"Score/Analyse nicht verfügbar ({ex}).")
     zeilen = []
     for a in m["assets"]:
         eig = E.annahme(m, a["id"], "manualScenario")
@@ -2822,6 +2924,10 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
             "Aktiv": bool(a.get("enabled")), "Baustein": a["name"],
             "Gew. %": float(a.get("targetWeight") or 0.0) if a.get("enabled") else 0.0,
             "Stück": stk_txt,
+            "Score": (bew.get(a["id"]) or {}).get("b", {}).get("score"),
+            "Urteil": URTEIL_KURZ.get((bew.get(a["id"]) or {}).get("a", {}).get("urteil"), "–"),
+            "Daten": {"gut": "● gut", "mittel": "◐ mittel", "gering": "○ gering"}.get(
+                (bew.get(a["id"]) or {}).get("b", {}).get("datenqualitaet"), "–"),
             "Kauf €": round(sz["ist"]) if sz else 0,
             "Real %": round(sz["ist"] / start * 100, 1) if sz and start else 0.0,
             "Annahme %": None if not eig or eig.get("value") is None else round(eig["value"] * 100, 2),
@@ -2840,8 +2946,14 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     breite = (lambda w: w) if schmal else (lambda w: None)
     ed = _editor_formular(
         df, key=_k("builder"), hide_index=True, width="stretch", num_rows="fixed", height=_hoehe(len(df)),
-        disabled=["Baustein", "Basis", "Betrag €", "Genutzt %", "Conf.", "Stück", "Kauf €", "Real %", "Kurs €"],
+        disabled=["Baustein", "Basis", "Betrag €", "Genutzt %", "Conf.", "Stück", "Kauf €", "Real %", "Kurs €",
+                  "Score", "Urteil", "Daten"],
         column_config={
+            "Score": _score_spalte(),
+            "Urteil": st.column_config.TextColumn("Urteil", width=breite("small"),
+                                                  help="Gesamteinschätzung der Analyse (Details unter der Tabelle)"),
+            "Daten": st.column_config.TextColumn("Daten", width=breite("small"),
+                                                 help="Datenqualität: Anteil der Bewertungskriterien mit Daten"),
             "Basis": st.column_config.TextColumn(
                 "Basis", width=breite("small"),
                 help="Woher die Annahme stammt: „Hist. 5 J.“ usw. = automatisch aus der bisherigen Rendite p.a. "
@@ -2961,7 +3073,12 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
                "wirklich gekauft wird (Kurs € = letzter Schlusskurs) · Soll € = Startkapital × Gewicht · "
                "Annahme % = Rendite p.a. (Basis zeigt die Herkunft) · Ist = tatsächliche "
                "Rendite laut Kurshistorie statt Annahme · Fix = bleibt beim Gewichten unverändert · Genutzt % = "
-               "damit wird gerechnet. Gewichte automatisch verteilen: Bereich „⚖️ Gewichtung“.")
+               "damit wird gerechnet. Gewichte automatisch verteilen: Bereich „⚖️ Gewichtung“. "
+               "Score / Urteil / Daten = Analyse wie im Katalog (Details unter „🧠 Analyse der Bausteine“).")
+    try:
+        _bausteine_analyse_anzeigen(m, h, bew)
+    except Exception as ex:
+        st.caption(f"Analyse der Bausteine nicht verfügbar ({ex}).")
 
     _abschnitt("Baustein hinzufügen")
     weg_ = st.pills("Hinzufügen über", ["📋 Katalog", "🔎 WKN / ISIN"], default="📋 Katalog", key="pl_add_art")
