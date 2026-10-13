@@ -88,6 +88,11 @@ CSS = """
 .pl-sub { font-size: 0.72rem; color: var(--label, #8A9099); font-weight: 600; }
 .pl-zeile { font-size: 0.8rem; color: #D6D9DE; margin: 2px 0 12px 2px; line-height: 1.5; }
 .q-kpi-v.pl-klein { font-size: 1.05rem; }
+.pl-planung-kopf { font-size: 0.95rem; font-weight: 800; color: #FFFFFF; letter-spacing: .3px; margin: 2px 0 2px; }
+.st-key-pl_planung { border-radius: 14px !important; }
+/* Knoepfe in einer Zeile mit Feldern: gleiche Hoehe wie die Eingabefelder */
+.st-key-pl_planung [data-testid="stButton"] button, [data-testid="stHorizontalBlock"] [data-testid="stButton"] button {
+    min-height: 42px; }
 /* Ergebnis-Kacheln: so viele Spalten wie Platz ist (nie zu schmal), Werte ohne Umbruch */
 .q-kpis.pl-kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .pl-kpis .q-kpi { padding: 10px 12px 9px; display: flex; flex-direction: column; gap: 3px; }
@@ -1116,7 +1121,9 @@ def _rahmen(m, eingebettet=False):
     direkt anschliessend Entnahme aus dem Endwert. Alle Eingaben an einer Stelle."""
     rahmen = m["rahmen"]
     e = _entnahme_daten(m)
-    with (st.container() if eingebettet else st.expander("⚙️ Planung: Aufbau → Entnahme", expanded=False)):
+    with (st.container() if eingebettet else st.container(border=True, key="pl_planung")):
+        if not eingebettet:
+            st.markdown('<div class="pl-planung-kopf">⚙️ Planung: Aufbau → Entnahme</div>', unsafe_allow_html=True)
         _phase("Phase 1 · Aufbau" if not eingebettet else "Grundangaben")
         if eingebettet:
             st.caption("Pflicht: Startkapital oder Sparrate. Alles andere ist optional und hat sinnvolle Standardwerte.")
@@ -2039,7 +2046,7 @@ def _gewichtswarnung(platz, m, leer_zeigen=True):
     verletzt = E.regeln_verletzungen(m) if abs(summe - 100.0) <= 0.05 else []
     if verletzt:
         with platz.container():
-            c1, c2 = st.columns([3, 1])
+            c1, c2 = st.columns([3, 1], vertical_alignment="center")
             c1.warning("Regeln verletzt: " + " · ".join(verletzt))
             if c2.button("Auf Regeln ausrichten", key=_k("regeln_oben"), width="stretch"):
                 g = E.regeln_anwenden(m, {a["id"]: float(a.get("targetWeight") or 0) for a in E.aktive_assets(m)})
@@ -2051,7 +2058,7 @@ def _gewichtswarnung(platz, m, leer_zeigen=True):
         return
     if abs(summe - 100.0) > 0.05:
         with platz.container():
-            c1, c2 = st.columns([3, 1])
+            c1, c2 = st.columns([3, 1], vertical_alignment="center")
             c1.warning(f"Portfolio = {_de(summe, 1)} % – die Rechnung skaliert auf 100 %.")
             if c2.button("Gewichte normalisieren", key=_k("norm_oben"), width="stretch"):
                 E.normalisieren(m)
@@ -3028,7 +3035,7 @@ def _katalog(m, h):
 
 # --- 1 Allocation -----------------------------------------------------------
 def _suche_hinzufuegen(m, h):
-    c4, c5 = st.columns([3, 1])
+    c4, c5 = st.columns([3, 1], vertical_alignment="bottom")
     suchtext = c4.text_input("WKN oder ISIN", key=_k("add_such"), placeholder="z. B. A1JX52 oder IE00B4L5Y983")
     if c5.button("Suchen", key=_k("add_btn"), width="stretch", disabled=not suchtext.strip()):
         try:
@@ -3073,7 +3080,7 @@ def _editor_formular(df, key, **kw):
         st.markdown('<div class="pl-formhinweis">✏️ Werte in der Tabelle ändern – gerechnet und gespeichert wird '
                     'erst mit <b>„Daten aktualisieren“</b>.</div>', unsafe_allow_html=True)
         ed = st.data_editor(df, key=key, **kw)
-        c1, c2 = st.columns([3, 2])
+        c1, c2 = st.columns(2)
         # Bewusst ohne type="primary": primaryColor ist in der App Weiss -
         # ein Primary-Button waere weisse Schrift auf weissem Grund.
         ok = c1.form_submit_button("🔄 Daten aktualisieren", width="stretch",
@@ -3435,8 +3442,8 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
         st.rerun()
 
     summe = E.gewichte_summe(m)
-    c1, c2 = st.columns(2)
-    c1.markdown(f'<div class="pl-zeile">Summe aktiver Gewichte: <b class="{"pl-gut" if abs(summe - 100) <= 0.05 else "pl-schlecht"}">'
+    c1, c2 = st.columns(2, vertical_alignment="center")
+    c1.markdown(f'<div class="pl-zeile" style="margin:0">Summe aktiver Gewichte: <b class="{"pl-gut" if abs(summe - 100) <= 0.05 else "pl-schlecht"}">'
                 f'{_de(summe, 1)} %</b></div>', unsafe_allow_html=True)
     if c2.button("Auf 100 % normalisieren", key=_k("norm"), width="stretch", disabled=abs(summe - 100) <= 0.05):
         E.normalisieren(m)
@@ -3514,9 +3521,9 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
         st.caption("Zum Hinzufügen neuer ETFs, Aktien oder Wikifolios den Schalter einschalten.")
 
     _abschnitt("Baustein entfernen")
-    c9, c10 = st.columns([3, 1])
+    c9, c10 = st.columns([3, 1], vertical_alignment="center")
     weg = c9.selectbox("Baustein", [a["id"] for a in m["assets"]], key=_k("del_wahl"),
-                       format_func=lambda i: _asset(m, i)["name"])
+                       format_func=lambda i: _asset(m, i)["name"], label_visibility="collapsed")
     sicher_weg = st.checkbox("Ja, diesen Baustein samt Annahmen endgültig entfernen", key=_k("del_ok"))
     if c10.button("🗑 Entfernen", key=_k("del_btn"), width="stretch", disabled=not m["assets"] or not sicher_weg):
         _baustein_entfernen(m, weg)
@@ -4259,7 +4266,7 @@ def _b_modelle(m, R, historie, h):
     if not lesbar:
         st.error("Gespeicherte Modelle gerade nicht lesbar (GitHub-Speicher nicht erreichbar) – bitte später neu laden.")
     vorhanden = list(daten["szenarien"])
-    c1, c2 = st.columns([2, 1])
+    c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
     vorschlag = D.SZENARIO_NAMEN + [n for n in vorhanden if n not in D.SZENARIO_NAMEN]
     aktuell = st.session_state.get("planer_name") or "Aktuelles Modell"
     name = c1.selectbox("Name", vorschlag + ["Eigener Name …"],
@@ -4290,7 +4297,7 @@ def _b_modelle(m, R, historie, h):
         else:
             st.error("Speichern nicht möglich (GitHub-Speicher nicht verfügbar).")
     if vorhanden:
-        c3, c4, c5 = st.columns([2, 1, 1])
+        c3, c4, c5 = st.columns([2, 1, 1], vertical_alignment="bottom")
         laden = c3.selectbox("Gespeichertes Modell", vorhanden, key=_k("sz_laden"))
         if c4.button("Laden", key=_k("sz_load"), width="stretch"):
             st.session_state["planer_modell"] = _migriere(daten["szenarien"][laden]["modell"])
@@ -5365,9 +5372,9 @@ def render(h):
              "keine Erwartung und keine Anlageempfehlung.")
 
     with st.container(key="pl_nav_ansicht"):
-        ansicht = st.pills("Ansicht", ANSICHTEN, default=ANSICHTEN[0], key="pl_ansicht",
+        ansicht = st.pills("Ansicht", ANSICHTEN, default=ANSICHTEN[1], key="pl_ansicht",
                            help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
-                                "(für Erfahrene) – beide arbeiten mit demselben Modell.") or ANSICHTEN[0]
+                                "(für Erfahrene) – beide arbeiten mit demselben Modell.") or ANSICHTEN[1]
     gefuehrt = ansicht == ANSICHTEN[0]
     status_platz = st.empty()
     platz = {"bilanz": None, "kpi": None}
