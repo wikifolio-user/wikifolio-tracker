@@ -851,5 +851,72 @@ class TestRenderSmoke(unittest.TestCase):
         self.assertNotIn("abf_summe", st.session_state)          # Feld-Standard (50.000 €) gilt
 
 
+class PhasenEditor(unittest.TestCase):
+    """Entnahme-/Sparplan in Phasen: je Phase ein 🗑️-Knopf, „Alle löschen“, kein Beispiel nach dem Leeren."""
+
+    class _St:
+        def __init__(self, ss, an=True):
+            self.session_state = ss
+            self.klicks = {}                 # key -> (callback, args)
+            self.captions = []
+            ss.setdefault("zr_ep_an", an)
+
+        def toggle(self, label, value=False, key=None, **k):
+            return self.session_state.get(key, value)
+
+        def columns(self, spec, **k):
+            n = spec if isinstance(spec, int) else len(spec)
+            return [self] * n
+
+        def number_input(self, label, min_value=None, max_value=None, value=None, key=None, **k):
+            return self.session_state.setdefault(key, value)
+
+        def button(self, label, key=None, on_click=None, args=(), **k):
+            self.klicks[key] = (on_click, args)
+            return False
+
+        def caption(self, t, **k):
+            self.captions.append(t)
+
+        def klick(self, key):
+            fn, args = self.klicks[key]
+            fn(*args)
+
+    def _lauf(self, ss):
+        st = self._St(ss)
+        p = dict(Z.STANDARD)
+        text = Z._phasen_editor(st, None, "ep", "Entnahmeplan", "", "1x1000,3x500", p)
+        return st, text
+
+    def test_beispiel_beim_einschalten(self):
+        st, text = self._lauf({})
+        self.assertEqual(Z.phasen(text), [(12, 1000.0), (36, 500.0)])
+
+    def test_einzelne_phase_loeschen(self):
+        ss = {}
+        st, _ = self._lauf(ss)
+        st.klick("zr_ep_del_0_0")                      # erste Phase weg
+        _, text = self._lauf(ss)
+        self.assertEqual(Z.phasen(text), [(36, 500.0)])
+
+    def test_alle_loeschen_bleibt_leer(self):
+        ss = {}
+        st, _ = self._lauf(ss)
+        st.klick("zr_ep_leeren")
+        st2, text = self._lauf(ss)
+        self.assertEqual(text, "")                     # kein Beispiel nachgeladen
+        self.assertTrue(any("Noch keine Phase" in c for c in st2.captions))
+        st2.klick("zr_ep_neu")
+        _, text = self._lauf(ss)
+        self.assertEqual(Z.phasen(text), [(12, 0.0)])
+
+    def test_werte_aendern(self):
+        ss = {}
+        self._lauf(ss)
+        ss["zr_ep_b_0_1"] = 750.0                      # zweite Phase: 750 € statt 500 €
+        _, text = self._lauf(ss)
+        self.assertEqual(Z.phasen(text), [(12, 1000.0), (36, 750.0)])
+
+
 if __name__ == "__main__":
     unittest.main()
