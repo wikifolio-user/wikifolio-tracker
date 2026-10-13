@@ -938,6 +938,12 @@ def chart(p, r):
 # Oberflaeche
 # ===========================================================================
 FORM_CSS = """<style>
+/* Breite Bildschirme: Eingabekarten nebeneinander (so viele, wie Platz ist), sonst untereinander */
+@media (min-width: 1100px) {
+  .st-key-zr_form { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+                    gap: 0.7rem 16px !important; align-items: start; }
+  .st-key-zr_form > *:not([class*="st-key-zr_karte_"]):not(:has([class*="st-key-zr_karte_"])) { grid-column: 1 / -1; }
+}
 /* Zinsrechner: Abschnitte als Karten, Feldbeschriftungen einheitlich und klein */
 .st-key-zr_form [data-testid="stVerticalBlockBorderWrapper"],
 .st-key-zr_form [class*="st-key-zr_karte_"] {
