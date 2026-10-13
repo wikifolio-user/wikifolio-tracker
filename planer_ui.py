@@ -4,8 +4,13 @@ Portfolio-Planer - OBERFLAECHE (Streamlit).
 Wird von app.py als Ansicht "💼 Portfolio-Planer" aufgerufen:
     planer_ui.render(hilfen)
 hilfen = {"suche_instrument", "get_kurshistorie", "gh_read", "gh_write",
-          "gh_read_taeglich", "heute", "benchmarks"}  - die vorhandenen Funktionen der App,
+          "gh_read_taeglich", "heute", "benchmarks",
+          "nutzer", "gh_aktualisiere"}  - die vorhandenen Funktionen der App,
 damit Kursdaten, Suche und GitHub-Speicher nicht doppelt implementiert werden.
+"nutzer" (angemeldeter Benutzer {name, rolle} oder None) legt den Speicherort fest
+(nutzerdaten.pfad: Admin/ohne Login wie bisher, sonst state/benutzer/<name>/);
+"gh_aktualisiere" (Lesen-Aendern-Schreiben mit Versionspruefung) wird fuer Modelle
+und Musterdepots genutzt. Fehlen die Schluessel: Admin-Pfade, gh_read/gh_write.
 
 Aufbau: Rahmen/Methode -> 4 KPI-Karten -> Bereichswahl -> ein Bereich.
 Die KPI-Karten werden als Platzhalter angelegt und erst NACH den Eingaben des
@@ -30,7 +35,13 @@ import streamlit as st
 import planer_daten as D
 import planer_engine as E
 
-PFAD_SZENARIEN = "state/planer/szenarien.json"
+try:
+    import nutzerdaten as N
+except Exception:        # pragma: no cover - ohne nutzerdaten.py: bisherige (gemeinsame) Pfade
+    N = None
+
+PFAD_SZENARIEN = "state/planer/szenarien.json"     # je Benutzer ueber nutzerdaten.pfad
+PFAD_MUSTERDEPOT = "state/musterdepot.json"        # je Benutzer ueber nutzerdaten.pfad
 QUALITAET_DETAIL_TEILE = 32          # wie qualitaet_agent.DETAIL_TEILE
 HIST_CACHE_SEK = 6 * 3600
 
@@ -57,7 +68,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "hochgerechnet": "Hochgerechnet (Historie < 1 J.)"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "12.10.2026 · 10:00"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "13.10.2026 · 09:00"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -234,13 +245,105 @@ def _migriere(m):
     return m
 
 
-def _lade_gespeichert(h):
+# ===========================================================================
+# Speicherorte je Benutzer (nutzerdaten.pfad): der Admin und die App ohne Login
+# nutzen die bisherigen Pfade unveraendert, jeder andere Benutzer seinen Ordner
+# state/benutzer/<name>/. Gemeinsame Daten (Katalog, Qualitaet, Kurse) bleiben global.
+# ===========================================================================
+def _nutzer(h):
+    return (h or {}).get("nutzer")
+
+
+def _eigener_bereich(h):
+    return bool(N is not None and N.ist_eigener_bereich(_nutzer(h)))
+
+
+def _pfad(h, basis):
+    return N.pfad(basis, _nutzer(h)) if N is not None else basis
+
+
+def szenarien_pfad(nutzer=None):
+    """Speicherort der Planer-Modelle (inkl. automatisch gespeichertem Stand) fuer diesen Benutzer."""
+    return N.pfad(PFAD_SZENARIEN, nutzer) if N is not None else PFAD_SZENARIEN
+
+
+def musterdepot_pfad(nutzer=None):
+    """Speicherort der Musterdepots fuer diesen Benutzer (auch fuer app.py: Menue-Button)."""
+    return N.pfad(PFAD_MUSTERDEPOT, nutzer) if N is not None else PFAD_MUSTERDEPOT
+
+
+def _konto(h):
+    """Kennung des Speicherbereichs ("" = Admin / ohne Login)."""
+    return (N.ordner(_nutzer(h)) or "") if N is not None else ""
+
+
+def _lesen(h, pfad, default):
+    """-> (daten, ok). ok=False: Datei gerade NICHT lesbar (daten = default) - dann
+    darf nichts auf Basis dieser Daten geschrieben werden. Mit gh_aktualisiere wird
+    streng gelesen (aendern -> None = nichts schreiben), sonst wie bisher gh_read."""
+    akt = (h or {}).get("gh_aktualisiere")
     try:
-        daten = h["gh_read"](PFAD_SZENARIEN, {}) or {}
+        if akt:
+            ok, daten = akt(pfad, lambda d: None, default=copy.deepcopy(default), message="planer: lesen [skip ci]")
+            if not ok:
+                return copy.deepcopy(default), False
+        else:
+            daten = h["gh_read"](pfad, copy.deepcopy(default))
     except Exception:
-        daten = {}
-    daten.setdefault("szenarien", {})
-    return daten
+        return copy.deepcopy(default), False
+    return (daten if isinstance(daten, dict) else copy.deepcopy(default)), True
+
+
+def _aendern_speichern(h, pfad, aendern, message):
+    """Sicheres Lesen-Aendern-Schreiben. aendern(daten) -> neue Daten oder None
+    (nichts schreiben). Mit gh_aktualisiere (Versionspruefung, nach einem Lesefehler
+    wird nichts geschrieben), sonst wie bisher gh_read + gh_write. -> True/False"""
+    def _a(d):
+        return aendern(d if isinstance(d, dict) else {})
+    akt = (h or {}).get("gh_aktualisiere")
+    try:
+        if akt:
+            ok, _ = akt(pfad, _a, default={}, message=message)
+            return bool(ok)
+        neu = _a(h["gh_read"](pfad, {}) or {})
+        return True if neu is None else bool(h["gh_write"](pfad, neu, message=message))
+    except Exception:
+        return False
+
+
+def leer_modell():
+    """Startmodell eines neuen Benutzers: alle Eingaben 0 - kein Startkapital, keine
+    Sparrate, kein Ziel, 0 Jahre, keine Entnahme, keine Kredite. Die Bausteine
+    bleiben als Vorlage in der Liste, sind aber inaktiv (0 %)."""
+    m = D.seed_modell()
+    r = m["rahmen"]
+    r["startkapital"] = 0.0
+    r["sparrate_monat"] = 0.0
+    r["zielvermoegen"] = 0.0
+    r["horizont_jahre"] = 0
+    e = m["entnahme"]
+    e.update({"aktiv": False, "monatlich": 0.0, "dynamik_pa": 0.0, "auto_gewichtung": False, "startbetrag": None,
+              "stufen": []})
+    for a in m["assets"]:
+        a["enabled"] = False
+        a["targetWeight"] = 0.0
+    m.pop("kredit", None)
+    m["kaufplan"] = {"betrag": 0.0, "bruch": False}
+    return m
+
+
+def _start_modell(h):
+    """Ausgangsmodell ohne gespeicherten Stand: Admin/ohne Login wie bisher das
+    Beispielmodell, jeder andere Benutzer startet mit allen Eingaben auf 0."""
+    return leer_modell() if _eigener_bereich(h) else D.seed_modell()
+
+
+def _lade_gespeichert(h, mit_status=False):
+    daten, ok = _lesen(h, _pfad(h, PFAD_SZENARIEN), {})
+    daten = daten if isinstance(daten, dict) else {}
+    if not isinstance(daten.get("szenarien"), dict):
+        daten["szenarien"] = {}
+    return (daten, ok) if mit_status else daten
 
 
 def _norm(x):
@@ -257,39 +360,75 @@ def _norm(x):
     return str(x)
 
 
+_AUTO_FELDER = ("value", "notes", "source", "dataDate", "observationYears")
+
+
 def _hash(m):
-    return hashlib.sha1(json.dumps(_norm(m), sort_keys=True).encode()).hexdigest()
+    """Fingerabdruck der EINGABEN. Automatisch aus der Kurshistorie nachgefuehrte
+    Annahmen (auto=True) zaehlen nur mit ihrem Schalter, nicht mit dem Wert - die
+    werden bei jedem Laden neu bestimmt und sind keine Eingabe des Benutzers."""
+    x = dict(m)
+    x["annahmen"] = [{k: v for k, v in a.items() if k not in _AUTO_FELDER} if a.get("auto") else a
+                     for a in (m.get("annahmen") or [])]
+    return hashlib.sha1(json.dumps(_norm(x), sort_keys=True).encode()).hexdigest()
+
+
+def _basis_neu():
+    """Gespeichert wird erst bei einer Aenderung: der Stand am Ende des naechsten
+    Durchlaufs (nach Ergaenzung fehlender Felder, Annahmen aus der Historie und
+    automatischer Gewichtung) gilt als Ausgangsstand."""
+    st.session_state["planer_hash"] = None
+    st.session_state["planer_basis"] = True
 
 
 def _modell(h):
+    konto = _konto(h)
+    if "planer_modell" in st.session_state and st.session_state.get("planer_konto", "") != konto:
+        # anderer Benutzer in derselben Sitzung: nichts vom vorigen Modell weiterverwenden
+        for k in [k for k in st.session_state if str(k).startswith("planer_") and k != "planer_ver"]:
+            st.session_state.pop(k, None)
+        _neu_zeichnen()
     if "planer_modell" not in st.session_state:
-        daten = _lade_gespeichert(h)
+        daten, ok = _lade_gespeichert(h, mit_status=True)
         eintrag = daten["szenarien"].get(daten.get("aktiv") or "Aktuelles Modell")
-        st.session_state["planer_modell"] = _migriere(eintrag["modell"]) if eintrag else D.seed_modell()
+        if not isinstance(eintrag, dict) or not isinstance(eintrag.get("modell"), dict):
+            eintrag = None
+        st.session_state["planer_modell"] = _migriere(eintrag["modell"]) if eintrag else _start_modell(h)
         st.session_state["planer_name"] = (daten.get("aktiv") or "Aktuelles Modell") if eintrag else None
+        st.session_state["planer_konto"] = konto
+        # Gespeicherter Stand nicht lesbar: NICHT automatisch speichern - sonst wuerde
+        # das Startmodell den gespeicherten Stand ueberschreiben
+        st.session_state["planer_lesefehler"] = not ok
         st.session_state.setdefault("planer_ver", 0)
-        # Stand beim Laden merken - gespeichert wird erst bei einer Aenderung
-        st.session_state["planer_hash"] = _hash(st.session_state["planer_modell"])
+        _basis_neu()
     return st.session_state["planer_modell"]
 
 
 def _auto_speichern(m, h):
     """Automatische Speicherung: jede Aenderung am Modell wird ins aktive
-    Szenario geschrieben (Standard "Aktuelles Modell"). Vor dem Schreiben wird
-    die Datei frisch gelesen, damit andere gespeicherte Szenarien erhalten
-    bleiben (z. B. von einem anderen Geraet)."""
+    Szenario geschrieben (Standard "Aktuelles Modell") - im Ordner des Benutzers.
+    Lesen-Aendern-Schreiben (gh_aktualisiere), damit andere gespeicherte
+    Szenarien erhalten bleiben (z. B. von einem anderen Geraet)."""
     neu = _hash(m)
+    if st.session_state.pop("planer_basis", False):
+        st.session_state["planer_hash"] = neu          # Ausgangsstand - nichts geaendert
+        return st.session_state.get("planer_auto")
     if neu == st.session_state.get("planer_hash"):
         return st.session_state.get("planer_auto")
     name = st.session_state.get("planer_name") or "Aktuelles Modell"
-    daten = _lade_gespeichert(h)
-    daten["szenarien"][name] = {"modell": copy.deepcopy(m),
-                                "gespeichert": datetime.datetime.now().isoformat(timespec="minutes")}
-    daten["aktiv"] = name
-    try:
-        ok = h["gh_write"](PFAD_SZENARIEN, daten, message=f"planer: auto {name} [skip ci]")
-    except Exception:
-        ok = False
+    if st.session_state.get("planer_lesefehler"):
+        st.session_state["planer_auto"] = ("lesefehler", name, None)
+        return st.session_state["planer_auto"]
+    eintrag = {"modell": copy.deepcopy(m), "gespeichert": datetime.datetime.now().isoformat(timespec="minutes")}
+
+    def aendern(daten):
+        if not isinstance(daten.get("szenarien"), dict):
+            daten["szenarien"] = {}
+        daten["szenarien"][name] = eintrag
+        daten["aktiv"] = name
+        return daten
+
+    ok = _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), aendern, f"planer: auto {name} [skip ci]")
     if ok:
         st.session_state["planer_hash"] = neu
         st.session_state["planer_name"] = name
@@ -1402,8 +1541,30 @@ def _regeln_editor(m, pre=""):
                "erscheint oben ein Hinweis mit „Auf Regeln ausrichten“.")
 
 
+def _leer_hinweise(m):
+    """Hinweise fuer ein (noch) leeres Modell - z. B. neuer Benutzer, alles auf 0."""
+    r = m["rahmen"]
+    aus = []
+    kredit = bool(m.get("kredit")) and any(float(x.get("betrag") or 0) > 0
+                                           for x in (_kredite(m).get("kredite") or []))
+    if float(r.get("startkapital") or 0) <= 0 and float(r.get("sparrate_monat") or 0) <= 0 and not kredit:
+        aus.append("Trag Startkapital oder Sparrate ein – oben unter „⚙️ Planung: Aufbau → Entnahme“ "
+                   "(dort auch die Dauer des Aufbaus und ein Zielvermögen).")
+    if E.gewichte_summe(m) <= 0:
+        aus.append("Noch keine Bausteine gewichtet – unter „🧩 Portfolio → Bausteine“ „Aktiv“ anhaken und "
+                   "Gewichte vergeben (oder unter „⚖️ Gewichtung“ automatisch verteilen).")
+    return aus
+
+
 def _gewichtswarnung(platz, m):
     summe = E.gewichte_summe(m)
+    leer = _leer_hinweise(m)
+    if leer:
+        with platz.container():
+            for t in leer:
+                st.info(t)
+        if summe <= 0:
+            return
     verletzt = E.regeln_verletzungen(m) if abs(summe - 100.0) <= 0.05 else []
     if verletzt:
         with platz.container():
@@ -2412,12 +2573,15 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     st.caption("„↺ Verwerfen“ unter der Tabelle nimmt nur noch nicht übernommene Tabellen-Änderungen zurück. "
                "Hier wird das komplette Modell auf das Ausgangsmodell zurückgesetzt – Bausteine, Gewichte, "
                "Annahmen, Planung und Grenzen.")
+    if _eigener_bereich(h):
+        st.caption("Dein Ausgangsmodell ist leer: Startkapital, Sparrate, Ziel und alle Gewichte 0, keine Entnahme.")
     sicher = st.checkbox("Ja, alles auf das Ausgangsmodell zurücksetzen", key=_k("reset_ok"))
     if st.button("↺ Modell komplett zurücksetzen", key=_k("reset_btn"), width="stretch", disabled=not sicher):
-        st.session_state["planer_modell"] = D.seed_modell()
+        st.session_state["planer_modell"] = _start_modell(h)
         for k in ("planer_vorschlag", "planer_meldung", "planer_autogew"):
             st.session_state.pop(k, None)
-        st.session_state["planer_meldung"] = ("ok", "Modell auf das Ausgangsmodell zurückgesetzt.", [])
+        st.session_state["planer_meldung"] = ("ok", "Modell auf das Ausgangsmodell zurückgesetzt"
+                                              + (" (alle Eingaben 0)." if _eigener_bereich(h) else "."), [])
         _neu_zeichnen()
         st.rerun()
 
@@ -3135,7 +3299,9 @@ def _b_modelle(m, R, historie, h):
     _abschnitt("Gespeicherte Modelle")
     st.caption(f"Aktives Modell: „{st.session_state.get('planer_name') or 'Aktuelles Modell'}“ – Änderungen werden "
                "automatisch darin gespeichert. Für eine Variante erst unter neuem Namen speichern, dann ändern.")
-    daten = _lade_gespeichert(h)
+    daten, lesbar = _lade_gespeichert(h, mit_status=True)
+    if not lesbar:
+        st.error("Gespeicherte Modelle gerade nicht lesbar (GitHub-Speicher nicht erreichbar) – bitte später neu laden.")
     vorhanden = list(daten["szenarien"])
     c1, c2 = st.columns([2, 1])
     vorschlag = D.SZENARIO_NAMEN + [n for n in vorhanden if n not in D.SZENARIO_NAMEN]
@@ -3145,10 +3311,15 @@ def _b_modelle(m, R, historie, h):
     if name == "Eigener Name …":
         name = c1.text_input("Eigener Name", key=_k("sz_eigen")).strip()
     if c2.button("💾 Speichern", key=_k("sz_save"), width="stretch", disabled=not name):
-        daten["szenarien"][name] = {"modell": copy.deepcopy(m), "gespeichert": datetime.datetime.now().isoformat(
-            timespec="minutes")}
-        daten["aktiv"] = name
-        if h["gh_write"](PFAD_SZENARIEN, daten, message=f"planer: szenario {name} [skip ci]"):
+        eintrag = {"modell": copy.deepcopy(m), "gespeichert": datetime.datetime.now().isoformat(timespec="minutes")}
+
+        def _speichern(d):
+            if not isinstance(d.get("szenarien"), dict):
+                d["szenarien"] = {}
+            d["szenarien"][name] = eintrag
+            d["aktiv"] = name
+            return d
+        if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _speichern, f"planer: szenario {name} [skip ci]"):
             st.session_state["planer_name"] = name
             st.session_state["planer_hash"] = _hash(m)
             if h.get("chronik"):
@@ -3168,20 +3339,29 @@ def _b_modelle(m, R, historie, h):
         if c4.button("Laden", key=_k("sz_load"), width="stretch"):
             st.session_state["planer_modell"] = _migriere(daten["szenarien"][laden]["modell"])
             st.session_state["planer_name"] = laden
-            st.session_state["planer_hash"] = _hash(st.session_state["planer_modell"])
+            _basis_neu()
             st.session_state.pop("planer_opt", None)
             _neu_zeichnen()
             st.rerun()
         if c5.button("Löschen", key=_k("sz_del"), width="stretch"):
-            daten["szenarien"].pop(laden, None)
-            if daten.get("aktiv") == laden:
-                daten["aktiv"] = None
-            if st.session_state.get("planer_name") == laden:
-                st.session_state["planer_name"] = None      # naechste Aenderung -> "Aktuelles Modell"
-                st.session_state["planer_hash"] = None
-            h["gh_write"](PFAD_SZENARIEN, daten, message=f"planer: szenario {laden} geloescht [skip ci]")
-            _neu_zeichnen()
-            st.rerun()
+            def _loeschen(d):
+                sz = d.get("szenarien") if isinstance(d.get("szenarien"), dict) else {}
+                if laden not in sz:
+                    return None
+                sz.pop(laden, None)
+                d["szenarien"] = sz
+                if d.get("aktiv") == laden:
+                    d["aktiv"] = None
+                return d
+            if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _loeschen,
+                                  f"planer: szenario {laden} geloescht [skip ci]"):
+                if st.session_state.get("planer_name") == laden:
+                    st.session_state["planer_name"] = None      # naechste Aenderung -> "Aktuelles Modell"
+                    st.session_state["planer_hash"] = None
+                _neu_zeichnen()
+                st.rerun()
+            else:
+                st.error("Löschen nicht möglich (GitHub-Speicher nicht erreichbar).")
         zeilen = []
         for n, e in daten["szenarien"].items():
             try:
@@ -3991,7 +4171,6 @@ def _b_kredit(m, R):
 # ===========================================================================
 # Kaufplan (Stueckzahlen) und Musterdepot
 # ===========================================================================
-PFAD_MUSTERDEPOT = "state/musterdepot.json"
 
 
 def _kauf_positionen(m, hist_assets, hist_korb):
@@ -4075,7 +4254,7 @@ def _musterdepot_formular(h, erg, betrag, prefix):
     st.caption(f"Legt aus diesen Stückzahlen ({_de(betrag)} €) ein Musterdepot an – Kaufkurs = Kurs von heute. "
                "Es erscheint im Menü unter „Depot“ als eigener Button „📦 Musterdepot“ und zeigt die Entwicklung "
                "seit heute.")
-    vorhanden = (h["gh_read"](PFAD_MUSTERDEPOT, {}) or {}).get("depots") or {}
+    vorhanden = (_lesen(h, _pfad(h, PFAD_MUSTERDEPOT), {})[0].get("depots") or {})
     name = st.text_input("Name des Musterdepots", value="Portfolio Builder Musterdepot",
                          key=_k(f"md_name_{prefix}")).strip()
     ueber = True
@@ -4095,13 +4274,13 @@ def _musterdepot_formular(h, erg, betrag, prefix):
                             "teil_von": z.get("teil_von")} for z in kaufbar],
             "quelle": st.session_state.get("planer_name") or "Aktuelles Modell",
         }
-        daten = h["gh_read"](PFAD_MUSTERDEPOT, {}) or {}
-        daten.setdefault("depots", {})[name] = depot
-        daten["aktiv"] = name
-        try:
-            ok = h["gh_write"](PFAD_MUSTERDEPOT, daten, message=f"planer: musterdepot {name} [skip ci]")
-        except Exception:
-            ok = False
+        def _anlegen(d):
+            if not isinstance(d.get("depots"), dict):
+                d["depots"] = {}
+            d["depots"][name] = depot
+            d["aktiv"] = name
+            return d
+        ok = _aendern_speichern(h, _pfad(h, PFAD_MUSTERDEPOT), _anlegen, f"planer: musterdepot {name} [skip ci]")
         if ok and h.get("chronik"):
             try:
                 h["chronik"]("planer", f"📦 Musterdepot erstellt: {name}",
@@ -4119,8 +4298,11 @@ def _musterdepot_formular(h, erg, betrag, prefix):
 def render_musterdepot(h):
     """Eigene Ansicht im Menue (Depot): Entwicklung der Musterdepots seit Erstellung."""
     st.markdown(CSS, unsafe_allow_html=True)
-    daten = h["gh_read"](PFAD_MUSTERDEPOT, {}) or {}
-    depots = daten.get("depots") or {}
+    daten, lesbar = _lesen(h, _pfad(h, PFAD_MUSTERDEPOT), {})
+    depots = daten.get("depots") if isinstance(daten.get("depots"), dict) else {}
+    if not lesbar:
+        st.error("Musterdepots gerade nicht lesbar (GitHub-Speicher nicht erreichbar) – bitte später neu laden.")
+        return
     if not depots:
         st.info("Noch kein Musterdepot vorhanden. Anlegen im Portfolio-Planer unter „🧩 Portfolio → Kaufplan“.")
         return
@@ -4183,10 +4365,17 @@ def render_musterdepot(h):
     with st.expander("Musterdepot löschen", expanded=False):
         sicher = st.checkbox(f"Ja, „{wahl}“ endgültig löschen", key="md_loeschen_ok")
         if st.button("🗑️ Löschen", key="md_loeschen", disabled=not sicher, width="stretch"):
-            depots.pop(wahl, None)
-            daten["depots"] = depots
-            daten["aktiv"] = next(iter(depots), None)
-            if h["gh_write"](PFAD_MUSTERDEPOT, daten, message=f"planer: musterdepot {wahl} geloescht [skip ci]"):
+            def _loeschen(d):
+                dep = d.get("depots") if isinstance(d.get("depots"), dict) else {}
+                if wahl not in dep:
+                    return None
+                dep.pop(wahl, None)
+                d["depots"] = dep
+                if d.get("aktiv") == wahl or d.get("aktiv") not in dep:
+                    d["aktiv"] = next(iter(dep), None)
+                return d
+            if _aendern_speichern(h, _pfad(h, PFAD_MUSTERDEPOT), _loeschen,
+                                  f"planer: musterdepot {wahl} geloescht [skip ci]"):
                 if h.get("chronik"):
                     try:
                         h["chronik"]("planer", f"🗑️ Musterdepot gelöscht: {wahl}")
@@ -4282,6 +4471,8 @@ def render(h):
     if status:
         art, sz_name, zeit = status
         text = (f"✓ Automatisch gespeichert als „{sz_name}“ · {zeit} Uhr" if art == "ok" else
+                "⚠ Dein gespeichertes Modell war beim Öffnen nicht lesbar – damit es nicht überschrieben wird, "
+                "wird gerade nicht automatisch gespeichert. Bitte die Seite neu laden." if art == "lesefehler" else
                 "⚠ Automatische Speicherung nicht möglich (GitHub-Speicher nicht erreichbar) – "
                 "Änderungen gelten nur bis zum Neuladen.")
         status_platz.markdown(f'<div class="pl-hinweis">{_esc(text)}</div>', unsafe_allow_html=True)
