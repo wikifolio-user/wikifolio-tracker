@@ -88,6 +88,41 @@ CSS = """
 .pl-sub { font-size: 0.72rem; color: var(--label, #8A9099); font-weight: 600; }
 .pl-zeile { font-size: 0.8rem; color: #D6D9DE; margin: 2px 0 12px 2px; line-height: 1.5; }
 .q-kpi-v.pl-klein { font-size: 1.05rem; }
+/* ---- Planer: einheitliche Eingabefelder ----
+   Auswahlfelder sehen hier aus wie die Zahlenfelder (gleiche Beschriftung, gleiche Hoehe, dezenter
+   Rahmen) statt wie Ueberschriften mit leuchtendem Rahmen - so stehen Felder sauber nebeneinander. */
+[data-testid="stSelectbox"] label, [data-testid="stSelectbox"] label p,
+[data-testid="stMultiSelect"] label p {
+    font-family: inherit !important; font-size: 0.875rem !important; font-weight: 400 !important;
+    letter-spacing: normal !important; text-transform: none !important; text-shadow: none !important;
+    color: rgba(250, 250, 250, 0.85) !important; }
+[data-testid="stSelectbox"] label { margin: 0 0 4px 0 !important; }
+[data-testid="stSelectbox"] > div, [data-testid="stSelectbox"] [data-baseweb="select"] {
+    outline: 1px solid rgba(255, 255, 255, 0.22) !important; box-shadow: none !important; animation: none !important;
+    border-radius: 8px !important; }
+[data-testid="stSelectbox"] > div:hover, [data-testid="stSelectbox"] > div:focus-within {
+    outline-color: rgba(255, 255, 255, 0.6) !important; box-shadow: none !important; }
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stSelectbox"] [data-baseweb="select"] > div > div { min-height: 46px !important; }
+/* Zeilen mit Eingabefeldern: Felder unten buendig, auch wenn eine Beschriftung zweizeilig ist */
+[data-testid="stHorizontalBlock"]:has([data-testid="stNumberInput"], [data-testid="stSelectbox"],
+                                      [data-testid="stTextInput"], [data-testid="stDateInput"]) {
+    align-items: flex-end; }
+/* Handy: Eingabefelder untereinander in voller Breite - Zahlen passen ganz hinein,
+   Beschriftungen brechen nicht unterschiedlich um */
+@media (max-width: 700px) {
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [data-testid="stNumberInput"],
+                                        > [data-testid="stColumn"] [data-testid="stSelectbox"],
+                                        > [data-testid="stColumn"] [data-testid="stTextInput"],
+                                        > [data-testid="stColumn"] [data-testid="stDateInput"]) {
+      flex-direction: column !important; align-items: stretch !important; gap: 0.7rem !important; }
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [data-testid="stNumberInput"],
+                                        > [data-testid="stColumn"] [data-testid="stSelectbox"],
+                                        > [data-testid="stColumn"] [data-testid="stTextInput"],
+                                        > [data-testid="stColumn"] [data-testid="stDateInput"]) > [data-testid="stColumn"] {
+      width: 100% !important; min-width: 100% !important; flex: 1 1 100% !important; }
+}
+[data-testid="stNumberInput"] input { min-width: 0; }
 .pl-planung-kopf { font-size: 0.95rem; font-weight: 800; color: #FFFFFF; letter-spacing: .3px; margin: 2px 0 2px; }
 .st-key-pl_planung { border-radius: 14px !important; }
 /* Knoepfe in einer Zeile mit Feldern: gleiche Hoehe wie die Eingabefelder */
