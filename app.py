@@ -2779,7 +2779,7 @@ def kurse_neu_laden():
 # einfache Werte; interne/fluechtige Schluessel (Init-Merker, berechnete Anzeige-
 # felder, Tabellen-Editoren, Knoepfe, PDF, Container) bleiben aussen vor.
 RECHNER_EINGABEN = {
-    "zinsrechner": ("zr_", re.compile(r"^zr_init$|^zr_dis_|_tab_|_ver$|_neu$|_an$|_pdf$|_chart$|^zr_sd_d$"
+    "zinsrechner": ("zr_", re.compile(r"^zr_init$|^zr_dis_|_tab_|_ver$|_neu$|_an$|_pdf$|_chart$|^zr_sd_d$|_[jb]_\d+_\d+$|_del_|_leeren$|_leer$"
                                       r"|_karte|_form$")),
     "abfindung": ("abf_", re.compile(r"_tab_|^abf_fj|_pdf$|_karte|_form$|^abf_av_betrag$")),
 }
