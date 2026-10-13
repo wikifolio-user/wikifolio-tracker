@@ -891,7 +891,24 @@ def _bereich(titel, eingebettet, offen=False):
     return _Bereich(titel, eingebettet, offen)
 
 
+_BENOETIGT_CACHE = {}
+
+
 def _benoetigt(m):
+    """Wie _benoetigt_rechnen, aber je Eingabestand nur einmal gerechnet (die Funktion wird
+    pro Seitenaufruf mehrfach gebraucht und loest jeweils eine Nullstellensuche aus)."""
+    try:
+        schluessel = json.dumps([m["rahmen"], _entnahme_daten(m), m.get("kredit")], sort_keys=True, default=str)
+    except Exception:
+        return _benoetigt_rechnen(m)
+    if schluessel not in _BENOETIGT_CACHE:
+        if len(_BENOETIGT_CACHE) > 200:
+            _BENOETIGT_CACHE.clear()
+        _BENOETIGT_CACHE[schluessel] = _benoetigt_rechnen(m)
+    return _BENOETIGT_CACHE[schluessel]
+
+
+def _benoetigt_rechnen(m):
     """Benoetigte Rendite p.a. fuers Zielvermoegen (None ohne Ziel).
     Mit Aufbau (> 0 Jahre): Ziel = Vermoegen am Ende des Aufbaus.
     Ohne Aufbau (0 Jahre): Ziel = Vermoegen am Ende der Entnahme -> benoetigte
@@ -2251,6 +2268,41 @@ def _q_voll(h):
     return aus, stand
 
 
+_BW_CACHE = {}
+
+
+def _bw_basis(h, strategie):
+    """-> dict(roh, titel, stand, qvoll, q_stand, basis, modell, ctx, scores) - einmal je Datenstand
+    und Strategie gerechnet und zwischengespeichert (Marktdaten, fuer alle Benutzer gleich).
+    scores: {kennung: bewertung} fuer ALLE Werte - Filter und Seitenwechsel rechnen nichts neu."""
+    roh, titel, stand = _gross_daten(h)
+    qvoll, q_stand = _q_voll(h)
+    schluessel = (stand, q_stand, strategie, len(roh), len(qvoll))
+    c = _BW_CACHE.get(schluessel)
+    if c is None:
+        basis = []
+        for z in roh:
+            r = {"r1": z.get("1J"), "r3": _pa(z.get("3J"), 3), "r5": _pa(z.get("5J"), 5),
+                 "r10": _pa(z.get("10J"), 10)}
+            basis.append(dict(z, **r, qd=qvoll.get(z["kennung"]) if z["typ"] == "aktie" else None))
+        modell = BW.Modell(basis, strategie) if basis else None
+        ctx = AN.kontext(basis) if basis else {"median": {}, "benchmark": None}
+        c = {"roh": roh, "titel": titel, "stand": stand, "qvoll": qvoll, "q_stand": q_stand, "basis": basis,
+             "modell": modell, "ctx": ctx, "scores": {}}
+        if len(_BW_CACHE) > 8:
+            _BW_CACHE.clear()
+        _BW_CACHE[schluessel] = c
+    return c
+
+
+def _bw_score(c, z):
+    """Bewertung eines Katalogwerts aus dem Zwischenspeicher (sonst einmal rechnen)."""
+    k = (z.get("typ"), z.get("kennung"))
+    if k not in c["scores"]:
+        c["scores"][k] = c["modell"].bewerte(z) if c["modell"] else None
+    return c["scores"][k]
+
+
 def _q_daten(h):
     """{yahoo_symbol: (punkte, klasse)} aus dem Qualitaets-Score (falls vorhanden)."""
     return {s_: (e.get("gesamt"), e.get("klasse")) for s_, e in _q_voll(h)[0].items()}
@@ -2576,12 +2628,14 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ct
 
 
 def _katalog_gross(m, h):
-    roh, titel, stand = _gross_daten(h)
+    strategie = st.session_state.get("pl_gk_strat") or "Ausgewogen"
+    c_bw = _bw_basis(h, strategie)
+    roh, titel, stand = c_bw["roh"], c_bw["titel"], c_bw["stand"]
     if not roh:
         st.info("Die Liste aller Werte entsteht beim nächsten Lauf des Watchlist-Agenten (täglich morgens, oder "
                 "auf GitHub unter Actions → Watchlist Top 50 → Run workflow).")
         return
-    qvoll, q_stand = _q_voll(h)
+    qvoll, q_stand = c_bw["qvoll"], c_bw["q_stand"]
     qd = {s_: (e.get("gesamt"), e.get("klasse")) for s_, e in qvoll.items()}
     try:
         stand_txt = datetime.datetime.fromisoformat(stand).strftime("%d.%m.%Y")
@@ -2616,12 +2670,9 @@ def _katalog_gross(m, h):
                  "Q-Score": "q", "Div. %": "div", "Vola 1J": "vola", "Max DD": "maxdd", "Name": "name"}[sortierung]
     feld_min = feld_sort if feld_sort in ("r1", "r3", "r5", "r10") else "r5"
     # Vergleichsbasis fuer den Score: ALLE Werte (Filter aendern den Score eines Werts nicht)
-    basis = []
-    for z in roh:
-        r = {"r1": z.get("1J"), "r3": _pa(z.get("3J"), 3), "r5": _pa(z.get("5J"), 5), "r10": _pa(z.get("10J"), 10)}
-        basis.append(dict(z, **r, qd=qvoll.get(z["kennung"]) if z["typ"] == "aktie" else None))
-    modell = BW.Modell(basis, strategie)
-    ctx = AN.kontext(basis)
+    if c_bw["modell"] is None or c_bw["modell"].strategie != strategie:
+        c_bw = _bw_basis(h, strategie)
+    basis, modell, ctx = c_bw["basis"], c_bw["modell"], c_bw["ctx"]
     zeilen = []
     for z in basis:
         if typ_key and z["typ"] != typ_key:
@@ -2646,7 +2697,7 @@ def _katalog_gross(m, h):
                 continue
         if min_r > -100 and (r[feld_min] is None or r[feld_min] < min_r):
             continue
-        b = modell.bewerte(z)
+        b = _bw_score(c_bw, z)
         zeilen.append(dict(z, q=q[0] if q else None, klasse=q[1] if q else None, bw=b,
                            score=b["score_genau"] if b else None))
     if feld_sort == "name":
@@ -3122,17 +3173,12 @@ def _bausteine_bewertung(m, h, hist_assets=None):
     Kurshistorie des Planers gerechnet und gegen dieselbe Vergleichsgruppe bewertet.
     -> ({asset_id: {"z", "b", "a", "quelle"}}, stand_txt, q_stand_txt)"""
     hist_assets = hist_assets or {}
-    roh, _titel, stand = _gross_daten(h)
-    qvoll, q_stand = _q_voll(h)
-    basis = []
-    for z in roh:
-        r = {"r1": z.get("1J"), "r3": _pa(z.get("3J"), 3), "r5": _pa(z.get("5J"), 5), "r10": _pa(z.get("10J"), 10)}
-        basis.append(dict(z, **r, qd=qvoll.get(z["kennung"]) if z["typ"] == "aktie" else None))
+    strategie = st.session_state.get("pl_gk_strat") or "Ausgewogen"
+    c_bw = _bw_basis(h, strategie)
+    basis, stand, qvoll, q_stand = c_bw["basis"], c_bw["stand"], c_bw["qvoll"], c_bw["q_stand"]
     if not basis:
         return {}, None, None
-    strategie = st.session_state.get("pl_gk_strat") or "Ausgewogen"
-    modell = BW.Modell(basis, strategie)
-    ctx = AN.kontext(basis)
+    modell, ctx = c_bw["modell"], c_bw["ctx"]
     nach_kennung = {str(z["kennung"] or "").upper(): z for z in basis}
     nach_isin = {z["isin"]: z for z in basis if z.get("isin")}
     _, stand_k = _sc_alter(stand)
@@ -3399,11 +3445,18 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
         st.caption(f"Analyse der Bausteine nicht verfügbar ({ex}).")
 
     _abschnitt("Baustein hinzufügen")
-    weg_ = st.pills("Hinzufügen über", ["📋 Katalog", "🔎 WKN / ISIN"], default="📋 Katalog", key="pl_add_art")
-    if weg_ == "🔎 WKN / ISIN":
-        _suche_hinzufuegen(m, h)
+    leer = not any(a_.get("enabled") and a_.get("category") != "cash" for a_ in m["assets"])
+    # Der Katalog (alle Werte mit Score) ist der aufwendigste Teil der Seite - er wird nur
+    # gezeichnet, wenn er gebraucht wird; der Schalter merkt sich die Wahl in der Sitzung.
+    if st.toggle("➕ Katalog und Suche öffnen", value=st.session_state.get("pl_add_offen", leer),
+                 key="pl_add_offen", help="Alle Werte der Watchlist mit Score und Analyse oder Suche per WKN/ISIN"):
+        weg_ = st.pills("Hinzufügen über", ["📋 Katalog", "🔎 WKN / ISIN"], default="📋 Katalog", key="pl_add_art")
+        if weg_ == "🔎 WKN / ISIN":
+            _suche_hinzufuegen(m, h)
+        else:
+            _katalog(m, h)
     else:
-        _katalog(m, h)
+        st.caption("Zum Hinzufügen neuer ETFs, Aktien oder Wikifolios den Schalter einschalten.")
 
     _abschnitt("Baustein entfernen")
     c9, c10 = st.columns([3, 1])
