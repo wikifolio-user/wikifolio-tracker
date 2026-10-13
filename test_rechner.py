@@ -783,6 +783,73 @@ class TestRenderSmoke(unittest.TestCase):
         self._run(A, session={"abf_wk": 200000.0, "abf_kirche": "9 % (übrige Länder)",
                               "abf_veranl": "Zusammen (Splitting)", "abf_rv": 5000.0, "abf_bav": 3000.0})
 
+    def _run_kw(self, modul, session=None, query=None, **kw):
+        st = _fake_streamlit(session, query)
+        sys.modules["streamlit"] = st
+        modul.render(**kw)
+        self.assertTrue(st.downloads and st.downloads[-1].startswith(b"%PDF"), "render nicht bis zum PDF gelaufen")
+        return st
+
+    def test_zinsrechner_neuer_benutzer_startet_bei_null(self):
+        st = self._run_kw(Z, query={"ansicht": "zins"}, null=True)
+        for k in ("zr_a", "zr_s", "zr_dy", "zr_z", "zr_n", "zr_f", "zr_st", "zr_fb"):
+            self.assertEqual(st.session_state[k], 0, k)
+        self.assertEqual(st.session_state["zr_e"], 0.0)          # Endkapital bei lauter Nullen
+
+    def test_zinsrechner_admin_behaelt_standard(self):
+        st = self._run_kw(Z, query={"ansicht": "zins"})
+        self.assertEqual((st.session_state["zr_s"], st.session_state["zr_z"], st.session_state["zr_n"]),
+                         (100.0, 5.0, 10))
+
+    def test_zinsrechner_gemerkte_werte_ohne_link_bleiben(self):
+        # Sitzung (frisch vorbelegt) und gemerkte Werte werden NICHT vom Standard ueberschrieben
+        st = self._run_kw(Z, session={"zr_a": 1234.0, "zr_z": 3.0}, query={"ansicht": "zins"},
+                          gespeichert={"zr_s": 55.0, "zr_a": 1.0, "zr_sp": "2x200", "zr_wg": 4.0}, null=True)
+        self.assertEqual(st.session_state["zr_a"], 1234.0)      # Sitzung vor Gemerktem
+        self.assertEqual(st.session_state["zr_z"], 3.0)
+        self.assertEqual(st.session_state["zr_s"], 55.0)        # aus dem Gemerkten
+        self.assertEqual(st.session_state["zr_sp"], "2x200")
+        self.assertEqual(st.session_state["zr_wg"], 4.0)
+        self.assertEqual(st.session_state["zr_n"], 0)           # Rest: Null-Start
+
+    def test_zinsrechner_link_mit_werten_gewinnt(self):
+        st = self._run_kw(Z, session={"zr_a": 1234.0}, query={"ansicht": "zins", "a": "5000"},
+                          gespeichert={"zr_s": 55.0}, null=True)
+        self.assertEqual(st.session_state["zr_a"], 5000.0)
+        self.assertEqual(st.session_state["zr_s"], 100.0)       # Link = Abweichungen vom Standard
+
+    def test_zinsrechner_init_prueft_gemerkte_werte(self):
+        ss = {}
+        self.assertFalse(Z.init_werte(ss, {}, {"zr_si": 5, "zr_z": 1e9, "zr_calc": "x", "zr_n": 12.0,
+                                               "zr_zielwert": "kaputt"}, null=True))
+        self.assertEqual((ss["zr_si"], ss["zr_z"], ss["zr_calc"], ss["zr_n"]), (1, 100.0, "e", 12))
+        self.assertNotIn("zr_zielwert", ss)
+        self.assertEqual(ss["zr_wg"], 0.0)
+        self.assertEqual(Z.standard_werte(False), Z.STANDARD)
+
+    def test_abfindung_neuer_benutzer_startet_bei_null(self):
+        st = self._run_kw(A, null=True)
+        self.assertEqual(st.session_state["abf_summe"], 0.0)
+        self.assertEqual(st.session_state["abf_brutto"], 0.0)
+        self.assertEqual(st.session_state["abf_av_jahre"], 1)   # Feld-Minimum
+        self.assertTrue(all(v in (0, 0.0, 1, 200.0) for v in A.NULL_WERTE.values()))
+
+    def test_abfindung_gemerkte_werte(self):
+        st = self._run_kw(A, session={"abf_jahr1": 1999, "abf_dienst": 12.0},
+                          gespeichert={"abf_summe": 80000.0, "abf_kirche": "gibt es nicht", "abf_g_immo": True,
+                                       "abf_brutto": "x"}, null=True)
+        self.assertNotIn("abf_jahr1", st.session_state)         # ungueltige Auswahl entfernt
+        self.assertEqual(st.session_state["abf_dienst"], 12)
+        self.assertIsInstance(st.session_state["abf_dienst"], int)
+        self.assertEqual(st.session_state["abf_summe"], 80000.0)
+        self.assertNotIn("abf_kirche", st.session_state)
+        self.assertIs(st.session_state["abf_g_immo"], True)
+        self.assertEqual(st.session_state["abf_brutto"], 0.0)   # kaputter Wert -> Null-Start
+
+    def test_abfindung_admin_ohne_vorgaben(self):
+        st = self._run_kw(A)
+        self.assertNotIn("abf_summe", st.session_state)          # Feld-Standard (50.000 €) gilt
+
 
 if __name__ == "__main__":
     unittest.main()
