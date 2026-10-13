@@ -704,7 +704,7 @@ st.markdown("""
     .pt td.q-fokus-hl, .pt th.q-fokus-hl { background: rgba(255, 255, 255, 0.05); }
     .q-legende { font-size: 0.72rem; color: var(--label); margin: -4px 0 10px; }
     .q-kpis {
-        display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         gap: 8px; margin: 6px 0 12px;
     }
     .q-kpi {
@@ -874,7 +874,25 @@ st.markdown("""
         font-size: 0.9rem; color: var(--muted); font-weight: 600;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .block-container { padding-top: 0.8rem; padding-bottom: 4rem; max-width: 780px; }
+    /* ---------- VOLLE BREITE, RESPONSIV (gilt fuer alle Ansichten) ----------
+       Der Inhalt nutzt die ganze verfuegbare Breite (mit Sidebar: den Rest daneben);
+       seitliche Abstaende wachsen nur maessig mit dem Bildschirm. Kein seitliches
+       Scrollen der Seite - breite Tabellen scrollen in ihrem eigenen Rahmen. */
+    .block-container, [data-testid="stMainBlockContainer"] {
+        padding-top: 0.8rem; padding-bottom: 4rem;
+        max-width: 100% !important; width: 100% !important;
+        padding-left: clamp(12px, 2.6vw, 48px) !important; padding-right: clamp(12px, 2.6vw, 48px) !important;
+    }
+    html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+        overflow-x: hidden;
+    }
+    [data-testid="stMarkdownContainer"] img, [data-testid="stMarkdownContainer"] svg,
+    [data-testid="stMarkdownContainer"] iframe, [data-testid="stImage"] img { max-width: 100%; height: auto; }
+    [data-testid="stElementContainer"], [data-testid="stColumn"], [data-testid="stVerticalBlock"] { min-width: 0; }
+    [data-testid="stDataFrame"], [data-testid="stTable"], [data-testid="stPlotlyChart"],
+    [data-testid="stVegaLiteChart"] { max-width: 100%; }
+    [data-testid="stTable"], [data-testid="stMarkdownContainer"] table { display: block; overflow-x: auto; }
+    [data-testid="stMarkdownContainer"] .pt, [data-testid="stMarkdownContainer"] .ue-wrap table { display: table; }
 
     /* ---------- EINHEITLICHES ABSTANDS-RASTER ----------
        Streamlit setzt zwischen allen Bloecken 1rem. Zusammen mit den eigenen
@@ -2504,14 +2522,27 @@ LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_M
 NAV_CSS = """
 <style>
 /* ================= STARTSEITE: Neon-Weiss ================= */
-.st-key-nav_menue { max-width: 640px; margin: 0 auto; position: relative; }
+.st-key-nav_menue { max-width: 100%; margin: 0 auto; position: relative; }
+/* Kacheln je Gruppe: Handy 2, Tablet 3, Desktop 4, breite Monitore 5 je Zeile */
+.st-key-nav_menue [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+.st-key-nav_menue [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    flex: 0 1 calc((100% - 12px) / 2) !important; max-width: calc((100% - 12px) / 2) !important; }
+@media (min-width: 760px) {
+  .st-key-nav_menue [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+      flex-basis: calc((100% - 24px) / 3) !important; max-width: calc((100% - 24px) / 3) !important; } }
+@media (min-width: 1150px) {
+  .st-key-nav_menue [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+      flex-basis: calc((100% - 36px) / 4) !important; max-width: calc((100% - 36px) / 4) !important; } }
+@media (min-width: 1700px) {
+  .st-key-nav_menue [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+      flex-basis: calc((100% - 48px) / 5) !important; max-width: calc((100% - 48px) / 5) !important; } }
 .st-key-nav_menue::before {
     content: ""; position: absolute; inset: -30px -10px; z-index: -1; pointer-events: none;
     background: radial-gradient(520px 320px at 50% 0%, rgba(255, 255, 255, 0.07), transparent 70%);
 }
 .st-key-nav_menue [data-testid="stVerticalBlock"] { gap: 12px !important; }
-.st-key-nav_menue [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 12px !important; }
-.st-key-nav_menue [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
+.st-key-nav_menue [data-testid="stHorizontalBlock"] { gap: 12px !important; }
+.st-key-nav_menue [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
 /* Streamlit zieht Markdown-Bloecke unten um 1rem hoch - hier nicht (sonst
    rutschen die Ueberschriften unter die Kacheln) */
 .st-key-nav_menue [data-testid="stMarkdown"], .st-key-nav_menue .stMarkdown,
@@ -3035,15 +3066,16 @@ def navigation():
                 verzug = f"{[t for t, _ in NAV_ZEILEN].index(titel) * 0.25 + 0.3:.2f}s"
                 st.markdown(f'<div class="nav-gruppe"><span class="nav-wander" style="animation-delay:{verzug}">'
                             f'{titel}</span></div>', unsafe_allow_html=True)
-                for i in range(0, len(ansichten), 2):
-                    spalten = st.columns(2)
-                    for spalte, ansicht in zip(spalten, ansichten[i:i + 2]):
-                        idx = ANSICHTEN.index(ansicht)
-                        spalte.button(NAV_NAMEN.get(ansicht, ansicht), key=f"nav_b{idx}",
-                                      width="stretch", on_click=_nav_waehle, args=(ansicht,))
-                        if titel in NAV_FARBEN:
-                            farb_css.append(f".st-key-nav_menue .st-key-nav_b{idx} button {{ border-color: {farbe} !important; "
-                                            f"box-shadow: 0 8px 18px rgba(0,0,0,.55), 0 0 14px {farbe}55 !important; }}")
+                # alle Kacheln der Gruppe in EINER Zeile - das CSS bricht je nach Breite um
+                # (Handy 2, Tablet 3, Desktop 4, breite Monitore 5 nebeneinander)
+                spalten = st.columns(len(ansichten))
+                for spalte, ansicht in zip(spalten, ansichten):
+                    idx = ANSICHTEN.index(ansicht)
+                    spalte.button(NAV_NAMEN.get(ansicht, ansicht), key=f"nav_b{idx}",
+                                  width="stretch", on_click=_nav_waehle, args=(ansicht,))
+                    if titel in NAV_FARBEN:
+                        farb_css.append(f".st-key-nav_menue .st-key-nav_b{idx} button {{ border-color: {farbe} !important; "
+                                        f"box-shadow: 0 8px 18px rgba(0,0,0,.55), 0 0 14px {farbe}55 !important; }}")
             st.markdown("<style>" + "\n".join(farb_css) + "</style>", unsafe_allow_html=True)
         return None
 
