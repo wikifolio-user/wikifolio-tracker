@@ -723,6 +723,20 @@ def _fake_streamlit(session=None, query=None):
         def text_input(self, label, value="", **k):
             return value
 
+        def pills(self, label, options, default=None, key=None, **k):
+            return self._wert(key, default)
+
+        def radio(self, label, options, index=0, key=None, **k):
+            options = list(options)
+            v = self._wert(key, options[index or 0])
+            return v if v in options else options[0]
+
+        def slider(self, label, min_value=None, max_value=None, value=None, key=None, **k):
+            return self._wert(key, value if value is not None else min_value)
+
+        def multiselect(self, label, options, default=None, key=None, **k):
+            return self._wert(key, list(default or []))
+
         def __getattr__(self, n):
             return lambda *a, **k: None
 
@@ -732,6 +746,7 @@ def _fake_streamlit(session=None, query=None):
 
     st = W()
     W.session_state = dict(session or {})
+    W.session_state.setdefault("abf_nav", "💶 Brutto-Netto")   # bisherige Tests: Brutto-Netto-Rechner
     W.downloads = []
     st.query_params = QP(query or {})
     st.column_config = types.SimpleNamespace(NumberColumn=lambda *a, **k: None, TextColumn=lambda *a, **k: None,
@@ -782,6 +797,18 @@ class TestRenderSmoke(unittest.TestCase):
         self._run(A)
         self._run(A, session={"abf_wk": 200000.0, "abf_kirche": "9 % (übrige Länder)",
                               "abf_veranl": "Zusammen (Splitting)", "abf_rv": 5000.0, "abf_bav": 3000.0})
+
+    def test_abfindung_alle_bereiche(self):
+        import abfindung_ui as U
+        for null in (False, True):
+            for b in U.NAV:
+                st = _fake_streamlit({"abf_nav": b, "abf_v_auf_an": True, "abf_v_auf_betrag": 30000.0,
+                                      "abf_f_zugang": datetime.date(2026, 9, 15), "abf_f_art": "aufhebung",
+                                      "abf_sp_an": True})
+                sys.modules["streamlit"] = st
+                A.render(null=null)
+                if b in (U.NAV[2], U.NAV[7]):
+                    self.assertTrue(st.downloads and st.downloads[-1].startswith(b"%PDF"), b)
 
     def _run_kw(self, modul, session=None, query=None, **kw):
         st = _fake_streamlit(session, query)
