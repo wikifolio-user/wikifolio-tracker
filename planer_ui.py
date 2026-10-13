@@ -1528,6 +1528,19 @@ WZ_CSS = """
 .wz-vs-k { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
 .wz-vs-k div { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 5px 7px; font-size: 0.68rem; color: #8A9099; }
 .wz-vs-k b { display: block; font-size: 0.92rem; color: #FFFFFF; }
+.wz-liste { margin: 2px 0 8px; }
+.wz-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 0.8rem;
+          color: #C9CDD3; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.wz-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wz-row span i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
+.wz-row b { color: #FFFFFF; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wz-kz .wz-row { font-size: 0.82rem; }
+.wz-vs-u { font-size: 0.66rem; letter-spacing: 1.1px; text-transform: uppercase; color: #8A9099; font-weight: 800;
+           margin: 10px 0 2px; }
+.wz-mehr { font-size: 0.72rem; color: #8A9099; padding-top: 4px; }
+.wz-hinweis { font-size: 0.74rem; color: #8DBBFF; background: rgba(76,154,255,0.08); border-radius: 8px;
+              padding: 5px 8px; margin: 4px 0 8px; }
+.wz-hinweis.wz-rot { color: #F5A3A8; background: rgba(234,57,67,0.1); }
 .wz-leer { border: 1px dashed rgba(255,255,255,0.25); border-radius: 12px; padding: 14px; text-align: center;
            color: #C9CDD3; font-size: 0.84rem; margin: 6px 0 10px; }
 .st-key-pl_wz_weiter button { background: #16305A !important; border: 1px solid #4C9AFF !important; min-height: 46px; }
@@ -1672,58 +1685,90 @@ def _vs_normalisieren():
         _neu_zeichnen()
 
 
+VS_GRUPPEN = {"index": ("ETFs & Indizes", "#4C9AFF"), "aktie": ("Aktien", "#A78BFA"),
+              "wikifolio": ("Wikifolios", "#16C784"), "hebel": ("Hebel-Produkte", "#F5B942"),
+              "krypto": ("Krypto", "#FB923C"), "cash": ("Reserve / Cash", "#94A3B8")}
+VS_TOP = 8
+
+
 def _vorschau(m, R, mobil=False):
-    """Kompakte, live aktualisierte Portfolio-Vorschau mit Donut, Summe und direkter Bearbeitung."""
+    """Kompakte, live aktualisierte Portfolio-Vorschau: Aufteilung nach Art (Donut), Eckdaten als
+    Liste, die groessten Positionen und EIN Bearbeitungsfeld (passt auch in eine schmale Spalte)."""
     w = E.gewichte(m)
-    aktiv = [a for a in E.aktive_assets(m)]
     summe = E.gewichte_summe(m)
     z = R.get("zus") or {}
     rahmen = m["rahmen"]
+    auto = _auto_modus(m)
     port_r = sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in w.items())
     st.markdown('<div class="wz-vs-t">📊 Dein Portfolio</div>', unsafe_allow_html=True)
-    if not aktiv or summe <= 0:
+    ids = sorted([a["id"] for a in E.aktive_assets(m) if w.get(a["id"], 0) > 0], key=lambda i: -w[i])
+    if not ids or summe <= 0:
         st.markdown('<div class="wz-leer">Noch keine Bausteine gewichtet.<br>Wähle in Schritt 2 ETFs, Aktien oder '
                     'Wikifolios aus – sie erscheinen dann hier.</div>', unsafe_allow_html=True)
         st.button("🧩 Bausteine auswählen", key="pl_vs_leer", width="stretch", on_click=_geh_zu, args=(1,))
         return
-    ids = [a["id"] for a in aktiv if w.get(a["id"], 0) > 0]
-    fig = go.Figure(go.Pie(labels=[_asset(m, i)["name"] for i in ids], values=[w[i] * 100 for i in ids], hole=0.62,
-                           sort=False, marker=dict(colors=FARBEN[:len(ids)] * 3, line=dict(color="#000", width=1)),
+    # 1) Aufteilung nach Art - wenige, feste Farben statt einer Farbe je Position
+    gruppen = {}
+    for i in ids:
+        typ = D.KATEGORIEN.get(_asset(m, i)["category"], {}).get("typ", "index")
+        gruppen[typ] = gruppen.get(typ, 0.0) + w[i] * 100
+    reihen = sorted(gruppen.items(), key=lambda x: -x[1])
+    ok_summe = abs(summe - 100) <= 0.05
+    fig = go.Figure(go.Pie(labels=[VS_GRUPPEN.get(k, (k, "#94A3B8"))[0] for k, _ in reihen],
+                           values=[v for _, v in reihen], hole=0.7, sort=False, direction="clockwise",
+                           marker=dict(colors=[VS_GRUPPEN.get(k, (k, "#94A3B8"))[1] for k, _ in reihen],
+                                       line=dict(color="#0B0C0E", width=2)),
                            textinfo="none", hovertemplate="%{label}: %{value:.1f} %<extra></extra>"))
-    _layout(fig, 170 if mobil else 200, legende=False)
-    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0),
-                      annotations=[dict(text=f"<b>{_de(summe, 1)} %</b>", x=0.5, y=0.5, showarrow=False,
-                                        font=dict(size=16, color="#16C784" if abs(summe - 100) <= 0.05 else "#EA3943"))])
+    fig.update_layout(height=150 if mobil else 165, margin=dict(l=0, r=0, t=0, b=0), showlegend=False,
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      annotations=[dict(text=f"<b>{_de(summe, 1)} %</b><br><span style='font-size:10px'>"
+                                         f"{len(ids)} Positionen</span>", x=0.5, y=0.5, showarrow=False,
+                                        font=dict(size=15, color="#FFFFFF" if (ok_summe or auto) else "#EA3943"))])
     _chart(fig, "pl_vs_donut")
-    if abs(summe - 100) > 0.05 and not _auto_modus(m):
-        st.markdown(f'<div class="wz-check"><b class="pl-schlecht">⚠ Summe {_de(summe, 1)} %</b> – '
-                    f'{_de(abs(summe - 100), 1)} % {"zu viel" if summe > 100 else "fehlen"}.</div>',
-                    unsafe_allow_html=True)
+    st.markdown('<div class="wz-liste">' + "".join(
+        f'<div class="wz-row"><span><i style="background:{VS_GRUPPEN.get(k, (k, "#94A3B8"))[1]}"></i>'
+        f'{_esc(VS_GRUPPEN.get(k, (k, ""))[0])}</span><b>{_de(v, 1)} %</b></div>' for k, v in reihen)
+        + "</div>", unsafe_allow_html=True)
+    if not ok_summe and not auto:
+        st.markdown(f'<div class="wz-hinweis wz-rot">⚠ Summe {_de(summe, 1)} % – {_de(abs(summe - 100), 1)} % '
+                    f'{"zu viel" if summe > 100 else "fehlen"}</div>', unsafe_allow_html=True)
         st.button("Auf 100 % normalisieren", key="pl_vs_norm", width="stretch", on_click=_vs_normalisieren)
+
+    # 2) Eckdaten als Liste (Bezeichnung links, Wert rechts)
     endwert = z.get("endwert_netto", z.get("endwert"))
-    kz = [("Rendite Ø (Start)", _pct(port_r)), ("Positionen", str(len(ids)))]
+    kz = [("Rendite Ø am Start", _pct(port_r))]
     if int(rahmen.get("horizont_jahre") or 0) > 0 and endwert is not None:
-        kz.append((f"Endwert nach {int(rahmen['horizont_jahre'])} J.", _eur(endwert)))
-        ziel = float(rahmen.get("zielvermoegen") or 0)
-        if ziel > 0:
-            kz.append(("Ziel", ("✓ erreicht" if z.get("ziel_erreicht") else "✕ nicht erreicht")))
-    st.markdown('<div class="wz-vs-k">' + "".join(f"<div>{_esc(l)}<b>{_esc(v)}</b></div>" for l, v in kz)
-                + "</div>", unsafe_allow_html=True)
-    auto = _auto_modus(m)
+        kz.append((f"Endwert nach {int(rahmen['horizont_jahre'])} J.", "≈ " + _kurz_eur(E.runden_ungefaehr(endwert))))
+        if float(rahmen.get("zielvermoegen") or 0) > 0:
+            kz.append(("Ziel " + _kurz_eur(float(rahmen["zielvermoegen"])),
+                       '<span class="pl-gut">✓ erreicht</span>' if z.get("ziel_erreicht")
+                       else '<span class="pl-schlecht">✕ nicht erreicht</span>'))
+    st.markdown('<div class="wz-liste wz-kz">' + "".join(
+        f'<div class="wz-row"><span>{_esc(l)}</span><b>{v if "<span" in v else _esc(v)}</b></div>' for l, v in kz)
+        + "</div>", unsafe_allow_html=True)
     if auto:
-        st.caption("Gewichte werden automatisch verteilt (" + {"ziel": "aufs Zielvermögen", "manuell":
-                   "auf die feste Rendite", "entnahme": "auf die Entnahme-Rendite"}.get(auto, auto)
-                   + ") – Bearbeiten in Schritt 1 ausschalten.")
-    for n, i in enumerate(ids):
-        a = _asset(m, i)
-        c1, c2, c3 = st.columns([5, 3, 1.4], vertical_alignment="center")
-        c1.markdown(f'<div class="wz-check"><span style="color:{FARBEN[n % len(FARBEN)]}">●</span> '
-                    f'{_esc(a["name"])}</div>', unsafe_allow_html=True)
-        c2.number_input("Gewicht %", 0.0, 100.0, float(a.get("targetWeight") or 0.0), step=0.5, format="%.1f",
-                        key=_k(f"vs_w_{i}"), label_visibility="collapsed", disabled=bool(auto),
-                        on_change=_vs_gewicht, args=(i,), help=f"Gewicht von {a['name']} in %")
-        c3.button("✕", key=_k(f"vs_x_{i}"), help=f"{a['name']} deaktivieren (0 %, jederzeit wieder einschaltbar)",
-                  on_click=_vs_aus, args=(i,), disabled=bool(auto))
+        st.markdown('<div class="wz-hinweis">⚙️ Gewichte automatisch ' + {
+            "ziel": "aufs Zielvermögen", "manuell": "auf die feste Rendite",
+            "entnahme": "auf die Entnahme-Rendite"}.get(auto, "") + " verteilt</div>", unsafe_allow_html=True)
+
+    # 3) Groesste Positionen
+    st.markdown('<div class="wz-vs-u">Größte Positionen</div><div class="wz-liste">' + "".join(
+        f'<div class="wz-row"><span>{_esc(_asset(m, i)["name"])}</span><b>{_de(w[i] * 100, 1)} %</b></div>'
+        for i in ids[:VS_TOP]) + (f'<div class="wz-mehr">+ {len(ids) - VS_TOP} weitere</div>'
+                                  if len(ids) > VS_TOP else "") + "</div>", unsafe_allow_html=True)
+
+    # 4) Eine Position bearbeiten (nur ohne Automatik)
+    if not auto:
+        with st.expander("✏️ Position ändern"):
+            if st.session_state.get("pl_vs_wahl") not in ids:
+                st.session_state.pop("pl_vs_wahl", None)
+            i = st.selectbox("Position", ids, format_func=lambda x: _asset(m, x)["name"], key="pl_vs_wahl",
+                             label_visibility="collapsed")
+            a = _asset(m, i)
+            st.number_input("Gewicht %", 0.0, 100.0, float(a.get("targetWeight") or 0.0), step=0.5, format="%.1f",
+                            key=_k(f"vs_w_{i}"), on_change=_vs_gewicht, args=(i,))
+            st.button("Deaktivieren (0 %)", key=_k(f"vs_x_{i}"), width="stretch", on_click=_vs_aus, args=(i,),
+                      help="Bleibt in der Liste und ist in Schritt 2 jederzeit wieder einschaltbar")
 
 
 def _b_ueberblick(m, R, platz):
@@ -5321,7 +5366,7 @@ def render(h):
             vorschau_platz = st.empty()
             inhalt = st.container()
         else:
-            inhalt, rechts = st.columns([2.3, 1], gap="large")
+            inhalt, rechts = st.columns([2.2, 1], gap="medium")
             vorschau_platz = rechts.empty()
         seiten_liste = SCHRITTE[schritt]["seiten"]
         with inhalt:
