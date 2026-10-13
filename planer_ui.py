@@ -34,6 +34,7 @@ import streamlit as st
 
 import planer_daten as D
 import planer_engine as E
+import bewertung as BW
 
 try:
     import nutzerdaten as N
@@ -102,6 +103,37 @@ CSS = """
 }
 [data-testid="stFormSubmitButton"] button:hover { filter: brightness(1.2); }
 @media (max-width: 700px) { .pl-zeile { font-size: 0.84rem; } }
+/* Transparente Rangliste (bewertung.py) */
+.sc-karte { border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 10px 12px 8px;
+            margin: 0 0 10px; background: rgba(255, 255, 255, 0.03); }
+.sc-kopf { display: flex; align-items: center; gap: 8px; }
+.sc-platz { font-weight: 900; font-size: 0.95rem; width: 26px; height: 26px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+            background: rgba(255, 255, 255, 0.1); color: #FFFFFF; }
+.sc-name { font-weight: 800; color: #FFFFFF; font-size: 0.92rem; flex: 1 1 auto; min-width: 0;
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-typ { font-size: 0.66rem; color: #8A9099; font-weight: 700; text-transform: uppercase; }
+.sc-wert { font-weight: 900; font-size: 1.45rem; line-height: 1; }
+.sc-wert small { font-size: 0.62rem; color: #8A9099; font-weight: 700; }
+.sc-balken { height: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); margin: 7px 0 8px;
+             overflow: hidden; }
+.sc-balken > div { height: 100%; border-radius: 4px; }
+.sc-gruen { color: #16C784; } .sc-gelb { color: #F5B942; } .sc-rot { color: #EA3943; } .sc-grau { color: #8A9099; }
+.sc-bg-gruen { background: #16C784; } .sc-bg-gelb { background: #F5B942; } .sc-bg-rot { background: #EA3943; }
+.sc-bg-grau { background: #5A606B; }
+.sc-teil { display: grid; grid-template-columns: minmax(0, 9.5em) 1fr 2.2em 3.2em; gap: 6px; align-items: center;
+           font-size: 0.74rem; color: #D6D9DE; margin: 2px 0; }
+.sc-teil .sc-mini { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.sc-teil .sc-mini > div { height: 100%; }
+.sc-teil .sc-zahl { text-align: right; font-weight: 800; }
+.sc-teil .sc-beitrag { text-align: right; color: #8A9099; font-size: 0.7rem; }
+.sc-warum { font-size: 0.8rem; color: #D6D9DE; margin: 8px 0 4px; line-height: 1.45; }
+.sc-pm { font-size: 0.76rem; line-height: 1.45; margin: 2px 0; }
+.sc-pm .sc-plus { color: #9BE8C6; } .sc-pm .sc-minus { color: #F5A3A8; }
+.sc-meta { font-size: 0.68rem; color: #8A9099; margin-top: 4px; }
+.sc-formel { font-size: 0.78rem; color: #D6D9DE; background: rgba(76, 154, 255, 0.08);
+             border: 1px solid rgba(76, 154, 255, 0.3); border-radius: 8px; padding: 6px 10px; margin: 6px 0 10px; }
+@media (max-width: 700px) { .sc-teil { grid-template-columns: minmax(0, 7.5em) 1fr 2.2em 3em; } }
 </style>
 """
 
@@ -1808,7 +1840,8 @@ def _spalte(name, pinned=False, **kw):
 PFAD_KATALOG_GROSS = "state/planer/katalog_gross_{}.json"
 KATALOG_GROSS_TEILE = 4
 GROSS_TYPEN = {"aktie": "Aktien", "etf": "ETFs & ETPs", "wikifolio": "Wikifolios"}
-GROSS_SORT = ["5J p.a.", "3J p.a.", "1J %", "10J p.a.", "Q-Score", "Div. %", "Vola 1J", "Max DD", "Name"]
+GROSS_SORT = ["⭐ Gesamt-Score", "5J p.a.", "3J p.a.", "1J %", "10J p.a.", "Q-Score", "Div. %", "Vola 1J", "Max DD",
+              "Name"]
 Q_KLASSEN_TXT = {"prio": "Hohe Analysepriorität", "beobachten": "Beobachtungsliste", "nicht": "Nicht weiterverfolgen"}
 
 
@@ -1833,21 +1866,27 @@ def _gross_daten(h):
     return [dict(zip(felder, z)) for z in zeilen], titel, stand
 
 
-def _q_daten(h):
-    """{yahoo_symbol: (punkte, klasse)} aus dem Qualitaets-Score (falls vorhanden)."""
-    aus = {}
+def _q_voll(h):
+    """-> ({yahoo_symbol: alle Felder des Qualitaets-Agenten}, stand) - fuer die transparente Bewertung."""
+    aus, stand = {}, None
     for i in range(6):
         try:
             d = h["gh_read_taeglich"](f"state/qualitaet/alle_{i}.json", None) or {}
         except Exception:
             d = {}
         f = d.get("felder") or []
-        if "gesamt" not in f:
+        if "gesamt" not in f or "s" not in f:
             continue
-        i_s, i_g, i_k = f.index("s"), f.index("gesamt"), f.index("klasse")
+        stand = d.get("stand") or stand
         for z in d.get("zeilen") or []:
-            aus[z[i_s]] = (z[i_g], z[i_k])
-    return aus
+            e = dict(zip(f, z))
+            aus[e["s"]] = e
+    return aus, stand
+
+
+def _q_daten(h):
+    """{yahoo_symbol: (punkte, klasse)} aus dem Qualitaets-Score (falls vorhanden)."""
+    return {s_: (e.get("gesamt"), e.get("klasse")) for s_, e in _q_voll(h)[0].items()}
 
 
 def _pa(gesamt_pct, jahre):
@@ -1876,13 +1915,200 @@ def _im_portfolio_gross(m, z):
                or (a.get("yahoo") and a["yahoo"] == z["kennung"]) for a in m["assets"])
 
 
+def _score_spalte():
+    hilfe = ("Gesamt-Score 0–100 relativ zur eigenen Anlageklasse (50 = Durchschnitt). "
+             "Gewichtung je nach gewählter Strategie; Erklärung unter der Tabelle.")
+    try:
+        return st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d", help=hilfe,
+                                               width="small")
+    except Exception:
+        return _spalte("Score", format="%d", width="small", help=hilfe)
+
+
+def _sc_farbe(score):
+    return "sc-" + BW.ampel(score)
+
+
+def _sc_zahl(x, dec=0, vz=False):
+    if x is None:
+        return "–"
+    t = f"{x:+.{dec}f}" if vz else f"{x:.{dec}f}"
+    return t.replace(".", ",").replace("-", "−")
+
+
+def _sc_teile_html(b):
+    reihen = []
+    for g in sorted(b["gruppen"], key=lambda x: -x["gewicht"]):
+        sc = g["score"]
+        breite = 0 if sc is None else max(2, sc)
+        farbe = "sc-bg-" + BW.ampel(sc)
+        reihen.append(
+            f'<div class="sc-teil"><span>{_esc(g["label"])} <span class="sc-typ">{g["gewicht"]:.0f} %</span></span>'
+            f'<div class="sc-mini"><div class="{farbe}" style="width:{breite:.0f}%"></div></div>'
+            f'<span class="sc-zahl {_sc_farbe(sc)}">{_sc_zahl(sc)}</span>'
+            f'<span class="sc-beitrag">{_sc_zahl(g["beitrag"], 1, True) if sc is not None else "fehlt"}</span></div>')
+    return "".join(reihen)
+
+
+def _sc_karte(platz, z, b, text):
+    plus = "".join(f'<div class="sc-plus">✓ {_esc(t)}</div>' for t in b["plus"])
+    minus = "".join(f'<div class="sc-minus">✗ {_esc(t)}</div>' for t in b["minus"])
+    hinweise = "".join(f'<span class="pl-badge pl-warn">⚠ {_esc(t)}</span>' for t in b["hinweise"])
+    return (
+        f'<div class="sc-karte"><div class="sc-kopf"><span class="sc-platz">{platz}</span>'
+        f'<span class="sc-name">{_esc(z["name"])}</span><span class="sc-typ">{_esc(GROSS_TYPEN[z["typ"]])}</span>'
+        f'<span class="sc-wert {_sc_farbe(b["score"])}">{b["score"]}<small>/100</small></span></div>'
+        f'<div class="sc-balken"><div class="sc-bg-{BW.ampel(b["score"])}" style="width:{b["score"]}%"></div></div>'
+        f'{_sc_teile_html(b)}'
+        f'<div class="sc-warum"><b>Warum auf diesem Platz?</b> {_esc(text)}</div>'
+        f'<div class="sc-pm">{plus}{minus}</div>{hinweise}'
+        f'<div class="sc-meta">Datenqualität {b["datenqualitaet"]} · {b["abdeckung"] * 100:.0f} % der Kriterien '
+        f'mit Daten · Strategie {_esc(b["strategie"])}</div></div>')
+
+
+def _sc_alter(stand):
+    try:
+        d = datetime.date.fromisoformat(str(stand)[:10])
+    except Exception:
+        return None, "–"
+    return (datetime.date.today() - d).days, d.strftime("%d.%m.%Y")
+
+
+def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h):
+    """'Warum auf diesem Platz?' fuer die ersten drei, Direktvergleich, Einzelwert-Erklaerung
+    und die offengelegte Bewertungsmethode."""
+    mit = [z for z in zeilen if z.get("bw")]
+    if not mit:
+        return
+    nach_score = sortierung == "⭐ Gesamt-Score"
+    _abschnitt("🏅 Warum auf diesem Platz?")
+    alter_k, stand_k = _sc_alter(stand)
+    alter_q, stand_q = _sc_alter(q_stand)
+    zeit = f"Bewertet {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')} · Kurse Stand {stand_k}"
+    if any(z["typ"] == "aktie" for z in mit):
+        zeit += f" · Fundamentaldaten Stand {stand_q}"
+    veraltet = [n for n, a in (("Kurse", alter_k), ("Fundamentaldaten", alter_q if any(
+        z["typ"] == "aktie" for z in mit) else None)) if a is not None and a > 3]
+    st.caption(zeit)
+    if veraltet:
+        st.warning(" und ".join(veraltet) + " sind älter als 3 Tage – die Bewertung kann überholt sein.")
+    if typ_key is None and len({z["typ"] for z in mit[:10]}) > 1:
+        st.caption("ℹ️ Gemischte Liste: Jeder Score ist relativ zur eigenen Anlageklasse (Aktie gegen Aktien, "
+                   "ETF gegen ETFs). Für einen fairen Vergleich oben eine Art wählen.")
+    if not nach_score:
+        st.caption(f"Sortiert nach „{sortierung}“ – für eine Rangfolge nach dem Gesamt-Score oben "
+                   "„⭐ Gesamt-Score“ wählen.")
+
+    top = mit[:3]
+    for i, z in enumerate(top):
+        naechster = top[i + 1] if i + 1 < len(top) else None
+        text = BW.warum(i + 1, z["bw"], naechster["bw"] if naechster else None,
+                        naechster["name"] if naechster else None, nach_score, sortierung)
+        st.markdown(_sc_karte(i + 1, z, z["bw"], text), unsafe_allow_html=True)
+
+    if len(top) >= 2:
+        _abschnitt("⚖️ Direktvergleich der Spitze")
+        keys = []
+        for z in top:
+            for g in z["bw"]["gruppen"]:
+                if g["key"] not in keys:
+                    keys.append(g["key"])
+        kopf = ["Teilscore"] + [f'#{i + 1} {z["name"][:18]}' for i, z in enumerate(top)]
+        reihen = []
+        for k in keys:
+            zellen = [_esc(BW.GRUPPEN[k])]
+            werte = []
+            for z in top:
+                g = next((x for x in z["bw"]["gruppen"] if x["key"] == k), None)
+                werte.append(None if not g else g["score"])
+            beste = max((w for w in werte if w is not None), default=None)
+            for w in werte:
+                fett = ' style="font-weight:900"' if w is not None and w == beste and len(top) > 1 else ""
+                zellen.append(f'<span class="{_sc_farbe(w)}"{fett}>{_sc_zahl(w)}</span>')
+            reihen.append(zellen)
+        reihen.append(["<b>Gesamt</b>"] + [f'<b class="{_sc_farbe(z["bw"]["score"])}">{z["bw"]["score"]}</b>'
+                                           for z in top])
+        _tabelle(kopf, reihen)
+        for i in range(len(top) - 1):
+            a, b = top[i], top[i + 1]
+            abstand, diffs = BW.vergleich(a["bw"], b["bw"])
+            pro = [f"{l} ({_sc_zahl(d, 1, True)})" for l, d in diffs if d > 0.3][:3]
+            contra = [f"{l} ({_sc_zahl(-d, 1, True)})" for l, d in reversed(diffs) if d < -0.3][:2]
+            satz = f"**#{i + 1} vs. #{i + 2}:** Abstand {_sc_zahl(abstand, 1)} Punkte"
+            if abs(abstand) < BW.GLEICHWERTIG:
+                satz += " – praktisch gleichwertig."
+            else:
+                satz += "."
+            if pro:
+                satz += f" #{i + 1} besser bei " + ", ".join(pro) + "."
+            if contra:
+                satz += f" #{i + 2} besser bei " + ", ".join(contra) + "."
+            if a["typ"] != b["typ"]:
+                satz += " (Unterschiedliche Anlageklassen – nur bedingt vergleichbar.)"
+            st.markdown(satz)
+        st.caption("Zahlen in Klammern = Punkte, die der Teilscore zum Gesamt-Score beiträgt (Differenz zwischen "
+                   f"den beiden). Abstände unter {BW.GLEICHWERTIG} Punkten sind innerhalb der Messgenauigkeit.")
+
+    _abschnitt("🔎 Einzelnen Wert erklären")
+    namen = [f'{i + 1}. {z["name"]} ({z["bw"]["score"]})' for i, z in enumerate(mit)]
+    sig = zlib.crc32("|".join(str(z["kennung"]) for z in mit).encode())
+    wahl_i = st.selectbox("Wert", list(range(len(mit))), format_func=lambda i: namen[i], key=f"pl_gk_erkl_{sig}")
+    z = mit[int(wahl_i or 0)]
+    b = z["bw"]
+    teile = " ".join(f'{g["label"]} {_sc_zahl(g["beitrag"], 1, True)}'
+                     for g in sorted(b["gruppen"], key=lambda x: -abs(x["beitrag"])) if g["score"] is not None)
+    st.markdown(f'<div class="sc-formel"><b>{b["score"]}</b> = 50 (neutral) {_esc(teile)}'
+                + (f' · gedämpft auf Datenabdeckung {b["abdeckung"] * 100:.0f} %' if b["abdeckung"] < 0.995 else "")
+                + '</div>', unsafe_allow_html=True)
+    reihen = []
+    for g in sorted(b["gruppen"], key=lambda x: -x["gewicht"]):
+        reihen.append([f'<b>{_esc(g["label"])}</b>', "", "",
+                       f'<b class="{_sc_farbe(g["score"])}">{_sc_zahl(g["score"])}</b>',
+                       f'{g["gewicht"]:.0f} %', f'<b>{_sc_zahl(g["beitrag"], 1, True)}</b>'])
+        for k in g["kriterien"]:
+            reihen.append([f'&nbsp;&nbsp;{_esc(k["label"])}', _esc(k["wert_txt"]), _esc(k["info"]),
+                           f'<span class="{_sc_farbe(k["score"])}">{"–" if k["score"] is None else k["score"]}</span>',
+                           "", ""])
+    _tabelle(["Kriterium", "Wert", "Einordnung", "Punkte", "Gewicht", "Beitrag"], reihen, links=(0, 2))
+    for t in b["hinweise"]:
+        st.caption(f"⚠️ {t}")
+    if b["fehlend"]:
+        st.caption("Ohne Daten (zieht den Score zur Mitte): " + ", ".join(b["fehlend"]))
+
+    with st.expander("ℹ️ Wie wird bewertet? (Methode, Gewichte, Datenlücken)"):
+        st.markdown(
+            "- **Fairer Vergleich:** Aktien werden nur mit Aktien verglichen, ETFs mit ETFs, Wikifolios mit "
+            "Wikifolios – über alle Werte der Watchlist, unabhängig von den Filtern.\n"
+            "- **Kriterium → Punkte:** meist der Rang in der Klasse („besser als 80 % der ETFs“ = 80 Punkte). "
+            "Feste Skalen: Punkte des Qualitäts-Agenten, Länge der Historie (10 Jahre = 100), Streuung, "
+            "Analysten-Revisionen (±10 % = 100/0).\n"
+            "- **Teilscore** = Mittel seiner Kriterien; **Gesamt-Score** = gewichtetes Mittel der Teilscores. "
+            "Er startet bei 50 (neutral), die Beiträge addieren sich genau zum Score.\n"
+            "- **Datenlücken:** Fehlen Kriterien, wird der Score zur Mitte gezogen (Lücken werden weder belohnt "
+            "noch bestraft). Datenqualität: gut ≥ 85 %, mittel ≥ 60 % der Kriterien.\n"
+            f"- **Genauigkeit:** ganze Punkte; Abstände unter {BW.GLEICHWERTIG} Punkten sind praktisch "
+            "gleichwertig. Der Score beschreibt die Vergangenheit und ist keine Empfehlung.")
+        for t_key, t_name in BW.KLASSEN.items():
+            if typ_key and t_key != typ_key:
+                continue
+            gew = modell.gewichte(t_key)
+            st.markdown(f"**{t_name}** – Strategie „{modell.strategie}“: " + " · ".join(
+                f"{BW.GRUPPEN[g]} {w} %" for g, w in sorted(gew.items(), key=lambda x: -x[1])))
+            krit = BW.kriterien_der_klasse(t_key)
+            st.caption("Kriterien: " + "; ".join(
+                f"{BW.GRUPPEN[g]}: " + ", ".join(d[1] for d in krit.values() if d[0] == g) for g in gew))
+            st.caption("Nicht in der Datenquelle (fließt nicht ein): " + ", ".join(BW.NICHT_IN_QUELLE[t_key]))
+            st.caption(f"Vergleichsbasis: {modell.anzahl(t_key)} {t_name}")
+
+
 def _katalog_gross(m, h):
     roh, titel, stand = _gross_daten(h)
     if not roh:
         st.info("Die Liste aller Werte entsteht beim nächsten Lauf des Watchlist-Agenten (täglich morgens, oder "
                 "auf GitHub unter Actions → Watchlist Top 50 → Run workflow).")
         return
-    qd = _q_daten(h)
+    qvoll, q_stand = _q_voll(h)
+    qd = {s_: (e.get("gesamt"), e.get("klasse")) for s_, e in qvoll.items()}
     try:
         stand_txt = datetime.datetime.fromisoformat(stand).strftime("%d.%m.%Y")
     except Exception:
@@ -1905,14 +2131,24 @@ def _katalog_gross(m, h):
     q_filter = c5.selectbox("Qualitäts-Score (Aktien)", ["egal", "Hohe Analysepriorität", "mind. Beobachtungsliste",
                                                          "mind. 60 Punkte", "mind. 70 Punkte"], key="pl_gk_q")
     laenge = c6.selectbox("Anzahl", [50, 100, 250, 500], index=1, key="pl_gk_n")
+    strategie = st.pills("Bewertungs-Strategie", list(BW.STRATEGIEN), default="Ausgewogen", key="pl_gk_strat",
+                         help="Ändert nur die Gewichtung der Teilscores im Gesamt-Score – die Daten bleiben gleich."
+                         ) or "Ausgewogen"
+    st.caption(f"⭐ {BW.STRATEGIEN[strategie]}")
 
     kat_key = next((k for k in kats if titel.get(k, k) == kat_wahl), None)
     min_jahre = {"egal": 0, "≥ 3 Jahre": 3, "≥ 5 Jahre": 5, "≥ 10 Jahre": 10}[hist]
-    feld_sort = {"1J %": "r1", "3J p.a.": "r3", "5J p.a.": "r5", "10J p.a.": "r10", "Q-Score": "q", "Div. %": "div",
-                 "Vola 1J": "vola", "Max DD": "maxdd", "Name": "name"}[sortierung]
+    feld_sort = {"⭐ Gesamt-Score": "score", "1J %": "r1", "3J p.a.": "r3", "5J p.a.": "r5", "10J p.a.": "r10",
+                 "Q-Score": "q", "Div. %": "div", "Vola 1J": "vola", "Max DD": "maxdd", "Name": "name"}[sortierung]
     feld_min = feld_sort if feld_sort in ("r1", "r3", "r5", "r10") else "r5"
-    zeilen = []
+    # Vergleichsbasis fuer den Score: ALLE Werte (Filter aendern den Score eines Werts nicht)
+    basis = []
     for z in roh:
+        r = {"r1": z.get("1J"), "r3": _pa(z.get("3J"), 3), "r5": _pa(z.get("5J"), 5), "r10": _pa(z.get("10J"), 10)}
+        basis.append(dict(z, **r, qd=qvoll.get(z["kennung"]) if z["typ"] == "aktie" else None))
+    modell = BW.Modell(basis, strategie)
+    zeilen = []
+    for z in basis:
         if typ_key and z["typ"] != typ_key:
             continue
         if kat_key and z["kat"] != kat_key:
@@ -1920,7 +2156,7 @@ def _katalog_gross(m, h):
         if such and such not in (z["name"] or "").lower() and such not in (z["kennung"] or "").lower() \
                 and such not in (z.get("isin") or "").lower():
             continue
-        r = {"r1": z.get("1J"), "r3": _pa(z.get("3J"), 3), "r5": _pa(z.get("5J"), 5), "r10": _pa(z.get("10J"), 10)}
+        r = z
         if min_jahre and r[{3: "r3", 5: "r5", 10: "r10"}[min_jahre]] is None:
             continue
         q = qd.get(z["kennung"]) if z["typ"] == "aktie" else None
@@ -1935,7 +2171,9 @@ def _katalog_gross(m, h):
                 continue
         if min_r > -100 and (r[feld_min] is None or r[feld_min] < min_r):
             continue
-        zeilen.append(dict(z, **r, q=q[0] if q else None, klasse=q[1] if q else None))
+        b = modell.bewerte(z)
+        zeilen.append(dict(z, q=q[0] if q else None, klasse=q[1] if q else None, bw=b,
+                           score=b["score_genau"] if b else None))
     if feld_sort == "name":
         zeilen.sort(key=lambda z: (z["name"] or "").lower())
     else:
@@ -1950,14 +2188,21 @@ def _katalog_gross(m, h):
 
     wahl = st.session_state.setdefault("planer_gk_wahl", {})
     df = pd.DataFrame([{
-        "＋": z["kennung"] in wahl, "Name": z["name"], "Typ": GROSS_TYPEN[z["typ"]].split(" ")[0],
+        "＋": z["kennung"] in wahl, "Name": z["name"],
+        "Score": z["bw"]["score"] if z.get("bw") else None,
+        "Daten": {"gut": "● gut", "mittel": "◐ mittel", "gering": "○ gering"}.get((z.get("bw") or {}).get(
+            "datenqualitaet"), "–"),
+        "Typ": GROSS_TYPEN[z["typ"]].split(" ")[0],
         "Kategorie": titel.get(z["kat"], z["kat"]), "1J %": z["r1"], "3J p.a.": z["r3"], "5J p.a.": z["r5"],
         "10J p.a.": z["r10"], "Vola 1J": z.get("vola"), "Max DD": z.get("maxdd"), "Q-Score": z["q"],
         "Div. %": z.get("div"), "WKN/Symbol": z["kennung"],
         "Im Portf.": _im_portfolio_gross(m, z)} for z in zeilen])
-    for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Vola 1J", "Max DD", "Q-Score", "Div. %"):
+    for c in ("Score", "1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Vola 1J", "Max DD", "Q-Score", "Div. %"):
         df[c] = pd.to_numeric(df[c], errors="coerce")
     cfg = {"＋": _spalte("＋", typ="check", width="small", help="Zum Hinzufügen auswählen"),
+           "Score": _score_spalte(),
+           "Daten": _spalte("Daten", typ="text", width="small",
+                            help="Datenqualität: Anteil der Bewertungskriterien, für die Daten vorliegen"),
            "Name": _spalte("Name", pinned=True, typ="text", width="medium"),
            "Typ": _spalte("Typ", typ="text", width="small"), "Kategorie": _spalte("Kategorie", typ="text"),
            "WKN/Symbol": _spalte("WKN/Symbol", typ="text"), "Im Portf.": _spalte("Im Portf.", typ="check", width="small"),
@@ -1975,6 +2220,10 @@ def _katalog_gross(m, h):
             wahl.pop(z["kennung"], None)
     st.caption("Rendite = reine Kursentwicklung in Euro (1 J. gesamt, 3/5/10 J. p.a.), ohne Dividenden. "
                "Hohe Vergangenheitsrenditen sind keine Zukunftserwartung (Winner Bias).")
+    try:
+        _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h)
+    except Exception as e:          # Erklaerung darf die Liste nie blockieren
+        st.caption(f"Bewertungs-Erklärung nicht verfügbar ({e}).")
 
     c7, c8 = st.columns(2)
     gew = c7.number_input("Startgewicht je Baustein %", 0.0, 100.0, 0.0, step=0.5, key="pl_gk_gew",
