@@ -312,7 +312,7 @@ def hinweise(e):
          "der Arbeitgeber zieht zunächst die volle Lohnsteuer ab, die Erstattung kommt mit dem Bescheid.", False),
         ("Arbeitslosengeld: Sperrzeit und Ruhen",
          "Ein Aufhebungsvertrag führt meist zu 12 Wochen Sperrzeit (§ 159 SGB III) – außer mit wichtigem Grund, "
-         "z. B. drohende betriebsbedingte Kündigung und Abfindung bis 0,5 Monatsgehälter je Jahr. Wird die "
+         "z. B. drohende betriebsbedingte Kündigung, eingehaltene Frist und Abfindung zwischen 0,25 und 0,5 Monatsverdiensten je Jahr. Wird die "
          "Kündigungsfrist nicht eingehalten, ruht das ALG zusätzlich (§ 158 SGB III). Die Abfindung selbst wird "
          "nicht auf das ALG angerechnet (anders beim Bürgergeld).", False),
         ("Sozialversicherung",
@@ -973,7 +973,19 @@ def _gueltig(key, wert):
         return isinstance(wert, bool), wert
     if key in AUSWAHL_FELDER:
         return wert in AUSWAHL_FELDER[key](), wert
-    return False, None
+    try:
+        import abfindung_ui as _U          # Felder der erweiterten Bereiche (Modelle, Sozialplan, ALG ...)
+    except Exception:
+        return False, None
+    return _U.gueltig(key, wert)
+
+
+def _ui_felder():
+    try:
+        import abfindung_ui as _U
+        return _U.FELDER
+    except Exception:
+        return {}
 
 
 def startwerte(session_state, gespeichert=None, null=False):
@@ -982,7 +994,7 @@ def startwerte(session_state, gespeichert=None, null=False):
     null=True: fehlende Zahlenfelder starten bei 0 (neuer Benutzer)."""
     for key in list(session_state.keys()):
         key = str(key)
-        if key in NULL_WERTE or key in ZAHL_LEER or key in SCHALTER or key in AUSWAHL_FELDER:
+        if key in NULL_WERTE or key in ZAHL_LEER or key in SCHALTER or key in AUSWAHL_FELDER or key in _ui_felder():
             ok, wert = _gueltig(key, session_state[key])
             if not ok:
                 del session_state[key]
@@ -1116,6 +1128,19 @@ def render(gespeichert=None, null=False):
     startwerte(st.session_state, gespeichert, null)
 
     import zinsrechner as _zr
+    import abfindung_ui as _U
+    _U.halten(st.session_state)            # Eingaben bleiben beim Wechsel der Bereiche erhalten
+    with st.container(key="pl_nav_abf"):   # reine Navigation: ohne Ladebalken
+        bereich = st.pills("Bereich", _U.NAV, default=_U.NAV[0], key="abf_nav",
+                           label_visibility="collapsed") or _U.NAV[0]
+    if bereich != _U.NAV[2]:
+        st.markdown(_zr.FORM_CSS.replace("zr_form", "abf_form").replace("zr_karte_", "abf_karte_")
+                    + ABF_CSS, unsafe_allow_html=True)
+        st.caption("Szenariorechnung · keine Rechts- oder Steuerberatung · Stand Oktober 2026 (Tarif 2027 = Entwurf)")
+        _U.render_bereich(st, pd, bereich, null)
+        return
+    st.caption("💶 Brutto-Netto-Rechner: Steuer, Fünftelregel, Auszahlungsjahr und Gestaltungen für einen "
+               "Abfindungsbetrag. Den Betrag kannst du unter „📊 Alle Modelle“ übernehmen.")
     # gleiche, klare Eingabe-Optik wie im Zinseszinsrechner: Karten je Schritt, umrandete Felder
     st.markdown(_zr.FORM_CSS.replace("zr_form", "abf_form").replace("zr_karte_", "abf_karte_")
                 + ABF_CSS, unsafe_allow_html=True)
