@@ -745,7 +745,9 @@ def _kredit_konditionen(x):
     """-> (zins_pa, fehler). Zins eingetragen: so rechnen (Rate tilgt evtl. nur
     teilweise -> Schlussrate). Kein Zins: aus Betrag, Rate und Laufzeit errechnen."""
     betrag, rate, laufzeit = float(x.get("betrag") or 0), float(x.get("rate") or 0), int(x.get("jahre") or 0)
-    if betrag <= 0 or laufzeit <= 0:
+    if laufzeit <= 0:
+        return None, "Laufzeit 0 J. – fließt in keine Berechnung ein"
+    if betrag <= 0:
         return None, "unvollständig"
     if rate <= 0:
         # keine Rate: Kredit zaehlt trotzdem zum Kapital - nur Zinsen (falls Zins %), Rueckzahlung am Laufzeitende
@@ -4870,8 +4872,10 @@ def _kredite(m):
             except (TypeError, ValueError):
                 x[f] = 0.0
         try:
-            j = float(x.get("jahre") or 0)
-            x["jahre"] = int(j) if j == j and j >= 1 else 5     # fehlende Laufzeit -> 5 J.
+            j = x.get("jahre")
+            j = float(j) if j is not None else float("nan")
+            # fehlende Laufzeit -> 5 J.; 0 ist erlaubt (Kredit zaehlt dann in keiner Rechnung)
+            x["jahre"] = max(int(j), 0) if j == j else 5
         except (TypeError, ValueError):
             x["jahre"] = 5
         neu.append(x)
@@ -4973,7 +4977,9 @@ def _b_kredit(m, R):
         "Betrag €": st.column_config.NumberColumn("Betrag €", min_value=0.0, step=1000.0, format="%d"),
         "Rate/Monat €": st.column_config.NumberColumn("Rate/Monat €", min_value=0.0, step=10.0, format="%.2f",
                                                       help="Monatliche Belastung laut Kreditvertrag (Zins + Tilgung)"),
-        "Laufzeit J.": st.column_config.NumberColumn("Laufzeit J.", min_value=1, max_value=40, step=1, format="%d"),
+        "Laufzeit J.": st.column_config.NumberColumn("Laufzeit J.", min_value=0, max_value=40, step=1, format="%d",
+                                                     help="0 = Kredit bleibt in der Liste, fließt aber in keine "
+                                                          "Berechnung ein (Kapital, Raten, Restschuld, Monatsbilanz)"),
         "Zins %": st.column_config.NumberColumn("Zins %", min_value=0.0, max_value=30.0, step=0.1, format="%.2f",
                                                 help="Optional. 0 = aus Rate und Laufzeit errechnen (Rate tilgt "
                                                      "komplett). Eingetragen: Tilgt die Rate nicht alles, bleibt "
@@ -4996,7 +5002,7 @@ def _b_kredit(m, R):
             neu.append({"name": str(z.get("Kredit") or "").strip() or f"Kredit {i}",
                         "betrag": 0.0 if pd.isna(z.get("Betrag €")) else float(z["Betrag €"]),
                         "rate": 0.0 if pd.isna(z.get("Rate/Monat €")) else float(z["Rate/Monat €"]),
-                        "jahre": 1 if pd.isna(z.get("Laufzeit J.")) else max(int(z["Laufzeit J."]), 1),
+                        "jahre": 0 if pd.isna(z.get("Laufzeit J.")) else max(int(z["Laufzeit J."]), 0),
                         "zins": None if pd.isna(z.get("Zins %")) or not z.get("Zins %") else float(z["Zins %"])})
         geloescht = len(neu) < len(df)
         if geloescht:
@@ -5008,6 +5014,10 @@ def _b_kredit(m, R):
             st.session_state["planer_kr_ver"] = st.session_state.get("planer_kr_ver", 0) + 1
             st.rerun()
 
+    ohne = [x["name"] for x in k["kredite"] if int(x.get("jahre") or 0) <= 0]
+    if ohne:
+        st.caption("⏸️ Laufzeit 0 J. – nicht eingerechnet (Kapital, Raten, Restschuld, Monatsbilanz): "
+                   + ", ".join(ohne))
     erg = _kredit_rechnen(m, R)
     if erg is None:
         st.info("Kredite eintragen (Betrag und Laufzeit, optional Rate und Zins) und „Kredite in die Planung "
