@@ -866,6 +866,31 @@ def _phase(titel):
     st.markdown(f'<div class="pl-phase">{_esc(titel)}</div>', unsafe_allow_html=True)
 
 
+class _Bereich:
+    """Abschnitt im Planungsblock: im Schritt-Assistenten ein eigener, aufklappbarer
+    Bereich; in der klassischen Ansicht (schon in einem Expander - Expander duerfen
+    nicht verschachtelt werden) eine Zwischenueberschrift."""
+
+    def __init__(self, titel, eingebettet, offen):
+        self.titel, self.eingebettet, self.offen, self._ctx = titel, eingebettet, offen, None
+
+    def __enter__(self):
+        if self.eingebettet:
+            self._ctx = st.expander(self.titel, expanded=self.offen)
+            return self._ctx.__enter__()
+        _phase(self.titel)
+        return None
+
+    def __exit__(self, *args):
+        if self._ctx is not None:
+            return self._ctx.__exit__(*args)
+        return False
+
+
+def _bereich(titel, eingebettet, offen=False):
+    return _Bereich(titel, eingebettet, offen)
+
+
 def _benoetigt(m):
     """Benoetigte Rendite p.a. fuers Zielvermoegen (None ohne Ziel).
     Mit Aufbau (> 0 Jahre): Ziel = Vermoegen am Ende des Aufbaus.
@@ -974,16 +999,16 @@ def _auto_hinweis(m):
         wann = "am Ende der Entnahme" if _ziel_in_entnahme(m) else "am Ende des Aufbaus"
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend so verteilt, dass das Zielvermögen "
                 f"von {_de(m['rahmen']['zielvermoegen'])} € {wann} erreicht wird (benötigt {_pct_ziel(_benoetigt(m))} p.a.) – "
-                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 1“.")
+                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „🎯 Ziel & Rahmen“ (bzw. ⚙️ Planung → Phase 1).")
     elif modus == "manuell":
         st.info(f"Manuelle Rendite ist aktiv: Die Prozente werden laufend so verteilt, dass das Portfolio "
                 f"{_pct(_rendite_manuell(m))} p.a. erzielt – alle Werte (Aufbau, Entnahme, Kredite, Bilanz) "
                 "werden damit gerechnet; eigene Gewichte und Vorschläge werden überschrieben. "
-                "Ändern unter „⚙️ Planung → Phase 1“.")
+                "Ändern unter „🎯 Ziel & Rahmen“ (bzw. ⚙️ Planung → Phase 1).")
     elif modus == "entnahme":
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend auf "
                 f"{_de(_entnahme_daten(m)['rendite_pa'], 1)} % p.a. (Rendite in der Entnahme) ausgerichtet – "
-                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „⚙️ Planung → Phase 2“.")
+                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „🎯 Ziel & Rahmen → 💸 Entnahme“ (bzw. ⚙️ Planung → Phase 2).")
 
 
 def _stufen_sauber(liste):
@@ -1058,19 +1083,23 @@ def _entnahme_daten(m):
     return e
 
 
-def _rahmen(m):
+def _rahmen(m, eingebettet=False):
     """EINE Planung in zwei Phasen: Aufbau (Startkapital, Sparrate, Jahre) und
     direkt anschliessend Entnahme aus dem Endwert. Alle Eingaben an einer Stelle."""
     rahmen = m["rahmen"]
     e = _entnahme_daten(m)
-    with st.expander("⚙️ Planung: Aufbau → Entnahme", expanded=False):
-        _phase("Phase 1 · Aufbau")
+    with (st.container() if eingebettet else st.expander("⚙️ Planung: Aufbau → Entnahme", expanded=False)):
+        _phase("Phase 1 · Aufbau" if not eingebettet else "Grundangaben")
+        if eingebettet:
+            st.caption("Pflicht: Startkapital oder Sparrate. Alles andere ist optional und hat sinnvolle Standardwerte.")
         c1, c2 = st.columns(2)
-        rahmen["startkapital"] = float(c1.number_input("Startkapital (€)", 0.0, 1e9, float(rahmen["startkapital"]),
-                                                       step=1000.0, format="%.0f", key=_k("start")))
-        rahmen["sparrate_monat"] = float(c2.number_input("Monatliche Sparrate (€)", 0.0, 1e6,
-                                                         float(rahmen.get("sparrate_monat") or 0.0), step=50.0,
-                                                         format="%.0f", key=_k("spar")))
+        rahmen["startkapital"] = float(c1.number_input(
+            "Startkapital (€)", 0.0, 1e9, float(rahmen["startkapital"]), step=1000.0, format="%.0f", key=_k("start"),
+            help="Einmalbetrag, der zu Beginn investiert wird (ohne Kredite – die kommen unter „Kredit“ dazu)."))
+        rahmen["sparrate_monat"] = float(c2.number_input(
+            "Monatliche Sparrate (€)", 0.0, 1e6, float(rahmen.get("sparrate_monat") or 0.0), step=50.0,
+            format="%.0f", key=_k("spar"),
+            help="Wird jeden Monat nach Zielgewicht auf die Bausteine verteilt (Sparplan)."))
         bilanz_platz = st.empty()        # Kapital + Kredite + Monatsbilanz (nach der Rechnung gefuellt)
         c3, c4 = st.columns(2)
         rahmen["horizont_jahre"] = int(c3.number_input("Dauer Aufbau (Jahre)", 0, 40, int(rahmen["horizont_jahre"]),
@@ -1082,6 +1111,13 @@ def _rahmen(m):
                                                         help="0 = kein Ziel. Mit Aufbau: Vermögen am Ende des Aufbaus. "
                                                              "Bei 0 Jahren Aufbau: Vermögen am Ende der Entnahme "
                                                              "(nach allen Entnahmen)."))
+        if eingebettet:
+            if float(rahmen["startkapital"] or 0) <= 0 and float(rahmen.get("sparrate_monat") or 0) <= 0:
+                st.error("Bitte ein Startkapital oder eine monatliche Sparrate eingeben – sonst gibt es nichts zu "
+                         "rechnen.")
+            elif 0 < float(rahmen.get("zielvermoegen") or 0) <= float(rahmen["startkapital"] or 0) \
+                    and int(rahmen["horizont_jahre"] or 0) > 0:
+                st.info("Das Zielvermögen liegt nicht über dem Startkapital – es ist schon erreicht.")
         modi = list(RENDITE_MODI)
         c4a, c4b = st.columns(2)
         mo = c4a.selectbox(
@@ -1101,67 +1137,69 @@ def _rahmen(m):
         if float(rahmen.get("zielvermoegen") or 0) > 0 or mo == "manuell":
             ziel_platz = st.empty()          # wird nach den Entnahme-Eingaben gefuellt (aktuelle Werte)
 
-        _phase("Phase 2 · Entnahme" + (" (gleichzeitig mit dem Aufbau)" if e.get("parallel", True)
-                                       else " (ab Ende des Aufbaus)"))
-        e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"))
-        if e["aktiv"]:
-            e["parallel"] = st.toggle(
-                "Entnahme schon während des Aufbaus (ab sofort)", value=bool(e.get("parallel", True)),
-                key=_k("en_parallel"),
-                help="An (Standard): die monatliche Entnahme läuft ab dem ersten Monat, gleichzeitig mit dem Aufbau – "
-                     "sie wird jeden Monat vom Depot abgezogen, nachdem die Rendite gutgeschrieben ist. Nach dem "
-                     "Aufbau geht sie für „Dauer Entnahme“ Jahre weiter. Aus: Entnahme erst nach dem Aufbau.")
-            c5, c6 = st.columns(2)
-            e["monatlich"] = float(c5.number_input("Entnahme pro Monat (€, netto)", 0.0, 1e7, float(e["monatlich"]),
-                                                   step=50.0, format="%.0f", key=_k("en_mon")))
-            e["dauer_jahre"] = int(c6.number_input("Dauer Entnahme nach dem Aufbau (J.)" if e["parallel"]
-                                                   else "Dauer Entnahme (Jahre)", 1, 60, int(e["dauer_jahre"]),
-                                                   key=_k("en_dauer")))
-            c7, c8 = st.columns(2)
-            e["dynamik_pa"] = float(c7.number_input("Jährliche Erhöhung (%)", 0.0, 10.0, float(e["dynamik_pa"]),
-                                                    step=0.5, key=_k("en_dyn"), help="z. B. Inflationsausgleich"))
-            _entnahme_stufen_editor(m, e)
-            quellen = {"eigen": "Eigene Annahme", "modell": "Wie Aufbauphase"}
-            q = c8.selectbox("Rendite in der Entnahme", list(quellen),
-                             index=list(quellen).index(e.get("rendite_quelle", "eigen")),
-                             format_func=quellen.get, key=_k("en_quelle"))
-            e["rendite_quelle"] = q
-            if q == "eigen" and _auto_modus(m) == "manuell":
-                st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>{_pct(_rendite_manuell(m))}</b> '
-                            '(manuell aus Phase 1; ist das nicht erreichbar, gilt die höchstmögliche '
-                            'Portfoliorendite)</div>', unsafe_allow_html=True)
-            elif q == "eigen" and _auto_modus(m) == "ziel":
-                # ein Portfolio, eine Rendite: die Entnahme rechnet mit der benoetigten Rendite
-                if _ziel_in_entnahme(m):
-                    st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>{_pct(_benoetigt(m))}</b> '
-                                f'(automatisch aus dem Zielvermögen von {_de(rahmen["zielvermoegen"])} € nach '
-                                f'{e["dauer_jahre"]} J. Entnahme; ist das nicht erreichbar, gilt die höchstmögliche '
+        with _bereich("💸 Entnahme · optional" if eingebettet else
+                      "Phase 2 · Entnahme" + (" (gleichzeitig mit dem Aufbau)" if e.get("parallel", True)
+                                              else " (ab Ende des Aufbaus)"), eingebettet,
+                      offen=False):
+            e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"))
+            if e["aktiv"]:
+                e["parallel"] = st.toggle(
+                    "Entnahme schon während des Aufbaus (ab sofort)", value=bool(e.get("parallel", True)),
+                    key=_k("en_parallel"),
+                    help="An (Standard): die monatliche Entnahme läuft ab dem ersten Monat, gleichzeitig mit dem Aufbau – "
+                         "sie wird jeden Monat vom Depot abgezogen, nachdem die Rendite gutgeschrieben ist. Nach dem "
+                         "Aufbau geht sie für „Dauer Entnahme“ Jahre weiter. Aus: Entnahme erst nach dem Aufbau.")
+                c5, c6 = st.columns(2)
+                e["monatlich"] = float(c5.number_input("Entnahme pro Monat (€, netto)", 0.0, 1e7, float(e["monatlich"]),
+                                                       step=50.0, format="%.0f", key=_k("en_mon")))
+                e["dauer_jahre"] = int(c6.number_input("Dauer Entnahme nach dem Aufbau (J.)" if e["parallel"]
+                                                       else "Dauer Entnahme (Jahre)", 1, 60, int(e["dauer_jahre"]),
+                                                       key=_k("en_dauer")))
+                c7, c8 = st.columns(2)
+                e["dynamik_pa"] = float(c7.number_input("Jährliche Erhöhung (%)", 0.0, 10.0, float(e["dynamik_pa"]),
+                                                        step=0.5, key=_k("en_dyn"), help="z. B. Inflationsausgleich"))
+                _entnahme_stufen_editor(m, e)
+                quellen = {"eigen": "Eigene Annahme", "modell": "Wie Aufbauphase"}
+                q = c8.selectbox("Rendite in der Entnahme", list(quellen),
+                                 index=list(quellen).index(e.get("rendite_quelle", "eigen")),
+                                 format_func=quellen.get, key=_k("en_quelle"))
+                e["rendite_quelle"] = q
+                if q == "eigen" and _auto_modus(m) == "manuell":
+                    st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>{_pct(_rendite_manuell(m))}</b> '
+                                '(manuell aus Phase 1; ist das nicht erreichbar, gilt die höchstmögliche '
                                 'Portfoliorendite)</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>wie Aufbauphase</b> '
-                                f'(automatisch – benötigt {_pct_ziel(_benoetigt(m))}; ist das Ziel nicht erreichbar, gilt '
-                                'die tatsächlich erreichte Modellrendite)</div>', unsafe_allow_html=True)
-            elif q == "eigen":
-                e["rendite_pa"] = float(st.number_input(
-                    "Rendite p.a. in der Entnahme (%)", -20.0, 200.0, float(e["rendite_pa"]), step=0.5,
-                    key=_k("en_rendite"), help="Ziel-Rendite des Portfolios in der Entnahmephase"))
-                e["auto_gewichtung"] = st.toggle(
-                    "Portfolio automatisch auf diese Rendite gewichten", value=bool(e.get("auto_gewichtung", False)),
-                    key=_k("en_auto"),
-                    help="Verteilt die Prozente im Portfolio automatisch so, dass die gewichtete Rendite p.a. genau "
-                         "diesem Wert entspricht – ausgehend von einer Gleichverteilung, ausgeglichen über die "
-                         "Renditen der Bausteine. Fixierte Bausteine und Reserve bleiben. Manuelle Gewichte werden "
-                         "dabei überschrieben.")
-            e["steuer"] = st.toggle("Abgeltungsteuer berücksichtigen (vereinfacht)", value=bool(e["steuer"]),
-                                    key=_k("en_st"))
-            if e["steuer"]:
-                c9, c10 = st.columns(2)
-                e["steuersatz"] = float(c9.number_input("Steuersatz (%)", 0.0, 60.0, float(e["steuersatz"]), step=0.5,
-                                                        key=_k("en_satz"),
-                                                        help="Abgeltungsteuer + Soli, ohne Kirchensteuer"))
-                e["freibetrag"] = float(c10.number_input("Freibetrag pro Jahr (€)", 0.0, 1e5, float(e["freibetrag"]),
-                                                         step=100.0, format="%.0f", key=_k("en_frei"),
-                                                         help="Sparerpauschbetrag – bitte aktuellen Wert prüfen"))
+                elif q == "eigen" and _auto_modus(m) == "ziel":
+                    # ein Portfolio, eine Rendite: die Entnahme rechnet mit der benoetigten Rendite
+                    if _ziel_in_entnahme(m):
+                        st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>{_pct(_benoetigt(m))}</b> '
+                                    f'(automatisch aus dem Zielvermögen von {_de(rahmen["zielvermoegen"])} € nach '
+                                    f'{e["dauer_jahre"]} J. Entnahme; ist das nicht erreichbar, gilt die höchstmögliche '
+                                    'Portfoliorendite)</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="pl-zeile">Rendite p.a. in der Entnahme: <b>wie Aufbauphase</b> '
+                                    f'(automatisch – benötigt {_pct_ziel(_benoetigt(m))}; ist das Ziel nicht erreichbar, gilt '
+                                    'die tatsächlich erreichte Modellrendite)</div>', unsafe_allow_html=True)
+                elif q == "eigen":
+                    e["rendite_pa"] = float(st.number_input(
+                        "Rendite p.a. in der Entnahme (%)", -20.0, 200.0, float(e["rendite_pa"]), step=0.5,
+                        key=_k("en_rendite"), help="Ziel-Rendite des Portfolios in der Entnahmephase"))
+                    e["auto_gewichtung"] = st.toggle(
+                        "Portfolio automatisch auf diese Rendite gewichten", value=bool(e.get("auto_gewichtung", False)),
+                        key=_k("en_auto"),
+                        help="Verteilt die Prozente im Portfolio automatisch so, dass die gewichtete Rendite p.a. genau "
+                             "diesem Wert entspricht – ausgehend von einer Gleichverteilung, ausgeglichen über die "
+                             "Renditen der Bausteine. Fixierte Bausteine und Reserve bleiben. Manuelle Gewichte werden "
+                             "dabei überschrieben.")
+                e["steuer"] = st.toggle("Abgeltungsteuer berücksichtigen (vereinfacht)", value=bool(e["steuer"]),
+                                        key=_k("en_st"))
+                if e["steuer"]:
+                    c9, c10 = st.columns(2)
+                    e["steuersatz"] = float(c9.number_input("Steuersatz (%)", 0.0, 60.0, float(e["steuersatz"]), step=0.5,
+                                                            key=_k("en_satz"),
+                                                            help="Abgeltungsteuer + Soli, ohne Kirchensteuer"))
+                    e["freibetrag"] = float(c10.number_input("Freibetrag pro Jahr (€)", 0.0, 1e5, float(e["freibetrag"]),
+                                                             step=100.0, format="%.0f", key=_k("en_frei"),
+                                                             help="Sparerpauschbetrag – bitte aktuellen Wert prüfen"))
 
         if ziel_platz is not None:
             ben = _benoetigt(m)
@@ -1186,34 +1224,35 @@ def _rahmen(m):
                     + f': <b>{_pct(ben)}</b>' + (" → Gewichte werden automatisch darauf verteilt" if mo == "ziel"
                                                   else "") + "</div>", unsafe_allow_html=True)
 
-        _phase("Weitere Einstellungen")
-        _regeln_editor(m)
-        rahmen["kosten_beruecksichtigen"] = st.toggle(
-            "Kosten berücksichtigen (TER und Performance Fee, soweit hinterlegt)",
-            value=bool(rahmen.get("kosten_beruecksichtigen")), key=_k("kosten"))
-        arten = list(D.REBALANCING_ARTEN)
-        c11, c12 = st.columns(2)
-        art = c11.selectbox("Rebalancing", arten, index=arten.index(m["rebalancing"].get("art", "keins")),
-                            format_func=D.REBALANCING_ARTEN.get, key=_k("reb"))
-        m["rebalancing"]["art"] = art
-        if art == "schwelle":
-            m["rebalancing"]["schwelle_relativ"] = float(c12.number_input(
-                "Band (± % relativ zum Zielgewicht)", 1.0, 100.0,
-                float(m["rebalancing"].get("schwelle_relativ", 25.0)), step=2.5, key=_k("band"),
-                help="25 % relativ: Zielgewicht 10 % → Band 7,5–12,5 %"))
-        methoden = list(D.METHODEN)
-        wahl = st.selectbox("Renditequelle der Rechnung", methoden, index=methoden.index(rahmen["methode"]),
-                            format_func=D.METHODEN.get, key=_k("methode"),
-                            help="Standard „Meine Annahmen“ = Spalte „Annahme %“ bzw. Ist-Werte im Portfolio")
-        rahmen["methode"] = wahl
-        if rahmen["methode"] == "szenario":
-            sz = ["bear", "base", "bull", "custom"]
-            rahmen["szenario"] = st.selectbox("Szenario", sz, index=sz.index(rahmen.get("szenario", "base")),
-                                              format_func=str.capitalize, key=_k("szenario"))
-        if rahmen["methode"] in ("historical5Y", "historical10Y", "fundamentalModel"):
-            st.caption("Wo für diese Quelle keine Daten vorliegen, gilt die eigene Annahme.")
-        st.caption("Renditen sind effektive Jahresrenditen vor Steuern. Die Nachkaufreserve nimmt am "
-                   "Rebalancing nicht teil.")
+        with _bereich("⚙️ Erweiterte Einstellungen (Regeln, Kosten, Rebalancing, Renditequelle)", eingebettet,
+                      offen=False):
+            _regeln_editor(m)
+            rahmen["kosten_beruecksichtigen"] = st.toggle(
+                "Kosten berücksichtigen (TER und Performance Fee, soweit hinterlegt)",
+                value=bool(rahmen.get("kosten_beruecksichtigen")), key=_k("kosten"))
+            arten = list(D.REBALANCING_ARTEN)
+            c11, c12 = st.columns(2)
+            art = c11.selectbox("Rebalancing", arten, index=arten.index(m["rebalancing"].get("art", "keins")),
+                                format_func=D.REBALANCING_ARTEN.get, key=_k("reb"))
+            m["rebalancing"]["art"] = art
+            if art == "schwelle":
+                m["rebalancing"]["schwelle_relativ"] = float(c12.number_input(
+                    "Band (± % relativ zum Zielgewicht)", 1.0, 100.0,
+                    float(m["rebalancing"].get("schwelle_relativ", 25.0)), step=2.5, key=_k("band"),
+                    help="25 % relativ: Zielgewicht 10 % → Band 7,5–12,5 %"))
+            methoden = list(D.METHODEN)
+            wahl = st.selectbox("Renditequelle der Rechnung", methoden, index=methoden.index(rahmen["methode"]),
+                                format_func=D.METHODEN.get, key=_k("methode"),
+                                help="Standard „Meine Annahmen“ = Spalte „Annahme %“ bzw. Ist-Werte im Portfolio")
+            rahmen["methode"] = wahl
+            if rahmen["methode"] == "szenario":
+                sz = ["bear", "base", "bull", "custom"]
+                rahmen["szenario"] = st.selectbox("Szenario", sz, index=sz.index(rahmen.get("szenario", "base")),
+                                                  format_func=str.capitalize, key=_k("szenario"))
+            if rahmen["methode"] in ("historical5Y", "historical10Y", "fundamentalModel"):
+                st.caption("Wo für diese Quelle keine Daten vorliegen, gilt die eigene Annahme.")
+            st.caption("Renditen sind effektive Jahresrenditen vor Steuern. Die Nachkaufreserve nimmt am "
+                       "Rebalancing nicht teil.")
     return bilanz_platz
 
 
@@ -1420,6 +1459,279 @@ def _plausibilitaet(m, R, port_r):
                    "des Depots (ohne Rebalancing) und trägt fast den ganzen Endwert.")
     return aus
 
+
+
+# ===========================================================================
+# Gefuehrter Ablauf (Schritt fuer Schritt) - nur Oberflaeche, gleiche Logik
+# ===========================================================================
+SCHRITTE = [
+    {"icon": "🎯", "titel": "Ziel & Rahmen",
+     "text": "Startkapital, Sparrate, Dauer und optional ein Zielvermögen festlegen. Entnahme und erweiterte "
+             "Einstellungen sind eingeklappt und nur bei Bedarf nötig.", "seiten": []},
+    {"icon": "🧩", "titel": "Bausteine",
+     "text": "ETFs, Aktien und Wikifolios auswählen – am schnellsten über den Katalog mit Score und Analyse.",
+     "seiten": ["Auswahl", "Aktienkorb", "Wikifolios"]},
+    {"icon": "⚖️", "titel": "Gewichtung",
+     "text": "Anteile festlegen – von Hand in der Tabelle, automatisch nach Ziel/Regeln oder auf ganze Stücke.",
+     "seiten": ["Gewichte", "Aufteilung", "Kaufplan"]},
+    {"icon": "🛠️", "titel": "Erweitert",
+     "text": "Optional: Kredite, Risiko-Checks und die Herkunft der Renditeannahmen. Für ein erstes Portfolio "
+             "nicht nötig.", "seiten": ["Kredit", "Konzentration", "Sensitivität", "Stress & Reserve",
+                                       "Annahmen & Quellen"]},
+    {"icon": "✅", "titel": "Prüfen & Speichern",
+     "text": "Alles auf einen Blick prüfen, Ergebnis und Szenarien ansehen und das Modell speichern.",
+     "seiten": ["Überblick", "Wachstum", "Ziel", "Szenarien", "Entnahme", "Speichern"]},
+]
+ANSICHTEN = ["🧭 Schritt für Schritt", "🗂️ Alle Bereiche"]
+
+WZ_CSS = """
+<style>
+.wz-stepper { display: flex; gap: 6px; margin: 4px 0 6px; }
+.wz-step { flex: 1 1 0; min-width: 0; text-align: center; font-size: 0.66rem; color: #8A9099; font-weight: 700; }
+.wz-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 3px; display: flex; align-items: center;
+          justify-content: center; font-size: 0.78rem; font-weight: 900; border: 1.5px solid rgba(255,255,255,0.25);
+          color: #D6D9DE; background: transparent; }
+.wz-step.ok .wz-dot { background: rgba(22,199,132,0.18); border-color: #16C784; color: #16C784; }
+.wz-step.warn .wz-dot { background: rgba(245,185,66,0.15); border-color: #F5B942; color: #F5B942; }
+.wz-step.fehler .wz-dot { background: rgba(234,57,67,0.15); border-color: #EA3943; color: #EA3943; }
+.wz-step.aktiv .wz-dot { box-shadow: 0 0 0 3px rgba(76,154,255,0.45); border-color: #4C9AFF; }
+.wz-step.aktiv { color: #FFFFFF; }
+.wz-lbl { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wz-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 2px 0 10px; }
+.wz-bar > div { height: 100%; background: linear-gradient(90deg, #4C9AFF, #16C784); border-radius: 3px; }
+.wz-kopf { border: 1px solid rgba(76,154,255,0.35); background: rgba(76,154,255,0.06); border-radius: 12px;
+           padding: 10px 14px; margin: 4px 0 12px; }
+.wz-kopf .wz-nr { font-size: 0.66rem; letter-spacing: 1.2px; text-transform: uppercase; color: #8DBBFF; font-weight: 800; }
+.wz-kopf .wz-t { font-size: 1.05rem; font-weight: 900; color: #FFFFFF; margin: 1px 0 2px; }
+.wz-kopf .wz-d { font-size: 0.8rem; color: #C9CDD3; line-height: 1.45; }
+.wz-check { font-size: 0.82rem; color: #D6D9DE; margin: 3px 0; line-height: 1.4; }
+.wz-vs { border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,0.025); }
+.wz-vs-t { font-size: 0.72rem; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 800; color: #FFFFFF;
+           margin-bottom: 4px; }
+.wz-vs-k { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+.wz-vs-k div { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 5px 7px; font-size: 0.68rem; color: #8A9099; }
+.wz-vs-k b { display: block; font-size: 0.92rem; color: #FFFFFF; }
+.wz-leer { border: 1px dashed rgba(255,255,255,0.25); border-radius: 12px; padding: 14px; text-align: center;
+           color: #C9CDD3; font-size: 0.84rem; margin: 6px 0 10px; }
+.st-key-pl_wz_weiter button { background: #16305A !important; border: 1px solid #4C9AFF !important; min-height: 46px; }
+.st-key-pl_wz_weiter button, .st-key-pl_wz_weiter button * { color: #FFFFFF !important; font-weight: 800 !important; }
+.st-key-pl_wz_ziel button { border: 1px solid #F5B942 !important; }
+@media (max-width: 700px) { .wz-lbl { font-size: 0.6rem; } .wz-dot { width: 24px; height: 24px; } }
+</style>
+"""
+
+
+def _pruefungen(m, R):
+    """Pruefliste fuer den gefuehrten Ablauf -> [(stufe 'fehler'|'warnung'|'ok', text, schritt)]."""
+    r = m["rahmen"]
+    aus = []
+    kredit = bool(m.get("kredit")) and any(float(x.get("betrag") or 0) > 0
+                                           for x in (_kredite(m).get("kredite") or []))
+    if float(r.get("startkapital") or 0) <= 0 and float(r.get("sparrate_monat") or 0) <= 0 and not kredit:
+        aus.append(("fehler", "Startkapital oder Sparrate fehlt", 0))
+    else:
+        aus.append(("ok", f"Kapital: {_de(r.get('startkapital') or 0)} € Start"
+                    + (f" + {_de(r.get('sparrate_monat'))} €/Monat" if float(r.get("sparrate_monat") or 0) else "")
+                    + f", {int(r.get('horizont_jahre') or 0)} J. Aufbau", 0))
+    aktiv = [a for a in E.aktive_assets(m) if a.get("category") != "cash"]
+    if not aktiv:
+        aus.append(("fehler", "Noch kein Baustein aktiv", 1))
+    else:
+        aus.append(("ok", f"{len(aktiv)} Bausteine aktiv", 1))
+        ohne = [a["name"] for a in aktiv if _basis_text(m, a) == "fehlt"]
+        if ohne:
+            aus.append(("warnung", "Ohne Renditeannahme (rechnet mit 0 %): " + ", ".join(ohne[:4]), 1))
+    summe = E.gewichte_summe(m)
+    if aktiv and abs(summe - 100.0) > 0.05 and not _auto_modus(m):
+        aus.append(("fehler", f"Gewichte ergeben {_de(summe, 1)} % statt 100 %", 2))
+    elif aktiv and summe > 0:
+        aus.append(("ok", f"Gewichte ergeben {_de(summe, 1)} %" + (" (automatisch)" if _auto_modus(m) else ""), 2))
+    try:
+        port_r = sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in E.gewichte(m).items())
+        for t in _plausibilitaet(m, R, port_r):
+            aus.append(("warnung", t, 2))
+    except Exception:
+        pass
+    if aktiv:
+        verletzt = E.regeln_verletzungen(m) if abs(summe - 100.0) <= 0.05 else []
+        if verletzt:
+            aus.append(("warnung", "Regeln verletzt: " + " · ".join(verletzt), 2))
+    z = R.get("zus") or {}
+    fehl = _fehlbetrag_text(z) if z else ""
+    if fehl:
+        aus.append(("warnung", fehl, 0))
+    ziel = float(r.get("zielvermoegen") or 0)
+    if ziel > 0 and int(r.get("horizont_jahre") or 0) > 0 and aktiv and z:
+        if z.get("ziel_erreicht"):
+            aus.append(("ok", f"Zielvermögen {_de(ziel)} € wird im Modell erreicht", 4))
+        else:
+            aus.append(("warnung", f"Zielvermögen {_de(ziel)} € wird im Modell nicht erreicht", 4))
+    return aus
+
+
+def _schritt_status(pruef, i, besucht):
+    stufen = [st_ for st_, _, s_ in pruef if s_ == i]
+    if "fehler" in stufen:
+        return "fehler"
+    if "warnung" in stufen:
+        return "warn"
+    if i == 3:                    # optional
+        return "ok" if besucht else ""
+    if i == 4:
+        return "ok" if besucht and not any(x[0] == "fehler" for x in pruef) else ""
+    return "ok" if "ok" in stufen else ""
+
+
+def _stepper_html(pruef, aktiv_i):
+    besucht = st.session_state.setdefault("pl_wz_besucht", set())
+    besucht.add(aktiv_i)
+    teile, fertig = [], 0
+    for i, s_ in enumerate(SCHRITTE):
+        status = _schritt_status(pruef, i, i in besucht)
+        fertig += status == "ok"
+        zeichen = {"ok": "✓", "warn": "!", "fehler": "✕"}.get(status, str(i + 1))
+        teile.append(f'<div class="wz-step {status}{" aktiv" if i == aktiv_i else ""}">'
+                     f'<div class="wz-dot">{zeichen}</div><span class="wz-lbl">{_esc(s_["titel"])}</span></div>')
+    return (f'<div class="wz-stepper" role="list" aria-label="Fortschritt">{"".join(teile)}</div>'
+            f'<div class="wz-bar" aria-label="{fertig} von {len(SCHRITTE)} Schritten erledigt">'
+            f'<div style="width:{fertig / len(SCHRITTE) * 100:.0f}%"></div></div>')
+
+
+def _geh_zu(i, seite=None):
+    st.session_state["pl_schritt"] = i
+    if seite:
+        st.session_state[f"pl_wz_seite_{i}"] = seite
+
+
+def _schritt_navigation(pruef, i):
+    """Zurueck / Weiter unten und der naechste sinnvolle Schritt."""
+    fehler = [(t, s_) for st_, t, s_ in pruef if st_ == "fehler"]
+    if fehler and fehler[0][1] != i:
+        t, s_ = fehler[0]
+        c1, c2 = st.columns([3, 2])
+        c1.markdown(f'<div class="wz-check">👉 <b>Nächster Schritt:</b> {_esc(t)}</div>', unsafe_allow_html=True)
+        with c2.container(key="pl_wz_ziel"):
+            st.button(f"Zu {SCHRITTE[s_]['icon']} {SCHRITTE[s_]['titel']}", key="pl_wz_fix", width="stretch",
+                      on_click=_geh_zu, args=(s_,))
+    c1, c2 = st.columns([1, 2])
+    c1.button("← Zurück", key="pl_wz_zurueck", width="stretch", disabled=i == 0, on_click=_geh_zu,
+              args=(max(i - 1, 0),))
+    if i < len(SCHRITTE) - 1:
+        nxt = SCHRITTE[i + 1]
+        with c2.container(key="pl_wz_weiter"):
+            st.button(f"Weiter: {nxt['icon']} {nxt['titel']} →", key="pl_wz_weiter_btn", width="stretch",
+                      on_click=_geh_zu, args=(i + 1,))
+    else:
+        c2.caption("✓ Letzter Schritt – Änderungen werden automatisch gespeichert; unter „Speichern“ als eigenes "
+                   "Modell sichern.")
+
+
+def _vs_gewicht(aid):
+    m = st.session_state.get("planer_modell")
+    wert = st.session_state.get(_k(f"vs_w_{aid}"))
+    if not m or wert is None:
+        return
+    for a in m["assets"]:
+        if a["id"] == aid:
+            a["targetWeight"] = float(wert)
+            a["enabled"] = float(wert) > 0 or a.get("enabled")
+    _neu_zeichnen()
+
+
+def _vs_aus(aid):
+    m = st.session_state.get("planer_modell")
+    for a in (m or {}).get("assets", []):
+        if a["id"] == aid:
+            a["enabled"], a["targetWeight"] = False, 0.0
+    st.session_state["planer_meldung"] = ("ok", f"„{_asset(m, aid)['name']}“ deaktiviert (0 %) – in Schritt 2 "
+                                          "über „Aktiv“ wieder einschaltbar.", [])
+    _neu_zeichnen()
+
+
+def _vs_normalisieren():
+    m = st.session_state.get("planer_modell")
+    if m:
+        E.normalisieren(m)
+        _neu_zeichnen()
+
+
+def _vorschau(m, R, mobil=False):
+    """Kompakte, live aktualisierte Portfolio-Vorschau mit Donut, Summe und direkter Bearbeitung."""
+    w = E.gewichte(m)
+    aktiv = [a for a in E.aktive_assets(m)]
+    summe = E.gewichte_summe(m)
+    z = R.get("zus") or {}
+    rahmen = m["rahmen"]
+    port_r = sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in w.items())
+    st.markdown('<div class="wz-vs-t">📊 Dein Portfolio</div>', unsafe_allow_html=True)
+    if not aktiv or summe <= 0:
+        st.markdown('<div class="wz-leer">Noch keine Bausteine gewichtet.<br>Wähle in Schritt 2 ETFs, Aktien oder '
+                    'Wikifolios aus – sie erscheinen dann hier.</div>', unsafe_allow_html=True)
+        st.button("🧩 Bausteine auswählen", key="pl_vs_leer", width="stretch", on_click=_geh_zu, args=(1,))
+        return
+    ids = [a["id"] for a in aktiv if w.get(a["id"], 0) > 0]
+    fig = go.Figure(go.Pie(labels=[_asset(m, i)["name"] for i in ids], values=[w[i] * 100 for i in ids], hole=0.62,
+                           sort=False, marker=dict(colors=FARBEN[:len(ids)] * 3, line=dict(color="#000", width=1)),
+                           textinfo="none", hovertemplate="%{label}: %{value:.1f} %<extra></extra>"))
+    _layout(fig, 170 if mobil else 200, legende=False)
+    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0),
+                      annotations=[dict(text=f"<b>{_de(summe, 1)} %</b>", x=0.5, y=0.5, showarrow=False,
+                                        font=dict(size=16, color="#16C784" if abs(summe - 100) <= 0.05 else "#EA3943"))])
+    _chart(fig, "pl_vs_donut")
+    if abs(summe - 100) > 0.05 and not _auto_modus(m):
+        st.markdown(f'<div class="wz-check"><b class="pl-schlecht">⚠ Summe {_de(summe, 1)} %</b> – '
+                    f'{_de(abs(summe - 100), 1)} % {"zu viel" if summe > 100 else "fehlen"}.</div>',
+                    unsafe_allow_html=True)
+        st.button("Auf 100 % normalisieren", key="pl_vs_norm", width="stretch", on_click=_vs_normalisieren)
+    endwert = z.get("endwert_netto", z.get("endwert"))
+    kz = [("Rendite Ø (Start)", _pct(port_r)), ("Positionen", str(len(ids)))]
+    if int(rahmen.get("horizont_jahre") or 0) > 0 and endwert is not None:
+        kz.append((f"Endwert nach {int(rahmen['horizont_jahre'])} J.", _eur(endwert)))
+        ziel = float(rahmen.get("zielvermoegen") or 0)
+        if ziel > 0:
+            kz.append(("Ziel", ("✓ erreicht" if z.get("ziel_erreicht") else "✕ nicht erreicht")))
+    st.markdown('<div class="wz-vs-k">' + "".join(f"<div>{_esc(l)}<b>{_esc(v)}</b></div>" for l, v in kz)
+                + "</div>", unsafe_allow_html=True)
+    auto = _auto_modus(m)
+    if auto:
+        st.caption("Gewichte werden automatisch verteilt (" + {"ziel": "aufs Zielvermögen", "manuell":
+                   "auf die feste Rendite", "entnahme": "auf die Entnahme-Rendite"}.get(auto, auto)
+                   + ") – Bearbeiten in Schritt 1 ausschalten.")
+    for n, i in enumerate(ids):
+        a = _asset(m, i)
+        c1, c2, c3 = st.columns([5, 3, 1.4], vertical_alignment="center")
+        c1.markdown(f'<div class="wz-check"><span style="color:{FARBEN[n % len(FARBEN)]}">●</span> '
+                    f'{_esc(a["name"])}</div>', unsafe_allow_html=True)
+        c2.number_input("Gewicht %", 0.0, 100.0, float(a.get("targetWeight") or 0.0), step=0.5, format="%.1f",
+                        key=_k(f"vs_w_{i}"), label_visibility="collapsed", disabled=bool(auto),
+                        on_change=_vs_gewicht, args=(i,), help=f"Gewicht von {a['name']} in %")
+        c3.button("✕", key=_k(f"vs_x_{i}"), help=f"{a['name']} deaktivieren (0 %, jederzeit wieder einschaltbar)",
+                  on_click=_vs_aus, args=(i,), disabled=bool(auto))
+
+
+def _b_ueberblick(m, R, platz):
+    """Pruefen: Checkliste, Eckdaten und die KPI-Kacheln (werden nach der Rechnung gefuellt)."""
+    pruef = _pruefungen(m, R)
+    _abschnitt("Checkliste")
+    farbe = {"ok": "✅", "warnung": "⚠️", "fehler": "❌"}
+    for stufe, t, s_ in sorted(pruef, key=lambda x: ({"fehler": 0, "warnung": 1, "ok": 2}[x[0]], x[2])):
+        c1, c2 = st.columns([5, 2], vertical_alignment="center")
+        c1.markdown(f'<div class="wz-check">{farbe[stufe]} {_esc(t)}</div>', unsafe_allow_html=True)
+        if stufe != "ok":
+            c2.button(f"→ {SCHRITTE[s_]['titel']}", key=f"pl_ue_{s_}_{zlib.crc32(t.encode())}", width="stretch",
+                      on_click=_geh_zu, args=(s_,))
+    if not any(x[0] == "fehler" for x in pruef):
+        st.success("Das Portfolio ist vollständig. Es wird automatisch gespeichert – unter „Speichern“ kannst "
+                   "du es zusätzlich unter einem eigenen Namen sichern.")
+    _abschnitt("Ergebnis auf einen Blick")
+    platz["kpi"] = st.empty()
+
+
+def _schritt_kopf(i):
+    s_ = SCHRITTE[i]
+    st.markdown(f'<div class="wz-kopf"><div class="wz-nr">Schritt {i + 1} von {len(SCHRITTE)}'
+                + (" · optional" if i == 3 else "") + f'</div><div class="wz-t">{s_["icon"]} {_esc(s_["titel"])}</div>'
+                f'<div class="wz-d">{_esc(s_["text"])}</div></div>', unsafe_allow_html=True)
 
 def _kpis(platz, m, R):
     z = R["zus"]
@@ -1635,7 +1947,7 @@ def _leer_hinweise(m):
     kredit = bool(m.get("kredit")) and any(float(x.get("betrag") or 0) > 0
                                            for x in (_kredite(m).get("kredite") or []))
     if float(r.get("startkapital") or 0) <= 0 and float(r.get("sparrate_monat") or 0) <= 0 and not kredit:
-        aus.append("Trag Startkapital oder Sparrate ein – oben unter „⚙️ Planung: Aufbau → Entnahme“ "
+        aus.append("Trag Startkapital oder Sparrate ein – unter „🎯 Ziel & Rahmen“ (Schritt 1) bzw. „⚙️ Planung: Aufbau → Entnahme“ "
                    "(dort auch die Dauer des Aufbaus und ein Zielvermögen).")
     if E.gewichte_summe(m) <= 0:
         aus.append("Noch keine Bausteine gewichtet – unter „🧩 Portfolio → Bausteine“ „Aktiv“ anhaken und "
@@ -1643,9 +1955,9 @@ def _leer_hinweise(m):
     return aus
 
 
-def _gewichtswarnung(platz, m):
+def _gewichtswarnung(platz, m, leer_zeigen=True):
     summe = E.gewichte_summe(m)
-    leer = _leer_hinweise(m)
+    leer = _leer_hinweise(m) if leer_zeigen else []
     if leer:
         with platz.container():
             for t in leer:
@@ -2898,6 +3210,10 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
                    f"(Rechenkern: {getattr(E, 'ENGINE_VERSION', 'alt')}, Oberfläche: {PLANER_VERSION}). "
                    "Bitte beide Dateien hochladen und die App neu starten (⋮ → Reboot app).")
     _auto_hinweis(m)
+    if not any(a.get("enabled") and a.get("category") != "cash" for a in m["assets"]):
+        st.markdown('<div class="wz-leer">Noch keine Bausteine aktiv.<br>Unten unter <b>„Baustein hinzufügen“</b> '
+                    'im Katalog Werte ankreuzen (mit Score und Analyse) oder per WKN/ISIN suchen – oder in der '
+                    'Tabelle „Aktiv“ anhaken.</div>', unsafe_allow_html=True)
     start = m["rahmen"]["startkapital"]
     summe = E.gewichte_summe(m) or 1.0
     bruch = bool((m.get("kaufplan") or {}).get("bruch"))
@@ -3059,7 +3375,9 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     if investiert > 0:
         with st.expander("📦 Diese Stückzahlen als Musterdepot übernehmen", expanded=False):
             _musterdepot_formular(h, kp, float(start), "bs")
+    ann_ok = st.checkbox("Eigene Annahmen dabei überschreiben (Bestätigung)", key=_k("ann_hist_ok"))
     if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
+                 disabled=not ann_ok,
                  help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
                       "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J.; bei weniger als 1 Jahr "
                       "Historie die Ø Monatsrendite aufs Jahr hochgerechnet, unter 1 Monat und ohne Kursdaten "
@@ -3091,7 +3409,8 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     c9, c10 = st.columns([3, 1])
     weg = c9.selectbox("Baustein", [a["id"] for a in m["assets"]], key=_k("del_wahl"),
                        format_func=lambda i: _asset(m, i)["name"])
-    if c10.button("🗑 Entfernen", key=_k("del_btn"), width="stretch", disabled=not m["assets"]):
+    sicher_weg = st.checkbox("Ja, diesen Baustein samt Annahmen endgültig entfernen", key=_k("del_ok"))
+    if c10.button("🗑 Entfernen", key=_k("del_btn"), width="stretch", disabled=not m["assets"] or not sicher_weg):
         _baustein_entfernen(m, weg)
         _neu_zeichnen()
         st.rerun()
@@ -3213,7 +3532,7 @@ def _vorschlag(m, R, verfahren, ziel_art, wunsch, mit_grenzen):
     # Ziel
     if int(rahmen.get("horizont_jahre") or 0) <= 0:
         return {"art": "fehler", "text": "Keine Aufbauphase (0 Jahre) – für eine Zielrendite in der Entnahme die "
-                                         "automatische Gewichtung unter „⚙️ Planung → Phase 2“ nutzen."}
+                                         "automatische Gewichtung unter „🎯 Ziel & Rahmen → 💸 Entnahme“ (bzw. ⚙️ Planung → Phase 2) nutzen."}
     # dieselbe Rechnung wie die KPIs: Kredite (Kapital, Restschuld, Raten) und
     # gleichzeitige Entnahme eingerechnet
     eff = _mit_krediten(m)
@@ -4338,10 +4657,10 @@ def _b_entnahme(m, R):
     _abschnitt("Entnahmeplan (monatlich)")
     _hinweis("Szenariorechnung · keine Prognose · Entnahme beginnt nach dem Aufbau mit dem Modell-Endwert")
     if not e.get("aktiv", True):
-        st.info("Die Entnahme ist ausgeschaltet – oben unter „⚙️ Planung: Aufbau → Entnahme“ einschalten.")
+        st.info("Die Entnahme ist ausgeschaltet – unter „🎯 Ziel & Rahmen“ (Schritt 1) bzw. „⚙️ Planung: Aufbau → Entnahme“ einschalten.")
         return
     kapital, rendite, kw, plan = _entnahme_rechnen(m, R, e)
-    st.caption("Alle Eingaben (Aufbau und Entnahme) stehen oben unter „⚙️ Planung: Aufbau → Entnahme“.")
+    st.caption("Alle Eingaben (Aufbau und Entnahme) stehen unter „🎯 Ziel & Rahmen“ (Schritt 1) bzw. „⚙️ Planung: Aufbau → Entnahme“.")
     if e.get("rendite_quelle") == "modell":
         st.caption(f"Rendite in der Entnahme wie Aufbauphase: {_pct(rendite)} p.a. – so hohe Renditen über "
                    "Jahrzehnte durchzuhalten ist nicht plausibel; eine eigene Annahme ist meist ehrlicher.")
@@ -4920,7 +5239,7 @@ def render_musterdepot(h):
 # Einstieg
 # ===========================================================================
 def render(h):
-    st.markdown(CSS, unsafe_allow_html=True)
+    st.markdown(CSS + WZ_CSS, unsafe_allow_html=True)
     m = _modell(h)
     name = st.session_state.get("planer_name")
     st.markdown(f'<div class="abschnitt">💼 Portfolio-Planer{" · " + _esc(name) if name else ""}</div>',
@@ -4929,15 +5248,42 @@ def render(h):
     _hinweis("Szenariorechnung / keine Prognose – alle Renditen sind Annahmen oder historische Ausgangswerte, "
              "keine Erwartung und keine Anlageempfehlung.")
 
+    ansicht = st.pills("Ansicht", ANSICHTEN, default=ANSICHTEN[0], key="pl_ansicht",
+                       help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
+                            "(für Erfahrene) – beide arbeiten mit demselben Modell.") or ANSICHTEN[0]
+    gefuehrt = ansicht == ANSICHTEN[0]
     status_platz = st.empty()
-    bilanz_platz = _rahmen(m)
-    kpi_platz = st.empty()
-    warn_platz = st.empty()
-    haupt = st.pills("Bereich", HAUPT, default=HAUPT[0], key="pl_haupt") or HAUPT[0]
-    unter = None
-    if UNTER[haupt]:
-        unter = st.pills("Unterseite", UNTER[haupt], default=UNTER[haupt][0], key=f"pl_unter_{HAUPT.index(haupt)}",
-                         label_visibility="collapsed") or UNTER[haupt][0]
+    platz = {"bilanz": None, "kpi": None}
+    if gefuehrt:
+        schritt = st.pills("Schritt", list(range(len(SCHRITTE))), default=0, key="pl_schritt",
+                           format_func=lambda i: f"{i + 1} {SCHRITTE[i]['icon']} {SCHRITTE[i]['titel']}",
+                           label_visibility="collapsed")
+        schritt = 0 if schritt is None else int(schritt)
+        stepper_platz = st.empty()
+        warn_platz = st.empty()
+        mobil = _smartphone()
+        if mobil:
+            vorschau_platz = st.empty()
+            inhalt = st.container()
+        else:
+            inhalt, rechts = st.columns([2.3, 1], gap="large")
+            vorschau_platz = rechts.empty()
+        seiten_liste = SCHRITTE[schritt]["seiten"]
+        with inhalt:
+            _schritt_kopf(schritt)
+            unter = None
+            if seiten_liste:
+                unter = st.pills("Unterseite", seiten_liste, default=seiten_liste[0], key=f"pl_wz_seite_{schritt}",
+                                 label_visibility="collapsed") or seiten_liste[0]
+    else:
+        platz["bilanz"] = _rahmen(m)
+        platz["kpi"] = st.empty()
+        warn_platz = st.empty()
+        haupt = st.pills("Bereich", HAUPT, default=HAUPT[0], key="pl_haupt") or HAUPT[0]
+        unter = None
+        if UNTER[haupt]:
+            unter = st.pills("Unterseite", UNTER[haupt], default=UNTER[haupt][0],
+                             key=f"pl_unter_{HAUPT.index(haupt)}", label_visibility="collapsed") or UNTER[haupt][0]
 
     with st.spinner("Lade historische Daten …"):
         try:
@@ -4958,11 +5304,23 @@ def render(h):
         R = _rechne(m, historie, korb_score)
     if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
         R = _rechne(m, historie, korb_score)
+
+    def _gewichte_seite():
+        with st.expander("📐 Gewichtung je Kategorie begrenzen (Wikifolios, ETFs, Aktien, Reserve …)",
+                         expanded=False):
+            _regeln_editor(m, "gw_")
+        _b_gewichtung(m, R)
+
+    def _rahmen_seite():
+        platz["bilanz"] = _rahmen(m, eingebettet=True)
+        _abschnitt("Ergebnis auf einen Blick")
+        platz["kpi"] = st.empty()
+
     seiten = {
         ("🧩 Portfolio", "Bausteine"): lambda: _b_bausteine(m, R, h, hist_assets, hist_korb),
         ("🧩 Portfolio", "Aufteilung"): lambda: _b_aufteilung(m, R),
         ("🧩 Portfolio", "Kaufplan"): lambda: _b_kaufplan(m, R, h, hist_assets, hist_korb),
-        ("⚖️ Gewichtung", None): lambda: _b_gewichtung(m, R),
+        ("⚖️ Gewichtung", None): _gewichte_seite,
         ("💳 Kredit", None): lambda: _b_kredit(m, R),
         ("📈 Ergebnis", "Wachstum"): lambda: _b_growth(m, R),
         ("📈 Ergebnis", "Ziel"): lambda: _b_ziel(m, R),
@@ -4976,11 +5334,32 @@ def render(h):
         ("🗂️ Daten", "Annahmen & Quellen"): lambda: _b_annahmen(m, R, historie, hist_assets),
         ("🗂️ Daten", "Gespeicherte Modelle"): lambda: _b_modelle(m, R, historie, h),
     }
-    if haupt == "⚖️ Gewichtung":
-        with st.expander("📐 Gewichtung je Kategorie begrenzen (Wikifolios, ETFs, Aktien, Reserve …)",
-                         expanded=False):
-            _regeln_editor(m, "gw_")
-    seiten[(haupt, unter)]()
+    if gefuehrt:
+        # gleiche Seiten, nur in der Reihenfolge des Ablaufs
+        wz = {
+            (0, None): _rahmen_seite,
+            (1, "Auswahl"): seiten[("🧩 Portfolio", "Bausteine")],
+            (1, "Aktienkorb"): seiten[("🔬 Analyse", "Aktienkorb")],
+            (1, "Wikifolios"): seiten[("🔬 Analyse", "Wikifolios")],
+            (2, "Gewichte"): _gewichte_seite,
+            (2, "Aufteilung"): seiten[("🧩 Portfolio", "Aufteilung")],
+            (2, "Kaufplan"): seiten[("🧩 Portfolio", "Kaufplan")],
+            (3, "Kredit"): seiten[("💳 Kredit", None)],
+            (3, "Konzentration"): seiten[("⚠️ Risiko", "Konzentration")],
+            (3, "Sensitivität"): seiten[("⚠️ Risiko", "Sensitivität")],
+            (3, "Stress & Reserve"): seiten[("⚠️ Risiko", "Stress & Reserve")],
+            (3, "Annahmen & Quellen"): seiten[("🗂️ Daten", "Annahmen & Quellen")],
+            (4, "Überblick"): lambda: _b_ueberblick(m, R, platz),
+            (4, "Wachstum"): seiten[("📈 Ergebnis", "Wachstum")],
+            (4, "Ziel"): seiten[("📈 Ergebnis", "Ziel")],
+            (4, "Szenarien"): seiten[("📈 Ergebnis", "Szenarien")],
+            (4, "Entnahme"): seiten[("📈 Ergebnis", "Entnahme")],
+            (4, "Speichern"): seiten[("🗂️ Daten", "Gespeicherte Modelle")],
+        }
+        with inhalt:
+            wz[(schritt, unter)]()
+    else:
+        seiten[(haupt, unter)]()
 
     # KPIs mit dem Stand NACH den Eingaben
     je_score, korb_score = _scores(m, fund)
@@ -4989,12 +5368,29 @@ def render(h):
         R = _rechne(m, historie, korb_score)
     if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
         R = _rechne(m, historie, korb_score)
-    _kpis(kpi_platz, m, R)
-    try:
-        _monatsbilanz_anzeigen(bilanz_platz, m, R)
-    except Exception as ex:
-        bilanz_platz.caption(f"Monatsbilanz nicht berechenbar: {ex}")
-    _gewichtswarnung(warn_platz, m)
+    if platz["kpi"] is not None:
+        _kpis(platz["kpi"], m, R)
+    if platz["bilanz"] is not None:
+        try:
+            _monatsbilanz_anzeigen(platz["bilanz"], m, R)
+        except Exception as ex:
+            platz["bilanz"].caption(f"Monatsbilanz nicht berechenbar: {ex}")
+    _gewichtswarnung(warn_platz, m, leer_zeigen=not gefuehrt)
+    if gefuehrt:
+        pruef = _pruefungen(m, R)
+        stepper_platz.markdown(_stepper_html(pruef, schritt), unsafe_allow_html=True)
+        with vorschau_platz.container():
+            if mobil:
+                summe = E.gewichte_summe(m)
+                with st.expander(f"📊 Portfolio-Vorschau · {len([1 for g in E.gewichte(m).values() if g > 0])} "
+                                 f"Bausteine · {_de(summe, 1)} %", expanded=False):
+                    _vorschau(m, R, mobil=True)
+            else:
+                with st.container(border=True):
+                    _vorschau(m, R)
+        with inhalt:
+            st.divider()
+            _schritt_navigation(pruef, schritt)
 
     status = _auto_speichern(m, h)
     if status:
