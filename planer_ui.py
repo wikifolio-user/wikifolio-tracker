@@ -1512,6 +1512,10 @@ ANSICHTEN = ["🧭 Schritt für Schritt", "🗂️ Alle Bereiche"]
 
 WZ_CSS = """
 <style>
+/* Breite je nach Geraet nutzen (sonst begrenzt die App den Inhalt auf 780 px) */
+@media (min-width: 900px) { .block-container { max-width: min(94vw, 1180px) !important; } }
+@media (min-width: 1400px) { .block-container { max-width: min(92vw, 1560px) !important; } }
+@media (min-width: 2000px) { .block-container { max-width: 1800px !important; } }
 .wz-stepper { display: flex; gap: 6px; margin: 4px 0 6px; }
 .wz-step { flex: 1 1 0; min-width: 0; text-align: center; font-size: 0.66rem; color: #8A9099; font-weight: 700; }
 .wz-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 3px; display: flex; align-items: center;
