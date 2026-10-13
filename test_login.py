@@ -320,6 +320,39 @@ class Verwaltung(Basis):
         self.assertTrue(st.fehler)
         self.assertTrue(store.daten["benutzer"]["anna"]["aktiv"])
 
+    def test_loeschen_fragt_erst_nach(self):
+        store = _store_mit_anna()
+        st, erg = self._render(store, gedrueckt={"bv_del_anna"})
+        self.assertIn("anna", store.daten["benutzer"])           # noch nicht geloescht
+        self.assertTrue(st.session_state.get("bv_del_frage_anna"))
+        self.assertTrue(any("wirklich löschen" in w for w in st.warnungen))
+
+    def test_loeschen_entfernt_zugang_und_daten(self):
+        store = _store_mit_anna()
+        aufrufe = []
+
+        def daten_loeschen(name):
+            aufrufe.append(name)
+            return True, 3
+
+        st = FakeSt(SECRETS, None, {"bv_del_ja_anna"})
+        st.session_state["bv_del_frage_anna"] = True
+        with self.assertRaises(Rerun):
+            L.render_verwaltung(st, store.gh_read, store.gh_write, ["depot"], {},
+                                gh_aktualisiere=store.gh_aktualisiere, daten_loeschen=daten_loeschen)
+        self.assertNotIn("anna", store.daten["benutzer"])
+        self.assertEqual(aufrufe, ["anna"])
+        self.assertIn("3 Datei(en)", st.session_state["rechte_meldung"])
+
+    def test_loeschen_abbrechen(self):
+        store = _store_mit_anna()
+        st = FakeSt(SECRETS, None, {"bv_del_nein_anna"})
+        st.session_state["bv_del_frage_anna"] = True
+        with self.assertRaises(Rerun):
+            L.render_verwaltung(st, store.gh_read, store.gh_write, ["depot"], {},
+                                gh_aktualisiere=store.gh_aktualisiere, daten_loeschen=lambda n: (True, 0))
+        self.assertIn("anna", store.daten["benutzer"])
+
     def test_sperren_ok(self):
         store = _store_mit_anna()
         st, erg = self._render(store, gedrueckt={"bv_akt_anna"})
