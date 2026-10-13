@@ -31,6 +31,10 @@ ABGELTUNG = 26.375
 GRENZEN = {"a": (0.0, 1e10), "s": (0.0, 1e9), "dy": (0.0, 100.0), "z": (-99.0, 100.0), "n": (0, 1200),
            "f": (0, 1200), "e": (0.0, 1e12), "st": (0.0, 60.0), "fb": (0.0, 1e6)}
 AUSWAHL = {"ea": ("v", "n"), "dya": ("j", "i"), "ne": ("j", "m"), "fe": ("j", "m")}
+# Zahlenfelder, die bei einem neuen (normalen) Benutzer beim ersten Start auf 0 stehen
+NULL_FELDER = ("a", "s", "dy", "z", "n", "f", "e", "st", "fb")
+# weitere gemerkte Felder ausserhalb von STANDARD (Zielwert, Wachstum bei Entnahme)
+EXTRA_FELDER = {"zr_zielwert": None, "zr_wg": 2.0}
 MAX_PLAN_MONATE = 1200                                  # Plaene in Phasen: hoechstens 100 Jahre
 MAX_BETRAG = 1e12
 
@@ -446,9 +450,18 @@ def _noetig_text(x):
 # ===========================================================================
 # Permanentlink (URL-Parameter)
 # ===========================================================================
-def aus_url(qp):
-    """URL-Parameter -> Parameter-dict (unbekannte/kaputte Werte -> Standard)."""
+def standard_werte(null=False):
+    """Startwerte: STANDARD bzw. (null=True, neuer Benutzer) alle Zahlenfelder auf 0."""
     p = dict(STANDARD)
+    if null:
+        for k in NULL_FELDER:
+            p[k] = type(STANDARD[k])(0)
+    return p
+
+
+def aus_url(qp, basis=None):
+    """URL-Parameter -> Parameter-dict (unbekannte/kaputte Werte -> Standard bzw. basis)."""
+    p = dict(basis or STANDARD)
     for k, std in STANDARD.items():
         if k in qp:
             roh = qp[k]
@@ -1037,16 +1050,52 @@ def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p):
     return text
 
 
-def render(basis_url=""):
+def init_werte(session_state, query_params, gespeichert=None, null=False):
+    """Erstbelegung beim Oeffnen der Ansicht (setzt zr_*-Schluessel in session_state).
+    - Permanentlink MIT Werten (?a=...&z=...): der Link legt die Variante komplett fest
+      (fehlende Felder = STANDARD, wie beim Erzeugen des Links) - ueberschreibt alles.
+    - Sonst (kein Link oder nur ?ansicht=zins): vorhandene Sitzungswerte bleiben; fehlende
+      kommen aus den gemerkten Eingaben (gespeichert, {"zr_a": ...}), sonst Standard
+      (null=True: neuer Benutzer, Zahlenfelder 0). -> True, wenn ein Link galt."""
+    url = {k: query_params.get(k) for k in STANDARD if k in query_params}
+    if url:
+        p0 = aus_url(url)
+        p0["dy"] = max(float(p0["dy"]), 0.0)
+        for k, v in p0.items():
+            session_state[f"zr_{k}"] = v
+        return True
+    gespeichert = gespeichert or {}
+    quelle = {}
+    for k in STANDARD:
+        key = f"zr_{k}"
+        if session_state.get(key) is not None:          # Sitzung (auch frisch vorbelegt) zuerst
+            quelle[k] = session_state[key]
+        elif gespeichert.get(key) is not None:
+            quelle[k] = gespeichert[key]
+    p0 = aus_url(quelle, standard_werte(null))           # wie ein Link geprueft und begrenzt
+    p0["dy"] = max(float(p0["dy"]), 0.0)
+    for k, v in p0.items():
+        session_state[f"zr_{k}"] = v
+    for key, std in EXTRA_FELDER.items():
+        if key in session_state:
+            continue
+        wert = gespeichert.get(key)
+        if isinstance(wert, (int, float)) and not isinstance(wert, bool) and math.isfinite(wert) and wert >= 0:
+            session_state[key] = float(wert)
+        elif key == "zr_wg":
+            session_state[key] = 0.0 if null else std
+    return False
+
+
+def render(basis_url="", gespeichert=None, null=False):
+    """gespeichert: gemerkte Eingaben des Benutzers ({"zr_a": ...}); null=True: neuer
+    (normaler) Benutzer - ohne gemerkte Werte starten alle Zahlenfelder bei 0."""
     import streamlit as st
     import pandas as pd
 
-    # Erstaufruf: Werte aus dem Link uebernehmen (danach gelten die Eingaben)
+    # Erstaufruf: Link > Sitzung > gemerkte Eingaben > Standard (danach gelten die Eingaben)
     if not st.session_state.get("zr_init"):
-        p0 = aus_url({k: st.query_params.get(k) for k in STANDARD if k in st.query_params})
-        p0["dy"] = max(float(p0["dy"]), 0.0)
-        for k, v in p0.items():
-            st.session_state[f"zr_{k}"] = v
+        init_werte(st.session_state, st.query_params, gespeichert, null)
         st.session_state["zr_init"] = True
 
     st.markdown(FORM_CSS, unsafe_allow_html=True)
@@ -1207,7 +1256,7 @@ def render(basis_url=""):
     if r.get("entnommen"):
         st.markdown(_kopf("🛟", "Entnahme & Zinsen", "Welcher Zinssatz deckt die Entnahmen – und wann wächst das Kapital?"),
                     unsafe_allow_html=True)
-        st.session_state.setdefault("zr_wg", 2.0)
+        st.session_state.setdefault("zr_wg", 0.0 if null else 2.0)
         wg = float(st.number_input("Gewünschtes Wachstum zusätzlich zur Entnahme (% p.a.)", 0.0, 50.0, step=0.5,
                                    format="%.1f", key="zr_wg",
                                    help="Wie stark das Kapital trotz Entnahme noch wachsen soll")) / 100.0
