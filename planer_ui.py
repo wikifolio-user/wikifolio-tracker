@@ -35,6 +35,7 @@ import streamlit as st
 import planer_daten as D
 import planer_engine as E
 import bewertung as BW
+import analyse as AN
 
 try:
     import nutzerdaten as N
@@ -134,6 +135,17 @@ CSS = """
 .sc-formel { font-size: 0.78rem; color: #D6D9DE; background: rgba(76, 154, 255, 0.08);
              border: 1px solid rgba(76, 154, 255, 0.3); border-radius: 8px; padding: 6px 10px; margin: 6px 0 10px; }
 @media (max-width: 700px) { .sc-teil { grid-template-columns: minmax(0, 7.5em) 1fr 2.2em 3em; } }
+.an-box { border-left: 3px solid rgba(76, 154, 255, 0.6); background: rgba(76, 154, 255, 0.05);
+          border-radius: 0 10px 10px 0; padding: 7px 10px; margin: 2px 0 10px; }
+.an-zeile { font-size: 0.79rem; color: #D6D9DE; line-height: 1.45; margin: 3px 0; }
+.an-zeile b { color: #FFFFFF; }
+.an-tag { display: inline-block; font-size: 0.6rem; font-weight: 800; padding: 1px 6px; border-radius: 999px;
+          margin-right: 5px; letter-spacing: 0.3px; text-transform: uppercase; vertical-align: 1px; }
+.an-fakt { background: rgba(22, 199, 132, 0.14); color: #6EE7B7; }
+.an-prognose { background: rgba(245, 185, 66, 0.16); color: #F5B942; }
+.an-modell { background: rgba(167, 139, 250, 0.16); color: #C4B5FD; }
+.an-einschaetzung { background: rgba(76, 154, 255, 0.16); color: #8DBBFF; }
+.an-urteil { font-size: 0.95rem; font-weight: 800; color: #FFFFFF; margin: 4px 0 2px; }
 </style>
 """
 
@@ -1974,7 +1986,93 @@ def _sc_alter(stand):
     return (datetime.date.today() - d).days, d.strftime("%d.%m.%Y")
 
 
-def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h):
+_AN_TAG = {AN.FAKT: "an-fakt", AN.PROGNOSE: "an-prognose", AN.MODELL: "an-modell",
+           AN.EINSCHAETZUNG: "an-einschaetzung"}
+
+
+def _an_tag(art):
+    return f'<span class="an-tag {_AN_TAG.get(art, "an-fakt")}">{_esc(art)}</span>'
+
+
+def _analyse_box_html(a):
+    b = a["box"]
+    zeilen = (("Warum interessant?", b["warum"]), ("Vergangenheit", b["vergangenheit"]),
+              ("Zukunft", b["zukunft"]), ("Bewertung", b["bewertung"]), ("Risiken", b["risiken"]),
+              ("Gesamteinschätzung", b["gesamt"]))
+    return '<div class="an-box">' + "".join(
+        f'<div class="an-zeile"><b>{_esc(l)}</b> {_esc(t)}</div>' for l, t in zeilen) + "</div>"
+
+
+def _q_detail(h, z):
+    """Detaildaten einer Aktie aus state/qualitaet/details_<teil>.json (nur bei Bedarf geladen)."""
+    q = z.get("qd") or {}
+    if z.get("typ") != "aktie" or not q.get("s"):
+        return None
+    teil = q.get("d")
+    if teil is None:
+        teil = zlib.crc32(q["s"].encode()) % QUALITAET_DETAIL_TEILE
+    try:
+        d = h["gh_read_taeglich"](f"state/qualitaet/details_{teil}.json", None) or {}
+    except Exception:
+        return None
+    return (d.get("werte") or {}).get(q["s"])
+
+
+def _detailanalyse(a):
+    """Aufklappbare Detailanalyse: Urteil, Argumente, Historie, Zukunft, Szenarien, Quellen."""
+    st.markdown(f'<div class="an-urteil">{a["emoji"]} {_esc(a["urteil_text"])}</div>'
+                f'<div class="an-zeile">{_an_tag(AN.EINSCHAETZUNG)}{_esc(", ".join(a["urteil_gruende"]))}.</div>',
+                unsafe_allow_html=True)
+    st.markdown("**Warum mich dieser Wert derzeit nicht überzeugt**" if a["urteil"] == "unattraktiv"
+                else "**Warum ich diesen Wert interessant finde**")
+    st.markdown(f'<div class="an-zeile">{_an_tag(AN.EINSCHAETZUNG)}{_esc(" ".join(a["these"]))}</div>',
+                unsafe_allow_html=True)
+    st.markdown("**Die drei stärksten Argumente**\n" + "\n".join(f"- ✓ {t}" for t in a["argumente"]))
+    st.markdown("**Die drei größten Risiken**\n" + "\n".join(f"- ✗ {t}" for t in a["risiken"]))
+    st.caption(a["gegenargument"])
+    bw = a["bewertung"]
+    st.markdown(f'<div class="an-zeile"><b>Aktuelle Bewertung: {_esc(bw["stufe"] or "nicht einzuordnen")}</b> '
+                f'{_an_tag(bw["art"])}{_esc(bw["text"])}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="an-zeile"><b>Langfristiges Potenzial (3–5 J.)</b> {_an_tag(AN.MODELL)}'
+                f'{_esc(a["potenzial"])}</div>', unsafe_allow_html=True)
+
+    _abschnitt("Vergangenheit")
+    _tabelle(["Kennzahl", "Wert", "Vergleich"], [[_esc(l), _esc(w), _esc(v)] for l, w, v in a["kennzahlen"]],
+             links=(0, 2))
+    st.markdown("".join(f'<div class="an-zeile">{_an_tag(art)}{_esc(t)}</div>' for art, t in a["vergangenheit"]),
+                unsafe_allow_html=True)
+
+    _abschnitt("Zukunftsaussichten")
+    st.markdown("".join(f'<div class="an-zeile">{_an_tag(art)}{_esc(t)}</div>' for art, t in a["zukunft"]),
+                unsafe_allow_html=True)
+
+    sz = a["szenarien"]
+    _abschnitt("Drei Szenarien (Schätzungen, keine Prognose)")
+    if sz["zeilen"]:
+        _tabelle(["Szenario", "Rendite p.a.", "nach 1 J.", "nach 3 J.", "nach 5 J.", "Annahme"],
+                 [[_esc(r["name"]), _pct(r["pa"] / 100, vorzeichen=True),
+                   *[_esc(AN._eur(r["werte"][n])) for n in (1, 3, 5)], _esc(r["annahme"])] for r in sz["zeilen"]],
+                 links=(0, 5))
+        st.caption(f"Startbetrag {AN._eur(AN.STARTBETRAG)}, vor Kosten und Steuern.")
+    else:
+        st.caption("Für Szenarien fehlt eine ausreichende Historie.")
+    for t in (sz["band"], sz["stress"]):
+        if t:
+            st.markdown(f'<div class="an-zeile">{_an_tag(AN.MODELL if t is sz["band"] else AN.FAKT)}{_esc(t)}</div>',
+                        unsafe_allow_html=True)
+    if sz["dcf"]:
+        st.markdown("**Fairer Wert laut Cashflow-Modell (DCF des Qualitäts-Agenten)**")
+        _tabelle(["Szenario", "Fairer Wert vs. Kurs", "FCF-Wachstum", "Diskontsatz", "Exit-Multiple"],
+                 [[_esc(d["name"]), _esc(AN._p(d["pot"], 0)), _esc(AN._p(d["g"])), _esc(AN._p(d["r"], vz=False)),
+                   _esc(f'{AN._de(d["m"])}x' if d["m"] is not None else "–")] for d in sz["dcf"]])
+
+    _abschnitt("Quellen und Datenstand")
+    st.markdown("\n".join(f"- {t}" for t in a["quellen"]))
+    if a["nicht_in_quelle"]:
+        st.caption("Nicht in der Datenquelle und daher nicht bewertet: " + ", ".join(a["nicht_in_quelle"]) + ".")
+
+
+def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ctx=None):
     """'Warum auf diesem Platz?' fuer die ersten drei, Direktvergleich, Einzelwert-Erklaerung
     und die offengelegte Bewertungsmethode."""
     mit = [z for z in zeilen if z.get("bw")]
@@ -1999,12 +2097,17 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h):
         st.caption(f"Sortiert nach „{sortierung}“ – für eine Rangfolge nach dem Gesamt-Score oben "
                    "„⭐ Gesamt-Score“ wählen.")
 
+    ctx = ctx or AN.kontext(mit)
+
+    def _an(i, z, detail=None):
+        return AN.analysiere(z, z["bw"], ctx, detail=detail, platz=i + 1, stand=stand_k, q_stand=stand_q)
+
     top = mit[:3]
     for i, z in enumerate(top):
         naechster = top[i + 1] if i + 1 < len(top) else None
         text = BW.warum(i + 1, z["bw"], naechster["bw"] if naechster else None,
                         naechster["name"] if naechster else None, nach_score, sortierung)
-        st.markdown(_sc_karte(i + 1, z, z["bw"], text), unsafe_allow_html=True)
+        st.markdown(_sc_karte(i + 1, z, z["bw"], text) + _analyse_box_html(_an(i, z)), unsafe_allow_html=True)
 
     if len(top) >= 2:
         _abschnitt("⚖️ Direktvergleich der Spitze")
@@ -2049,6 +2152,18 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h):
         st.caption("Zahlen in Klammern = Punkte, die der Teilscore zum Gesamt-Score beiträgt (Differenz zwischen "
                    f"den beiden). Abstände unter {BW.GLEICHWERTIG} Punkten sind innerhalb der Messgenauigkeit.")
 
+    _abschnitt("📋 Analyse je Eintrag")
+    st.caption("Kompakte Analysebox je Rang; „Detailanalyse“ zeigt alle Kennzahlen, Szenarien und Quellen. "
+               "Gekennzeichnet: Fakt · Externe Prognose · Modell/Annahme · Einschätzung.")
+    for i, z in enumerate(mit[:25]):
+        a = _an(i, z)
+        with st.expander(f'#{i + 1} {z["name"]} · Score {z["bw"]["score"]} · {a["emoji"]} {a["urteil_text"]}'):
+            st.markdown(_analyse_box_html(a), unsafe_allow_html=True)
+            if st.toggle("🔬 Detailanalyse", key=f'pl_gk_det_{z["kennung"]}'):
+                _detailanalyse(_an(i, z, _q_detail(h, z)))
+    if len(mit) > 25:
+        st.caption("Analyseboxen für die ersten 25 Einträge – alle weiteren über „Einzelnen Wert erklären“.")
+
     _abschnitt("🔎 Einzelnen Wert erklären")
     namen = [f'{i + 1}. {z["name"]} ({z["bw"]["score"]})' for i, z in enumerate(mit)]
     sig = zlib.crc32("|".join(str(z["kennung"]) for z in mit).encode())
@@ -2074,6 +2189,10 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h):
         st.caption(f"⚠️ {t}")
     if b["fehlend"]:
         st.caption("Ohne Daten (zieht den Score zur Mitte): " + ", ".join(b["fehlend"]))
+    _abschnitt(f"🧠 Investment-Analyse: {z['name']}")
+    a = _an(int(wahl_i or 0), z, _q_detail(h, z))
+    st.markdown(_analyse_box_html(a), unsafe_allow_html=True)
+    _detailanalyse(a)
 
     with st.expander("ℹ️ Wie wird bewertet? (Methode, Gewichte, Datenlücken)"):
         st.markdown(
@@ -2147,6 +2266,7 @@ def _katalog_gross(m, h):
         r = {"r1": z.get("1J"), "r3": _pa(z.get("3J"), 3), "r5": _pa(z.get("5J"), 5), "r10": _pa(z.get("10J"), 10)}
         basis.append(dict(z, **r, qd=qvoll.get(z["kennung"]) if z["typ"] == "aktie" else None))
     modell = BW.Modell(basis, strategie)
+    ctx = AN.kontext(basis)
     zeilen = []
     for z in basis:
         if typ_key and z["typ"] != typ_key:
@@ -2221,7 +2341,7 @@ def _katalog_gross(m, h):
     st.caption("Rendite = reine Kursentwicklung in Euro (1 J. gesamt, 3/5/10 J. p.a.), ohne Dividenden. "
                "Hohe Vergangenheitsrenditen sind keine Zukunftserwartung (Winner Bias).")
     try:
-        _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h)
+        _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ctx)
     except Exception as e:          # Erklaerung darf die Liste nie blockieren
         st.caption(f"Bewertungs-Erklärung nicht verfügbar ({e}).")
 
