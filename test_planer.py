@@ -1640,9 +1640,48 @@ class NutzerBereiche(unittest.TestCase):        # 13.10.2026: alle Planer-Eingab
 class Versionsmarker(unittest.TestCase):
     @unittest.skipIf(U is None, "planer_ui nicht ladbar")
     def test_versionen_gleich(self):
-        self.assertEqual(E.ENGINE_VERSION, "13.10.2026 · 09:00")
+        self.assertEqual(E.ENGINE_VERSION, "16.10.2026 · 01:00")
         self.assertEqual(U.PLANER_VERSION, E.ENGINE_VERSION)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZielGenau(unittest.TestCase):
+    def _modell(self):
+        m = D.seed_modell()
+        m["rahmen"].update(startkapital=150000, horizont_jahre=5, zielvermoegen=1000000, sparrate_monat=0)
+        r = {a["id"]: 0.08 for a in m["assets"]}
+        ak = [a for a in E.aktive_assets(m) if E._typ(a) != "cash"]
+        return m, r, ak
+
+    def test_ueberschiessendes_ziel_wird_genau_getroffen(self):
+        m, r, ak = self._modell()
+        ak[1]["targetWeight"] = 30.0
+        r[ak[1]["id"]] = 2.5                        # extrem renditestarker Baustein
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self.assertTrue(f["geaendert"])
+        for a in m["assets"]:
+            if a["id"] in f["gewichte"]:
+                a["targetWeight"] = f["gewichte"][a["id"]]
+        ew = E.projektion(m, r, rebalancing={"art": "keins"})["endwert"]
+        self.assertAlmostEqual(ew, 1000000, delta=50)
+        self.assertAlmostEqual(E.gewichte_summe(m), 100.0, places=6)
+
+    def test_fixierte_bleiben_wenn_moeglich(self):
+        m, r, ak = self._modell()
+        ak[0]["fixiert"] = True
+        ak[0]["targetWeight"] = 3.0
+        r[ak[1]["id"]] = 2.5
+        ak[1]["targetWeight"] = 30.0
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self.assertFalse(f["fixierte_angepasst"])
+        gesamt = sum(float(a.get("targetWeight") or 0) for a in E.aktive_assets(m))
+        self.assertAlmostEqual(f["gewichte"][ak[0]["id"]], 3.0 / gesamt * 100, places=6)
+
+    def test_unter_ziel_unveraendert(self):
+        m, r, ak = self._modell()
+        m["rahmen"]["zielvermoegen"] = 10_000_000
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self.assertFalse(f["geaendert"])
