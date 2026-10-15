@@ -1486,8 +1486,11 @@ def _monatsbilanz_anzeigen(platz, m, R):
                     f'<table style="width:100%;border-collapse:collapse;font-size:.92rem">{"".join(zeilen)}</table>'
                     f'<div class="pl-zeile" style="margin-top:4px"><b class="{"pl-gut" if s_ >= 0 else "pl-schlecht"}">'
                     f'{_esc(hinweis)}</b></div>' + stufen_html, unsafe_allow_html=True)
-        for t in extra:
-            st.caption(t)
+        if extra:
+            with st.expander(("⚠️ " if any("⚠" in t for t in extra) else "ℹ️ ") + "Hinweise zur Monatsbilanz",
+                             expanded=False):
+                for t in extra:
+                    st.caption(t)
 
 
 def _fehlbetrag_text(z):
@@ -1985,7 +1988,12 @@ def _kpis(platz, m, R):
             zeilen.append(("Gewichte automatisch auf " if auto["erreichbar"] else "⚠ Höchstens erreichbar: ")
                           + f'<b>{_pct(auto["rendite"])} p.a.</b> ausgerichtet'
                           + ("" if auto["erreichbar"] else f' (mit diesen Bausteinen max. {_pct(auto["max"])})'))
-        st.markdown(f'<div class="pl-zeile">{"<br>".join(zeilen)}</div>', unsafe_allow_html=True)
+        if zeilen:
+            warnungen = sum(1 for t in zeilen if "⚠" in t)
+            titel = ("⚠️ " if warnungen else "ℹ️ ") + "Rechenweg & Hinweise" + (
+                f" · {warnungen} Warnung{'en' if warnungen > 1 else ''}" if warnungen else "")
+            with st.expander(titel, expanded=False):
+                st.markdown(f'<div class="pl-zeile">{"<br>".join(zeilen)}</div>', unsafe_allow_html=True)
         _hinweis()
 
 
@@ -3409,7 +3417,7 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
                   "Score", "Urteil", "Daten"],
         column_config={
             "Score": _score_spalte(),
-            "Urteil": st.column_config.TextColumn("Urteil", width=breite("small"),
+            "Urteil": st.column_config.TextColumn("Urteil", width="medium",
                                                   help="Gesamteinschätzung der Analyse (Details unter der Tabelle)"),
             "Daten": st.column_config.TextColumn("Daten", width=breite("small"),
                                                  help="Datenqualität: Anteil der Bewertungskriterien mit Daten"),
