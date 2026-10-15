@@ -18,7 +18,7 @@ Bausteine:
 """
 import math
 
-ENGINE_VERSION = "13.10.2026 · 09:00"   # muss zu planer_ui.PLANER_VERSION passen
+ENGINE_VERSION = "16.10.2026 · 01:00"     # muss zu planer_ui.PLANER_VERSION passen
 
 import planer_daten as D
 
@@ -1823,6 +1823,73 @@ def gewichtung_fuer_zielvermoegen(modell, renditen_netto, rebalancing=None):
             break
     return {"gewichte": erg["gewichte"], "benoetigt": benoetigt, "rendite": erg["rendite"], "endwert": ew,
             "erreichbar": True, "min": basis["min"], "max": basis["max"]}
+
+
+def ziel_genau_ausrichten(modell, renditen_netto, rebalancing=None, toleranz=0.001):
+    """Feinabgleich aufs Zielvermoegen: Liegt der Modell-Endwert UEBER dem Ziel (z. B. weil
+    schon die defensivste Verteilung zu renditestark ist oder ganze Stuecke/Mindeststuecke
+    die Gewichte verschoben haben), wird der investierte Teil anteilig verkleinert und der
+    Rest in die Reserve (Cash-Baustein) gelegt - die Verhaeltnisse der uebrigen Bausteine
+    bleiben gleich. Liegt der Endwert darunter, wird nichts geaendert (dafuer ist die
+    automatische Gewichtung zustaendig).
+    modell["rahmen"]["zielvermoegen"] ist das Ziel fuer den Brutto-Endwert (bei Krediten
+    inkl. Restschuld, siehe _mit_krediten).
+    -> {"gewichte" (in %), "endwert", "reserve_id", "geaendert"} oder {"fehler"}"""
+    import copy as _copy
+    ziel = float(modell["rahmen"].get("zielvermoegen") or 0.0)
+    if ziel <= 0 or int(modell["rahmen"].get("horizont_jahre") or 0) <= 0:
+        return {"fehler": "Kein Ziel oder keine Aufbauphase."}
+    reserve = next((a for a in modell["assets"] if _typ(a) == "cash" and a.get("enabled")), None) or \
+        next((a for a in modell["assets"] if _typ(a) == "cash"), None)
+    if reserve is None:
+        return {"fehler": "Kein Reserve-/Cash-Baustein für den Feinabgleich vorhanden."}
+    probe = _copy.deepcopy(modell)
+    res = next(a for a in probe["assets"] if a["id"] == reserve["id"])
+    res["enabled"] = True
+    basis = {a["id"]: float(a.get("targetWeight") or 0) for a in aktive_assets(probe)}
+    summe = sum(basis.values()) or 1.0
+    basis = {i: g / summe * 100.0 for i, g in basis.items()}          # auf 100 % normiert
+    fix = {a["id"] for a in probe["assets"] if a.get("fixiert")}
+    rest0 = basis.get(res["id"], 0.0)
+    # Stufe 1: nur nicht fixierte Bausteine verkleinern; reicht das nicht, auch die fixierten
+    invest = {i: g for i, g in basis.items() if i != res["id"] and i not in fix}
+    fest = {i: g for i, g in basis.items() if i != res["id"] and i in fix}
+
+    def setze(f):
+        for a in probe["assets"]:
+            if a["id"] in invest:
+                a["targetWeight"] = invest[a["id"]] * f
+            elif a["id"] in fest:
+                a["targetWeight"] = fest[a["id"]]
+        res["targetWeight"] = rest0 + sum(invest.values()) * (1.0 - f)
+
+    def endwert(f):
+        setze(f)
+        return projektion(probe, renditen_netto, rebalancing=rebalancing)["endwert"]
+
+    ew1 = endwert(1.0)
+    if ew1 <= ziel * (1 + toleranz):
+        return {"gewichte": None, "endwert": ew1, "reserve_id": res["id"], "geaendert": False}
+    fixierte_angepasst = False
+    if fest and endwert(0.0) > ziel:
+        invest, fest, fixierte_angepasst = dict(invest, **fest), {}, True
+    lo, hi = 0.0, 1.0
+    if endwert(0.0) > ziel:                     # selbst nur Reserve liegt ueber dem Ziel
+        lo = hi = 0.0
+    for _ in range(60):
+        if hi - lo < 1e-7:
+            break
+        mitte = (lo + hi) / 2.0
+        if endwert(mitte) > ziel:
+            hi = mitte
+        else:
+            lo = mitte
+    f = lo
+    ew = endwert(f)
+    return {"gewichte": {a["id"]: float(a.get("targetWeight") or 0) for a in probe["assets"]
+                         if a["id"] in basis or a["id"] == res["id"]},
+            "endwert": ew, "reserve_id": res["id"], "geaendert": True, "faktor": f,
+            "fixierte_angepasst": fixierte_angepasst}
 
 
 def rendite_fuer_restwert(kapital, monatlich, ziel_restwert, *, jahre=30, **kw):
