@@ -70,7 +70,7 @@ QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme
            "hochgerechnet": "Hochgerechnet (Historie < 1 J.)"}
 
 HINWEIS = "Szenariorechnung · keine Prognose · vor Steuern"
-PLANER_VERSION = "13.10.2026 · 09:00"     # zur Kontrolle, welche Datei gerade laeuft
+PLANER_VERSION = "16.10.2026 · 01:00"     # zur Kontrolle, welche Datei gerade laeuft
 
 CSS = """
 <style>
@@ -1061,6 +1061,25 @@ def _auto_gewichtung(m, R):
     return geaendert
 
 
+def _ziel_feinabgleich(m, R):
+    """Bei automatischer Gewichtung aufs Zielvermoegen: Endwert ueber dem Ziel (z. B. durch ganze
+    Stuecke, Mindeststuecke oder sehr renditestarke Bausteine) -> investierten Teil anteilig
+    verkleinern, Rest in die Reserve. So trifft das Modell das Ziel genau. -> True wenn geaendert"""
+    if _auto_modus(m) != "ziel" or _ziel_in_entnahme(m):
+        st.session_state.pop("planer_feinabgleich", None)
+        return False
+    erg = E.ziel_genau_ausrichten(_mit_krediten(m), R.get("r_calc", R["r"]), R["reb"])
+    st.session_state["planer_feinabgleich"] = erg
+    if erg.get("fehler") or not erg.get("geaendert"):
+        return False
+    for a in m["assets"]:
+        if a["id"] in erg["gewichte"]:
+            a["targetWeight"] = round(erg["gewichte"][a["id"]], 4)
+            if a["id"] == erg["reserve_id"]:
+                a["enabled"] = True
+    return True
+
+
 def _auto_hinweis(m):
     modus = _auto_modus(m)
     if modus == "ziel":
@@ -1988,6 +2007,18 @@ def _kpis(platz, m, R):
             zeilen.append(("Gewichte automatisch auf " if auto["erreichbar"] else "⚠ Höchstens erreichbar: ")
                           + f'<b>{_pct(auto["rendite"])} p.a.</b> ausgerichtet'
                           + ("" if auto["erreichbar"] else f' (mit diesen Bausteinen max. {_pct(auto["max"])})'))
+        fa = st.session_state.get("planer_feinabgleich") or {}
+        if fa.get("geaendert"):
+            res = _asset(m, fa["reserve_id"])
+            zeilen.insert(0, f'🎯 Ziel genau getroffen: Schon die defensivste Verteilung lag über dem Ziel – deshalb '
+                             f'liegen <b>{_pct(float(res.get("targetWeight") or 0) / 100)}</b> in „{_esc(res["name"])}“, '
+                             'die übrigen Bausteine behalten ihr Verhältnis zueinander.'
+                             + (' ⚠ Auch fixierte Bausteine mussten verkleinert werden – sie allein lagen schon über '
+                                'dem Ziel.' if fa.get("fixierte_angepasst") else ''))
+        elif fa.get("fehler") and z.get("differenz", 0) > 0.01 * float(rahmen.get("zielvermoegen") or 0) \
+                and _auto_modus(m) == "ziel":
+            zeilen.insert(0, f'⚠ Ziel wird überschritten: {_esc(fa["fehler"])} Eine Reserve (Cash) aktivieren, dann wird '
+                             'das Ziel genau getroffen.')
         if zeilen:
             warnungen = sum(1 for t in zeilen if "⚠" in t)
             titel = ("⚠️ " if warnungen else "ℹ️ ") + "Rechenweg & Hinweise" + (
@@ -5475,6 +5506,8 @@ def render(h):
         R = _rechne(m, historie, korb_score)
     if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
         R = _rechne(m, historie, korb_score)
+    if _ziel_feinabgleich(m, R):
+        R = _rechne(m, historie, korb_score)
 
     def _gewichte_seite():
         with st.expander("📐 Gewichtung je Kategorie begrenzen (Wikifolios, ETFs, Aktien, Reserve …)",
@@ -5538,6 +5571,8 @@ def render(h):
     if _auto_gewichtung(m, R):
         R = _rechne(m, historie, korb_score)
     if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
+        R = _rechne(m, historie, korb_score)
+    if _ziel_feinabgleich(m, R):
         R = _rechne(m, historie, korb_score)
     if platz["kpi"] is not None:
         _kpis(platz["kpi"], m, R)
