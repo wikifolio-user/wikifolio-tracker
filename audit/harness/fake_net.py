@@ -106,7 +106,19 @@ def _dump():
         json.dump({p: b.decode("utf-8", "replace") for p, (b, _) in STORE.items()}, f, ensure_ascii=False, indent=1)
 
 
+def _extra_laden():
+    """Testdaten von aussen einspielen: extra_store.json {pfad: text} (wird danach geloescht)."""
+    pfad = os.path.join(BASIS, "extra_store.json")
+    if os.path.exists(pfad):
+        with open(pfad) as fh:
+            for p, text in json.load(fh).items():
+                b = text.encode()
+                STORE[p] = (b, _sha(b + p.encode()))
+        os.remove(pfad)
+
+
 def gh_get(path):
+    _extra_laden()
     f = _fault().get("github_read")
     if f == "timeout":
         raise requests.Timeout("fault")

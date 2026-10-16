@@ -72,31 +72,42 @@ def sauber(text):
     return t
 
 
-def lese_json(repo, branch, path, token, default=None):
-    """Streng: (daten, sha). Datei fehlt (404) -> (default, None).
-    Jeder andere Fehler -> LeseFehler (der Aufrufer darf dann NICHT schreiben)."""
+def lese_text(repo, branch, path, token):
+    """Streng: (text, sha). Datei fehlt (404) -> (None, None).
+    Jeder andere Fehler -> LeseFehler. Dateien > 1 MB (Contents-API ohne Inhalt)
+    werden ueber die Rohdatei geladen (Audit A-26)."""
     url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
     try:
         r = requests.get(url, headers=_headers(token), params={"ref": branch}, timeout=10)
     except Exception as e:
         raise LeseFehler(f"{path}: {type(e).__name__}") from None
     if r.status_code == 404:
-        return default, None
+        return None, None
     if r.status_code != 200:
         raise LeseFehler(f"{path}: HTTP {r.status_code}")
     try:
         data = r.json()
         roh = data.get("content")
         if not roh and data.get("download_url"):
-            # Dateien > 1 MB liefert die Contents-API ohne Inhalt -> Rohdatei laden
             r2 = requests.get(data["download_url"], headers=_headers(token), timeout=20)
             if r2.status_code != 200:
                 raise LeseFehler(f"{path}: HTTP {r2.status_code} (Rohdatei)")
-            return json.loads(r2.text), data["sha"]
-        content = base64.b64decode(roh).decode("utf-8")
-        return json.loads(content), data["sha"]
+            return r2.text, data["sha"]
+        return base64.b64decode(roh or "").decode("utf-8"), data["sha"]
     except LeseFehler:
         raise
+    except Exception as e:
+        raise LeseFehler(f"{path}: {type(e).__name__}") from None
+
+
+def lese_json(repo, branch, path, token, default=None):
+    """Streng: (daten, sha). Datei fehlt (404) -> (default, None).
+    Jeder andere Fehler -> LeseFehler (der Aufrufer darf dann NICHT schreiben)."""
+    text, sha = lese_text(repo, branch, path, token)
+    if sha is None:
+        return default, None
+    try:
+        return json.loads(text), sha
     except Exception as e:
         raise LeseFehler(f"{path}: {type(e).__name__}") from None
 
@@ -265,19 +276,12 @@ def append_csv_line(repo, branch, path, line, token, header=None, message="appen
     url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
 
     for versuch in range(max_retries):
-        sha = None
-        existing = ""
         try:
-            r = requests.get(url, headers=_headers(token), params={"ref": branch}, timeout=10)
-            if r.status_code == 200:
-                data = r.json()
-                existing = base64.b64decode(data["content"]).decode("utf-8")
-                sha = data["sha"]
-            elif r.status_code != 404:
-                r.raise_for_status()
-        except Exception as e:
-            logging.error(f"github_store.append_csv_line Lesefehler ({path}): {type(e).__name__}")
+            existing, sha = lese_text(repo, branch, path, token)
+        except LeseFehler as e:
+            logging.error(f"github_store.append_csv_line Lesefehler ({e})")
             return False
+        existing = existing or ""
 
         if not existing and header:
             existing = header + "\n"

@@ -25,8 +25,13 @@ Datensparsamkeit / Aufbewahrung (Audit DATA-06):
 - Die Chronik erhaelt hoechstens einen Eintrag "Anmeldung" je Benutzer und Tag,
   ohne Uhrzeit; sie wird mit chronik.MAX_EINTRAEGE automatisch gekuerzt.
 - Beim Loeschen eines Benutzers verschwindet sein Datensatz aus benutzer.json;
-  Altstaende bleiben aber in der Git-Historie des Speicher-Repos. Fuer eine echte
-  Loeschung muss der State-Branch neu aufgesetzt (History-Rewrite) werden.
+  Altstaende bleiben aber in der Git-Historie des Speicher-Repos und in den monatlichen
+  Sicherungs-Tags state-backup-JJJJ-MM (die letzten 3, siehe squash-state-history.yml) -
+  spaetestens nach rund 3 Monaten sind sie damit entfernt. Sofort: Tags loeschen und den
+  State-Branch neu aufsetzen (History-Rewrite).
+- Neue Benutzernamen: nur a-z, 0-9, "-" und "_" (nutzerdaten.name_pruefen, Audit A-03) -
+  jeder Name hat so garantiert einen eigenen Datenordner.
+- Sitzungen enden bei Passwortwechsel und spaetestens nach MAX_SITZUNG_SEK (Audit A-13).
 """
 import datetime
 import hashlib
@@ -35,6 +40,8 @@ import logging
 import secrets as _secrets
 import threading
 import time
+
+import nutzerdaten
 
 PFAD_BENUTZER = "state/benutzer.json"
 ITERATIONEN = 200_000
@@ -341,6 +348,38 @@ def _nutzer(cfg, daten, name):
             "anzeige": u.get("anzeige") or name}
 
 
+# Sitzungen (Audit A-13): eine Anmeldung gilt nur, solange das Passwort unveraendert ist,
+# und hoechstens MAX_SITZUNG_SEK lang.
+MAX_SITZUNG_SEK = 12 * 3600
+
+
+def pw_kennung(cfg, daten, name):
+    """Kurzer Fingerabdruck des gespeicherten Passworts (Hash bzw. Admin-Secret) - aendert
+    sich bei jedem Passwortwechsel. None, wenn der Benutzer nicht (mehr) existiert."""
+    n = _norm(name)
+    if n == cfg["admin"]:
+        roh = cfg["admin_pw"]
+    else:
+        alle = daten.get("benutzer") if isinstance(daten.get("benutzer"), dict) else {}
+        u = alle.get(n)
+        roh = u.get("hash") if isinstance(u, dict) else None
+    return hashlib.sha256(str(roh).encode("utf-8")).hexdigest()[:16] if roh else None
+
+
+def sitzung_gueltig(ss, cfg, daten, name, jetzt=None):
+    """Passwort seit der Anmeldung unveraendert und Sitzung nicht aelter als MAX_SITZUNG_SEK?"""
+    jetzt = time.time() if jetzt is None else jetzt
+    kennung = pw_kennung(cfg, daten, name)
+    seit = ss.get("login_seit")
+    return (kennung is not None and ss.get("login_pw") == kennung
+            and isinstance(seit, (int, float)) and 0 <= jetzt - seit <= MAX_SITZUNG_SEK)
+
+
+def _sitzung_beenden(ss):
+    for k in ("login_name", "login_pw", "login_seit", "_nutzer"):
+        ss.pop(k, None)
+
+
 def pruefe_anmeldung(cfg, daten, name, passwort):
     """Passwortpruefung mit immer genau einer PBKDF2-Berechnung (Audit SEC-07). -> bool"""
     n = _norm(name)
@@ -386,10 +425,10 @@ LOGIN_CSS = """<style>
 .st-key-login_box [data-testid="InputInstructions"] { display: none; }
 /* Anmelden-Knopf: farbig und gross */
 .st-key-login_box [data-testid="stFormSubmitButton"] button {
-    background: #3987e5 !important; border: none !important; color: #fff !important;
+    background: #2563EB !important; border: none !important; color: #fff !important;
     min-height: 52px; border-radius: 12px !important; margin-top: 6px; }
 .st-key-login_box [data-testid="stFormSubmitButton"] button p { font-size: 1.05rem !important; font-weight: 700 !important; }
-.st-key-login_box [data-testid="stFormSubmitButton"] button:active { background: #2f72c4 !important; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button:active { background: #1D4ED8 !important; }
 </style>"""
 
 
@@ -446,9 +485,11 @@ def _chronik_login(chronik, n):
         pass
 
 
-def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=None):
+def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=None, speicher_fehler=None):
     """Vor dem Dashboard aufrufen. -> Benutzer-dict, None (Login ausdruecklich deaktiviert)
-    oder st.stop(). gh_aktualisiere (optional): app.gh_aktualisiere fuer sicheres Schreiben."""
+    oder st.stop(). gh_aktualisiere (optional): app.gh_aktualisiere fuer sicheres Schreiben.
+    speicher_fehler (optional): Funktion -> True, wenn die Benutzerliste gerade nicht lesbar
+    war (Audit A-10: dann ehrliche Meldung statt "Passwort falsch")."""
     cfg = konfig(st)
     if cfg is None:
         if login_deaktiviert(st):
@@ -458,12 +499,14 @@ def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=No
     ss = st.session_state
     angemeldet = ss.get("login_name")
     if angemeldet:
-        # bei jedem Seitenaufbau pruefen, ob der Benutzer noch existiert und aktiv ist
-        u = _nutzer(cfg, lade(gh_read_cached), angemeldet)
-        if u:
+        # bei jedem Seitenaufbau pruefen: Benutzer noch aktiv, Passwort unveraendert, Sitzung
+        # nicht zu alt (Audit A-13)
+        daten = lade(gh_read_cached)
+        u = _nutzer(cfg, daten, angemeldet)
+        if u and sitzung_gueltig(ss, cfg, daten, angemeldet):
             return u
-        ss.pop("login_name", None)
-        st.warning("Dein Zugang wurde beendet oder geändert – bitte neu anmelden.")
+        _sitzung_beenden(ss)
+        st.warning("Deine Sitzung ist abgelaufen oder dein Zugang wurde geändert – bitte neu anmelden.")
 
     ip = _client_ip(st)
     st.markdown(LOGIN_CSS, unsafe_allow_html=True)
@@ -499,11 +542,18 @@ def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=No
                         st.error("Benutzername oder Passwort falsch.")
                         st.stop()
                 ss["login_name"] = n
+                ss["login_pw"] = pw_kennung(cfg, daten, n)
+                ss["login_seit"] = time.time()
                 erfolg_merken(n)
                 if chronik and erst_heute:
                     _chronik_login(chronik, n)
                 st.rerun()
                 return None
+            if speicher_fehler is not None and speicher_fehler() and n != cfg["admin"]:
+                # Benutzerliste nicht lesbar: kein Fehlversuch, ehrliche Meldung
+                st.error("Anmeldung gerade nicht möglich – der Datenspeicher ist nicht erreichbar. "
+                         "Bitte in ein paar Minuten erneut versuchen.")
+                st.stop()
             _bremse()
             rest = fehlversuch_merken(schluessel)
             if rest > 0:
@@ -529,14 +579,16 @@ def pruefen(st, gh_read_cached):
         return None
     # nicht (mehr) angemeldet, aber ein Teil der App zeichnet sich neu (Fragment) ->
     # ganze App neu starten, damit die Anmeldemaske erscheint
-    u = _nutzer(cfg, lade(gh_read_cached), name) if name else None
+    daten = lade(gh_read_cached) if name else {}
+    u = _nutzer(cfg, daten, name) if name else None
+    if u is not None and not sitzung_gueltig(st.session_state, cfg, daten, name):
+        u = None
     if u is not None:
         # frische Rechte uebernehmen - sonst gelten geaenderte Ansichten erst nach einem
         # kompletten Neuaufbau (das Menue zeichnet sich als Fragment meist nur teilweise neu)
         st.session_state["_nutzer"] = u
         return u
-    st.session_state.pop("login_name", None)
-    st.session_state.pop("_nutzer", None)
+    _sitzung_beenden(st.session_state)
     _neu_starten(st)
     return None
 
@@ -663,8 +715,9 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
                 sicht = [a for a, an in wahl.items() if an]
                 nn = _norm(n)
                 fehler = passwort_pruefen(pw, nn)
-                if not nn or nn == cfg["admin"] or nn in benutzer:
-                    st.error("Name fehlt, ist der Admin oder existiert schon.")
+                name_fehler = nutzerdaten.name_pruefen(nn, benutzer, (cfg["admin"],))
+                if name_fehler:
+                    st.error(name_fehler)
                 elif fehler:
                     st.error(fehler)
                 else:
@@ -673,7 +726,8 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
                     status = {"existiert": False}
 
                     def fn(d):
-                        if nn in d["benutzer"]:
+                        # frisch gelesen erneut pruefen (paralleles Anlegen, Audit A-03)
+                        if nutzerdaten.name_pruefen(nn, d["benutzer"], (cfg["admin"],)):
                             status["existiert"] = True
                             return None
                         status["existiert"] = False
@@ -691,6 +745,9 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
     if not benutzer:
         st.caption("Noch keine weiteren Benutzer.")
         return
+    for ordner_, namen_ in nutzerdaten.slug_kollisionen(benutzer).items():
+        st.error(f"⚠️ Diese Benutzer teilen sich einen Datenordner ({ordner_}) und sehen gegenseitig ihre "
+                 f"Daten: {', '.join(namen_)}. Bitte alle bis auf einen löschen und neu anlegen.")
     for nn in sorted(benutzer):
         u = benutzer[nn] if isinstance(benutzer[nn], dict) else {}
         aktiv = u.get("aktiv", True)

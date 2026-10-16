@@ -1,1 +1,4 @@
-.streamlit/
+# Zugangsdaten nur in den Streamlit-Cloud-Secrets bzw. lokal, nie im Repository (Audit A-01)
+.streamlit/secrets.toml
+__pycache__/
+*.pyc

@@ -6,6 +6,43 @@ Zugangsdaten, Tokens und personenbezogene Inhalte sind in diesem Bericht maskier
 
 ---
 
+## Umsetzungsstand (17.10.2026)
+
+Nach dem Audit wurden die Befunde auf demselben Branch behoben (fachliche Vorgaben des Betreibers: **Kaufkurs 128,80 €**, **Entnahmen sind echte Verkäufe**). Verifiziert mit 440 Unit-Tests, den Audit-Reproduktionstests (18/18 grün) und erneuten Browser-Durchläufen in der Sandbox.
+
+| ID | Status | Umsetzung | Nachweis |
+|---|---|---|---|
+| A-01 | **Code erledigt, Betreiber-Aktion offen** | `.streamlit/secrets.toml` entfernt, `.gitignore` ergänzt | Webhook in Discord löschen/neu anlegen (nur Betreiber) |
+| A-02 | **Betreiber-Aktion offen** | – (Repo-Einstellung) | Repo privat stellen bzw. State in privates Repo, `ICON_BASE_URL` setzen |
+| A-03 | erledigt | `nutzerdaten.name_pruefen` (nur a–z, 0–9, `-`, `_`, kein belegter Ordner), Kollisionswarnung in der Benutzerverwaltung | Tests `test_nutzerdaten`, Browser: `max.m` abgelehnt, Warnung für `anna.b`/`anna-b` |
+| A-04 | erledigt | Hauptposition aus `positionen.json[0]` (`hauptposition_werte`), Sitzungsfelder entfernt, Papier gesperrt | Browser: Kapital 26.000 € → 28.927,80 € (auch nach Reload) |
+| A-05 | erledigt | keine Kursautomatik mehr; `config.ANFANGSKURS = 128.80` | Stückzahl unabhängig von der Datenlage |
+| A-06 | erledigt | kein Festkurs, keine Zufallsreihe; Kaskade Live → Schlusskurs → Workflow-Kurs (`state/price_history`) → keine Depotwerte | Browser: Fehlermeldung bzw. „letzter gespeicherter Kurs vom …“ |
+| A-07 | erledigt | gecachte Abrufe werfen bei Fehlern (`_live_abruf`, `_benchmark_roh`) | Browser: nach Wiederherstellung sofort Live-Daten |
+| A-08 | erledigt | Kachel „Ø p.a. seit Kauf“ = Tabelle (`rendite_pa_seit_kauf`) | Browser: 10,9 % / 10,95 % |
+| A-09 | erledigt | Sparplan-Käufe mit Kauftag (`sparplan_einzelkaeufe`, `sparplan_verlauf`) in allen Reihen | Browser: Kachel = Chart = 14.288,05 € |
+| A-10 | erledigt | Hinweis bei Speicher-Lesefehlern, ehrliche Login-Meldung | Browser + `test_login.SpeicherAusfall` |
+| A-11 | erledigt | „Live“ nur frisch und in Handelszeit, sonst „Stand …“; Kurszeit statt Abrufzeit; Live-Punkt am Kurstag | Browser: „Stand 16.10. 14:00“ am Samstag |
+| A-12 | erledigt | Hauptzahl = Depotwert nach echten Verkäufen; Gewinn inkl. Ausgezahltem; Gesamt, Meilenstein, Prognose mit echter Entnahmelogik | Browser: 13.788,05 € / +1.838,05 € wie unabhängig gerechnet |
+| A-13 | erledigt | Sitzung endet bei Passwortwechsel und nach 12 h | `test_login.Sitzung` |
+| A-14 | teilweise | Versionen in `requirements.txt` und Workflows fest | Branch-Schutz für `main` nur in den GitHub-Einstellungen möglich (Betreiber) |
+| A-15 | erledigt | Standardszenarien −10/0/5/10/15/20/30 % p.a. | Browser-Screenshot |
+| A-16 | erledigt | Kontraste, Abmelde-Button mit Namen, sichtbarer Tastatur-Fokus | axe-core: 0 Verstöße |
+| A-17 | teilweise | Prozente/Stückzahlen in Kacheln mit Dezimalkomma | `fmt()` (Betrag ohne Leerzeichen vor €) bewusst unverändert |
+| A-18 | offen (niedrig) | doppelter Abmelde-Button nur kurzzeitig beim Neuaufbau | keine Funktionsstörung |
+| A-19 | erledigt | Division durch null abgesichert | Audit-Test |
+| A-20 | erledigt | „Aktualisieren“ höchstens 1×/Minute global | Browser-Toast |
+| A-21 | erledigt | doppelte Testdatei entfernt | – |
+| A-22, A-23 | akzeptiert | rechtliche Frage bzw. Streamlit-Sitzungsmodell | – |
+| A-24 | erledigt | Sicherungs-Tag `state-backup-JJJJ-MM` vor jedem Squash (letzte 3) | lokal mit Test-Repo geprüft |
+| A-25 | **Betreiber-Aktion offen** | – | Pinger (cron-job.org) auf Mo–Fr 7:30–23:00 begrenzen |
+| A-26 | erledigt | `github_store.lese_text` lädt große Dateien über die Rohdatei | `test_github_store` |
+| A-27 | erledigt | Sparplan-Kauf am ersten Handelstag ab Termin (max. 7 Tage), Ersatzkurs nur für noch offene Käufe | `test_app_rechner` |
+
+Bekannte Grenze der Korrektur A-06: Ist gar kein echter Kurs verfügbar, endet der Seitenaufbau nach der Fehlermeldung – auch Einstellungen und Chronik sind dann bis zum nächsten erfolgreichen Abruf nicht erreichbar.
+
+---
+
 ## A. Gesamturteil
 
 Der Code ist für ein Einzelprojekt ungewöhnlich sorgfältig: konsequentes HTML-Escaping, fail-closed-Login mit PBKDF2 und Sperrlogik, optimistische Sperre (sha) beim Schreiben, kein Schreiben nach Lesefehlern, 441 grüne Unit-Tests und eine korrekt implementierte Steuerlogik (§ 32a, § 34 EStG, SolZG). Die geprüften Kernformeln stimmen mit unabhängig gerechneten Referenzwerten überein.
@@ -218,7 +255,7 @@ Legende Nachweis: **bestätigt** = reproduziert (Test/Browser/API); **vermutet**
 **Weitere fachliche Feststellungen ohne Fehlercharakter:**
 - „Netto (Simulation)“ zieht Entnahmen ab, lässt die Stückzahl aber konstant – entnommenes Geld rendiert also in der Simulation weiter. Die reale Variante ist die belastbarere Zahl.
 - Die Euro-Beträge je Zeitraum (Woche/Monat …) rechnen die *heutige* Stückzahl rückwirkend (im Code dokumentierte Näherung); bei Sparplan-Käufen im Zeitraum wird Einzahlung als Gewinn gezählt.
-- Candlestick: High/Low werden als Close ± 0,3 % erzeugt (`app.py:1530-1531`), keine echten OHLC-Daten – die Kerzen haben keinen Informationsgehalt über die Tagesspanne und sollten als Linie oder mit Hinweis gezeigt werden.
+- Candlestick: High/Low werden als Close ± 0,3 % erzeugt, keine echten OHLC-Daten. Die Ansicht weist darauf bereits in einer Bildunterschrift hin („Open/High/Low approximiert“).
 - Gebühren (0,95 % p. a., 10 % Performance Fee) sind laut Code im Kurs eingepreist und werden korrekt nicht erneut abgezogen. Steuern auf Kursgewinne werden im Depot nicht berücksichtigt (Werte sind vor Steuern).
 
 ---

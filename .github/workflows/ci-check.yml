@@ -40,7 +40,7 @@ jobs:
           echo "✅ Alle Python-Dateien sind syntaktisch gueltig."
 
       - name: Abhaengigkeiten fuer die Tests installieren
-        run: pip install requests pandas numpy tzdata
+        run: pip install requests==2.34.2 pandas==3.0.5 numpy==2.5.3 tzdata==2026.5   # wie requirements.txt
 
       - name: Unit-Tests
         env:

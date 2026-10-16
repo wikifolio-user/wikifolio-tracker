@@ -183,14 +183,15 @@ class Randfaelle(unittest.TestCase):
 # Befunde (bis zur Behebung ROT)
 # ---------------------------------------------------------------------------
 class BefundSEC03_Mandantentrennung(unittest.TestCase):
-    """Zwei verschiedene Benutzernamen duerfen nie denselben Datenordner bekommen."""
+    """Zwei Konten duerfen nie denselben Datenordner bekommen: ein neuer Name, dessen Ordner
+    schon belegt ist (oder der sich nicht 1:1 als Ordner abbilden laesst), wird abgelehnt."""
 
-    def test_verschiedene_namen_verschiedene_ordner(self):
+    def test_kollidierende_namen_werden_abgelehnt(self):
         paare = [("anna.b", "anna-b"), ("jörg", "jorg"), ("a b", "a-b"), ("日本", "中国")]
-        for n1, n2 in paare:
-            o1 = nutzerdaten.ordner({"name": n1, "rolle": "benutzer"})
-            o2 = nutzerdaten.ordner({"name": n2, "rolle": "benutzer"})
-            self.assertNotEqual(o1, o2, f"{n1!r} und {n2!r} teilen sich {o1}")
+        for neu, bestehend in paare:
+            self.assertIsNotNone(nutzerdaten.name_pruefen(neu, [bestehend]), f"{neu!r} neben {bestehend!r}")
+        for name in ("anna-b", "anna_b", "max1"):
+            self.assertEqual(nutzerdaten.ordner({"name": name, "rolle": "benutzer"}), f"state/benutzer/{name}")
 
 
 class BefundSEC01_Secrets(unittest.TestCase):
