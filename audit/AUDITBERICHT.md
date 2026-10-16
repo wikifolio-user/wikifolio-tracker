@@ -10,7 +10,7 @@ Zugangsdaten, Tokens und personenbezogene Inhalte sind in diesem Bericht maskier
 
 Der Code ist für ein Einzelprojekt ungewöhnlich sorgfältig: konsequentes HTML-Escaping, fail-closed-Login mit PBKDF2 und Sperrlogik, optimistische Sperre (sha) beim Schreiben, kein Schreiben nach Lesefehlern, 441 grüne Unit-Tests und eine korrekt implementierte Steuerlogik (§ 32a, § 34 EStG, SolZG). Die geprüften Kernformeln stimmen mit unabhängig gerechneten Referenzwerten überein.
 
-**Ein sicherer produktiver Einsatz ist trotzdem aktuell nicht gegeben.** Verhindert wird er durch zwei **kritische** Betriebs- und Sicherheitsbefunde, die nichts mit der Code-Qualität zu tun haben:
+**Ein sicherer produktiver Einsatz ist trotzdem aktuell nicht gegeben.** Verhindert wird er durch zwei Betriebs- und Sicherheitsbefunde, die nichts mit der Code-Qualität zu tun haben (laut Betreiber enthält der State bisher nur Testdaten – A-02 ist damit aktuell strukturell statt akut, der Webhook in A-01 ist dagegen echt):
 
 1. **Das Repository ist öffentlich.** Damit sind (a) ein Discord-Webhook im Klartext und (b) der komplette State-Branch mit Passwort-Hashes, Depotpositionen, Rechner-Eingaben (u. a. Abfindung/Einkommen) und Chronik für jeden ohne Anmeldung abrufbar. Der Code selbst schreibt in `app.py:33-38` vor, dass das Repo in diesem Fall privat sein muss.
 2. **Die Mandantentrennung ist lückenhaft:** verschiedene Benutzernamen (z. B. `anna.b` / `anna-b`) teilen sich denselben Datenordner – im Browser nachgewiesen.
@@ -61,7 +61,8 @@ Legende Nachweis: **bestätigt** = reproduziert (Test/Browser/API); **vermutet**
 - **Aufwand:** 30 Min. · **Test:** `audit/test_audit_reproduktion.py::BefundSEC01_Secrets` wird grün.
 
 ### A-02 · State-Branch mit Passwort-Hashes und Finanzdaten öffentlich abrufbar
-- **Kategorie:** Sicherheit / Datenschutz · **Schweregrad:** kritisch · **Nachweis:** bestätigt
+- **Kategorie:** Sicherheit / Datenschutz · **Schweregrad:** hoch (strukturell; kritisch, sobald echte Daten eingetragen werden) · **Nachweis:** bestätigt
+- **Nachtrag des Betreibers (17.10.2026):** Der State enthält bisher ausschließlich Testdaten. Aktuell werden daher keine echten personenbezogenen oder Finanzdaten offengelegt; Restrisiko nur bei wiederverwendeten Testpasswörtern. Die Maßnahme bleibt Voraussetzung für den ersten echten Nutzer.
 - **Betroffen:** Repository-Sichtbarkeit (`visibility: public`), Branch `app-state` (`state/benutzer.json`, `positionen.json`, `eingaben.json`, `trades_db.json`, `musterdepot.json`, `state/benutzer/*`, `state/planer/*`)
 - **Beschreibung/Auswirkung:** `HEAD https://raw.githubusercontent.com/.../app-state/state/benutzer.json` → **HTTP 200 ohne Anmeldung** (ebenso `positionen.json`). Laut Code liegen dort PBKDF2-Hashes (200.000 Iterationen) aller Benutzer – Offline-Brute-Force ist ohne jede Rate-Limitierung möglich – sowie Depotdaten, Rechner-Eingaben (Einkommen, Abfindung) und Anmeldedaten in der Chronik. Auch die Git-Historie des Branches und weitere Branches (`app-state-v2`, `bot-state`) sind betroffen. Die App-Login-Hürde ist damit für Lesezugriffe wirkungslos.
 - **Reproduktion:** GitHub-API `GET /repos/wikifolio-user/wikifolio-tracker` → `"private": false`; HEAD-Request wie oben.
@@ -226,7 +227,7 @@ Legende Nachweis: **bestätigt** = reproduziert (Test/Browser/API); **vermutet**
 
 **1. Sofort beheben (heute)**
 - A-01 Discord-Webhook löschen/neu erzeugen, Datei aus dem Repo entfernen, Secret Scanning aktivieren.
-- A-02 Repository privat stellen (oder State in privates Repo verlagern), danach Benutzerpasswörter, Admin-Hash und GitHub-Token erneuern; rechtliche Bewertung der Offenlegung veranlassen.
+- A-02 Repository privat stellen (oder State in privates Repo verlagern) – spätestens vor dem ersten echten Nutzer bzw. echten Eintrag; Testpasswörter nirgends sonst verwenden. Da bisher nur Testdaten betroffen sind, ist keine rechtliche Bewertung der bisherigen Offenlegung nötig.
 - A-03 Bis zur Korrektur keine Benutzer mit Sonderzeichen/Umlauten anlegen; bestehende Namen auf Slug-Kollisionen prüfen.
 
 **2. Vor dem nächsten produktiven Einsatz**
