@@ -390,6 +390,34 @@ class Verwaltung(Basis):
         self.assertFalse(any("Klartext" in w for w in st.warnungen))
 
 
+class AdminHash(Verwaltung):
+    def test_funktion(self):
+        h, f = L.admin_hash_erzeugen("Neues-Admin-PW-2026", "Neues-Admin-PW-2026", "chef")
+        self.assertIsNone(f)
+        self.assertTrue(L.ist_hash(h))
+        self.assertTrue(L.passwort_ok("Neues-Admin-PW-2026", h))
+        self.assertFalse(L.passwort_ok("falsch", h))
+
+    def test_ablehnungen(self):
+        self.assertIn("überein", L.admin_hash_erzeugen("Neues-Admin-PW-2026", "anders-12345678", "chef")[1])
+        self.assertIn("zu kurz", L.admin_hash_erzeugen("kurz-123", "kurz-123", "chef")[1])
+        self.assertIsNone(L.admin_hash_erzeugen("1111111111111", "1111111111111", "chef")[0])
+
+    def test_formular_gibt_secrets_zeile_aus(self):
+        store = _store_mit_anna()
+        vorher = store.writes
+        st, _ = self._render(store, {"admin_hash_pw1": "Neues-Admin-PW-2026", "admin_hash_pw2": "Neues-Admin-PW-2026"},
+                             {"Hash erzeugen"})
+        zeilen = [c for c in st.codes if c.startswith("admin_passwort_hash = ")]
+        self.assertEqual(len(zeilen), 1)
+        h = zeilen[0].split('"')[1]
+        self.assertTrue(L.passwort_ok("Neues-Admin-PW-2026", h))
+        self.assertEqual(store.writes, vorher)                     # nichts gespeichert
+
+    def test_formular_ohne_absenden_kein_hash(self):
+        st, _ = self._render(_store_mit_anna())
+        self.assertFalse(any(c.startswith("admin_passwort_hash") for c in st.codes))
+
 if __name__ == "__main__":
     unittest.main()
 
