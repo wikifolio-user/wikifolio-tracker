@@ -647,8 +647,47 @@ def _admin_pw_hinweis(st, cfg):
     st.warning("⚠️ Das Admin-Passwort steht im **Klartext** in den Secrets"
                + (f" und ist kürzer als {ADMIN_MIN_LAENGE} Zeichen" if kurz else "")
                + ". Empfohlen: nur den Hash als `admin_passwort_hash` hinterlegen und "
-                 "`admin_passwort` entfernen. Hash lokal erzeugen (im Projektordner):")
+                 "`admin_passwort` entfernen. Den Hash erzeugst du direkt hier mit "
+                 "„🔑 Admin-Passwort-Hash erzeugen“ – oder lokal im Projektordner:")
     st.code(HASH_HINWEIS, language="bash")
+
+
+def admin_hash_erzeugen(pw1, pw2, admin_name=""):
+    """Hash fuer admin_passwort_hash in den Secrets. -> (hash, None) oder (None, Fehlertext).
+    Es wird nichts gespeichert - der Admin kopiert die Zeile selbst in die Secrets."""
+    pw1, pw2 = pw1 or "", pw2 or ""
+    if pw1 != pw2:
+        return None, "Die beiden Eingaben stimmen nicht überein."
+    if len(pw1) < ADMIN_MIN_LAENGE:
+        return None, f"Admin-Passwort zu kurz (mindestens {ADMIN_MIN_LAENGE} Zeichen)."
+    fehler = passwort_pruefen(pw1, admin_name)
+    if fehler:
+        return None, fehler
+    return passwort_hash(pw1), None
+
+
+def _admin_hash_formular(st, cfg):
+    """Formular: neues Admin-Passwort zweimal eingeben -> fertige Secrets-Zeile zum Kopieren.
+    Gedacht fuer Admins ohne Computer mit Python (z. B. am Handy)."""
+    with st.expander("🔑 Admin-Passwort-Hash erzeugen", expanded=not cfg.get("admin_pw_hash")):
+        st.caption("Erzeugt die Zeile für die Streamlit-Secrets. Das Passwort wird nicht gespeichert "
+                   "und nicht weitergegeben – nur der Hash erscheint unten einmalig zum Kopieren.")
+        with st.form("admin_hash_form", clear_on_submit=True, border=False):
+            p1 = st.text_input("Neues Admin-Passwort", type="password", key="admin_hash_pw1",
+                               autocomplete="new-password",
+                               placeholder=f"mind. {ADMIN_MIN_LAENGE} Zeichen")
+            p2 = st.text_input("Passwort wiederholen", type="password", key="admin_hash_pw2",
+                               autocomplete="new-password")
+            los = st.form_submit_button("Hash erzeugen", width="stretch")
+        if los:
+            h, fehler = admin_hash_erzeugen(p1, p2, cfg["admin"])
+            if fehler:
+                st.error(fehler)
+            else:
+                st.success("Fertig. So geht es weiter: share.streamlit.io → App → ⋮ → Settings → Secrets. "
+                           "Im Abschnitt [login] diese Zeile einfügen, die Zeile admin_passwort löschen, "
+                           "speichern. Danach mit dem neuen Passwort anmelden.")
+                st.code(f'admin_passwort_hash = "{h}"', language="toml", wrap_lines=True)
 
 
 def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=None, daten_loeschen=None):
@@ -663,6 +702,7 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
         return
     st.markdown(RECHTE_CSS, unsafe_allow_html=True)
     _admin_pw_hinweis(st, cfg)
+    _admin_hash_formular(st, cfg)
     meldung = st.session_state.pop("rechte_meldung", None)
     if meldung:
         st.toast(meldung)
