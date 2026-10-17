@@ -2637,6 +2637,7 @@ NAV_ZEILEN = [
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
+                     "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
 NAV_CSS = """
@@ -3223,6 +3224,100 @@ def navigation():
         c3.button("🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren)
     st.markdown(stand_html, unsafe_allow_html=True)
     return aktiv
+
+
+def render_chronik():
+    """Chronik-Ansicht. Braucht keine Kursdaten - laeuft daher als leichte Ansicht vor
+    dem Kursabruf und bleibt auch bei einem Ausfall der Kursquelle erreichbar."""
+    eigen = eigener_bereich()
+    heute_date = datetime.datetime.now(BERLIN_TZ).date()
+    tab_trades = st.container()
+    try:
+        # Admin: gemeinsame Chronik (auch Workflow-Alarme, Anmeldungen);
+        # normale Benutzer: eigene Chronik (eigene Notizen und Depot-Ereignisse)
+        _chronik_pfad = upfad(config.STATE_PATH_TRADES_DB)
+
+        def load_db():
+            return gh_read(_chronik_pfad, [])
+
+        def notiz_speichern(eintrag):
+            """Lesen-Aendern-Schreiben mit Versionspruefung (keine verlorenen
+            Auto-Eintraege der Workflows, nie nach einem Lesefehler). -> True/False"""
+            ok, _ = gh_aktualisiere(
+                _chronik_pfad,
+                lambda d: chronik.anhaengen(d if isinstance(d, list) else [], eintrag)[0],
+                default=[], message="update chronik [skip ci]")
+            return ok
+
+        db_events = [x for x in (load_db() or []) if isinstance(x, dict)]
+
+        with tab_trades:
+            if eigen:
+                st.caption("Deine persönliche Chronik: wird automatisch mit Änderungen an deinen "
+                           "Depot-Positionen, beobachteten Werten, Sparplan und Entnahme gefüllt. "
+                           "Eigene Notizen sind jederzeit möglich.")
+            else:
+                st.caption("Wird automatisch gefüllt: Kurs-Alarme, Entwarnungen und neue Allzeithochs aus dem "
+                           "Discord-Workflow, Änderungen an Depot-Positionen und beobachteten Werten, Sparplan "
+                           "Start/Stopp, Musterdepots und gespeicherte Planungen. Eigene Notizen sind weiter möglich.")
+            anzahl = {}
+            for ev in db_events:
+                k_ = chronik.kategorie_von(ev)
+                anzahl[k_] = anzahl.get(k_, 0) + 1
+            optionen = ["alle"] + [k_ for k_ in chronik.KATEGORIEN if anzahl.get(k_)]
+            beschr = {"alle": f"Alle ({len(db_events)})"}
+            beschr.update({k_: f"{v_[0]} {v_[1]} ({anzahl.get(k_, 0)})" for k_, v_ in chronik.KATEGORIEN.items()})
+            try:
+                wahl = st.pills("Filter", optionen, default="alle", format_func=beschr.get,
+                                key="chronik_filter", label_visibility="collapsed") or "alle"
+            except Exception:
+                wahl = st.selectbox("Filter", optionen, format_func=beschr.get, key="chronik_filter_sb")
+            gezeigt = [ev for ev in db_events if wahl == "alle" or chronik.kategorie_von(ev) == wahl]
+            farben = {"alarm": "#EA3943", "depot": "#29B6F6", "beobachtung": "#A78BFA", "planer": "#F5B942",
+                      "notiz": "#71717A"}
+            if not gezeigt:
+                st.info("Noch keine Einträge – sie entstehen ab jetzt automatisch.")
+            letzter_tag = None
+            for ev in gezeigt[:200]:
+                k_ = chronik.kategorie_von(ev)
+                tag = ev.get("datum", "")
+                if tag != letzter_tag:
+                    try:
+                        tag_txt = datetime.date.fromisoformat(tag).strftime("%d.%m.%Y")
+                    except Exception:
+                        tag_txt = tag
+                    st.markdown(f'<div style="margin:14px 0 6px;font-size:.8rem;font-weight:700;'
+                                f'color:#A1A1AA;letter-spacing:.06em">{html.escape(tag_txt)}</div>',
+                                unsafe_allow_html=True)
+                    letzter_tag = tag
+                kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
+                st.markdown(f"""
+                    <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
+                        <div style="font-size: 0.72rem; color: #71717A;">{html.escape(kopf)}</div>
+                        <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
+                        <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            if len(gezeigt) > 200:
+                st.caption(f"Die neuesten 200 von {len(gezeigt)} Einträgen.")
+
+            with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
+                with st.form("trade_form", clear_on_submit=True):
+                    col1, col2 = st.columns([2, 3])
+                    with col1: ed = st.date_input("Datum", heute_date)
+                    with col2: eti = st.text_input("Titel")
+                    ei = st.text_area("Details")
+                    if st.form_submit_button("Speichern") and eti:
+                        eintrag = chronik.neuer_eintrag("notiz", eti, ei, typ="Notiz", quelle="manuell")
+                        eintrag["datum"] = ed.strftime("%Y-%m-%d")
+                        if notiz_speichern(eintrag):
+                            st.rerun()
+                        else:
+                            st.error("Notiz NICHT gespeichert (kein persistenter State oder Lesefehler).")
+
+    except Exception as e:
+        st.error(f"⚠️ Fehler in diesem Tab: {e}")
+        notify_app_error("Tab-Trader-Log", e)
 
 
 # --- GESAMTE RENDER-LOGIK ALS FRAGMENT ---
@@ -4770,6 +4865,11 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Musterdepot: {e}")
             notify_app_error("Tab-Musterdepot", e)
+        lade_fertig()
+
+    if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
+        melde("ansicht", 0.3, "Lade Chronik …")
+        render_chronik()
         lade_fertig()
 
     # Watchlist und Portfolio-Planer brauchen keine Depot- oder Kursdaten -
@@ -6435,7 +6535,7 @@ def render_dashboard():
     # ein gemeinsamer Container, da ohnehin nur eine Ansicht gezeichnet wird.
     _ansicht_container = st.container()
     tab_wealth = tab_ytd = tab_2021 = tab_candle = _ansicht_container
-    tab_forecast = tab_scenarios = tab_trades = _ansicht_container
+    tab_forecast = tab_scenarios = _ansicht_container
 
     # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
     # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
@@ -6827,97 +6927,6 @@ def render_dashboard():
     # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
     # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
     # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
-    def _render_trades():
-        try:
-            # Admin: gemeinsame Chronik (auch Workflow-Alarme, Anmeldungen);
-            # normale Benutzer: eigene Chronik (eigene Notizen und Depot-Ereignisse)
-            _chronik_pfad = upfad(config.STATE_PATH_TRADES_DB)
-
-            def load_db():
-                return gh_read(_chronik_pfad, [])
-
-            def notiz_speichern(eintrag):
-                """Lesen-Aendern-Schreiben mit Versionspruefung (keine verlorenen
-                Auto-Eintraege der Workflows, nie nach einem Lesefehler). -> True/False"""
-                ok, _ = gh_aktualisiere(
-                    _chronik_pfad,
-                    lambda d: chronik.anhaengen(d if isinstance(d, list) else [], eintrag)[0],
-                    default=[], message="update chronik [skip ci]")
-                return ok
-
-            db_events = [x for x in (load_db() or []) if isinstance(x, dict)]
-
-            with tab_trades:
-                if eigen:
-                    st.caption("Deine persönliche Chronik: wird automatisch mit Änderungen an deinen "
-                               "Depot-Positionen, beobachteten Werten, Sparplan und Entnahme gefüllt. "
-                               "Eigene Notizen sind jederzeit möglich.")
-                else:
-                    st.caption("Wird automatisch gefüllt: Kurs-Alarme, Entwarnungen und neue Allzeithochs aus dem "
-                               "Discord-Workflow, Änderungen an Depot-Positionen und beobachteten Werten, Sparplan "
-                               "Start/Stopp, Musterdepots und gespeicherte Planungen. Eigene Notizen sind weiter möglich.")
-                anzahl = {}
-                for ev in db_events:
-                    k_ = chronik.kategorie_von(ev)
-                    anzahl[k_] = anzahl.get(k_, 0) + 1
-                optionen = ["alle"] + [k_ for k_ in chronik.KATEGORIEN if anzahl.get(k_)]
-                beschr = {"alle": f"Alle ({len(db_events)})"}
-                beschr.update({k_: f"{v_[0]} {v_[1]} ({anzahl.get(k_, 0)})" for k_, v_ in chronik.KATEGORIEN.items()})
-                try:
-                    wahl = st.pills("Filter", optionen, default="alle", format_func=beschr.get,
-                                    key="chronik_filter", label_visibility="collapsed") or "alle"
-                except Exception:
-                    wahl = st.selectbox("Filter", optionen, format_func=beschr.get, key="chronik_filter_sb")
-                gezeigt = [ev for ev in db_events if wahl == "alle" or chronik.kategorie_von(ev) == wahl]
-                farben = {"alarm": "#EA3943", "depot": "#29B6F6", "beobachtung": "#A78BFA", "planer": "#F5B942",
-                          "notiz": "#71717A"}
-                if not gezeigt:
-                    st.info("Noch keine Einträge – sie entstehen ab jetzt automatisch.")
-                letzter_tag = None
-                for ev in gezeigt[:200]:
-                    k_ = chronik.kategorie_von(ev)
-                    tag = ev.get("datum", "")
-                    if tag != letzter_tag:
-                        try:
-                            tag_txt = datetime.date.fromisoformat(tag).strftime("%d.%m.%Y")
-                        except Exception:
-                            tag_txt = tag
-                        st.markdown(f'<div style="margin:14px 0 6px;font-size:.8rem;font-weight:700;'
-                                    f'color:#A1A1AA;letter-spacing:.06em">{html.escape(tag_txt)}</div>',
-                                    unsafe_allow_html=True)
-                        letzter_tag = tag
-                    kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
-                    st.markdown(f"""
-                        <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
-                            <div style="font-size: 0.72rem; color: #71717A;">{html.escape(kopf)}</div>
-                            <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
-                            <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-                if len(gezeigt) > 200:
-                    st.caption(f"Die neuesten 200 von {len(gezeigt)} Einträgen.")
-
-                with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
-                    with st.form("trade_form", clear_on_submit=True):
-                        col1, col2 = st.columns([2, 3])
-                        with col1: ed = st.date_input("Datum", heute_date)
-                        with col2: eti = st.text_input("Titel")
-                        ei = st.text_area("Details")
-                        if st.form_submit_button("Speichern") and eti:
-                            eintrag = chronik.neuer_eintrag("notiz", eti, ei, typ="Notiz", quelle="manuell")
-                            eintrag["datum"] = ed.strftime("%Y-%m-%d")
-                            if notiz_speichern(eintrag):
-                                st.rerun()
-                            else:
-                                st.error("Notiz NICHT gespeichert (kein persistenter State oder Lesefehler).")
-
-        except Exception as e:
-            st.error(f"⚠️ Fehler in diesem Tab: {e}")
-            notify_app_error("Tab-Trader-Log", e)
-    if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
-        melde("ansicht", 0.3, "Lade Chronik …")
-        _render_trades()
-        lade_fertig()
 
     # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
     # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.

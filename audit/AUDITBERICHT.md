@@ -29,7 +29,7 @@ Nach dem Audit wurden die Befunde auf demselben Branch behoben (fachliche Vorgab
 | A-15 | erledigt | Standardszenarien −10/0/5/10/15/20/30 % p.a. | Browser-Screenshot |
 | A-16 | erledigt | Kontraste, Abmelde-Button mit Namen, sichtbarer Tastatur-Fokus | axe-core: 0 Verstöße |
 | A-17 | teilweise | Prozente/Stückzahlen in Kacheln mit Dezimalkomma | `fmt()` (Betrag ohne Leerzeichen vor €) bewusst unverändert |
-| A-18 | offen (niedrig) | doppelter Abmelde-Button nur kurzzeitig beim Neuaufbau | keine Funktionsstörung |
+| A-18 | zurückgenommen | kein Fehler: ein sichtbarer Knopf, das zweite Element ist Streamlits unsichtbarer Tooltip-Anker | Browser: 1 Container, 1 sichtbarer Knopf |
 | A-19 | erledigt | Division durch null abgesichert | Audit-Test |
 | A-20 | erledigt | „Aktualisieren“ höchstens 1×/Minute global | Browser-Toast |
 | A-21 | erledigt | doppelte Testdatei entfernt | – |
@@ -39,7 +39,7 @@ Nach dem Audit wurden die Befunde auf demselben Branch behoben (fachliche Vorgab
 | A-26 | erledigt | `github_store.lese_text` lädt große Dateien über die Rohdatei | `test_github_store` |
 | A-27 | erledigt | Sparplan-Kauf am ersten Handelstag ab Termin (max. 7 Tage), Ersatzkurs nur für noch offene Käufe | `test_app_rechner` |
 
-Bekannte Grenze der Korrektur A-06: Ist gar kein echter Kurs verfügbar, endet der Seitenaufbau nach der Fehlermeldung – auch Einstellungen und Chronik sind dann bis zum nächsten erfolgreichen Abruf nicht erreichbar.
+Bekannte Grenze der Korrektur A-06: Ist gar kein echter Kurs verfügbar, zeigen die kursabhängigen Ansichten (Depot, Einstellungen, Charts, Prognosen) nur die Fehlermeldung. Chronik, Rechner, Planer, Watchlist und Benutzerverwaltung bleiben erreichbar (die Chronik läuft seit 17.10. als eigenständige Ansicht ohne Kursabruf).
 
 ---
 
