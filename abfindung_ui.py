@@ -233,7 +233,12 @@ def _bereich_fall(st, null):
     form = st.container(key="abf_form")
     k = _karte(form, "1", "Person", "Alter, Kinder, Schwerbehinderung, Rentennähe", "person")
     c1, c2, c3 = k.columns(3)
-    c1.number_input("Alter (Jahre)", 15, 80, **_s(st, "abf_f_alter", 0 if null else 45), key="abf_f_alter",
+    # Leeres Feld statt 0 (unter dem Minimum 15 brach Streamlit ab - Rechner fuer neue Benutzer
+    # unbenutzbar); ungueltige gemerkte Werte ebenso leeren. Leer = Alter unbekannt.
+    _alt = st.session_state.get("abf_f_alter")
+    if _alt is not None and not (15 <= _alt <= 80):
+        st.session_state["abf_f_alter"] = None
+    c1.number_input("Alter (Jahre)", 15, 80, **_s(st, "abf_f_alter", None if null else 45), key="abf_f_alter",
                     help="Alter zum Ende des Arbeitsverhältnisses (für § 10 KSchG, Sozialplan, ALG-Dauer). Statt "
                          "Geburtsdatum – es wird nichts Unnötiges gespeichert.")
     c2.number_input("Kinder", 0, 15, **_s(st, "abf_f_kinder", 0), key="abf_f_kinder")
@@ -310,7 +315,7 @@ def _bereich_fall(st, null):
                  help="Voraussetzung für den Nachteilsausgleich nach § 113 BetrVG")
     k.number_input("Versicherungspflichtige Monate in den letzten 5 Jahren (für die ALG-Dauer)", 0, 60,
                    **_s(st, "abf_f_versmon", 0 if null else 60), key="abf_f_versmon")
-    k.multiselect("Besondere Situation (optional)", SONDER_AUSWAHL, format_func=lambda x: M.SONDERFAELLE[x][0],
+    k.multiselect("Besondere Situation (optional)", SONDER_AUSWAHL, format_func=lambda x: M.SONDERFAELLE[x][0], placeholder="Bitte auswählen …",
                   key="abf_f_sonderf")
 
     k = _karte(form, "4", "Angebot / Vereinbarung", "Optional: was angeboten oder vereinbart ist", "vertrag")

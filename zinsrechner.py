@@ -1319,7 +1319,7 @@ def render(basis_url="", gespeichert=None, null=False):
     from urllib.parse import urlencode
     link = (basis_url.rstrip("/") + "/?" if basis_url else "?") + urlencode(params)
     st.markdown(_kopf("🔗", "Permanentlink", "Genau diese Variante wieder aufrufen oder teilen"), unsafe_allow_html=True)
-    st.code(link, language=None)
+    st.code(link, language=None, wrap_lines=True)   # umbrechen statt seitlich scrollen (Tastatur/axe)
     st.caption("Die Adresse im Browser ist jetzt genau dieser Link – als Lesezeichen speichern oder teilen; beim "
                "Öffnen erscheint der Rechner mit allen Werten.")
     st.download_button("📄 Ergebnis als PDF", data=pdf_bericht(q, r, hinweis, link, analyse),

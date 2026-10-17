@@ -255,7 +255,7 @@ def _tabelle(kopf, zeilen, links=(0,)):
             f'{umbruch if (i in links and i) else ""}>{c}</td>'
             for i, c in enumerate(z))
         body.append(f'<tr class="{"pt-zebra" if n % 2 else ""}">{tds}</tr>')
-    st.markdown(f'<div class="ue-wrap"><table class="pt pt-kompakt ue"><thead><tr>{th}</tr></thead>'
+    st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt ue"><thead><tr>{th}</tr></thead>'
                 f'<tbody>{"".join(body)}</tbody></table></div>', unsafe_allow_html=True)
 
 

@@ -418,6 +418,17 @@ class AdminHash(Verwaltung):
         st, _ = self._render(_store_mit_anna())
         self.assertFalse(any(c.startswith("admin_passwort_hash") for c in st.codes))
 
+class EindeutigeSchluessel(Verwaltung):
+    def test_benutzer_namens_neu_ohne_schluesselkonflikt(self):
+        """Ein Benutzer "neu" darf keinen Container-Schluessel mit dem Anlegen-Formular teilen."""
+        store = FakeStore({"benutzer": {"neu": {"hash": L.passwort_hash("Neu-Passwort-123"), "aktiv": True}}})
+        st = FakeSt(SECRETS)
+        keys = []
+        st.container = lambda **k: keys.append(k.get("key")) or contextlib.nullcontext()
+        L.render_verwaltung(st, store.gh_read, store.gh_write, ["depot"], {}, gh_aktualisiere=store.gh_aktualisiere)
+        benannt = [k for k in keys if k]
+        self.assertEqual(len(benannt), len(set(benannt)), benannt)
+
 if __name__ == "__main__":
     unittest.main()
 
