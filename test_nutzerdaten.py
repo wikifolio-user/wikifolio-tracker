@@ -282,3 +282,25 @@ class RechnerEingabenSammeln(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NamenUndOrdner(unittest.TestCase):                   # Audit A-03
+    def test_kollidierende_namen_abgelehnt(self):
+        import nutzerdaten as N
+        self.assertIsNotNone(N.name_pruefen("anna.b", ["anna-b"]))     # unerlaubtes Zeichen
+        self.assertIsNotNone(N.name_pruefen("anna-b", ["anna_b", "anna-b"]))
+        self.assertIsNotNone(N.name_pruefen("jörg", []))
+        self.assertIsNotNone(N.name_pruefen("chef", [], ("chef",)))
+        self.assertIsNotNone(N.name_pruefen("benutzer", []))
+        self.assertIsNotNone(N.name_pruefen("a", []))
+        self.assertIsNone(N.name_pruefen("anna_b", ["anna-b"]))
+
+    def test_erlaubte_namen_haben_eigene_ordner(self):
+        import nutzerdaten as N
+        for n in ("anna", "anna-b", "anna_b", "a1", "x" * 40):
+            self.assertIsNone(N.name_pruefen(n, []), n)
+            self.assertEqual(N.slug(n), n)
+
+    def test_bestehende_kollisionen_melden(self):
+        import nutzerdaten as N
+        self.assertEqual(N.slug_kollisionen(["anna.b", "anna-b", "max"]), {"anna-b": ["anna-b", "anna.b"]})

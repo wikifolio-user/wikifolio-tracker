@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 ISIN = "DE000LS9VFS2"
 WKN = "LS9VFS"
 LS_INSTRUMENT_ID = "3865540"  # ls-tc.de interne ID fuer LS9VFS
-ANFANGSKURS = 160.68
+ANFANGSKURS = 128.80  # tatsaechlich gezahlter Kurs am KAUFDATUM (Nutzerangabe 10/2026)
 
 # --- DEPOT ---
 STARTKAPITAL = 13000.0

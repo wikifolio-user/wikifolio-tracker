@@ -33,6 +33,18 @@ jobs:
           ref: app-state
           fetch-depth: 1
 
+      # Audit A-24: vor dem Force-Push den bisherigen Stand als Tag sichern, damit sich ein
+      # fehlerhafter Lauf zuruecknehmen laesst (git push origin state-backup-JJJJ-MM:app-state --force).
+      # Es bleiben die letzten 3 Sicherungen; aeltere werden geloescht (Aufbewahrung, siehe login.py).
+      - name: Bisherigen Stand sichern (Tag state-backup-JJJJ-MM)
+        run: |
+          set -e
+          git fetch --depth=1 origin app-state
+          TAG="state-backup-$(date -u +%Y-%m)"
+          git push origin "$(git rev-parse FETCH_HEAD)":"refs/tags/$TAG" || echo "Tag $TAG existiert schon."
+          git ls-remote --tags origin 'refs/tags/state-backup-*' | awk '{print $2}' | sort | head -n -3 |
+            while read -r alt; do git push origin ":$alt"; done
+
       - name: Historie auf einen Commit komprimieren (mit Schutz vor parallelen Schreibern)
         run: |
           set -e

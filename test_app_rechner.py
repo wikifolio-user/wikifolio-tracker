@@ -1,4 +1,4 @@
-"""Tests fuer die reinen Depot-Rechenfunktionen aus app.py (python3 -m unittest test_app_rechnung).
+"""Tests fuer die reinen Depot-Rechenfunktionen aus app.py (python3 -m unittest test_app_rechner).
 
 app.py selbst laesst sich ohne Streamlit/Plotly nicht importieren. Deshalb werden die
 benoetigten Modul-Funktionen per AST aus app.py herausgeloest und in einem eigenen
@@ -19,7 +19,8 @@ import pandas as pd
 FUNKTIONEN = [
     "fmt", "fmt_vz", "vz_zahl", "_h",
     "monats_termine", "sparplan_termine", "entnahme_termine", "kumulierte_entnahme",
-    "sparplan_phasen", "sparrate_am", "sparplan_state_neu", "sparplan_kaeufe",
+    "sparplan_phasen", "sparrate_am", "sparplan_state_neu", "sparplan_einzelkaeufe", "sparplan_kaeufe",
+    "sparplan_verlauf", "depot_kennzahlen_real", "rendite_pa_seit_kauf",
     "entnahme_rate_aus_state", "hochgerechnete_rendite_pa", "prognose_rate_rueckfall", "depot_kennzahlen",
     "berechne_reale_stueckzahl", "berechne_performance_kennzahlen", "perf_sortierwert",
     "realisierte_rendite_pa", "gesamt_perioden_berechnen", "haenge_live_punkt_an",
@@ -72,16 +73,46 @@ class GewinnMitSparplan(unittest.TestCase):          # DEP-01 / DEP-11
             k = A["depot_kennzahlen"](50.0, s, 80.0, 4000.0, e, 0.0, 0)
             self.assertAlmostEqual(k["gewinn"], 0.0, places=8)
 
-    def test_schwankende_kaufkurse(self):
-        idx = pd.to_datetime(["2025-01-15", "2025-02-14", "2025-03-14", "2025-04-15"])
-        kurse = pd.Series([100.0, 80.0, 125.0, 100.0], index=idx)
+    def test_schwankende_kaufkurse(self):                  # Audit A-27: Ausfuehrung am naechsten Handelstag
+        idx = pd.to_datetime(["2025-01-15", "2025-02-14", "2025-02-17", "2025-03-14", "2025-03-17", "2025-04-15"])
+        kurse = pd.Series([100.0, 80.0, 90.0, 125.0, 110.0, 100.0], index=idx)
         termine = A["sparplan_termine"](D(2025, 1, 15), D(2025, 4, 15))
         e, s = A["sparplan_kaeufe"](termine, kurse, 500.0)
-        # 15.2. Sa/So-frei? 15.02.2025 ist Samstag -> Kurs vom 14.02. (80), 15.03. Samstag -> 125
-        self.assertAlmostEqual(s, 5 + 6.25 + 4 + 5)
+        # 15.02./15.03.2025 sind Samstage -> Kauf am Montag 17.02. (90) bzw. 17.03. (110)
+        soll = 5 + 500 / 90 + 500 / 110 + 5
+        self.assertAlmostEqual(s, soll)
         k = A["depot_kennzahlen"](100.0, s, 100.0, 10000.0, e, 0.0, 0)
-        self.assertAlmostEqual(k["gewinn"], 25.0)              # 120,25 Anteile x 100 - 12.000
-        self.assertAlmostEqual(k["rendite_pct"], 25.0 / 12000 * 100)
+        self.assertAlmostEqual(k["gewinn"], (100 + soll) * 100 - 12000)
+        self.assertAlmostEqual(k["rendite_pct"], ((100 + soll) * 100 - 12000) / 12000 * 100)
+
+    def test_kauftag_und_verlauf(self):
+        idx = pd.bdate_range("2025-01-01", "2025-03-31")
+        kurse = pd.Series(100.0, index=idx)
+        termine = A["sparplan_termine"](D(2025, 1, 4), D(2025, 3, 31))     # 04.01. ist ein Samstag
+        kaeufe = A["sparplan_einzelkaeufe"](termine, kurse, 100.0)
+        self.assertEqual([k[0].date() for k in kaeufe], [D(2025, 1, 6), D(2025, 2, 4), D(2025, 3, 4)])
+        stueck, geld = A["sparplan_verlauf"](pd.to_datetime(["2025-01-03", "2025-01-06", "2025-03-31"]), kaeufe)
+        self.assertEqual(stueck, [0, 1.0, 3.0])
+        self.assertEqual(geld, [0, 100.0, 300.0])
+        # Kauf nach dem letzten Kurspunkt (Termin am Wochenende, Live-Kurs) zaehlt am Ende mit
+        spaet = kaeufe + [(pd.Timestamp("2025-04-05"), 100.0, 1.0)]
+        stueck, _ = A["sparplan_verlauf"](pd.to_datetime(["2025-03-31", "2025-04-04"]), spaet)
+        self.assertEqual(stueck, [3.0, 4.0])
+
+    def test_reale_kennzahlen_mit_auszahlungen(self):          # Audit A-12
+        k = A["depot_kennzahlen_real"](120.0, 3.0, 150.0, 13500.0, 1050.0)
+        self.assertAlmostEqual(k["wert"], 123 * 150.0)
+        self.assertAlmostEqual(k["gewinn"], 123 * 150.0 + 1050.0 - 13500.0)
+        self.assertAlmostEqual(k["rendite_pct"], k["gewinn"] / 13500.0 * 100)
+        self.assertEqual(A["depot_kennzahlen_real"](0, 0, 100.0, 0.0, 0.0)["rendite_pct"], 0.0)
+
+    def test_rendite_pa_seit_kauf(self):                        # Audit A-08
+        r, hoch = A["rendite_pa_seit_kauf"](100.0, 150.0, D(2025, 7, 9), D(2026, 10, 17))
+        self.assertFalse(hoch)
+        self.assertAlmostEqual(r, (1.5 ** (365.25 / 465) - 1) * 100)
+        r, hoch = A["rendite_pa_seit_kauf"](100.0, 110.0, D(2026, 1, 1), D(2026, 7, 1))
+        self.assertTrue(hoch)
+        self.assertEqual(A["rendite_pa_seit_kauf"](0.0, 110.0, D(2026, 1, 1), D(2026, 7, 1)), (None, False))
 
     def test_ohne_kurs_kein_kauf_und_kein_einstand(self):
         kurse = _konstante_reihe("2025-03-01", "2025-05-01", 100.0)
@@ -89,6 +120,9 @@ class GewinnMitSparplan(unittest.TestCase):          # DEP-01 / DEP-11
         e, s = A["sparplan_kaeufe"](termine, kurse, 500.0)     # 15.1./15.2. vor Datenbeginn
         self.assertAlmostEqual(e, 1000.0)
         self.assertAlmostEqual(s, 10.0)
+        # auch mit Ersatz-(Live-)Kurs: alte Termine vor Datenbeginn werden nicht nachgekauft
+        e, s = A["sparplan_kaeufe"](termine, kurse, 500.0, ersatzkurs=150.0)
+        self.assertAlmostEqual(e, 1000.0)
 
     def test_phasen_rate_aenderung(self):
         st0 = A["sparplan_state_neu"]({}, 500.0, D(2025, 1, 15))

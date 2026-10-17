@@ -86,7 +86,7 @@ jobs:
 
       - name: Abhängigkeiten installieren
         if: steps.gate.outputs.handelszeit == 'true'
-        run: pip install requests tzdata
+        run: pip install requests==2.34.2 tzdata==2026.5   # wie requirements.txt
 
       - name: Kurs prüfen und ggf. Discord informieren
         if: steps.gate.outputs.handelszeit == 'true'

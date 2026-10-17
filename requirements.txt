@@ -1,9 +1,11 @@
-streamlit
-requests
-pandas
-numpy
-plotly
-pytz
-tzdata
-beautifulsoup4
-reportlab
+# Feste, im Audit 10/2026 getestete Versionen (Audit A-14): ein neues Hauptrelease geht so
+# nicht ungeprueft live. Aktualisieren: Versionen anheben, Tests + CI laufen lassen.
+streamlit==1.66.0
+requests==2.34.2
+pandas==3.0.5
+numpy==2.5.3
+plotly==7.1.0
+pytz==2026.5
+tzdata==2026.5
+beautifulsoup4==4.15.0
+reportlab==5.0.1

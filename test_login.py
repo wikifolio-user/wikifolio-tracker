@@ -392,3 +392,52 @@ class Verwaltung(Basis):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Sitzung(Basis):                                   # Audit A-13
+    CFG = {"admin": "chef", "admin_pw": "pbkdf2_sha256$1$00$00", "admin_pw_hash": True}
+
+    def _daten(self, h="pbkdf2_sha256$1$aa$bb"):
+        return {"benutzer": {"anna": {"hash": h, "aktiv": True}}}
+
+    def test_gueltig_nach_anmeldung(self):
+        d = self._daten()
+        ss = {"login_pw": L.pw_kennung(self.CFG, d, "anna"), "login_seit": 1000.0}
+        self.assertTrue(L.sitzung_gueltig(ss, self.CFG, d, "anna", jetzt=1000.0 + 3600))
+
+    def test_passwortwechsel_beendet_sitzung(self):
+        ss = {"login_pw": L.pw_kennung(self.CFG, self._daten(), "anna"), "login_seit": 1000.0}
+        self.assertFalse(L.sitzung_gueltig(ss, self.CFG, self._daten("pbkdf2_sha256$1$cc$dd"), "anna", jetzt=1001.0))
+
+    def test_hoechstdauer(self):
+        d = self._daten()
+        ss = {"login_pw": L.pw_kennung(self.CFG, d, "anna"), "login_seit": 0.0}
+        self.assertFalse(L.sitzung_gueltig(ss, self.CFG, d, "anna", jetzt=L.MAX_SITZUNG_SEK + 1))
+
+    def test_alte_sitzung_ohne_kennung_ungueltig(self):
+        self.assertFalse(L.sitzung_gueltig({}, self.CFG, self._daten(), "anna"))
+
+    def test_admin_secret_wechsel(self):
+        ss = {"login_pw": L.pw_kennung(self.CFG, {}, "chef"), "login_seit": 1.0}
+        neu = dict(self.CFG, admin_pw="pbkdf2_sha256$1$11$22")
+        self.assertFalse(L.sitzung_gueltig(ss, neu, {}, "chef", jetzt=2.0))
+
+    def test_gate_meldet_abgelaufene_sitzung_ab(self):
+        store = _store_mit_anna()
+        st, erg = self.login_versuch(store, "anna", "Richtig-Passwort-1")
+        self.assertEqual(erg, "rerun")
+        st.session_state["login_seit"] -= L.MAX_SITZUNG_SEK + 10
+        with self.assertRaises(Rerun):
+            L.pruefen(st, store.gh_read_cached)
+        self.assertNotIn("login_name", st.session_state)
+
+
+class SpeicherAusfall(Basis):                           # Audit A-10
+    def test_ehrliche_meldung_ohne_fehlversuch(self):
+        store = FakeStore({})
+        st = FakeSt(SECRETS, {"👤 Benutzername": "anna", "🔑 Passwort": "Richtig-Passwort-1"}, {"Anmelden"})
+        with self.assertRaises(Stop):
+            L.gate(st, store.gh_read, store.gh_read_cached, store.gh_write, speicher_fehler=lambda: True)
+        self.assertTrue(any("Datenspeicher" in f for f in st.fehler))
+        self.assertEqual(L.sperre_rest(L._schluessel("anna")), 0)
+        self.assertFalse(any("falsch" in f for f in st.fehler))

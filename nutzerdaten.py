@@ -30,6 +30,32 @@ def slug(name):
     return t[:60] or "benutzer"
 
 
+# Neue Benutzernamen (Audit A-03): nur Zeichen, die slug() unveraendert laesst - so bekommt
+# jeder Name garantiert seinen eigenen Ordner.
+NAME_MUSTER = re.compile(r"^[a-z0-9][a-z0-9_-]{1,39}$")
+
+
+def name_pruefen(name, bestehende=(), reserviert=()):
+    """Fehlertext fuer einen NEUEN Benutzernamen oder None (= in Ordnung).
+    bestehende: vorhandene Benutzernamen; reserviert: z. B. der Admin."""
+    n = str(name or "").strip().lower()
+    if not NAME_MUSTER.match(n):
+        return ("Benutzername: 2–40 Zeichen, nur a–z, 0–9, „-“ und „_“ "
+                "(keine Umlaute, Leer- oder Sonderzeichen).")
+    belegt = {slug(b) for b in bestehende} | {slug(r) for r in reserviert if r}
+    if slug(n) in belegt or n == "benutzer":
+        return "Dieser Benutzername ist schon vergeben (oder zu ähnlich zu einem bestehenden)."
+    return None
+
+
+def slug_kollisionen(namen):
+    """Bestehende Benutzer, die sich einen Datenordner teilen: {ordner: [namen, ...]}."""
+    gruppen = {}
+    for n in namen:
+        gruppen.setdefault(slug(n), []).append(n)
+    return {o: sorted(ns) for o, ns in gruppen.items() if len(ns) > 1}
+
+
 def ist_eigener_bereich(nutzer):
     """True, wenn der Benutzer eigene Daten hat (alle ausser Admin / ohne Login)."""
     return bool(nutzer) and nutzer.get("rolle") != "admin" and bool(nutzer.get("name"))

@@ -190,6 +190,8 @@ st.markdown("""
         padding: 4px 10px 4px 8px; border-radius: 999px;
     }
     .live-pill.offline { background: rgba(234, 57, 67, 0.12); color: var(--down); }
+    .live-pill.stand { background: rgba(255, 255, 255, 0.06); color: var(--label); }
+    .live-dot.stand { background: var(--label); animation: none; }
     .meta-chip {
         font-size: 0.85rem; color: var(--label); font-weight: 500;
         background: rgba(255, 255, 255, 0.04);
@@ -249,7 +251,7 @@ st.markdown("""
         padding: 6px 12px; border-radius: 999px;
     }
     .stat-chip-label {
-        font-size: 0.68rem; font-weight: 700; color: var(--muted);
+        font-size: 0.68rem; font-weight: 700; color: var(--label);
         text-transform: uppercase; letter-spacing: 0.4px;
     }
     .stat-chip-val {
@@ -920,6 +922,11 @@ st.markdown("""
         overflow-x: auto; scrollbar-width: none;
     }
     [data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
+    /* Sichtbarer Tastatur-Fokus (Audit A-16) */
+    button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-visible,
+    [role="button"]:focus-visible, [role="checkbox"]:focus-visible, [role="switch"]:focus-visible {
+        outline: 2px solid #8AB4FF !important; outline-offset: 2px !important;
+    }
     /* Kachel im Tab hat keinen doppelten Abstand nach unten */
     [data-testid="stTabs"] .hero { margin-bottom: 0; }
 </style>
@@ -927,10 +934,21 @@ st.markdown("""
 
 
 # --- STATE-HELFER (persistent über GitHub statt fluechtiges Streamlit-Dateisystem) ---
+def _speicher_fehler_merken():
+    """Lesefehler des GitHub-Speichers fuer diesen Seitenaufbau vormerken (Audit A-10):
+    die Anzeige ist dann unvollstaendig - render_dashboard() zeigt einen Hinweis."""
+    try:
+        st.session_state["_speicher_fehler"] = True
+    except Exception:
+        pass
+
+
 def gh_read(path, default):
     if not GH_STATE_READY:
         return default
     data, _ = github_store.get_json(GITHUB_REPO, config.GITHUB_STATE_BRANCH, path, GITHUB_TOKEN, default=default)
+    if path in github_store._fehlerhaft():
+        _speicher_fehler_merken()
     return data if data is not None else default
 
 
@@ -958,6 +976,7 @@ def gh_read_taeglich(path, default):
         return _gh_read_taeglich_roh(path, default)
     except github_store.LeseFehler as e:
         logging.warning(f"gh_read_taeglich: {path} nicht lesbar ({type(e).__name__})")
+        _speicher_fehler_merken()
         return default
 
 
@@ -976,6 +995,7 @@ def gh_read_cached_status(path, default):
         return _gh_read_cached_roh(path, default), True
     except github_store.LeseFehler as e:
         logging.warning(f"gh_read_cached: {path} nicht lesbar ({type(e).__name__})")
+        _speicher_fehler_merken()
         return default, False
 
 
@@ -1221,29 +1241,58 @@ def sparplan_state_neu(state, rate, heute):
             "phasen": [{"ab": ab.isoformat(), "rate": r} for ab, r in phasen]}
 
 
-def sparplan_kaeufe(termine, kursreihe, rate, ersatzkurs=None):
-    """Kauft je Termin fuer 'rate' Euro zum letzten Kurs am/vor dem Termin.
-    rate: Zahl oder Funktion termin -> Rate (Phasen). -> (eingezahlt, stueck).
-    Nur tatsaechlich ausgefuehrte Kaeufe (mit Kurs) zaehlen zum Einstand."""
-    eingezahlt, stueck = 0.0, 0.0
-    rate_fn = rate if callable(rate) else (lambda _t, _r=rate: _r)
+def sparplan_einzelkaeufe(termine, kursreihe, rate, ersatzkurs=None, max_verzug_tage=7):
+    """Jeder ausgefuehrte Sparplan-Kauf als (kauftag, betrag, stueck).
+    Ausfuehrung wie beim Broker am ersten Handelstag am/nach dem Termin (Audit A-27,
+    gleiche Regel wie die Verkaeufe in berechne_reale_stueckzahl); gibt es dafuer noch
+    keinen Kurs (Termin heute/am Wochenende), gilt der Ersatzkurs (Live-Kurs), sonst
+    bleibt der Kauf offen. Liegt der naechste Kurs mehr als max_verzug_tage nach dem
+    Termin (Termin vor Beginn der Kursdaten), wird nicht zu einem spaeteren Kurs gekauft.
+    rate: Zahl oder Funktion termin -> Rate (Phasen)."""
     if not callable(rate) and (not rate or rate <= 0):
-        return 0.0, 0.0
+        return []
+    rate_fn = rate if callable(rate) else (lambda _t, _r=rate: _r)
+    kaeufe = []
     for t in termine:
+        t = pd.Timestamp(t).normalize()
         r_t = rate_fn(t) or 0.0
         if r_t <= 0:
             continue
-        preis = None
+        tag, preis = None, None
         if kursreihe is not None and len(kursreihe):
-            davor = kursreihe[kursreihe.index <= pd.Timestamp(t)]
-            if len(davor):
-                preis = float(davor.iloc[-1])
-        if preis is None:
-            preis = ersatzkurs
+            danach = kursreihe[(kursreihe.index >= t) & (kursreihe.index <= t + pd.Timedelta(days=max_verzug_tage))]
+            if len(danach):
+                tag, preis = pd.Timestamp(danach.index[0]).normalize(), float(danach.iloc[0])
+        nach_datenende = kursreihe is None or not len(kursreihe) or t > pd.Timestamp(kursreihe.index[-1])
+        if preis is None and ersatzkurs and nach_datenende:
+            tag, preis = t, float(ersatzkurs)
         if preis and preis > 0:
-            eingezahlt += r_t
-            stueck += r_t / preis
-    return eingezahlt, stueck
+            kaeufe.append((tag, float(r_t), r_t / preis))
+    return kaeufe
+
+
+def sparplan_kaeufe(termine, kursreihe, rate, ersatzkurs=None):
+    """-> (eingezahlt, stueck) aller ausgefuehrten Kaeufe (sparplan_einzelkaeufe).
+    Nur tatsaechlich ausgefuehrte Kaeufe (mit Kurs) zaehlen zum Einstand."""
+    kaeufe = sparplan_einzelkaeufe(termine, kursreihe, rate, ersatzkurs)
+    return sum(k[1] for k in kaeufe), sum(k[2] for k in kaeufe)
+
+
+def sparplan_verlauf(index, kaeufe):
+    """Kumulierte (stueck, eingezahlt) je Zeitpunkt des Index (Audit A-09: Chart und
+    Tabelle enthalten die Sparplan-Anteile ab ihrem Kauftag)."""
+    stueck, geld = [], []
+    if not len(index):
+        return stueck, geld
+    # Kaeufe nach dem letzten Punkt (vorgemerkt zum Live-Kurs, z. B. Termin am Wochenende)
+    # zaehlen am letzten Punkt mit - sonst fehlten sie im Chart, waehrend die Kachel sie zeigt.
+    ende = pd.Timestamp(index[-1]).normalize()
+    kaeufe = [(min(k[0], ende), k[1], k[2]) for k in kaeufe]
+    for ts in index:
+        tag = pd.Timestamp(ts).normalize()
+        stueck.append(sum(k[2] for k in kaeufe if k[0] <= tag))
+        geld.append(sum(k[1] for k in kaeufe if k[0] <= tag))
+    return stueck, geld
 
 
 def entnahme_rate_aus_state(state, standard):
@@ -1316,6 +1365,31 @@ def depot_kennzahlen(stueck_basis, stueck_sparplan, kurs, startkapital, sparplan
     }
 
 
+def depot_kennzahlen_real(stueck_real, stueck_sparplan, kurs, einstand, ausgezahlt):
+    """Kennzahlen bei ECHTEN Entnahmen (Audit A-12): Depotwert = verbliebene Anteile x Kurs;
+    das bereits ausgezahlte Geld gehoert zum Ergebnis: Gewinn = Depotwert + ausgezahlt - Einstand.
+    Ohne Entnahmen identisch mit depot_kennzahlen (brutto/gewinn/rendite_pct)."""
+    wert = (stueck_real + stueck_sparplan) * kurs
+    gewinn = wert + ausgezahlt - einstand
+    return {"wert": wert, "gewinn": gewinn, "ausgezahlt": ausgezahlt,
+            "rendite_pct": (gewinn / einstand * 100) if einstand else 0.0}
+
+
+def rendite_pa_seit_kauf(einstand, ergebnis_wert, kaufdatum, heute):
+    """Ø-Rendite p.a. seit Kauf fuer Kachel UND Vergleichstabelle (Audit A-08, eine Quelle).
+    ergebnis_wert = Depotwert + bereits ausgezahlte Entnahmen. Ab 1 Jahr jaehrlich, darunter
+    ab 30 Tagen aus der Ø-Monatsrendite hochgerechnet (Nutzerentscheid DEP-08), sonst None.
+    -> (rate_pa | None, hochgerechnet: bool)"""
+    if not einstand or einstand <= 0 or ergebnis_wert is None or ergebnis_wert <= 0:
+        return None, False
+    _, monatlich, jaehrlich, _ = berechne_performance_kennzahlen(einstand, ergebnis_wert, kaufdatum, heute)
+    if jaehrlich is not None:
+        return jaehrlich, False
+    if monatlich is not None:
+        return ((1 + monatlich / 100) ** 12 - 1) * 100, True
+    return None, False
+
+
 def berechne_reale_stueckzahl(df, start_stueckzahl, entnahme_pm, termine, spread_pct):
     """REAL: zu jedem Entnahmetermin werden tatsaechlich Anteile zum Geldkurs (Mid minus
     Spread) verkauft - am ersten Handelstag am/nach dem Termin. Gleicher Plan und gleiche
@@ -1339,6 +1413,8 @@ def berechne_performance_kennzahlen(erste_werte, letzter_wert, start_datum, end_
     """Gesamt-%, Ø-monatliche % und Ø-jährliche % sowie Gewinn/Verlust in €.
     Keine Hochrechnung kurzer Zeitraeume (Audit DEP-08): Ø/Jahr erst ab 365 Tagen,
     Ø/Monat erst ab 30 Tagen - sonst None ('n. a.', angezeigt wird die Gesamtrendite)."""
+    if not erste_werte or erste_werte <= 0:
+        return None, None, None, letzter_wert - (erste_werte or 0.0)
     gesamt_pct = (letzter_wert / erste_werte - 1) * 100
     tage = max(1, (end_datum - start_datum).days)
     monate = tage / 30.44
@@ -1407,61 +1483,84 @@ def _berlin_tage(ts_ms):
     s = pd.to_datetime(pd.Series(ts_ms), unit="ms", utc=True)
     return s.dt.tz_convert("Europe/Berlin").dt.normalize().dt.tz_localize(None)
 
-# --- VOLLAUTOMATISCHER LIVE-KURS ABRUF (ls-tc.de, direkter Emittent LS9VFS) ---
+# --- LIVE-KURS ABRUF (ls-tc.de, direkter Emittent) ---
+def ls_tc_live_auswerten(data):
+    """(aktuell, vortag, zeitpunkt_ms) aus einer dataForInstrument-Antwort; ValueError ohne Kurs.
+    Vortageskurs aus info.plotlines[id="previousDay"] (config.extract_previous_close), sonst
+    aus der History-Serie, zuletzt der erste Intraday-Punkt."""
+    intraday = (data.get("series", {}).get("intraday", {}).get("data")
+                or data.get("intraday", {}).get("data") or [])
+    if not intraday:
+        raise ValueError("keine Intraday-Daten")
+    zeitpunkt_ms, akt = int(intraday[-1][0]), float(intraday[-1][1])
+    vor = config.extract_previous_close(data)
+    if vor is None:
+        history = (data.get("series", {}).get("history", {}).get("data")
+                   or data.get("history", {}).get("data") or [])
+        vor = config.pick_previous_close_from_history(history)
+    if vor is None:
+        vor = float(intraday[0][1])
+    if not (akt > 0 and vor > 0):
+        raise ValueError("ungueltige Kurswerte")
+    return akt, vor, zeitpunkt_ms
+
+
 @st.cache_data(ttl=26 * 3600, show_spinner=False)
-def get_live_market_data():
-    """
-    Holt den aktuellen Mid-Kurs direkt von ls-tc.de (Lang & Schwarz
-    TradeCenter), dem Emittenten des Zertifikats. Kostenlos, kein API-Key nötig.
-    Vortageskurs: aus info.plotlines[id="previousDay"].value (siehe
-    config.extract_previous_close - DAS ist der Ort, wo ls-tc.de den echten
-    Vortageswert mitliefert, kein top-level 'previousClose'-Feld). Die
-    History-Suche dient nur noch als Rückfalloption.
-    """
+def _live_abruf(instrument_id):
+    """Gecachter Live-Abruf. Wirft bei JEDEM Fehler - st.cache_data speichert Ausnahmen
+    nicht, ein Fehlschlag bleibt so nie bis zum naechsten Termin haengen (Audit A-07).
+    Den Takt bestimmt der Zeitplan (kurse_neu_laden)."""
     params = {
-        "container": "chart1",
-        "instrumentId": config.LS_INSTRUMENT_ID,
-        "marketId": "1",
-        "quotetype": "mid",
-        "series": "intraday,history,flags",
-        "type": "",
-        "localeId": "2",
+        "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
+        "quotetype": "mid", "series": "intraday,history,flags", "type": "", "localeId": "2",
     }
+    r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=6)
+    r.raise_for_status()
+    return ls_tc_live_auswerten(r.json())
 
+
+def get_live_kurs(instrument_id):
+    """(aktueller_kurs, vortageskurs, quelle) bzw. (None, None, "Fehler – keine Live-Daten")."""
     try:
-        r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=6)
-        r.raise_for_status()
-        data = r.json()
-
-        intraday = (
-            data.get("series", {}).get("intraday", {}).get("data")
-            or data.get("intraday", {}).get("data")
-            or []
-        )
-        if intraday:
-            akt = float(intraday[-1][1])
-
-            vor = config.extract_previous_close(data)
-
-            if vor is None:
-                history = (
-                    data.get("series", {}).get("history", {}).get("data")
-                    or data.get("history", {}).get("data")
-                    or []
-                )
-                vor = config.pick_previous_close_from_history(history)
-
-            if vor is None:
-                vor = float(intraday[0][1])
-
-            if akt > 0 and vor > 0:
-                return akt, vor, "ls-tc.de Live (Emittent)"
-
-        logging.warning("ls-tc.de: Unerwartete JSON-Struktur, kein Kurs extrahiert.")
+        akt, vor, _ = _live_abruf(str(instrument_id))
+        return akt, vor, "ls-tc.de Live (Emittent)"
     except Exception as e:
-        logging.error(f"Fehler beim Abruf von ls-tc.de: {e}")
+        logging.error(f"Live-Kurs für Instrument {instrument_id} nicht ladbar: {type(e).__name__}")
+        return None, None, "Fehler – keine Live-Daten"
 
-    return None, None, "Fehler – keine Live-Daten"
+
+LIVE_MAX_ALTER_MIN = 20
+
+
+def kurs_status(kurs_zeit, jetzt, live_abruf_ok):
+    """Kennzeichnung des angezeigten Kurses (Audit A-11): "live" nur bei erfolgreichem Abruf,
+    innerhalb der Handelszeit und hoechstens LIVE_MAX_ALTER_MIN alt; sonst "stand" (echter,
+    aber aelterer Kurs mit Zeitpunkt) bzw. "offline". -> (art, text)"""
+    if not live_abruf_ok or kurs_zeit is None:
+        return "offline", "Keine Live-Daten"
+    alter_min = (jetzt - kurs_zeit).total_seconds() / 60
+    if config.ist_handelszeit(jetzt) and -5 <= alter_min <= LIVE_MAX_ALTER_MIN:
+        return "live", "Live"
+    heute = kurs_zeit.date() == jetzt.date()
+    return "stand", f"Stand {kurs_zeit.strftime('%H:%M') if heute else kurs_zeit.strftime('%d.%m. %H:%M')}"
+
+
+def kurs_pill(art, text):
+    klasse = {"live": "", "stand": " stand", "offline": " offline"}[art]
+    return (f'<span class="live-pill{klasse}"><span class="live-dot{klasse}"></span>{html.escape(text)}</span>')
+
+
+def get_live_market_data():
+    """Live-Kurs der Hauptposition (config.LS_INSTRUMENT_ID)."""
+    return get_live_kurs(config.LS_INSTRUMENT_ID)
+
+
+def kurs_zeitpunkt(instrument_id):
+    """Zeitpunkt (Europe/Berlin) des zuletzt geladenen Live-Kurses oder None (Audit A-11)."""
+    try:
+        return datetime.datetime.fromtimestamp(_live_abruf(str(instrument_id))[2] / 1000, tz=BERLIN_TZ)
+    except Exception:
+        return None
 
 
 # --- ECHTE HISTORISCHE DATEN VON ls-tc.de LADEN ---
@@ -1509,59 +1608,74 @@ def historie_zuschnitt(history, start_date, end_date):
     return s[~s.index.duplicated(keep="last")]
 
 
-def get_historical_market_data(start_date, end_date, live_close_fallback):
-    """
-    Holt die Tages-History direkt von ls-tc.de. Da der Endpunkt primär
-    Schlusskurse liefert, werden Open/High/Low pragmatisch aus dem Close
-    approximiert, sofern die API keine echten OHLC liefert.
+KEINE_HISTORIE = "Fehler – keine Kurshistorie"
 
-    Nicht mehr selbst zwischengespeichert: vorher war der Live-Kurs Teil des
-    Speicherschluessels, jede Kursbewegung erzwang einen kompletten Neuabruf.
-    Jetzt kommt die Rohhistorie aus lade_rohhistorie() (15 Min. gehalten).
-    """
+
+def get_historical_market_data(start_date, end_date):
+    """Tages-Historie der Hauptposition von ls-tc.de als DataFrame (Open/High/Low/Close).
+    Der Endpunkt liefert nur Schlusskurse - Open/High/Low werden daraus angenaehert
+    (im Candlestick-Chart so beschriftet).
+
+    Bei Fehlern: LEERER DataFrame und Quelle KEINE_HISTORIE - es werden nie Ersatz- oder
+    Zufallsdaten erzeugt (Audit A-06)."""
     try:
         history = lade_rohhistorie(config.LS_INSTRUMENT_ID)
-        if history:
-            closes = historie_zuschnitt(history, start_date, end_date)
-            if not closes.empty:
-                df = closes.to_frame("Close")
-                if not df.empty:
-                    df["Open"] = df["Close"]
-                    df["High"] = df["Close"] * 1.003
-                    df["Low"] = df["Close"] * 0.997
-                    return df[["Open", "High", "Low", "Close"]], "ls-tc.de Live (Emittent)"
-
+        closes = historie_zuschnitt(history, start_date, end_date)
+        if not closes.empty:
+            df = closes.to_frame("Close")
+            df["Open"] = df["Close"]
+            df["High"] = df["Close"] * 1.003
+            df["Low"] = df["Close"] * 0.997
+            return df[["Open", "High", "Low", "Close"]], "ls-tc.de Live (Emittent)"
         logging.warning("ls-tc.de: Keine verwertbare History-Struktur gefunden.")
     except Exception as e:
-        logging.error(f"Fehler beim Laden der Historie von ls-tc.de: {e}")
+        logging.error(f"Fehler beim Laden der Historie von ls-tc.de: {type(e).__name__}")
+    return pd.DataFrame(columns=["Open", "High", "Low", "Close"], dtype=float), KEINE_HISTORIE
 
-    # --- FALLBACK: klar gekennzeichnete synthetische Daten, NICHT echt ---
-    date_range = pd.date_range(start=start_date, end=end_date, freq="B")
-    n = len(date_range)
-    import numpy as np
-    np.random.seed(42)
-    base_prices = [
-        config.ANFANGSKURS * ((live_close_fallback / config.ANFANGSKURS) ** (i / max(1, n - 1)))
-        for i in range(n)
-    ]
-    noise = np.random.normal(0, live_close_fallback * 0.003, n)
-    prices = [max(10, p + n_val) for p, n_val in zip(base_prices, noise)]
-    prices[-1] = live_close_fallback
 
-    df = pd.DataFrame(index=date_range)
-    df["Close"] = prices
-    df["Open"] = prices
-    df["High"] = [p * 1.005 for p in prices]
-    df["Low"] = [p * 0.995 for p in prices]
-    return df, "⚠️ SYNTHETISCH (Fallback, KEINE ECHTEN DATEN)"
+def letzter_gespeicherter_kurs(reihen):
+    """Letzter Kurs aus den vom Alarm-Workflow geschriebenen CSV-Texten
+    (state/price_history/JJJJ-MM.csv, Zeilen "zeitstempel_iso,kurs"), neueste Datei zuerst.
+    -> (kurs, zeitpunkt) oder (None, None). Ersatz, wenn ls-tc gerade nichts liefert (A-06)."""
+    for text in reihen:
+        for zeile in reversed((text or "").strip().splitlines()):
+            teile = zeile.strip().split(",")
+            if len(teile) != 2 or teile[0] == "timestamp":
+                continue
+            try:
+                kurs = float(teile[1])
+                zeit = datetime.datetime.fromisoformat(teile[0])
+            except ValueError:
+                continue
+            if kurs > 0:
+                return kurs, zeit
+    return None, None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _preis_csv_roh(pfad):
+    if not GH_STATE_READY:
+        return ""
+    text, _ = github_store.lese_text(GITHUB_REPO, config.GITHUB_STATE_BRANCH, pfad, GITHUB_TOKEN)
+    return text or ""
+
+
+def gespeicherter_kurs_hauptposition(heute):
+    """Letzter vom Workflow protokollierter Kurs (diesen oder letzten Monat) oder (None, None)."""
+    texte = []
+    vormonat = heute.replace(day=1) - datetime.timedelta(days=1)
+    for tag in (heute, vormonat):
+        try:
+            texte.append(_preis_csv_roh(config.price_history_csv_path(tag)))
+        except Exception as e:
+            logging.warning(f"Preis-Historie nicht lesbar: {type(e).__name__}")
+    return letzter_gespeicherter_kurs(texte)
 
 
 # --- BENCHMARK-VERGLEICHSDATEN (ls-tc.de, gleiche API wie LS9VFS) ---
 @st.cache_data(ttl=26 * 3600, show_spinner=False)
-def get_benchmark_history(instrument_id, start_date, end_date):
-    """Holt Tages-Schlusskurse für einen Vergleichswert (ETF) von ls-tc.de.
-    Gibt eine Series (Index=Datum, Value=Close) zurück, oder None bei Fehler -
-    Vergleichswerte sind "nice to have", kein Grund die App abstürzen zu lassen."""
+def _benchmark_roh(instrument_id):
+    """Rohhistorie eines Vergleichswerts; wirft bei Fehlern (nicht gecacht, Audit A-07)."""
     headers = {
         "User-Agent": config.LS_TC_HEADERS["User-Agent"],
         "Referer": f"https://www.ls-tc.de/de/etf/{instrument_id}",
@@ -1570,21 +1684,23 @@ def get_benchmark_history(instrument_id, start_date, end_date):
         "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
         "quotetype": "mid", "series": "history", "type": "", "localeId": "2",
     }
+    r = requests.get(config.LS_TC_BASE_URL, params=params, headers=headers, timeout=8)
+    r.raise_for_status()
+    raw = r.json()
+    return (raw.get("series", {}).get("history", {}).get("data")
+            or raw.get("history", {}).get("data") or [])
+
+
+def get_benchmark_history(instrument_id, start_date, end_date):
+    """Tages-Schlusskurse eines Vergleichswerts als Series (Berliner Kalendertage, DEP-09)
+    oder None bei Fehler - Vergleichswerte sind "nice to have"."""
     try:
-        r = requests.get(config.LS_TC_BASE_URL, params=params, headers=headers, timeout=8)
-        r.raise_for_status()
-        raw = r.json()
-        history = (
-            raw.get("series", {}).get("history", {}).get("data")
-            or raw.get("history", {}).get("data") or []
-        )
-        s = historie_zuschnitt(history, start_date, end_date)   # Berliner Kalendertage (DEP-09)
-        if s.empty:
-            return None
-        return s[s > 0]
+        history = _benchmark_roh(instrument_id)
     except Exception as e:
-        logging.warning(f"Benchmark {instrument_id} nicht ladbar: {e}")
+        logging.warning(f"Benchmark {instrument_id} nicht ladbar: {type(e).__name__}")
         return None
+    s = historie_zuschnitt(history, start_date, end_date)
+    return None if s.empty else s[s > 0]
 
 
 def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end_date, startkapital):
@@ -1606,7 +1722,8 @@ def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end
     # stehen (kein Grund, die ganze Linie zu verwerfen).
     live_kurs, _, _ = get_live_kurs(instrument_id)
     if live_kurs and live_kurs > 0:
-        heute_ts = pd.Timestamp(end_date)
+        _zeit = kurs_zeitpunkt(instrument_id)              # Kalendertag des Kurses (Wochenende: Freitag)
+        heute_ts = pd.Timestamp(_zeit.date() if _zeit is not None else end_date)
         s = s.copy()
         if not s.empty and s.index[-1].normalize() == heute_ts.normalize():
             s.iloc[-1] = live_kurs          # heutiger Punkt: aktualisieren
@@ -1859,6 +1976,40 @@ def auflegung_fuer(instrument_id):
         return None, None
 
 
+def hauptposition_werte(alle_positionen, eigen):
+    """Kaufdatum, Kaufkurs und Kapital der Hauptposition aus EINER Quelle (Audit A-04/A-05).
+    Admin / ohne Login: die gespeicherte erste Position (positionen.json), sofern sie das
+    Hauptzertifikat ist; fehlende/ungueltige Felder und eine abweichende erste Position
+    -> config.py. Normale Benutzer: Startkapital 0 (die config-Position gehoert dem Admin).
+    -> {"kaufdatum", "kaufkurs", "startkapital", "abweichend"}"""
+    werte = {"kaufdatum": config.KAUFDATUM, "kaufkurs": float(config.ANFANGSKURS),
+             "startkapital": float(config.STARTKAPITAL), "abweichend": False}
+    if eigen:
+        werte["startkapital"] = 0.0
+        return werte
+    pos = alle_positionen[0] if alle_positionen and isinstance(alle_positionen[0], dict) else None
+    if not pos:
+        return werte
+    if pos.get("instrument_id") and str(pos.get("instrument_id")) != str(config.LS_INSTRUMENT_ID):
+        werte["abweichend"] = True          # erste Position ist ein anderes Papier
+        return werte
+    try:
+        werte["kaufdatum"] = datetime.date.fromisoformat(str(pos["kaufdatum"]))
+    except (KeyError, TypeError, ValueError):
+        pass
+    try:
+        if float(pos.get("kaufkurs") or 0) > 0:
+            werte["kaufkurs"] = float(pos["kaufkurs"])
+    except (TypeError, ValueError):
+        pass
+    try:
+        if pos.get("startkapital") is not None and float(pos["startkapital"]) >= 0:
+            werte["startkapital"] = float(pos["startkapital"])
+    except (TypeError, ValueError):
+        pass
+    return werte
+
+
 def position_stueckzahl(pos):
     """Stueckzahl ergibt sich aus Startkapital / Kaufkurs - damit bleibt sie
     automatisch konsistent, wenn das Startkapital angepasst wird."""
@@ -1866,37 +2017,6 @@ def position_stueckzahl(pos):
     if kaufkurs <= 0:
         return 0.0
     return float(pos.get("startkapital") or 0) / kaufkurs
-
-
-@st.cache_data(ttl=26 * 3600, show_spinner=False)
-def get_live_kurs(instrument_id):
-    """Wie get_live_market_data(), aber fuer eine beliebige Instrument-ID.
-    Gibt (aktueller_kurs, vortageskurs, quelle) zurueck bzw. (None, None, Fehler)."""
-    params = {
-        "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
-        "quotetype": "mid", "series": "intraday,history,flags", "type": "", "localeId": "2",
-    }
-    try:
-        r = requests.get(config.LS_TC_BASE_URL, params=params,
-                         headers=config.LS_TC_HEADERS, timeout=6)
-        r.raise_for_status()
-        data = r.json()
-        intraday = (data.get("series", {}).get("intraday", {}).get("data")
-                    or data.get("intraday", {}).get("data") or [])
-        if intraday:
-            akt = float(intraday[-1][1])
-            vor = config.extract_previous_close(data)
-            if vor is None:
-                history = (data.get("series", {}).get("history", {}).get("data")
-                           or data.get("history", {}).get("data") or [])
-                vor = config.pick_previous_close_from_history(history)
-            if vor is None:
-                vor = float(intraday[0][1])
-            if akt > 0 and vor > 0:
-                return akt, vor, "ls-tc.de Live (Emittent)"
-    except Exception as e:
-        logging.error(f"Live-Kurs für Instrument {instrument_id} nicht ladbar: {e}")
-    return None, None, "Fehler – keine Live-Daten"
 
 
 def get_kurshistorie(instrument_id, start_date, end_date):
@@ -2517,6 +2637,7 @@ NAV_ZEILEN = [
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
+                     "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
 NAV_CSS = """
@@ -2793,7 +2914,7 @@ def _kurse_stand():
 
 def kurse_neu_laden():
     """Alle Kurs-Zwischenspeicher leeren - der naechste Aufbau holt frisch."""
-    for f in (get_live_market_data, get_live_kurs, lade_rohhistorie, get_benchmark_history, _kurse_stand):
+    for f in (_live_abruf, lade_rohhistorie, _benchmark_roh, _kurse_stand):
         try:
             f.clear()
         except Exception:
@@ -2938,7 +3059,19 @@ def _app_url():
     return APP_URL
 
 
+AKTUALISIEREN_MIN_ABSTAND_SEK = 60
+
+
 def _nav_aktualisieren():
+    """Kurse neu laden - hoechstens einmal je Minute fuer alle Sitzungen zusammen
+    (Audit A-20: der Cache ist global, jeder Klick loeste sonst alle Abrufe neu aus)."""
+    try:
+        stand = datetime.datetime.fromisoformat(_kurse_stand())
+        if (datetime.datetime.now(BERLIN_TZ) - stand).total_seconds() < AKTUALISIEREN_MIN_ABSTAND_SEK:
+            st.toast("Kurse wurden gerade erst geladen.")
+            return
+    except Exception:
+        pass
     kurse_neu_laden()
 
 
@@ -3016,7 +3149,9 @@ def navigation():
                 }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::after { display: none !important; }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button p,
-                .st-key-logout_ecke [data-testid="stButton"] button p { display: none !important; }
+                .st-key-logout_ecke [data-testid="stButton"] button p {
+                    position: absolute !important; width: 1px !important; height: 1px !important;
+                    overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
                 .st-key-logout_ecke [data-testid="stButton"] button [data-testid="stIconMaterial"] {
                     font-size: 16px !important; color: #ff5c5c !important; margin: 0 0 0 2px !important;
                     animation: logouticon 3s ease-in-out infinite; }
@@ -3091,6 +3226,100 @@ def navigation():
     return aktiv
 
 
+def render_chronik():
+    """Chronik-Ansicht. Braucht keine Kursdaten - laeuft daher als leichte Ansicht vor
+    dem Kursabruf und bleibt auch bei einem Ausfall der Kursquelle erreichbar."""
+    eigen = eigener_bereich()
+    heute_date = datetime.datetime.now(BERLIN_TZ).date()
+    tab_trades = st.container()
+    try:
+        # Admin: gemeinsame Chronik (auch Workflow-Alarme, Anmeldungen);
+        # normale Benutzer: eigene Chronik (eigene Notizen und Depot-Ereignisse)
+        _chronik_pfad = upfad(config.STATE_PATH_TRADES_DB)
+
+        def load_db():
+            return gh_read(_chronik_pfad, [])
+
+        def notiz_speichern(eintrag):
+            """Lesen-Aendern-Schreiben mit Versionspruefung (keine verlorenen
+            Auto-Eintraege der Workflows, nie nach einem Lesefehler). -> True/False"""
+            ok, _ = gh_aktualisiere(
+                _chronik_pfad,
+                lambda d: chronik.anhaengen(d if isinstance(d, list) else [], eintrag)[0],
+                default=[], message="update chronik [skip ci]")
+            return ok
+
+        db_events = [x for x in (load_db() or []) if isinstance(x, dict)]
+
+        with tab_trades:
+            if eigen:
+                st.caption("Deine persönliche Chronik: wird automatisch mit Änderungen an deinen "
+                           "Depot-Positionen, beobachteten Werten, Sparplan und Entnahme gefüllt. "
+                           "Eigene Notizen sind jederzeit möglich.")
+            else:
+                st.caption("Wird automatisch gefüllt: Kurs-Alarme, Entwarnungen und neue Allzeithochs aus dem "
+                           "Discord-Workflow, Änderungen an Depot-Positionen und beobachteten Werten, Sparplan "
+                           "Start/Stopp, Musterdepots und gespeicherte Planungen. Eigene Notizen sind weiter möglich.")
+            anzahl = {}
+            for ev in db_events:
+                k_ = chronik.kategorie_von(ev)
+                anzahl[k_] = anzahl.get(k_, 0) + 1
+            optionen = ["alle"] + [k_ for k_ in chronik.KATEGORIEN if anzahl.get(k_)]
+            beschr = {"alle": f"Alle ({len(db_events)})"}
+            beschr.update({k_: f"{v_[0]} {v_[1]} ({anzahl.get(k_, 0)})" for k_, v_ in chronik.KATEGORIEN.items()})
+            try:
+                wahl = st.pills("Filter", optionen, default="alle", format_func=beschr.get,
+                                key="chronik_filter", label_visibility="collapsed") or "alle"
+            except Exception:
+                wahl = st.selectbox("Filter", optionen, format_func=beschr.get, key="chronik_filter_sb")
+            gezeigt = [ev for ev in db_events if wahl == "alle" or chronik.kategorie_von(ev) == wahl]
+            farben = {"alarm": "#EA3943", "depot": "#29B6F6", "beobachtung": "#A78BFA", "planer": "#F5B942",
+                      "notiz": "#71717A"}
+            if not gezeigt:
+                st.info("Noch keine Einträge – sie entstehen ab jetzt automatisch.")
+            letzter_tag = None
+            for ev in gezeigt[:200]:
+                k_ = chronik.kategorie_von(ev)
+                tag = ev.get("datum", "")
+                if tag != letzter_tag:
+                    try:
+                        tag_txt = datetime.date.fromisoformat(tag).strftime("%d.%m.%Y")
+                    except Exception:
+                        tag_txt = tag
+                    st.markdown(f'<div style="margin:14px 0 6px;font-size:.8rem;font-weight:700;'
+                                f'color:#A1A1AA;letter-spacing:.06em">{html.escape(tag_txt)}</div>',
+                                unsafe_allow_html=True)
+                    letzter_tag = tag
+                kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
+                st.markdown(f"""
+                    <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
+                        <div style="font-size: 0.72rem; color: #71717A;">{html.escape(kopf)}</div>
+                        <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
+                        <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            if len(gezeigt) > 200:
+                st.caption(f"Die neuesten 200 von {len(gezeigt)} Einträgen.")
+
+            with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
+                with st.form("trade_form", clear_on_submit=True):
+                    col1, col2 = st.columns([2, 3])
+                    with col1: ed = st.date_input("Datum", heute_date)
+                    with col2: eti = st.text_input("Titel")
+                    ei = st.text_area("Details")
+                    if st.form_submit_button("Speichern") and eti:
+                        eintrag = chronik.neuer_eintrag("notiz", eti, ei, typ="Notiz", quelle="manuell")
+                        eintrag["datum"] = ed.strftime("%Y-%m-%d")
+                        if notiz_speichern(eintrag):
+                            st.rerun()
+                        else:
+                            st.error("Notiz NICHT gespeichert (kein persistenter State oder Lesefehler).")
+
+    except Exception as e:
+        st.error(f"⚠️ Fehler in diesem Tab: {e}")
+        notify_app_error("Tab-Trader-Log", e)
+
+
 # --- GESAMTE RENDER-LOGIK ALS FRAGMENT ---
 # Vermeidet den harten Full-Page-Rerun von st_autorefresh (sichtbares
 # Aufhellen/Neuzeichnen alle 30s). Ein Fragment aktualisiert sich selbst
@@ -3106,7 +3335,10 @@ def render_dashboard():
     # laeuft ein einziger Prozentwert von 0 auf 100, statt dass mehrere Balken
     # nacheinander jeweils wieder bei 0 % beginnen.
     _lade_platz = st.empty()
-    melde, lade_fertig = erstelle_ladeanzeige(_lade_platz, [
+    # Hinweis bei Speicher-Lesefehlern (Audit A-10) - wird am Ende des Aufbaus gefuellt
+    _speicher_platz = st.empty()
+    st.session_state["_speicher_fehler"] = False
+    melde, _lade_fertig_roh = erstelle_ladeanzeige(_lade_platz, [
         ("live",        8),    # ein Abruf
         ("kaufkurs",    5),    # ein Abruf, meist aus dem Cache
         ("historie",   12),    # ein groesserer Abruf
@@ -3115,6 +3347,14 @@ def render_dashboard():
         ("beob_prognose", 10), # je Beobachtungswert ein Abruf fuer die Prognose-Basis
         ("ansicht",    7),     # gewaehlter Chart
     ])
+
+    def lade_fertig():
+        _lade_fertig_roh()
+        if st.session_state.get("_speicher_fehler"):
+            _speicher_platz.warning(
+                "⚠️ Der Datenspeicher (GitHub) war gerade nicht erreichbar – gespeicherte Daten wie "
+                "Positionen, Sparplan oder Chronik fehlen eventuell in der Anzeige. Es wurde nichts "
+                "überschrieben. Bitte in ein paar Minuten mit 🔄 neu laden.")
 
     # ---------- NAVIGATION ganz oben ----------
     gewaehlte_ansicht = navigation()
@@ -4627,6 +4867,11 @@ def render_dashboard():
             notify_app_error("Tab-Musterdepot", e)
         lade_fertig()
 
+    if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
+        melde("ansicht", 0.3, "Lade Chronik …")
+        render_chronik()
+        lade_fertig()
+
     # Watchlist und Portfolio-Planer brauchen keine Depot- oder Kursdaten -
     # dort endet der Aufbau hier, ohne Live-Kurs, Historie und Vergleichswerte.
     if gewaehlte_ansicht is None or gewaehlte_ansicht in LEICHTE_ANSICHTEN:
@@ -4635,73 +4880,61 @@ def render_dashboard():
 
     melde("live", 0.0, "Rufe Live-Kurs ab …")
     aktueller_kurs, vortag_kurs, fetched_source = get_live_market_data()
-
     is_live_data = "Fehler" not in fetched_source
+    kurs_zeit = kurs_zeitpunkt(config.LS_INSTRUMENT_ID) if is_live_data else None
+    kurs_tag = kurs_zeit.date() if kurs_zeit is not None else heute_date
 
-    if not is_live_data:
-        aktueller_kurs, vortag_kurs = 302.980, 302.100
-        fetched_source = "⚠️ FALLBACK-WERT (KEINE ECHTEN DATEN)"
-
-    # --- KAUFDATUM, KAUFKURS, KAPITAL: manuell anpassbar ---
-    # Still aus dem gespeicherten Zustand lesen (Standard: config-Werte) - die
-    # sichtbaren Eingabefelder stehen weiter unten im Eingaben-Expander.
-    # Normale Benutzer (eigener Bereich): die config-Hauptposition gehoert dem Admin -
-    # kein Startkapital, Kaufdatum bleibt nur Zeitraum der Marktdaten (Charts/Candlestick).
+    # --- HAUPTPOSITION: EINE Quelle (Audit A-04/A-05) ---
+    # Kaufdatum, Kaufkurs und Kapital kommen aus der gespeicherten ersten Position
+    # (positionen.json, bearbeitbar unter "Positionen verwalten"), sonst aus config.py.
+    # Keine automatische Kursermittlung mehr: die Stueckzahl haengt so nie davon ab,
+    # ob die Kurshistorie gerade erreichbar ist.
     eigen = eigener_bereich()
-    startkapital_aktiv = (0.0 if eigen
-                          else st.session_state.get("haupt_startkapital_input", float(config.STARTKAPITAL)))
-    kaufdatum_aktiv = (config.KAUFDATUM if eigen
-                       else st.session_state.get("haupt_kaufdatum_input", config.KAUFDATUM))
-    if isinstance(kaufdatum_aktiv, datetime.datetime):
-        kaufdatum_aktiv = kaufdatum_aktiv.date()
-
-    # Kaufkurs wahlweise automatisch aus der Kurshistorie am Kaufdatum bestimmen
-    # (letzter Schlusskurs am oder vor dem Tag - faellt der Kauftag auf ein
-    # Wochenende/Feiertag, greift der vorherige Handelstag) oder manuell setzen.
-    kaufkurs_auto = st.session_state.get("haupt_kaufkurs_auto", True)
-    kaufkurs_ermittelt = None
-    if kaufkurs_auto:
-        melde("kaufkurs", 0.0, "Ermittle Kaufkurs …")
-        _hist_kauf = get_kurshistorie(
-            config.LS_INSTRUMENT_ID,
-            kaufdatum_aktiv - datetime.timedelta(days=30), kaufdatum_aktiv
-        )
-        if not _hist_kauf.empty:
-            kaufkurs_ermittelt = float(_hist_kauf.iloc[-1])
-
-    kaufkurs_aktiv = (
-        kaufkurs_ermittelt if kaufkurs_ermittelt
-        else st.session_state.get("haupt_kaufkurs_input", float(config.ANFANGSKURS))
-    )
-    if not kaufkurs_aktiv or kaufkurs_aktiv <= 0:
-        kaufkurs_aktiv = float(config.ANFANGSKURS)
-
+    alle_positionen = lade_positionen()
+    _haupt = hauptposition_werte(alle_positionen, eigen)
+    kaufdatum_aktiv = _haupt["kaufdatum"]
+    kaufkurs_aktiv = _haupt["kaufkurs"]
+    startkapital_aktiv = _haupt["startkapital"]
+    haupt_abweichend = _haupt["abweichend"]
     stueckzahl_aktiv = startkapital_aktiv / kaufkurs_aktiv
 
     melde("historie", 0.0, "Lade Kurshistorie …")
-    df_chart, hist_source_name = get_historical_market_data(kaufdatum_aktiv, heute_date, aktueller_kurs)
-    is_live_history = "SYNTHETISCH" not in hist_source_name
+    df_chart, hist_source_name = get_historical_market_data(kaufdatum_aktiv, heute_date)
+    is_live_history = hist_source_name != KEINE_HISTORIE
 
     if not eigen:       # Datenquellen-Alarm (Discord + gemeinsamer Zustand): nur Admin / ohne Login
         check_and_alert_fetch_failure(is_live_data, is_live_history)
 
-    # Kein Live-Kurs, aber echte Historie: statt eines frei erfundenen Festwerts den
-    # letzten ECHTEN Schlusskurs zeigen (bleibt als "keine Live-Daten" gekennzeichnet).
-    if not is_live_data and is_live_history and not df_chart.empty:
-        aktueller_kurs = float(df_chart["Close"].iloc[-1])
-        vortag_kurs = float(df_chart["Close"].iloc[-2]) if len(df_chart) > 1 else aktueller_kurs
-        fetched_source = "⚠️ letzter Schlusskurs (KEINE Live-Daten)"
+    # Kein Live-Kurs: nur ECHTE Ersatzwerte, jeweils mit Datum (Audit A-06) -
+    # 1. letzter Schlusskurs der ls-tc-Historie, 2. letzter vom Workflow gespeicherte Kurs.
+    # Gibt es keinen echten Kurs, werden keine Depotwerte angezeigt.
+    if not is_live_data:
+        if is_live_history and not df_chart.empty:
+            aktueller_kurs = float(df_chart["Close"].iloc[-1])
+            vortag_kurs = float(df_chart["Close"].iloc[-2]) if len(df_chart) > 1 else aktueller_kurs
+            kurs_zeit = df_chart.index[-1].to_pydatetime()
+            fetched_source = f"⚠️ letzter Schlusskurs vom {kurs_zeit.strftime('%d.%m.%Y')} (keine Live-Daten)"
+        else:
+            _gesp_kurs, _gesp_zeit = gespeicherter_kurs_hauptposition(heute_date)
+            if _gesp_kurs:
+                aktueller_kurs = vortag_kurs = _gesp_kurs
+                kurs_zeit = _gesp_zeit
+                fetched_source = (f"⚠️ letzter gespeicherter Kurs vom {_gesp_zeit.strftime('%d.%m.%Y %H:%M')} "
+                                  "(keine Live-Daten)")
+            else:
+                st.error("⚠️ Gerade ist **kein echter Kurs** für die Hauptposition verfügbar (ls-tc.de "
+                         "nicht erreichbar, keine gespeicherten Kurse). Depotwerte werden deshalb nicht "
+                         "angezeigt – bitte später mit 🔄 erneut laden.")
+                lade_fertig()
+                return
 
-    # Audit DEP-04: nur mit ECHTEN Daten (Live-Kurs UND Historie) duerfen Werte in
-    # dauerhafte Zustaende oder Benachrichtigungen fliessen. Die App selbst schreibt
-    # hier ohnehin nichts mehr (Hoechststand/Kursalarme: nur der Workflow, DATA-03).
-    daten_echt = is_live_data and is_live_history
 
     # Audit DEP-10: Live-Kurs als eigener Punkt fuer HEUTE (Index wird verlaengert,
     # der gestrige Schlusskurs bleibt erhalten) - die Vergleichswerte haengen ihren
     # Live-Kurs ebenfalls an heute an, beide Linien enden so am selben Datum.
     if is_live_data and is_live_history:
-        df_chart = haenge_live_punkt_an(df_chart, heute_date, aktueller_kurs)
+        # Punkt am Kalendertag des Kurses (am Wochenende: Freitag), nicht am Abruftag
+        df_chart = haenge_live_punkt_an(df_chart, kurs_tag, aktueller_kurs)
 
     df_chart["Startkapital"] = startkapital_aktiv
 
@@ -4733,6 +4966,7 @@ def render_dashboard():
     else:
         high_watermark_anzeige = aktueller_kurs
         high_watermark_datum = "-"
+    hw_bekannt = high_watermark_datum != "-"         # ohne Historie/Speicher kein "Allzeithoch" behaupten
 
     start_dt = pd.to_datetime(kaufdatum_aktiv)
 
@@ -4758,17 +4992,19 @@ def render_dashboard():
 
     sparplan_termine_liste = (sparplan_termine(sparplan_start, heute_date)
                               if sparplan_start is not None and sparplan_phasen_liste else [])
-    sparplan_eingezahlt, zusaetzliche_stueckzahl_sparplan = 0.0, 0.0
+    sparplan_kaufliste = []
     sparplan_ohne_kurse = False
     if sparplan_termine_liste:
         if is_live_history and not df_chart.empty:
-            sparplan_eingezahlt, zusaetzliche_stueckzahl_sparplan = sparplan_kaeufe(
+            sparplan_kaufliste = sparplan_einzelkaeufe(
                 sparplan_termine_liste, df_chart["Close"],
                 lambda t: sparrate_am(sparplan_phasen_liste, t),
                 ersatzkurs=aktueller_kurs if is_live_data else None,
             )
         else:
-            sparplan_ohne_kurse = True      # keine Kaeufe zu synthetischen Kursen (DEP-04)
+            sparplan_ohne_kurse = True      # ohne echte Kurshistorie keine Kaeufe (DEP-04)
+    sparplan_eingezahlt = sum(k[1] for k in sparplan_kaufliste)
+    zusaetzliche_stueckzahl_sparplan = sum(k[2] for k in sparplan_kaufliste)
 
     # --- ENTNAHME: EINE Quelle (Audit DEP-03) ---
     # Gespeicherte Monatsrate (Standard config.ENTNAHME_PM, normale Benutzer 0), erstmals
@@ -4823,8 +5059,11 @@ def render_dashboard():
 
     # --- SIMULATION (bisheriges Verhalten): Stückzahl bleibt konstant, Entnahme
     # wird nur buchhalterisch vom Bruttowert abgezogen. ---
-    df_chart["Depotwert_Brutto"] = df_chart["Close"] * stueckzahl_aktiv
-    df_chart["Depotwert_Netto"] = df_chart["Depotwert_Brutto"] - df_chart["Kumulierte_Entnahme"]
+    # Sparplan-Anteile ab ihrem Kauftag in allen Reihen (Audit A-09)
+    df_chart["Sparplan_Stueck"], df_chart["Sparplan_Einzahlung"] = (
+        sparplan_verlauf(df_chart.index, sparplan_kaufliste) if not df_chart.empty else ([], []))
+    df_chart["Eingezahlt"] = startkapital_aktiv + df_chart["Sparplan_Einzahlung"]
+    df_chart["Depotwert_Brutto"] = df_chart["Close"] * (stueckzahl_aktiv + df_chart["Sparplan_Stueck"])
 
     def zeige_chart_legende_liste(eintraege):
         """eintraege: Liste von (label, emoji) Tupeln. Fuer NICHT abwaehlbare
@@ -4999,7 +5238,7 @@ def render_dashboard():
     df_chart["Stueckzahl_Real"] = berechne_reale_stueckzahl(
         df_chart, stueckzahl_aktiv, entnahme_rate, entnahme_termine_liste, config.SPREAD_PCT
     )
-    df_chart["Depotwert_Real"] = df_chart["Close"] * df_chart["Stueckzahl_Real"]
+    df_chart["Depotwert_Real"] = df_chart["Close"] * (df_chart["Stueckzahl_Real"] + df_chart["Sparplan_Stueck"])
 
     # Kurs-Alarme (Schwelle/Entwarnung/Allzeithoch) verschickt die App NICHT mehr
     # (Audit DATA-03): einziger Absender und einziger Schreiber des Alarm-Zustands ist
@@ -5062,7 +5301,6 @@ def render_dashboard():
 
     # --- KENNZAHLEN ---
     tages_verenderung_pct = ((aktueller_kurs - vortag_kurs) / vortag_kurs) * 100 if vortag_kurs else 0.0
-    letztes_update_zeit = now_berlin.strftime("%d.%m.%Y %H:%M:%S Uhr")
 
 
     # --- DEPOT-KENNZAHLEN seit Kauf (Audit DEP-01/DEP-03) ---
@@ -5072,18 +5310,26 @@ def render_dashboard():
                            startkapital_aktiv, sparplan_eingezahlt, entnahme_rate, anzahl_entnahmen)
     brutto_ist = _kz["brutto"]
     einstand_aktiv = _kz["einstand"]
-    gewinn_brutto = _kz["gewinn"]
-    rendite_ist_pct = _kz["rendite_pct"]
     gesamt_entnommen = _kz["entnommen"]
-    netto_ist = _kz["netto"]
 
-    # Reale Variante fuer die aktuellen Kennzahlen (Stückzahl nach echten Verkäufen)
+    # --- HAUPTZAHL: realer Depotwert nach den tatsaechlichen Entnahme-Verkaeufen (Audit A-12) ---
+    # Ausgezahlt = Rate x tatsaechlich ausgefuehrte Verkaeufe (Termin <= letzter Kurstag).
     stueckzahl_real_ist = df_chart["Stueckzahl_Real"].iloc[-1] if not df_chart.empty else stueckzahl_aktiv
-    depotwert_real_ist = (stueckzahl_real_ist + zusaetzliche_stueckzahl_sparplan) * aktueller_kurs
+    _letzter_kurstag = df_chart.index[-1] if not df_chart.empty else None
+    verkaeufe_ausgefuehrt = (sum(1 for t in entnahme_termine_liste if pd.Timestamp(t) <= _letzter_kurstag)
+                             if _letzter_kurstag is not None and entnahme_rate else 0)
+    _real = depot_kennzahlen_real(stueckzahl_real_ist, zusaetzliche_stueckzahl_sparplan, aktueller_kurs,
+                                  einstand_aktiv, entnahme_rate * verkaeufe_ausgefuehrt)
+    depotwert_real_ist = _real["wert"]
+    ausgezahlt_ist = _real["ausgezahlt"]
+    gewinn_real = _real["gewinn"]
+    rendite_real_pct = _real["rendite_pct"]
+    rendite_pa_real, rendite_pa_hochgerechnet = rendite_pa_seit_kauf(
+        einstand_aktiv, depotwert_real_ist + ausgezahlt_ist, kaufdatum_aktiv, heute_date)
 
     kumulierte_sparrate_marktwert = zusaetzliche_stueckzahl_sparplan * aktueller_kurs
 
-    sim_b = brutto_ist
+    sim_b = depotwert_real_ist
     monate_bis_ziel = 0
     while sim_b < 100000.0 and monate_bis_ziel < 600:
         sim_b = (sim_b * (1 + erwarteter_zins_mo)) - entnahme_rate + sparrate_aktiv
@@ -5092,7 +5338,7 @@ def render_dashboard():
     monate_namen = {1: "Januar", 2: "Februar", 3: "März", 4: "April", 5: "Mai", 6: "Juni", 
                     7: "Juli", 8: "August", 9: "September", 10: "Oktober", 11: "November", 12: "Dezember"}
 
-    if brutto_ist >= 100000.0:
+    if depotwert_real_ist >= 100000.0:
         meilenstein_datum_str, meilenstein_details_str = "Bereits erreicht", "Ziel erreicht"
     elif monate_bis_ziel < 600:
         ms_date = (now_berlin.replace(tzinfo=None) + pd.DateOffset(months=monate_bis_ziel)).date()
@@ -5100,7 +5346,7 @@ def render_dashboard():
         meilenstein_details_str = f"In ca. {monate_bis_ziel // 12} Jahren & {monate_bis_ziel % 12} Monaten"
     else:
         meilenstein_datum_str, meilenstein_details_str = "> 50 Jahre", "Unrealistisch"
-    if prognose_rueckfall_hinweis and brutto_ist < 100000.0:
+    if prognose_rueckfall_hinweis and depotwert_real_ist < 100000.0:
         # Rate stammt aus dem Rueckfall (hochgerechnet bzw. 0 %) - sichtbar kennzeichnen
         _ms_basis = (prognose_rueckfall_hinweis.split(" – ")[0]
                      if prognose_rueckfall_hinweis.startswith("Hochgerechnet") else "0 % p.a. (Historie < 1 Monat)")
@@ -5121,11 +5367,9 @@ def render_dashboard():
     _depot_bereich.__enter__()
 
     # ---------- KURS-KOPF: der Kurs ist die eine Zahl, die zaehlt ----------
-    live_markup = (
-        '<span class="live-pill"><span class="live-dot"></span>Live</span>'
-        if is_live_data else
-        '<span class="live-pill offline"><span class="live-dot offline"></span>Keine Live-Daten</span>'
-    )
+    _kurs_art, _kurs_text = kurs_status(kurs_zeit, now_berlin, is_live_data)
+    live_markup = kurs_pill(_kurs_art, _kurs_text)
+    kurs_zeit_text = (kurs_zeit.strftime("%d.%m.%Y %H:%M Uhr") if kurs_zeit is not None else "unbekannt")
 
     def de_zahl(wert, nachkomma=3):
         """Deutsche Schreibweise (Punkt = Tausender, Komma = Dezimal) - bewusst
@@ -5137,12 +5381,12 @@ def render_dashboard():
     # Referenzkurse werden aus der Kurshistorie berechnet (letzter Schlusskurs
     # am/vor dem Stichtag) - generisch fuer jedes Instrument, kein Scraping
     # einer produktspezifischen Seite mehr. "Tag" nutzt den Vortageskurs,
-    # "seit Kauf" die bereits berechneten gewinn_brutto/rendite_ist_pct.
+    # "seit Kauf" die realen Werte gewinn_real/rendite_real_pct (inkl. ausgezahlter Entnahmen).
     #
     # WICHTIG - Einschraenkung: die €-Betraege je Zeitraum unterstellen eine ueber
     # den jeweiligen Zeitraum konstante Stueckzahl (aktuelle Stueckzahl rueckwirkend
     # angewendet). Bei zwischenzeitlichen Sparplan-Kaeufen ist das eine Naeherung.
-    gesamt_stueckzahl_perf = stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan
+    gesamt_stueckzahl_perf = stueckzahl_real_ist + zusaetzliche_stueckzahl_sparplan
 
     _hist_haupt = get_kurshistorie(
         config.LS_INSTRUMENT_ID, heute_date - datetime.timedelta(days=420), heute_date
@@ -5152,7 +5396,7 @@ def render_dashboard():
     periods_depot = [(lbl, d * gesamt_stueckzahl_perf, p) for lbl, d, p in periods_kurs]
     # "seit Kauf": Gewinn gegen den Einstand (Startkapital + Sparraten), Prozent auf
     # denselben Einstand (Audit DEP-01) - Euro und Prozent passen so zusammen.
-    periods_depot.append(("seit Kauf", gewinn_brutto, rendite_ist_pct))
+    periods_depot.append(("seit Kauf", gewinn_real, rendite_real_pct))
 
     def perf_zeilen_html(zeilen, nachkomma, kopfzeile=None, fusszeile=""):
         """Rendert die Zeitraum-Zeilen INNERHALB einer Kachel: hairline-getrennt,
@@ -5301,7 +5545,10 @@ def render_dashboard():
     hw_abstand_pct = (hw_abstand / high_watermark_anzeige * 100) if high_watermark_anzeige else 0.0
     hw_am_hoch = hw_abstand >= -0.0005  # Toleranz gegen Rundungsrauschen
 
-    if hw_am_hoch:
+    if not hw_bekannt:
+        hw_status_chip = ""
+        hw_zeile = ""
+    elif hw_am_hoch:
         hw_status_chip = '<span class="hw-pill">Allzeithoch</span>'
         hw_zeile = (
             '<div class="perf-row"><span class="perf-label">Höchststand</span>'
@@ -5329,9 +5576,10 @@ def render_dashboard():
         + perf_zeilen_html(periods_kurs, 3,
                            kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"),
                            fusszeile=hw_zeile)
-        + f'<div class="card-footnote">Lang &amp; Schwarz · Stand: {letztes_update_zeit} · '
-          f'Höchststand vom {high_watermark_datum}, ab dort '
-          f'{config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee</div>'
+        + f'<div class="card-footnote">Lang &amp; Schwarz · Kurs vom {kurs_zeit_text}'
+        + (f' · Höchststand vom {high_watermark_datum}, ab dort '
+           f'{config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee' if hw_bekannt else '')
+        + '</div>'
         + '</div>'
     )
     # ---------- BEOBACHTETE WERTE: reine Kursanzeige, NICHT im Depot ----------
@@ -5387,7 +5635,7 @@ def render_dashboard():
             f'<div class="q-name">{_h(eintrag.get("name", ""))} · {_h(eintrag.get("wkn", ""))}</div>'
             '<div class="price-line">'
             f'<span class="q-price">{de_zahl(b_kurs)} €</span>'
-            '<span class="live-pill"><span class="live-dot"></span>Live</span>'
+            + kurs_pill(*kurs_status(kurs_zeitpunkt(eintrag["instrument_id"]), now_berlin, True)) +
             '<span class="meta-chip">Beobachtung</span>'
             '</div>'
             + perf_zeilen_html(
@@ -5535,31 +5783,33 @@ def render_dashboard():
 
     # ---------- HERO: Depotwert ----------
     sparplan_zusatz = (
-        f" · davon {zusaetzliche_stueckzahl_sparplan:.4f} aus Sparplan"
+        f" · davon {_de_zahl(zusaetzliche_stueckzahl_sparplan, 4)} aus Sparplan"
         if zusaetzliche_stueckzahl_sparplan > 0 else ""
     )
-    richtung_gewinn = "up" if gewinn_brutto >= 0 else "down"
+    richtung_gewinn = "up" if gewinn_real >= 0 else "down"
     depot_karte = (
         '<div class="hero">'
         '<div class="hero-label">Depotwert</div>'
         '<div class="price-line">'
-        f'<span class="hero-val">{fmt(brutto_ist, 2)}</span>'
-        # Ø p.a. bewusst als Rendite des PRODUKTS (Median ueber die volle
-        # Historie), nicht als eigene Kaufrendite: so steht ueberall im
-        # Dashboard dieselbe Zahl, mit der auch simuliert wird. Gewinn und
-        # Rendite in den Zeilen darunter bleiben die eigenen, realisierten Werte.
-        # Rueckfall < 1 Jahr: als Hochrechnung aus Monatswerten kennzeichnen
-        f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a.'
-        f'{" (hochgerechnet)" if (prognose_rueckfall_hinweis or "").startswith("Hochgerechnet") else ""}</span>'
-        f'<span class="stat-chip-val">{prognose_rendite_pa:.1f} %</span></span>'
-        '</div>'
+        f'<span class="hero-val">{fmt(depotwert_real_ist, 2)}</span>'
+        # Ø p.a. = eigene realisierte Rendite seit Kauf (Audit A-08) - dieselbe Zahl wie
+        # "Ø/Jahr" in der Vergleichstabelle. Die Prognoserate steht nur in den Prognosen.
+        + (f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
+           f'{" (hochgerechnet)" if rendite_pa_hochgerechnet else ""}</span>'
+           f'<span class="stat-chip-val">{_de_zahl(rendite_pa_real, 1)} %</span></span>'
+           if rendite_pa_real is not None else '')
+        + '</div>'
         f'{perf_zeilen_html(periods_depot, 2)}'
-        f'<div class="card-footnote">{stueckzahl_aktiv + zusaetzliche_stueckzahl_sparplan:.4f} '
+        f'<div class="card-footnote">{_de_zahl(stueckzahl_real_ist + zusaetzliche_stueckzahl_sparplan, 4)} '
         f'Anteile{sparplan_zusatz} · Einstand {fmt(einstand_aktiv, 2)}'
         + (f' (Startkapital {fmt(startkapital_aktiv, 2)} + Sparraten {fmt(sparplan_eingezahlt, 2)})'
            if sparplan_eingezahlt > 0 else '')
+        + (f' · {verkaeufe_ausgefuehrt} Entnahmen à {fmt(entnahme_rate, 2)} ausgezahlt ({fmt(ausgezahlt_ist, 2)}),'
+           ' im Gewinn „seit Kauf“ enthalten' if ausgezahlt_ist > 0 else '')
         + (' · ⚠️ Sparplan ohne echte Kurshistorie nicht eingerechnet' if sparplan_ohne_kurse else '')
-        + (' · ⚠️ Ersatzdaten – keine echten Kurse' if not daten_echt else '')
+        + (f' · {_h(fetched_source)}' if not is_live_data else '')
+        + (' · ⚠️ Entnahmen nicht abgezogen (Kurshistorie fehlt – Verkaufskurse unbekannt)'
+           if df_chart.empty and entnahme_rate and entnahme_termine_liste else '')
         + '</div>'
         '</div>'
     )
@@ -5580,11 +5830,12 @@ def render_dashboard():
     # eigene Kachel im selben Design; darunter folgt die Depot-Gesamtsumme.
 
     # Kennzahlen der Hauptposition als Startwert der Gesamtsumme (ohne Hauptposition: 0)
-    gesamt_wert = brutto_ist if haupt_aktiv else 0.0
+    gesamt_wert = depotwert_real_ist if haupt_aktiv else 0.0
+    gesamt_ausgezahlt = ausgezahlt_ist if haupt_aktiv else 0.0     # gehoert zum Ergebnis (A-12)
     gesamt_einstand = einstand_aktiv if haupt_aktiv else 0.0     # inkl. Sparraten (Audit DEP-01)
     # Je Position (aktueller Wert, {Zeitraum: Betrag}) - die Prozentbasis je Zeitraum
     # bilden nur die Positionen, die dafuer einen Wert liefern (Audit DEP-07).
-    gesamt_beitraege = ([(brutto_ist, {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"})]
+    gesamt_beitraege = ([(depotwert_real_ist, {lbl: betrag for lbl, betrag, _ in periods_depot if lbl != "seit Kauf"})]
                         if haupt_aktiv else [])
     positionen_ok = True
 
@@ -5595,7 +5846,7 @@ def render_dashboard():
     prognose_optionen = [{
         "name": haupt_name,
         "startkapital": startkapital_aktiv,
-        "aktueller_wert": brutto_ist,
+        "aktueller_wert": depotwert_real_ist,
         # Zukunftsrate (Produkt-Historie), NICHT die eigene Kaufrendite -
         # siehe Kommentar bei prognose_rendite_pa weiter oben.
         "cagr_pa": prognose_rendite_pa,
@@ -5605,7 +5856,7 @@ def render_dashboard():
         "sparrate": sparrate_aktiv,
         # Monatliche Entnahme (EINE Quelle, DEP-03) und bisher seit Kauf entnommen
         "entnahme": entnahme_rate,
-        "entnommen_bisher": gesamt_entnommen,
+        "entnommen_bisher": ausgezahlt_ist,
         # Einstand inkl. Sparraten (DEP-01) - Basis der Spalte "Gesamter Gewinn"
         "einstand": einstand_aktiv,
         # Kursreihe fuer die Bandbreiten-Simulation weiter unten (Volatilitaet
@@ -5732,7 +5983,7 @@ def render_dashboard():
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if (1 if haupt_aktiv else 0) + len(weitere_positionen) >= 2:
-        gesamt_gewinn = gesamt_wert - gesamt_einstand
+        gesamt_gewinn = gesamt_wert + gesamt_ausgezahlt - gesamt_einstand
         gesamt_rendite = (gesamt_gewinn / gesamt_einstand * 100) if gesamt_einstand else 0.0
 
         # Prozent je Zeitraum aus den summierten €-Betraegen ableiten, NICHT die
@@ -5823,8 +6074,7 @@ def render_dashboard():
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
     st.markdown('<div class="abschnitt">⚙️ Einstellungen</div>', unsafe_allow_html=True)
 
-    with st.expander("🛠️ Sparrate und Entnahme anpassen" if eigen
-                     else "🛠️ Kauf, Kapital, Sparrate und Entnahme anpassen", expanded=False):
+    with st.expander("🛠️ Sparrate und Entnahme anpassen", expanded=False):
         # Felder bewusst untereinander (keine Spalten) - auf dem Smartphone
         # sind nebeneinanderliegende Zahlenfelder samt Steppern sehr fummelig.
         if eigen:
@@ -5833,54 +6083,17 @@ def render_dashboard():
                        f"monatlichen Sparplan auf {config.WKN} und deine monatliche Entnahme ein – beides "
                        "startet bei 0 € und wird für deine nächste Anmeldung gespeichert.")
         else:
-            kd_kwargs = dict(
-                key="haupt_kaufdatum_input",
-                help="Bestimmt den Startpunkt aller Berechnungen und Charts.",
+            # Audit A-04: Kaufdatum, Kaufkurs und Kapital haben EINE gespeicherte Quelle -
+            # die Hauptposition unter "Positionen verwalten" (frueher hier nur fuer die Sitzung).
+            st.caption(
+                f"**Hauptposition:** Kauf am {kaufdatum_aktiv.strftime('%d.%m.%Y')} zu "
+                f"{de_zahl(kaufkurs_aktiv, 4)} €, Kapital {fmt(startkapital_aktiv, 2)} → "
+                f"{de_zahl(stueckzahl_aktiv, 4)} Anteile. Ändern unter „➕ Positionen verwalten“ "
+                "(wird dauerhaft gespeichert)."
             )
-            if "haupt_kaufdatum_input" not in st.session_state:
-                kd_kwargs["value"] = kaufdatum_aktiv
-            st.date_input("Kaufdatum", **kd_kwargs)
-
-            st.checkbox(
-                "Kaufkurs automatisch aus der Kurshistorie am Kaufdatum holen",
-                key="haupt_kaufkurs_auto", value=kaufkurs_auto,
-                help="Nimmt den letzten Schlusskurs am oder vor dem Kaufdatum. "
-                     "Ausschalten, um deinen tatsächlich gezahlten Kurs einzutragen "
-                     "(z. B. inkl. Spread oder bei untertägigem Kauf).",
-            )
-
-            if kaufkurs_auto:
-                if kaufkurs_ermittelt:
-                    st.success(
-                        f"Kurs am {kaufdatum_aktiv.strftime('%d.%m.%Y')}: "
-                        f"**{de_zahl(kaufkurs_ermittelt, 4)} €** "
-                        f"→ {startkapital_aktiv / kaufkurs_ermittelt:.4f} Anteile"
-                    )
-                else:
-                    st.warning(
-                        f"Für den {kaufdatum_aktiv.strftime('%d.%m.%Y')} liegt kein Kurs vor "
-                        f"(Historie reicht nicht zurück). Es gilt ersatzweise "
-                        f"{de_zahl(kaufkurs_aktiv, 4)} €."
-                    )
-            else:
-                kk_kwargs = dict(
-                    min_value=0.0, step=0.01, format="%.4f", key="haupt_kaufkurs_input",
-                    help="Dein tatsächlich gezahlter Kurs je Anteil.",
-                )
-                if "haupt_kaufkurs_input" not in st.session_state:
-                    kk_kwargs["value"] = kaufkurs_aktiv
-                st.number_input("Kaufkurs (€)", **kk_kwargs)
-
-            ak_kwargs = dict(
-                min_value=0.0, step=100.0, key="haupt_startkapital_input",
-                help="Investiertes Kapital - die Stückzahl ergibt sich daraus "
-                     "automatisch (Kapital ÷ Kaufkurs).",
-            )
-            if "haupt_startkapital_input" not in st.session_state:
-                ak_kwargs["value"] = startkapital_aktiv
-            st.number_input("Anfangskapital (€)", **ak_kwargs)
-            st.caption(f"Ergibt aktuell **{stueckzahl_aktiv:.4f} Anteile** "
-                       f"zu {de_zahl(kaufkurs_aktiv, 4)} €")
+            if haupt_abweichend:
+                st.warning(f"Die erste gespeicherte Position ist nicht {config.WKN} – für die "
+                           "Hauptposition gelten deshalb die Werte aus config.py.")
 
         def _vorbelegen(key, gespeichert):
             """Eingabefeld mit dem GESPEICHERTEN Wert vorbelegen. Aendert sich der gespeicherte
@@ -6143,9 +6356,16 @@ def render_dashboard():
             st.markdown("---")
             st.markdown(f"**{rolle}: {pos.get('name', '')}**")
 
+            # Hauptposition (Admin): Kaufdatum, Kaufkurs und Kapital wirken auf Depotwert,
+            # Charts und Prognosen (Audit A-04). Das Papier selbst bleibt fest, da Charts
+            # und Kurs-Alarme an config.LS_INSTRUMENT_ID haengen.
+            ist_haupt = idx == 0 and not eigen
+            if ist_haupt:
+                st.caption("Kaufdatum, Kaufkurs und Kapital bestimmen Depotwert, Charts und Prognosen. "
+                           f"Das Wertpapier ({config.WKN}) ist fest eingestellt.")
             # Suchblock ausserhalb des Formulars - erlaubt, jederzeit ein
             # anderes Wertpapier fuer diese Position zu suchen und zu uebernehmen.
-            treffer_edit = instrument_suchblock(
+            treffer_edit = None if ist_haupt else instrument_suchblock(
                 f"edit_{idx}", label="Anderes Wertpapier suchen (optional)")
 
             with st.form(f"pos_form_{pos.get('id', idx)}"):
@@ -6162,10 +6382,10 @@ def render_dashboard():
                 suffix = f"{idx}_{v_inst}"
 
                 n_name = st.text_input("Name", value=v_name, key=f"n_{suffix}")
-                n_wkn = st.text_input("WKN / ISIN", value=v_wkn, key=f"w_{suffix}")
+                n_wkn = st.text_input("WKN / ISIN", value=v_wkn, key=f"w_{suffix}", disabled=ist_haupt)
                 n_inst = st.number_input(
                     "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
-                    value=v_inst, key=f"i_{suffix}",
+                    value=v_inst, key=f"i_{suffix}", disabled=ist_haupt,
                     help="0 = keine Kursquelle. Die Position wird dann ohne Kurse "
                          "angezeigt und nicht in die Depot-Summe eingerechnet.",
                 )
@@ -6185,8 +6405,10 @@ def render_dashboard():
                 if gespeichert:
                     _p_neu = {
                         "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
-                        "name": n_name, "wkn": n_wkn,
-                        "instrument_id": int(n_inst) if n_inst else None,
+                        "name": n_name,
+                        "wkn": config.WKN if ist_haupt else n_wkn,
+                        "instrument_id": (int(config.LS_INSTRUMENT_ID) if ist_haupt
+                                          else (int(n_inst) if n_inst else None)),
                         "kaufdatum": n_kaufdatum.isoformat(), "kaufkurs": float(n_kaufkurs),
                         "startkapital": float(n_kapital),
                     }
@@ -6261,29 +6483,35 @@ def render_dashboard():
         """, unsafe_allow_html=True)
 
     if haupt_aktiv:
-        # --- NETTO-WERTE + Kosten: nur bei Bedarf einblenden ---
+        # --- ENTNAHMEN + Kosten: nur bei Bedarf einblenden (Audit A-12) ---
         sparrate_note = (
-            f" · inkl. {zusaetzliche_stueckzahl_sparplan:.4f} Sparplan-Anteile ({fmt(kumulierte_sparrate_marktwert, 2)})"
-            if zusaetzliche_stueckzahl_sparplan > 0 else ""
+            f" · inkl. {_de_zahl(zusaetzliche_stueckzahl_sparplan, 4)} Sparplan-Anteile "
+            f"({fmt(kumulierte_sparrate_marktwert, 2)})" if zusaetzliche_stueckzahl_sparplan > 0 else ""
         )
-        with st.expander("💶 Netto-Werte und laufende Kosten", expanded=False):
+        with st.expander("💶 Entnahmen und laufende Kosten", expanded=False):
             st.markdown(f"""
             <div class="rows">
                 <div class="row">
-                    <span class="row-label">Netto (Simulation)</span>
-                    <span class="row-val">{fmt(netto_ist, 2)}
-                        <span class="row-note">{anzahl_entnahmen} × {fmt(entnahme_rate, 2)} seit Kauf buchhalterisch abgezogen ({fmt(gesamt_entnommen, 2)}){sparrate_note}</span>
+                    <span class="row-label">Depotwert (nach Entnahmen)</span>
+                    <span class="row-val">{fmt(depotwert_real_ist, 2)}
+                        <span class="row-note">{_de_zahl(stueckzahl_real_ist, 4)} Anteile nach {verkaeufe_ausgefuehrt} Verkäufen à {fmt(entnahme_rate, 2)} zum Geldkurs (Spread-Annahme {_de_zahl(config.SPREAD_PCT, 2)} %){sparrate_note}</span>
                     </span>
                 </div>
                 <div class="row">
-                    <span class="row-label">Netto (real verkauft)</span>
-                    <span class="row-val">{fmt(depotwert_real_ist, 2)}
-                        <span class="row-note">{stueckzahl_real_ist:.4f} Anteile nach {anzahl_entnahmen} realen Verkäufen à {fmt(entnahme_rate, 2)}, inkl. {config.SPREAD_PCT:.2f} % Spread</span>
+                    <span class="row-label">Bisher ausgezahlt</span>
+                    <span class="row-val">{fmt(ausgezahlt_ist, 2)}
+                        <span class="row-note">zählt zum Gewinn „seit Kauf“ ({fmt_vz(gewinn_real, 2)})</span>
+                    </span>
+                </div>
+                <div class="row">
+                    <span class="row-label">Ohne Entnahmen (Vergleich)</span>
+                    <span class="row-val">{fmt(brutto_ist, 2)}
+                        <span class="row-note">so viel wäre das Depot wert, wenn nichts entnommen worden wäre</span>
                     </span>
                 </div>
                 <div class="row">
                     <span class="row-label">Laufende Kosten</span>
-                    <span class="row-val">{config.ZERTIFIKAT_GEBUEHR_PA_PCT:.2f} % p.a.
+                    <span class="row-val">{_de_zahl(config.ZERTIFIKAT_GEBUEHR_PA_PCT, 2)} % p.a.
                         <span class="row-note">Zertifikatsgebühr, bereits im Kurs eingepreist</span>
                     </span>
                 </div>
@@ -6307,7 +6535,7 @@ def render_dashboard():
     # ein gemeinsamer Container, da ohnehin nur eine Ansicht gezeichnet wird.
     _ansicht_container = st.container()
     tab_wealth = tab_ytd = tab_2021 = tab_candle = _ansicht_container
-    tab_forecast = tab_scenarios = tab_trades = _ansicht_container
+    tab_forecast = tab_scenarios = _ansicht_container
 
     # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
     # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
@@ -6315,29 +6543,31 @@ def render_dashboard():
     def _render_wealth():
         try:
             with tab_wealth:
+                if not is_live_history:
+                    st.warning("⚠️ ls-tc.de liefert gerade keine Kurshistorie – der Vermögensverlauf "
+                               "kann nicht gezeichnet werden. Bitte später mit 🔄 erneut laden.")
+                    return
                 # Auswahl still aus dem gespeicherten Zustand lesen (Standard: alle an) -
                 # der sichtbare Auswahl-Bereich selbst steht weiter unten, direkt vor dem Chart.
                 ausgewaehlte_benchmarks = lese_pills_auswahl_still(benchmark_series.keys(), key="benchmark_pills")
 
                 performance_liste_haupt = []
-                brutto_reihe = df_chart["Depotwert_Brutto"]
-                # WICHTIG: gegen das eingesetzte Kapital rechnen, NICHT gegen
-                # brutto_reihe.iloc[0]. Der erste Wert der Reihe ist der erste
-                # verfuegbare Schlusskurs der Historie - der kann vom tatsaechlichen
-                # Kaufkurs abweichen (Historie reicht weiter zurueck oder beginnt
-                # spaeter). Sonst weicht diese Zeile von der "seit Kauf"-Zeile in
-                # der Depotwert-Kachel ab, obwohl beide dasselbe messen sollen.
-                if not brutto_reihe.empty and startkapital_aktiv > 0:
-                    gesamt, monatlich, jaehrlich, diff_euro = berechne_performance_kennzahlen(
-                        startkapital_aktiv, brutto_reihe.iloc[-1], kaufdatum_aktiv, heute_date
+                kurs_reihe = df_chart["Close"]
+                # Eigene Zeile = dieselben Zahlen wie die Depotkachel (Audit A-08/A-09/A-12):
+                # Gesamt/Ø gegen den Einstand inkl. Sparraten, Ergebnis inkl. ausgezahlter
+                # Entnahmen. Die Zeitraum-Spalten zeigen - wie bei den Vergleichswerten - die
+                # Kursentwicklung (Ein-/Auszahlungen wuerden sie sonst verzerren).
+                if not kurs_reihe.empty and einstand_aktiv > 0:
+                    gesamt, monatlich, jaehrlich, _ = berechne_performance_kennzahlen(
+                        einstand_aktiv, depotwert_real_ist + ausgezahlt_ist, kaufdatum_aktiv, heute_date
                     )
                     performance_liste_haupt.append({
                         "Wert": f"Hauptindizes Global ({config.WKN})",
-                        "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
-                        "_q": pct_ueber_tage(brutto_reihe, 91),
-                        "_h": pct_ueber_tage(brutto_reihe, 182),
-                        "_n": pct_ueber_tage(brutto_reihe, 273),
-                        "_z": pct_ueber_tage(brutto_reihe, 365),
+                        "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": gewinn_real,
+                        "_q": pct_ueber_tage(kurs_reihe, 91),
+                        "_h": pct_ueber_tage(kurs_reihe, 182),
+                        "_n": pct_ueber_tage(kurs_reihe, 273),
+                        "_z": pct_ueber_tage(kurs_reihe, 365),
                         "_gelistet_seit": kaufdatum_aktiv,
                     })
                 for label, s in benchmark_series.items():
@@ -6368,11 +6598,11 @@ def render_dashboard():
                     st.caption(
                         f"📅 Eigene Position berechnet ab {kaufdatum_aktiv.strftime('%d.%m.%Y')} "
                         f"(Kaufdatum, gegen eingesetztes Kapital){_start_hinweis}"
-                        + (f" · Tabelle und Chart: nur Anfangsbestand ({fmt(startkapital_aktiv, 0)}), "
-                           f"ohne Sparplan-Anteile – die Kachel „seit Kauf“ rechnet sie mit ein "
-                           f"(Einstand {fmt(einstand_aktiv, 0)})" if sparplan_eingezahlt > 0 else "")
+                        + (f" · inkl. Sparraten (Einstand {fmt(einstand_aktiv, 0)})" if sparplan_eingezahlt > 0 else "")
+                        + (f" · inkl. ausgezahlter Entnahmen ({fmt(ausgezahlt_ist, 0)})" if ausgezahlt_ist > 0 else "")
+                        + " · 3–12 Mon.: Kursentwicklung"
                         + " · Ø/Jahr erst ab 1 Jahr Laufzeit, Ø/Mon. ab 30 Tagen (sonst „–“)"
-                        + ("" if is_live_history else " · ⚠️ SYNTHETISCHE Ersatzdaten, keine echten Kurse")
+                       
                     )
                     performance_liste_haupt.sort(key=perf_sortierwert, reverse=True)   # DEP-08: ohne Ø/Jahr nach Gesamt
                     _fokus = kennzahl_umschalter("fokus_haupt", performance_liste_haupt)
@@ -6384,22 +6614,21 @@ def render_dashboard():
 
                 with st.expander("ℹ️ Erklärung & Vergleichswerte auswählen", expanded=False):
                     st.caption(
-                        "„Netto (Simulation)“ zieht die Entnahme nur buchhalterisch vom Depotwert ab. "
-                        f"„Real“ verkauft monatlich tatsächlich Anteile zum dann gültigen Geldkurs "
-                        f"(inkl. {config.SPREAD_PCT:.2f}% Spread-Annahme) — realistischer, falls du die "
-                        f"{fmt(entnahme_rate, 2)}/Monat (Einstellung „Monatliche Entnahme“) wirklich "
-                        "entnimmst. Die gestrichelten Vergleichslinien zeigen, wie sich "
+                        "„Depotwert“ ist der reale Wert nach den monatlichen Entnahmen: je Termin werden "
+                        f"Anteile für {fmt(entnahme_rate, 2)} zum Geldkurs verkauft (Spread-Annahme "
+                        f"{_de_zahl(config.SPREAD_PCT, 2)} %), Sparplan-Käufe ab ihrem Kauftag. "
+                        "„Eingezahlt“ = Startkapital plus Sparraten. Die Vergleichslinien zeigen, wie sich "
                         f"{fmt(startkapital_aktiv, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
                         "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
                     )
-                    zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
+                    zeige_chart_legende_liste([("Eingezahlt", "⚪"), (f"Depotwert Hauptindizes Global ({config.WKN})", "🟢")])
                     pills_auswahl(benchmark_series.keys(), key="benchmark_pills")
 
                 fig_wealth = go.Figure()
-                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
-                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert" + ("" if is_live_history else " – SYNTHETISCH"), line=dict(color="#00C853", width=2.5)))
+                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Eingezahlt"], name="Eingezahlt", line=dict(color="#71717A", width=1.5, dash="dash")))
+                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Real"], name="Depotwert", line=dict(color="#00C853", width=2.5)))
 
-                legende_eintraege = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
+                legende_eintraege = [("Eingezahlt", "#71717A"), (f"Depotwert Hauptindizes Global ({config.WKN})", "#00C853")]
                 for label, s in benchmark_series.items():
                     if label not in ausgewaehlte_benchmarks:
                         continue
@@ -6414,7 +6643,8 @@ def render_dashboard():
                     paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
                     showlegend=False,
                     xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
-                    yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"), dtick=2000),
+                    yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"),
+                               ticksuffix=" €"),
                     hovermode="x unified",
                 )
                 st.plotly_chart(fig_wealth, width="stretch", key="chart_wealth")
@@ -6443,8 +6673,9 @@ def render_dashboard():
         try:
             with tab_ytd:
                 if not is_live_history:
-                    st.warning("⚠️ SYNTHETISCHE Ersatzdaten – ls-tc.de liefert gerade keine echte Kurshistorie. "
-                               "Linie/Kennzahlen des Zertifikats sind NICHT echt.")
+                    st.warning("⚠️ ls-tc.de liefert gerade keine Kurshistorie – die Linie des Zertifikats "
+                               "fehlt. Bitte später mit 🔄 erneut laden.")
+                    return
                 v2_start = pd.Timestamp(config.VERGLEICH2_START_DATUM)
                 v2_kapital = config.VERGLEICH2_STARTKAPITAL
 
@@ -6568,13 +6799,13 @@ def render_dashboard():
                 # NICHT auf den (ggf. kuerzeren) Zeitraum des Zertifikats
                 # zugeschnitten - sie laufen ueber den vollen 2021-Zeitraum,
                 # nur die Zertifikat-Linie beginnt ggf. spaeter (echte Luecke).
-                df_chart_v3, _v3_quelle = get_historical_market_data(config.VERGLEICH3_START_DATUM, heute_date, aktueller_kurs)
-                v3_echt = "SYNTHETISCH" not in _v3_quelle          # Audit DEP-04: Ersatzreihe kennzeichnen
+                df_chart_v3, _v3_quelle = get_historical_market_data(config.VERGLEICH3_START_DATUM, heute_date)
+                v3_echt = _v3_quelle != KEINE_HISTORIE              # Audit A-06: keine Ersatzreihen
                 if v3_echt and is_live_data:                        # DEP-10: gleicher letzter Tag wie Vergleichswerte
-                    df_chart_v3 = haenge_live_punkt_an(df_chart_v3, heute_date, aktueller_kurs)
+                    df_chart_v3 = haenge_live_punkt_an(df_chart_v3, kurs_tag, aktueller_kurs)
                 if not v3_echt:
-                    st.warning("⚠️ SYNTHETISCHE Ersatzdaten – ls-tc.de liefert gerade keine echte Kurshistorie. "
-                               "Linie/Kennzahlen des Zertifikats sind NICHT echt.")
+                    st.warning("⚠️ ls-tc.de liefert gerade keine Kurshistorie – die Linie des Zertifikats "
+                               "fehlt. Bitte später mit 🔄 erneut laden.")
                 roh_eigen_v3 = df_chart_v3["Close"] if not df_chart_v3.empty else pd.Series(dtype=float)
 
                 tatsaechlicher_start_v3 = roh_eigen_v3.index.min() if not roh_eigen_v3.empty else None
@@ -6602,7 +6833,7 @@ def render_dashboard():
                 ))
                 fig_v3.add_trace(go.Scatter(
                     x=eigene_reihe_v3.index, y=eigene_reihe_v3,
-                    name=f"Hauptindizes Global ({config.WKN})" + ("" if v3_echt else " – SYNTHETISCH"),
+                    name=f"Hauptindizes Global ({config.WKN})",
                     line=dict(color="#00C853", width=2.5),
                 ))
                 benchmark_colors_v3 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
@@ -6631,7 +6862,7 @@ def render_dashboard():
                         roh_eigen_v3.iloc[0], roh_eigen_v3.iloc[-1], start_datum_eigen_v3, heute_date
                     )
                     performance_liste_v3.append({
-                        "Wert": f"Hauptindizes Global{'' if v3_echt else ' ⚠️ SYNTHETISCH'} ({config.WKN})",
+                        "Wert": f"Hauptindizes Global ({config.WKN})",
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                         "_q": pct_ueber_tage(roh_eigen_v3, 91),
                         "_h": pct_ueber_tage(roh_eigen_v3, 182),
@@ -6696,97 +6927,6 @@ def render_dashboard():
     # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
     # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
     # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
-    def _render_trades():
-        try:
-            # Admin: gemeinsame Chronik (auch Workflow-Alarme, Anmeldungen);
-            # normale Benutzer: eigene Chronik (eigene Notizen und Depot-Ereignisse)
-            _chronik_pfad = upfad(config.STATE_PATH_TRADES_DB)
-
-            def load_db():
-                return gh_read(_chronik_pfad, [])
-
-            def notiz_speichern(eintrag):
-                """Lesen-Aendern-Schreiben mit Versionspruefung (keine verlorenen
-                Auto-Eintraege der Workflows, nie nach einem Lesefehler). -> True/False"""
-                ok, _ = gh_aktualisiere(
-                    _chronik_pfad,
-                    lambda d: chronik.anhaengen(d if isinstance(d, list) else [], eintrag)[0],
-                    default=[], message="update chronik [skip ci]")
-                return ok
-
-            db_events = [x for x in (load_db() or []) if isinstance(x, dict)]
-
-            with tab_trades:
-                if eigen:
-                    st.caption("Deine persönliche Chronik: wird automatisch mit Änderungen an deinen "
-                               "Depot-Positionen, beobachteten Werten, Sparplan und Entnahme gefüllt. "
-                               "Eigene Notizen sind jederzeit möglich.")
-                else:
-                    st.caption("Wird automatisch gefüllt: Kurs-Alarme, Entwarnungen und neue Allzeithochs aus dem "
-                               "Discord-Workflow, Änderungen an Depot-Positionen und beobachteten Werten, Sparplan "
-                               "Start/Stopp, Musterdepots und gespeicherte Planungen. Eigene Notizen sind weiter möglich.")
-                anzahl = {}
-                for ev in db_events:
-                    k_ = chronik.kategorie_von(ev)
-                    anzahl[k_] = anzahl.get(k_, 0) + 1
-                optionen = ["alle"] + [k_ for k_ in chronik.KATEGORIEN if anzahl.get(k_)]
-                beschr = {"alle": f"Alle ({len(db_events)})"}
-                beschr.update({k_: f"{v_[0]} {v_[1]} ({anzahl.get(k_, 0)})" for k_, v_ in chronik.KATEGORIEN.items()})
-                try:
-                    wahl = st.pills("Filter", optionen, default="alle", format_func=beschr.get,
-                                    key="chronik_filter", label_visibility="collapsed") or "alle"
-                except Exception:
-                    wahl = st.selectbox("Filter", optionen, format_func=beschr.get, key="chronik_filter_sb")
-                gezeigt = [ev for ev in db_events if wahl == "alle" or chronik.kategorie_von(ev) == wahl]
-                farben = {"alarm": "#EA3943", "depot": "#29B6F6", "beobachtung": "#A78BFA", "planer": "#F5B942",
-                          "notiz": "#71717A"}
-                if not gezeigt:
-                    st.info("Noch keine Einträge – sie entstehen ab jetzt automatisch.")
-                letzter_tag = None
-                for ev in gezeigt[:200]:
-                    k_ = chronik.kategorie_von(ev)
-                    tag = ev.get("datum", "")
-                    if tag != letzter_tag:
-                        try:
-                            tag_txt = datetime.date.fromisoformat(tag).strftime("%d.%m.%Y")
-                        except Exception:
-                            tag_txt = tag
-                        st.markdown(f'<div style="margin:14px 0 6px;font-size:.8rem;font-weight:700;'
-                                    f'color:#A1A1AA;letter-spacing:.06em">{html.escape(tag_txt)}</div>',
-                                    unsafe_allow_html=True)
-                        letzter_tag = tag
-                    kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
-                    st.markdown(f"""
-                        <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
-                            <div style="font-size: 0.72rem; color: #71717A;">{html.escape(kopf)}</div>
-                            <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
-                            <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-                if len(gezeigt) > 200:
-                    st.caption(f"Die neuesten 200 von {len(gezeigt)} Einträgen.")
-
-                with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
-                    with st.form("trade_form", clear_on_submit=True):
-                        col1, col2 = st.columns([2, 3])
-                        with col1: ed = st.date_input("Datum", heute_date)
-                        with col2: eti = st.text_input("Titel")
-                        ei = st.text_area("Details")
-                        if st.form_submit_button("Speichern") and eti:
-                            eintrag = chronik.neuer_eintrag("notiz", eti, ei, typ="Notiz", quelle="manuell")
-                            eintrag["datum"] = ed.strftime("%Y-%m-%d")
-                            if notiz_speichern(eintrag):
-                                st.rerun()
-                            else:
-                                st.error("Notiz NICHT gespeichert (kein persistenter State oder Lesefehler).")
-
-        except Exception as e:
-            st.error(f"⚠️ Fehler in diesem Tab: {e}")
-            notify_app_error("Tab-Trader-Log", e)
-    if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
-        melde("ansicht", 0.3, "Lade Chronik …")
-        _render_trades()
-        lade_fertig()
 
     # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
     # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
@@ -6795,8 +6935,9 @@ def render_dashboard():
         try:
             with tab_candle:
                 if not is_live_history:
-                    st.warning("⚠️ SYNTHETISCHE Ersatzdaten – ls-tc.de liefert gerade keine echte Kurshistorie. "
-                               "Linie/Kennzahlen des Zertifikats sind NICHT echt.")
+                    st.warning("⚠️ ls-tc.de liefert gerade keine Kurshistorie – die Linie des Zertifikats "
+                               "fehlt. Bitte später mit 🔄 erneut laden.")
+                    return
                 fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
                 fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False)
                 st.plotly_chart(fig_c, width="stretch", key="chart_candlestick")
@@ -6860,8 +7001,9 @@ def render_dashboard():
             opt_entnommen = float(opt.get("entnommen_bisher") or 0.0)  # bisher seit Kauf
             # Audit DEP-01: Gewinn gegen den Einstand (Startkapital + eingezahlte Sparraten)
             opt_einstand = float(opt.get("einstand", opt_startkapital))
-            opt_gewinn = opt_aktueller_wert - opt_einstand
-            opt_netto = opt_aktueller_wert - opt_entnommen
+            # Audit A-12: aktueller_wert ist der Wert NACH den echten Entnahmen; das bereits
+            # ausgezahlte Geld gehoert zum Ergebnis.
+            opt_gewinn = opt_aktueller_wert + opt_entnommen - opt_einstand
 
             _default_key = f"prognose_rate_{opt['name']}"
             opt_cagr_pa = st.number_input(
@@ -6901,30 +7043,31 @@ def render_dashboard():
                 st.caption(sparrate_hinweis.strip())
 
             forecast_data = [
-                {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Gesamter Gewinn": fmt_vz(0.0), "Netto Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": fmt(0.0, 2)},
-                {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Gesamter Gewinn": fmt_vz(opt_gewinn), "Netto Depotwert": fmt(opt_netto, 2), "Kumulierte Entnahme": fmt(opt_entnommen, 2)}
+                {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Gesamter Gewinn": fmt_vz(0.0), "Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": fmt(0.0, 2)},
+                {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Gesamter Gewinn": fmt_vz(opt_gewinn), "Depotwert": fmt(opt_aktueller_wert, 2), "Kumulierte Entnahme": fmt(opt_entnommen, 2)}
             ]
 
-            # Fortschreibung: jede kuenftige Sparrate erhoeht den Einstand (DEP-01), jede
-            # Entnahme die kumulierte Entnahme (DEP-03); Vorzeichen abhaengig vom Wert (DEP-13).
-            sim_b_prog, sim_n_prog, sim_e_prog = opt_aktueller_wert, opt_netto, opt_entnommen
+            # Fortschreibung mit ECHTEN Entnahmen (Audit A-12): jede Entnahme verlaesst das Depot
+            # und verzinst sich nicht weiter; Sparraten erhoehen den Einstand (DEP-01).
+            # Gesamter Gewinn = Depotwert + alles bisher Ausgezahlte - Einstand.
+            sim_w_prog, sim_e_prog = opt_aktueller_wert, opt_entnommen
             sim_einstand = opt_einstand
             milestone_added = opt_aktueller_wert >= 100000.0
 
             for m_idx in range(1, 121):
-                sim_b_prog = (sim_b_prog * (1 + opt_zins_mo)) + opt_sparrate
+                _entn = min(opt_entnahme, max(sim_w_prog * (1 + opt_zins_mo) + opt_sparrate, 0.0))
+                sim_w_prog = max(sim_w_prog * (1 + opt_zins_mo) + opt_sparrate - _entn, 0.0)
                 sim_einstand += opt_sparrate
-                sim_e_prog += opt_entnahme
-                sim_n_prog = sim_b_prog - sim_e_prog
+                sim_e_prog += _entn
     
                 current_date = now_berlin.replace(tzinfo=None) + pd.DateOffset(months=m_idx)
     
-                if not milestone_added and sim_b_prog >= 100000.0:
+                if not milestone_added and sim_w_prog >= 100000.0:
                     forecast_data.append({
                         "Jahr": "100k",
                         "Datum": current_date.strftime("%d.%m.%Y"),
-                        "Gesamter Gewinn": fmt_vz(sim_b_prog - sim_einstand),
-                        "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+                        "Gesamter Gewinn": fmt_vz(sim_w_prog + sim_e_prog - sim_einstand),
+                        "Depotwert": fmt(sim_w_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                     })
                     milestone_added = True
 
@@ -6932,20 +7075,16 @@ def render_dashboard():
                     forecast_data.append({
                         "Jahr": f"Jahr +{m_idx // 12}",
                         "Datum": current_date.strftime("%d.%m.%Y"),
-                        "Gesamter Gewinn": fmt_vz(sim_b_prog - sim_einstand),
-                        "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+                        "Gesamter Gewinn": fmt_vz(sim_w_prog + sim_e_prog - sim_einstand),
+                        "Depotwert": fmt(sim_w_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                     })
         
             df_forecast = pd.DataFrame(forecast_data)
 
-            # Spalten, die nur Nullen enthalten, gar nicht erst zeigen -
-            # ohne Entnahme sind "Netto Depotwert" und "Kumulierte
-            # Entnahme" identisch zum Bruttowert bzw. durchgehend 0 und
-            # kosten auf dem Smartphone nur seitliche Scrollbreite.
+            # Ohne Entnahme ist "Kumulierte Entnahme" durchgehend 0 und kostet
+            # auf dem Smartphone nur seitliche Scrollbreite.
             if not opt_entnahme and not opt_entnommen:
-                df_forecast = df_forecast.drop(
-                    columns=["Netto Depotwert", "Kumulierte Entnahme"], errors="ignore"
-                )
+                df_forecast = df_forecast.drop(columns=["Kumulierte Entnahme"], errors="ignore")
 
             # Hoehe an die tatsaechliche Zeilenzahl anpassen: st.dataframe
             # begrenzt sonst auf ~10 Zeilen und scrollt INNERHALB der
@@ -7111,10 +7250,10 @@ def render_dashboard():
             # aenderbar. Zusaetzlich erscheint die historische Rate dieses
             # Werts als eigenes, hervorgehobenes Szenario.
             # "Standard" = das urspruengliche Verhalten: feste 10.000 €,
-            # nur die 19 Standard-Raten (1,0-10,0 % p.M.), ohne Bezug zu
+            # nur die 7 Standard-Raten (-10 bis +30 % p.a.), ohne Bezug zu
             # einem bestimmten Wert und ohne historisches ⭐-Szenario.
             # Steht bewusst an erster Stelle und ist damit die Vorauswahl.
-            STANDARD = "📐 Standard (1,0–10,0 % p.M., 10.000 €)"
+            STANDARD = "📐 Standard (−10 bis +30 % p.a., 10.000 €)"
             _basis_namen = [STANDARD] + [o["name"] for o in prognose_optionen]
             basis_name = st.selectbox(
                 "Wert auswählen:", _basis_namen, key="szenario_basis_wahl",
@@ -7168,7 +7307,8 @@ def render_dashboard():
             entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
             netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
 
-            # STANDARD: die 19 festen Raten (1,0-10,0 % p.M.) wie gehabt.
+            # STANDARD (Audit A-15): sieben Jahresraten inkl. Verlust- und Nullszenario statt
+            # 19 Raten von 12,7-213,8 % p.a. - die Bandbreite soll realistische Verlaeufe zeigen.
             # HINTERLEGTER WERT: nur EIN Szenario - die Rate dieses Werts.
             # Vorher liefen dort zusaetzlich alle 19 Standardraten mit, und
             # die eigentlich relevante Rate ging in der Liste unter. Die Rate
@@ -7176,8 +7316,8 @@ def render_dashboard():
             # damit sich auch konservativere Annahmen durchrechnen lassen.
             eigene_rate_mo = None
             if basis is None:
-                szenario_raten_mo = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0,
-                                     5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+                szenario_raten_mo = [((1 + pa / 100.0) ** (1 / 12) - 1) * 100.0
+                                     for pa in (-10.0, 0.0, 5.0, 10.0, 15.0, 20.0, 30.0)]
             else:
                 # NEUEINSTIEG HEUTE: Die Rate kommt aus der Kurshistorie des
                 # PRODUKTS, nicht aus dem eigenen Kauf. Der bisherige Wert
@@ -7306,7 +7446,7 @@ def render_dashboard():
                     cap_5y = (cap_5y * (1 + r_mo)) + netto_cashflow_szenario
                     monthly_vals.append(max(0, cap_5y))
         
-                _serien_name = f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"
+                _serien_name = f"{_de_zahl(r_pa_pct, 1)} % p.a. ({_de_zahl(r_mo_pct, 2)} % p.M.)"
                 if ist_eigene_rate:
                     _serien_name = f"⭐ {_h(basis_name)}: {_serien_name}"   # Plotly deutet Teile von HTML
                 scenario_series[_serien_name] = monthly_vals
@@ -7353,7 +7493,7 @@ def render_dashboard():
                     f'<div style="background: #09090B; border: {_rahmen}; border-radius: 6px; padding: 12px 14px;">'
                     f'{_marke}'
                     f'<div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">'
-                    f'{e["rate"]:.1f}% p.M. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({e["rate_pa"]:.2f}% p.a.)</span>'
+                    f'{_de_zahl(e["rate_pa"], 1)} % p.a. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({_de_zahl(e["rate"], 2)} % p.M.)</span>'
                     f'</div>'
                     f'<div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
                     f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e["ziel_datum"]}</div>'
@@ -7457,7 +7597,7 @@ def render_dashboard():
                 _akt_kd = kaufdatum_aktiv.strftime("%d.%m.%Y")
                 st.write(f"- Kaufdatum aktiv: **{_akt_kd}**" + (f" (config.py: {_cfg_kd})" if _akt_kd != _cfg_kd else " (= config.py)"))
                 st.write(f"- Kaufkurs aktiv: **{kaufkurs_aktiv:.4f} €** "
-                         f"({'automatisch aus Historie' if kaufkurs_auto and kaufkurs_ermittelt else 'manuell/Fallback'}"
+                         f"({'config.py' if haupt_abweichend or not alle_positionen else 'gespeicherte Hauptposition'}"
                          f", config.py: {config.ANFANGSKURS:.4f} €)")
                 st.write(f"- Stückzahl: **{stueckzahl_aktiv:.4f}** ({fmt(startkapital_aktiv, 2)} ÷ {kaufkurs_aktiv:.4f} €)")
                 if not df_chart.empty:
@@ -7594,7 +7734,9 @@ except Exception:
 
 # Audit SEC-03: login.gate ist fail-closed (ohne [login]-Konfiguration nur Fehlerseite) und
 # schreibt Benutzerdaten per Versionspruefung ueber gh_aktualisiere.
+st.session_state["_speicher_fehler"] = False
 st.session_state["_nutzer"] = login.gate(st, gh_read, gh_read_cached, gh_write, chronik_eintrag_global,
-                                         gh_aktualisiere=gh_aktualisiere)
+                                         gh_aktualisiere=gh_aktualisiere,
+                                         speicher_fehler=lambda: st.session_state.get("_speicher_fehler"))
 
 render_dashboard()
