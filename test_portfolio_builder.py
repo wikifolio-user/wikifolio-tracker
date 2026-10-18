@@ -241,6 +241,79 @@ class Rangliste(unittest.TestCase):
         self.assertEqual(neu[2]["art"], "wikifolio")
 
 
+class Zielvermoegen(unittest.TestCase):
+    def _e(self, **kw):
+        e = eingaben(anfangskapital=100000, rendite_pa=6, zielvermoegen=200000, positionen=[
+            {"name": "A", "kurs": 100, "gewicht": 30, "rendite": 10},
+            {"name": "B", "kurs": 10, "gewicht": 30, "rendite": 2},
+            {"name": "C", "kurs": 1, "gewicht": 40}])                       # ohne eigene -> allgemeine 6 %
+        e.update(kw)
+        return e
+
+    def test_portfolio_rendite_gewichtet(self):
+        self.assertAlmostEqual(P.portfolio_rendite(P.bereinigen(self._e())), 0.3 * 10 + 0.3 * 2 + 0.4 * 6)
+        # Cash-Rest (nur 60 % verteilt) laeuft mit der allgemeinen Rendite
+        e = P.bereinigen(self._e(positionen=[{"name": "A", "kurs": 100, "gewicht": 60, "rendite": 10}]))
+        self.assertAlmostEqual(P.portfolio_rendite(e), 0.6 * 10 + 0.4 * 6)
+
+    def test_ohne_eigene_renditen_wie_bisher(self):
+        e = eingaben(anfangskapital=10000, rendite_pa=6)
+        self.assertAlmostEqual(P.simulation(e)["endwert"], 10000 * 1.06 ** 10, places=6)
+
+    def test_benoetigte_rendite_geschlossen(self):
+        b = P.benoetigte_rendite(self._e())
+        self.assertTrue(b["erreichbar"])
+        self.assertAlmostEqual(b["rendite"], (2 ** 0.1 - 1) * 100, places=5)      # 100k -> 200k in 10 J.
+        self.assertIsNone(P.benoetigte_rendite(self._e(zielvermoegen=0)))
+
+    def test_benoetigte_rendite_mit_sparrate_und_kredit(self):
+        e = self._e(einzahlung=500, kredit_summe=50000, kredit_zins_pa=4,
+                    kredit_rate=P.rate_fuer_tilgung(50000, 4, 120), zielvermoegen=300000)
+        b = P.benoetigte_rendite(e)
+        self.assertAlmostEqual(P.simulation(e, rendite_pa=b["rendite"])["netto_endvermoegen"], 300000, delta=1)
+
+    def test_ziel_gewichte_treffen_ziel(self):
+        z = P.ziel_gewichte(self._e())
+        self.assertEqual(z["status"], "ok")
+        self.assertAlmostEqual(sum(p["gewicht"] for p in z["positionen"]), 100.0, places=9)
+        self.assertAlmostEqual(z["erreicht"], z["benoetigt"], places=6)
+        # B (2 %) und C (6 %) bleiben im Verhaeltnis 30:40, A (10 %) traegt den Rest
+        g = {p["name"]: p["gewicht"] for p in z["positionen"]}
+        self.assertAlmostEqual(g["B"] / g["C"], 30 / 40, places=9)
+        e = self._e(positionen=z["positionen"])
+        self.assertAlmostEqual(P.simulation(e)["netto_endvermoegen"], 200000, delta=1)
+
+    def test_ziel_gewichte_stabil(self):
+        z1 = P.ziel_gewichte(self._e())
+        z2 = P.ziel_gewichte(self._e(positionen=z1["positionen"]))
+        for a, b in zip(z1["positionen"], z2["positionen"]):
+            self.assertAlmostEqual(a["gewicht"], b["gewicht"], places=6)
+
+    def test_rendite_aus_katalog_und_tabelle(self):
+        pos, _ = P.position_hinzufuegen([], "X", 10, 50, rendite=7.456)
+        self.assertEqual(pos[0]["rendite"], 7.46)
+        self.assertAlmostEqual(P.katalog_rendite({"5J": 61.051}), 10.0, places=6)
+        self.assertAlmostEqual(P.katalog_rendite({"3J": 33.1}), 10.0, places=6)
+        self.assertIsNone(P.katalog_rendite({"1J": 5}))
+        neu, _, _ = P.mehrere_hinzufuegen([], [{"name": "W", "art": "etf", "5J": 61.051, "kurs": 5}])
+        self.assertAlmostEqual(neu[0]["rendite"], 10.0)
+        neu = P.aenderungen_anwenden(pos, 1000, geaendert={0: {"rendite": None}})
+        self.assertNotIn("rendite", neu[0])
+        neu = P.aenderungen_anwenden(pos, 1000, geaendert={0: {"rendite": 4}})
+        self.assertEqual(neu[0]["rendite"], 4.0)
+
+    def test_ziel_zu_hoch_und_uebertroffen(self):
+        z = P.ziel_gewichte(self._e(zielvermoegen=400000))          # braucht ~14,9 % > 10 %
+        self.assertEqual(z["status"], "zu_hoch")
+        self.assertLess(z["erreicht"], z["benoetigt"])
+        g = {p["name"]: p["gewicht"] for p in z["positionen"]}
+        self.assertAlmostEqual(g["A"], 100.0)                       # alles in den staerksten Wert der Gruppe
+        z = P.ziel_gewichte(self._e(zielvermoegen=110000))          # braucht ~1 % < 2 %
+        self.assertEqual(z["status"], "uebertroffen")
+        g = {p["name"]: p["gewicht"] for p in z["positionen"]}
+        self.assertAlmostEqual(g["B"], 100.0)                       # am naechsten am Ziel: niedrigste Rendite
+
+
 class Bereinigen(unittest.TestCase):
     def test_grenzen(self):
         e = P.bereinigen({"anfangskapital": -5, "laufzeit": 0, "laufzeit_einheit": "x", "rendite_pa": "abc",

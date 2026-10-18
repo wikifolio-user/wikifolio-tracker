@@ -20,10 +20,11 @@ except Exception:        # pragma: no cover - ohne nutzerdaten.py: gemeinsamer P
 
 PFAD = "state/portfolio_builder.json"
 FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa", "kredit_rate",
-          "einzahlung", "entnahme", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke")
+          "einzahlung", "entnahme", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke",
+          "zielvermoegen", "auto_ziel")
 # Tabellenspalten <-> Felder des Rechenkerns
-SPALTEN = {"Name": "name", "Art": "art", "Kurs €": "kurs", "Gewicht %": "gewicht", "Betrag €": "betrag",
-           "Stück": "stueck",
+SPALTEN = {"Name": "name", "Art": "art", "Rendite % p. a.": "rendite", "Kurs €": "kurs", "Gewicht %": "gewicht",
+           "Betrag €": "betrag", "Stück": "stueck",
            "Wert €": "wert"}
 FARBEN = ["#16C784", "#4C9AFF", "#F5B942", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C", "#94A3B8",
           "#84CC16", "#E879F9"]
@@ -71,6 +72,8 @@ CSS = """
   [class*="st-key-pb_reihe"] [data-testid="stColumn"] { flex:0 1 calc(50% - .3rem) !important;
       min-width:calc(50% - .3rem) !important; width:calc(50% - .3rem) !important; }
   .st-key-pb_reihe_add [data-testid="stColumn"]:first-child { flex:1 1 100% !important; min-width:100% !important;
+      width:100% !important; }
+  .st-key-pb_reihe3 [data-testid="stColumn"]:nth-child(3) { flex:1 1 100% !important; min-width:100% !important;
       width:100% !important; }
   /* Plus/Minus bei Eurobetraegen auf dem Handy aus - sie nehmen dem Betrag den Platz */
   [class*="st-key-pb_reihe"] [data-testid="stNumberInputStepDown"],
@@ -330,7 +333,9 @@ def _kpis(r):
          "Einzahlung − Entnahme − Kosten − Rate", "gut" if r["cashflow_monat"] > 1e-9 else
          ("schlecht" if r["cashflow_monat"] < -1e-9 else "")),
         (f"Endwert nach {lz}", eur(r["endwert"]),
-         f"netto {eur(netto)}" if r["restschuld"] > 0.005 or e["kredit_summe"] > 0 else "Simulation",
+         (f"Ziel {eur(e['zielvermoegen'])} {'✓' if netto >= e['zielvermoegen'] - 1 else '✗'}"
+          if e["zielvermoegen"] > 0 else
+          f"netto {eur(netto)}" if r["restschuld"] > 0.005 or e["kredit_summe"] > 0 else "Simulation"),
          "gut" if netto >= r["eigenkapital"] else "schlecht"),
     ]
     st.markdown('<div class="pb-kpis">' + "".join(
@@ -339,37 +344,79 @@ def _kpis(r):
 
 
 def _eingaben():
+    """Eingabefelder in festen Reihen; vertical_alignment="bottom" haelt die Felder auf einer Linie,
+    auch wenn ein Label umbricht (Handy: 2 je Reihe)."""
     with st.container(border=True):
         st.markdown('<div class="pb-karte-t">Kapital &amp; Finanzierung</div>', unsafe_allow_html=True)
         with st.container(key="pb_reihe1"):
-            c = st.columns(4)
-            c[0].number_input("Anfangskapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_anfangskapital")
-            c[1].number_input("Sonstiges Kapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_sonstiges_kapital",
+            c = st.columns(4, vertical_alignment="bottom")
+            c[0].number_input("Anfangskapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f",
+                              key="pb_anfangskapital")
+            c[1].number_input("Sonstiges Kapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f",
+                              key="pb_sonstiges_kapital",
                               help="Zusätzlich verfügbares Kapital, z. B. Bonus oder Erbe – wird mit angelegt.")
-            c[2].number_input("Erwartete Rendite % p. a.", -P.MAX_RENDITE, P.MAX_RENDITE, step=0.5, format="%.1f", key="pb_rendite_pa",
-                              help="Effektiver Jahreszins für das ganze Portfolio. Monatlich gerechnet mit "
-                                   "(1 + r)^(1/12) − 1.")
-            with c[3]:
-                einheit = st.session_state.get("pb_laufzeit_einheit") or "Jahre"
-                st.number_input(f"Laufzeit ({einheit})", 1, P.MAX_MONATE if einheit == "Monate" else P.MAX_MONATE // 12, step=1,
-                                key="pb_laufzeit")
+            c[2].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f",
+                              key="pb_einzahlung")
+            c[3].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme")
         with st.container(key="pb_reihe2"):
-            c = st.columns(4)
-            c[0].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_einzahlung")
-            c[1].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme")
-            c[2].number_input("Ausgaben €/Monat", 0.0, P.MAX_MONATLICH, step=10.0, format="%.0f", key="pb_ausgaben",
+            c = st.columns(4, vertical_alignment="bottom")
+            c[0].number_input("Ausgaben €/Monat", 0.0, P.MAX_MONATLICH, step=10.0, format="%.0f", key="pb_ausgaben",
                               help="Laufende Kosten und Gebühren (Depot, Sparplan, Beratung …).")
-            with c[3]:
-                st.segmented_control("Laufzeit in", ["Jahre", "Monate"], key="pb_laufzeit_einheit",
-                                     on_change=_einheit_wechseln)
+            c[1].number_input("Rendite % p. a.", -P.MAX_RENDITE, P.MAX_RENDITE, step=0.5, format="%.1f",
+                              key="pb_rendite_pa",
+                              help="Erwartete Rendite für Positionen ohne eigene Rendite und für nicht investiertes "
+                                   "Geld. Eigene Werte je Position in der Spalte „Rendite % p. a.“ der Aufteilung.")
+            einheit = st.session_state.get("pb_laufzeit_einheit") or "Jahre"
+            c[2].number_input(f"Laufzeit ({einheit})", 1, P.MAX_MONATE if einheit == "Monate" else P.MAX_MONATE // 12,
+                              step=1, key="pb_laufzeit")
+            c[3].segmented_control("Laufzeit in", ["Jahre", "Monate"], key="pb_laufzeit_einheit",
+                                   on_change=_einheit_wechseln)
         with st.container(key="pb_reihe3"):
-            c = st.columns(4)
+            c = st.columns([1, 1, 2], vertical_alignment="bottom")
+            c[0].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f",
+                              key="pb_zielvermoegen",
+                              help="Netto-Vermögen am Ende der Laufzeit (nach Abzug von Kreditschulden). 0 = kein Ziel.")
+            c[1].toggle("Automatisch aufs Ziel", key="pb_auto_ziel",
+                        help="Gewichte automatisch: verteilt die Prozente so, dass die Portfolio-Rendite genau die fürs Ziel nötige "
+                             "Rendite ergibt – Beträge und Stücke rechnen sich daraus.")
+            ziel_spalte = c[2]
+        with st.container(key="pb_reihe4"):
+            c = st.columns(4, vertical_alignment="bottom")
             c[0].number_input("Kredit €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_kredit_summe",
                               help="Wird mit angelegt und als Schuld wieder abgezogen – zählt also nicht doppelt.")
-            c[1].number_input("Kreditzins % p. a.", 0.0, P.MAX_KREDITZINS, step=0.1, format="%.2f", key="pb_kredit_zins_pa")
-            c[2].number_input("Kreditrate €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.2f", key="pb_kredit_rate",
-                              help="Zins + Tilgung. Wird aus dem monatlichen Cashflow bezahlt.")
-            return c[3]
+            c[1].number_input("Kreditzins % p. a.", 0.0, P.MAX_KREDITZINS, step=0.1, format="%.2f",
+                              key="pb_kredit_zins_pa")
+            c[2].number_input("Kreditrate €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.2f",
+                              key="pb_kredit_rate", help="Zins + Tilgung. Wird aus dem monatlichen Cashflow bezahlt.")
+            return c[3], ziel_spalte
+
+
+def _ziel_hinweis(spalte, r, z):
+    """Benoetigte Rendite und Ergebnis der automatischen Verteilung."""
+    e = r["eingaben"]
+    if e["zielvermoegen"] <= 0:
+        spalte.markdown('<div class="pb-hinweis">Ziel eintragen – dann rechnet die App die nötige Rendite und '
+                        'auf Wunsch die Verteilung.</div>', unsafe_allow_html=True)
+        return
+    b = P.benoetigte_rendite(e)
+    if not b:
+        return
+    txt = f"Nötig: {pct(b['rendite'], 2)} p. a." if b["erreichbar"] else f"Nötig: über {pct(P.MAX_RENDITE, 0)} p. a."
+    txt += f" · Portfolio: {pct(r['rendite_pa'], 2)} p. a."
+    ok = r["netto_endvermoegen"] >= e["zielvermoegen"] - 1
+    spalte.markdown(f'<div class="pb-hinweis" style="margin-bottom:6px"><span class="pb-status {"ok" if ok else "warn"}">'
+                    f'{"✓ Ziel erreicht" if ok else "Ziel verfehlt"}</span><br>{_esc(txt)}</div>',
+                    unsafe_allow_html=True)
+    if z and e["auto_ziel"]:
+        if z["status"] == "zu_hoch":
+            st.warning(f"Mit diesen Werten ist das Ziel nicht erreichbar: höchstens {pct(z['erreicht'], 2)} p. a. "
+                       f"(alles im renditestärksten Wert). Nötig wären {pct(z['benoetigt'], 2)} – Werte mit höherer "
+                       "Rendite hinzufügen, Laufzeit/Einzahlung erhöhen oder das Ziel senken.")
+        elif z["status"] == "uebertroffen":
+            st.info("Schon der Wert mit der niedrigsten Rendite übertrifft das Ziel – alles liegt in ihm. Für eine "
+                    "breitere Verteilung einen Wert mit niedrigerer Rendite (z. B. Tagesgeld) hinzufügen.")
+        elif z["status"] == "leer":
+            st.info("Für die automatische Verteilung erst Werte hinzufügen.")
 
 
 def _kredit_hinweis(spalte, r):
@@ -446,15 +493,16 @@ def _einzeln(h, e, art, ver):
             if treffer is not None:
                 name, wkn, isin = treffer.get("name"), treffer.get("wkn"), treffer.get("isin")
                 neu_art, iid = _art_aus(treffer.get("kategorie"), name), treffer.get("instrument_id")
-                kurs = _live_kurs(h, iid)
+                kurs, rendite = _live_kurs(h, iid), None
             else:
                 w = katalog[wahl]
                 name, wkn, isin, neu_art, kurs, iid = w["name"], w["wkn"], w["isin"], w["art"], w["kurs"], None
+                rendite = P.katalog_rendite(w)          # Vorschlag: bisherige Rendite p. a. (5 J., sonst 3 J.)
                 if not kurs:
                     t = _instrument(h, [wkn, isin])
                     iid = t and t.get("instrument_id")
                     kurs = _live_kurs(h, iid)
-            pos, ok = P.position_hinzufuegen(e["positionen"], name, kurs or 0.0, gewicht, neu_art, wkn=wkn,
+            pos, ok = P.position_hinzufuegen(e["positionen"], name, kurs or 0.0, gewicht, neu_art, rendite, wkn=wkn,
                                              isin=isin, instrument_id=iid)
             if not ok:
                 st.warning(f"„{name}“ ist schon im Portfolio.")
@@ -526,23 +574,31 @@ def _tabelle(h, r):
         ok = abs(summe - 100.0) < 0.05
         st.markdown('<div class="pb-karte-t">Portfolio-Aufteilung</div>', unsafe_allow_html=True)
         arten = [p.get("art", "sonstig") for p in e["positionen"]]
-        df = pd.DataFrame([{"Name": z["name"], "Art": P.ARTEN[a_], "Kurs €": z["kurs"],
+        renditen = [p.get("rendite") for p in e["positionen"]]
+        df = pd.DataFrame([{"Name": z["name"], "Art": P.ARTEN[a_], "Rendite % p. a.": rd, "Kurs €": z["kurs"],
                             "Gewicht %": round(z["gewicht"], 4),
                             "Betrag €": round(z["betrag"], 2), "Stück": round(z["stueck"], 4),
-                            "Wert €": round(z["wert"], 2)} for z, a_ in zip(pos["zeilen"], arten)],
+                            "Wert €": round(z["wert"], 2)} for z, a_, rd in zip(pos["zeilen"], arten, renditen)],
                           columns=list(SPALTEN))
         key = f"pb_tab_{st.session_state.get('pb_tab_ver', 0)}"
         # Handy: die Spalten zum Eintippen zuerst, "Wert" steht in der Positionstabelle darunter
-        reihenfolge = (["Name", "Gewicht %", "Betrag €", "Stück", "Kurs €", "Art"] if _smartphone()
-                       else list(SPALTEN))
+        reihenfolge = (["Name", "Gewicht %", "Betrag €", "Stück", "Rendite % p. a.", "Kurs €", "Art"]
+                       if _smartphone() else list(SPALTEN))
+        auto = e["auto_ziel"] and e["zielvermoegen"] > 0
         st.data_editor(
             df, key=key, num_rows="dynamic", hide_index=True, width="stretch", column_order=reihenfolge,
-            disabled=["Wert €"],
+            # automatische Verteilung: Prozente/Betrag/Stueck kommen aus dem Ziel, nicht von Hand
+            disabled=["Wert €"] + (["Gewicht %", "Betrag €", "Stück"] if auto else []),
             column_config={
                 "Name": st.column_config.TextColumn("Name", width=110 if _smartphone() else "medium",
                                                     required=True),
                 "Art": st.column_config.SelectboxColumn("Art", options=list(P.ARTEN.values()), width="small",
                                                         default=P.ARTEN["sonstig"]),
+                "Rendite % p. a.": st.column_config.NumberColumn(
+                    "Rendite % p. a.", min_value=-P.MAX_RENDITE, max_value=P.MAX_RENDITE, format="localized",
+                    step=0.1, width="small",
+                    help="Erwartete Rendite dieses Werts (Vorschlag aus der bisherigen 5-J.-Rendite). Leer = die "
+                         "allgemeine Rendite oben."),
                 "Kurs €": st.column_config.NumberColumn("Kurs €", min_value=0.0, format="localized", step=0.01,
                                                         width="small"),
                 "Gewicht %": st.column_config.NumberColumn("Gewicht %", min_value=0.0, max_value=100.0,
@@ -571,7 +627,8 @@ def _tabelle(h, r):
         c1, c2, c3 = st.columns([1, 1, 1], vertical_alignment="center")
         c1.toggle("Nur ganze Stücke", key="pb_nur_ganze_stuecke",
                   help="Stückzahlen abrunden; der Rest bleibt als Cash im Portfolio.")
-        c2.button("Auf 100 % verteilen", key="pb_100_btn", on_click=_auf_100, disabled=ok or not e["positionen"],
+        c2.button("Auf 100 % verteilen", key="pb_100_btn", on_click=_auf_100,
+                  disabled=ok or not e["positionen"] or auto,
                   width="stretch")
         mit_kennung = any(p.get("wkn") or p.get("isin") or p.get("instrument_id") for p in e["positionen"])
         if c3.button("🔄 Kurse aktualisieren", key="pb_kurse_btn", width="stretch", disabled=not mit_kennung,
@@ -586,7 +643,9 @@ def _tabelle(h, r):
             anzahl, fehlt = gemeldet
             st.toast(f"{anzahl} Kurs{'e' if anzahl != 1 else ''} aktualisiert"
                      + (f" · ohne Kurs: {', '.join(fehlt[:3])}" if fehlt else ""))
-        texte = ["Prozent, Betrag oder Stück ändern – die anderen Werte rechnen sich sofort mit."]
+        texte = (["🎯 Prozente, Beträge und Stücke werden aufs Zielvermögen berechnet – Rendite je Position "
+                  "oder das Ziel ändern."] if auto else
+                 ["Prozent, Betrag oder Stück ändern – die anderen Werte rechnen sich sofort mit."])
         if pos["cash"] > 0.005:
             texte.append(f"Nicht investiert (Cash): {eur(pos['cash'], 2)}.")
         if pos["kapital"] <= 0:
@@ -695,6 +754,7 @@ def _ergebnis(r):
         ("Monatlicher Netto-Cashflow", eur(r["cashflow_monat"], 2),
          "gut" if r["cashflow_monat"] > 1e-9 else ("schlecht" if r["cashflow_monat"] < -1e-9 else "")),
         ("Prognostizierter Endwert", eur(r["endwert"]), ""),
+        ("Portfolio-Rendite", pct(r["rendite_pa"], 2) + " p. a.", ""),
         ("Verbleibende Kreditschulden", eur(r["restschuld"]), "schlecht" if r["restschuld"] > 0.005 else ""),
         ("Nettoendvermögen", eur(r["netto_endvermoegen"]),
          "gut" if r["netto_endvermoegen"] >= r["eigenkapital"] else "schlecht"),
@@ -748,9 +808,19 @@ def render(h):
                 '<div class="pb-unter">Alles auf einer Seite · Änderungen wirken sofort</div></div>',
                 unsafe_allow_html=True)
     kpi_platz = st.empty()
-    kredit_spalte = _eingaben()
+    kredit_spalte, ziel_spalte = _eingaben()
     e = _aus_widgets()
+    z = None
+    if e["auto_ziel"] and e["zielvermoegen"] > 0:
+        # Gewichte automatisch: vor der Rechnung, damit Kennzahlen, Tabelle und Diagramme zusammenpassen
+        z = P.ziel_gewichte(e)
+        if z and z["positionen"] and any(abs(a["gewicht"] - b["gewicht"]) > 1e-6
+                                         for a, b in zip(z["positionen"], e["positionen"])):
+            st.session_state["pb_positionen"] = z["positionen"]
+            st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+            e = _aus_widgets()
     r = P.simulation(e)
+    _ziel_hinweis(ziel_spalte, r, z)
     _kredit_hinweis(kredit_spalte, r)
     _hinzufuegen(h, r)
     _tabelle(h, r)

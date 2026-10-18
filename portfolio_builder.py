@@ -40,7 +40,9 @@ STANDARD = {
     "ausgaben": 0.0,
     "laufzeit": 10,
     "laufzeit_einheit": "Jahre",    # "Jahre" | "Monate"
-    "rendite_pa": 6.0,              # %
+    "rendite_pa": 6.0,              # % - fuer Positionen ohne eigene Rendite und den Cash-Rest
+    "zielvermoegen": 0.0,           # EUR netto am Ende (0 = kein Ziel)
+    "auto_ziel": False,             # Gewichte automatisch so verteilen, dass das Ziel erreicht wird
     "nur_ganze_stuecke": False,
     "positionen": [
         {"name": "MSCI World ETF", "kurs": 100.0, "gewicht": 60.0, "art": "etf"},
@@ -76,6 +78,8 @@ def bereinigen(e):
         aus[k] = min(max(_zahl(aus[k]), 0.0), MAX_MONATLICH)
     aus["kredit_zins_pa"] = min(max(_zahl(aus["kredit_zins_pa"]), 0.0), MAX_KREDITZINS)
     aus["rendite_pa"] = min(max(_zahl(aus["rendite_pa"]), -MAX_RENDITE), MAX_RENDITE)
+    aus["zielvermoegen"] = min(max(_zahl(aus["zielvermoegen"]), 0.0), MAX_KAPITAL)
+    aus["auto_ziel"] = bool(aus.get("auto_ziel"))
     aus["laufzeit_einheit"] = "Monate" if aus.get("laufzeit_einheit") == "Monate" else "Jahre"
     aus["laufzeit"] = min(max(int(_zahl(aus["laufzeit"], 1)), 1),
                           MAX_MONATE if aus["laufzeit_einheit"] == "Monate" else MAX_MONATE // 12)
@@ -91,6 +95,9 @@ def bereinigen(e):
             continue
         neu = {"name": name or "Neue Position", "kurs": kurs, "gewicht": gewicht,
                "art": p.get("art") if p.get("art") in ARTEN else "sonstig"}
+        r = _zahl(p.get("rendite"), None)
+        if r is not None:                                     # eigene erwartete Rendite % p. a.
+            neu["rendite"] = min(max(r, -MAX_RENDITE), MAX_RENDITE)
         for k in ("wkn", "isin", "instrument_id"):          # Kennungen fuer den Kursabruf
             if p.get(k) not in (None, ""):
                 neu[k] = str(p[k]).strip()
@@ -104,7 +111,7 @@ def rest_gewicht(pos):
     return max(100.0 - sum(max(_zahl(p.get("gewicht")), 0.0) for p in pos), 0.0)
 
 
-def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", **kennung):
+def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", rendite=None, **kennung):
     """Neue Position anhaengen. gewicht None = der noch freie Rest bis 100 %.
     Gibt es den Wert schon (gleiche WKN/ISIN, sonst gleicher Name), wird nichts doppelt angelegt.
     -> (neue Positionen, hinzugefuegt: bool)"""
@@ -120,8 +127,16 @@ def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", **ken
     for k, v in (("wkn", wkn), ("isin", isin), ("instrument_id", kennung.get("instrument_id"))):
         if v not in (None, ""):
             neu[k] = str(v)
+    if _zahl(rendite, None) is not None:
+        neu["rendite"] = round(min(max(_zahl(rendite), -MAX_RENDITE), MAX_RENDITE), 2)
     pos.append(neu)
     return pos, True
+
+
+def katalog_rendite(w):
+    """Erwartete Rendite fuer einen Katalogwert als Vorschlag: 5 J. p. a., sonst 3 J. p. a. (None = keine)."""
+    k = kennzahlen(w)
+    return k["5J p.a."] if k["5J p.a."] is not None else k["3J p.a."]
 
 
 def anteile_nach_art(e):
@@ -204,6 +219,12 @@ def aenderungen_anwenden(pos, kapital, geaendert=None, neu=None, geloescht=None)
             p["kurs"] = max(_zahl(werte["kurs"], p["kurs"]), 0.0)
         if werte.get("art") in ARTEN:
             p["art"] = werte["art"]
+        if "rendite" in werte:                                # leer = allgemeine Rendite
+            r = _zahl(werte["rendite"], None)
+            if r is None:
+                p.pop("rendite", None)
+            else:
+                p["rendite"] = min(max(r, -MAX_RENDITE), MAX_RENDITE)
         p["gewicht"] = gewicht_aus(werte, p)
     weg = {int(i) for i in (geloescht or [])}
     pos = [p for i, p in enumerate(pos) if i not in weg]
@@ -242,15 +263,36 @@ def rate_fuer_tilgung(summe, zins_pa_prozent, monate_n):
     return summe * i / (1.0 - (1.0 + i) ** (-monate_n))
 
 
-def rendite_monat(e):
-    return (1.0 + e["rendite_pa"] / 100.0) ** (1.0 / 12.0) - 1.0
+def position_rendite(e, p):
+    """Erwartete Rendite % p. a. einer Position: eigene, sonst die allgemeine."""
+    r = p.get("rendite")
+    return float(r) if r is not None else e["rendite_pa"]
 
 
-def simulation(e):
-    """Monatliche Simulation. -> dict mit Verlauf (Monat 0..n) und Kennzahlen."""
+def portfolio_rendite(e):
+    """Erwartete Rendite des ganzen Portfolios % p. a.: nach Wert gewichteter Mittelwert der Positionen;
+    der nicht investierte Rest (Cash) und ein Portfolio ohne Kapital rechnen mit der allgemeinen Rendite.
+    Ohne eigene Renditen je Position ist das genau die allgemeine Rendite."""
+    pos = positionen(e)
+    if pos["kapital"] <= 0:
+        return e["rendite_pa"]
+    summe = sum(z["wert"] * position_rendite(e, p) for z, p in zip(pos["zeilen"], e["positionen"]))
+    summe += pos["cash"] * e["rendite_pa"]
+    return summe / max(pos["investiert"] + pos["cash"], EPS)
+
+
+def rendite_monat(e, rendite_pa=None):
+    r = portfolio_rendite(e) if rendite_pa is None else rendite_pa
+    return (1.0 + r / 100.0) ** (1.0 / 12.0) - 1.0
+
+
+def simulation(e, rendite_pa=None):
+    """Monatliche Simulation. rendite_pa: Portfolio-Rendite vorgeben (sonst aus den Positionen).
+    -> dict mit Verlauf (Monat 0..n) und Kennzahlen."""
     e = bereinigen(e)
     n = monate(e)
-    rm, iz = rendite_monat(e), zins_monat(e)
+    r_pa = portfolio_rendite(e) if rendite_pa is None else rendite_pa
+    rm, iz = rendite_monat(e, r_pa), zins_monat(e)
     pos = positionen(e)
     v = pos["kapital"]                       # Positionen + nicht investierter Rest
     d = e["kredit_summe"]
@@ -283,7 +325,7 @@ def simulation(e):
         verlauf.append({"monat": t, "portfolio": v, "schulden": d, "netto": v - d})
     return {
         "eingaben": e, "monate": n, "positionen": pos,
-        "eigenkapital": eigenkapital(e), "anlagekapital": pos["kapital"],
+        "eigenkapital": eigenkapital(e), "anlagekapital": pos["kapital"], "rendite_pa": r_pa,
         "portfoliowert": pos["kapital"],             # Positionen + Cash-Rest zum Start
         "cashflow_monat": erster_cashflow if erster_cashflow is not None else 0.0,
         "endwert": v, "restschuld": d, "netto_endvermoegen": v - d,
@@ -357,6 +399,84 @@ def mehrere_hinzufuegen(pos, werte):
     anteil = rest_gewicht(pos) / len(neu_werte) if neu_werte else 0.0
     for w in neu_werte:
         pos, _ = position_hinzufuegen(pos, w["name"], w.get("kurs") or 0.0, anteil, w.get("art", "sonstig"),
-                                      wkn=w.get("wkn"), isin=w.get("isin"))
+                                      rendite=katalog_rendite(w), wkn=w.get("wkn"), isin=w.get("isin"))
     return pos, len(neu_werte), schon
+
+
+# ---------------------------------------------------------------- Zielvermoegen
+def benoetigte_rendite(e):
+    """Portfolio-Rendite % p. a., mit der das Netto-Endvermoegen genau das Zielvermoegen erreicht
+    (Bisektion ueber die Simulation; Kredit, Ein-/Auszahlungen und Laufzeit wie eingegeben).
+    -> {"rendite", "erreichbar"} oder None ohne Ziel. erreichbar=False: liegt ausserhalb +/-MAX_RENDITE."""
+    e = bereinigen(e)
+    ziel = e["zielvermoegen"]
+    if ziel <= 0:
+        return None
+
+    def netto(r):
+        return simulation(e, rendite_pa=r)["netto_endvermoegen"]
+
+    lo, hi = -MAX_RENDITE, MAX_RENDITE
+    if netto(hi) < ziel:
+        return {"rendite": hi, "erreichbar": False}
+    if netto(lo) >= ziel:
+        return {"rendite": lo, "erreichbar": True}
+    for _ in range(80):
+        mitte = (lo + hi) / 2.0
+        if netto(mitte) < ziel:
+            lo = mitte
+        else:
+            hi = mitte
+        if hi - lo < 1e-7:
+            break
+    return {"rendite": hi, "erreichbar": True}
+
+
+def ziel_gewichte(e):
+    """Gewichte so verteilen, dass die Portfolio-Rendite die fuer das Ziel benoetigte Rendite ergibt.
+
+    Die Positionen werden in "Basis" (Rendite <= benoetigt) und "Wachstum" (Rendite > benoetigt)
+    geteilt. Innerhalb jeder Gruppe bleiben die bisherigen Verhaeltnisse (alle 0 -> gleich verteilt);
+    zwischen den Gruppen wird so gemischt, dass der gewichtete Mittelwert genau die benoetigte Rendite
+    ist. Fehlt eine Gruppe, geht alles in den Wert, der dem Ziel am naechsten kommt. Zusammen immer 100 %.
+    -> {"positionen", "benoetigt", "erreicht" (Rendite nach Verteilung), "status"} oder None ohne Ziel.
+       status: "ok" | "zu_hoch" (Ziel mit diesen Werten nicht erreichbar) | "uebertroffen" (schon die
+       Basis-Werte liegen ueber dem Ziel bzw. es gibt keine) | "leer" (keine Positionen)"""
+    e = bereinigen(e)
+    b = benoetigte_rendite(e)
+    if b is None:
+        return None
+    pos = copy.deepcopy(e["positionen"])
+    if not pos:
+        return {"positionen": pos, "benoetigt": b["rendite"], "erreicht": None, "status": "leer"}
+    ziel_r = b["rendite"]
+    r = [position_rendite(e, p) for p in pos]
+    tief = [i for i in range(len(pos)) if r[i] <= ziel_r + 1e-9]
+    hoch = [i for i in range(len(pos)) if r[i] > ziel_r + 1e-9]
+
+    def verteilung(gruppe):
+        s = sum(pos[i]["gewicht"] for i in gruppe)
+        return {i: (pos[i]["gewicht"] / s if s > EPS else 1.0 / len(gruppe)) for i in gruppe}
+
+    if not hoch or not tief:
+        # keine Mischung trifft das Ziel: so nah wie moeglich - alles in den Wert mit der hoechsten
+        # (Ziel zu hoch) bzw. niedrigsten Rendite (Ziel schon uebertroffen), bei Gleichstand gleich verteilt
+        grenze = max(r) if not hoch else min(r)
+        tief = [i for i in range(len(pos)) if abs(r[i] - grenze) <= 1e-9]
+        hoch = []
+    v_tief, v_hoch = verteilung(tief), verteilung(hoch) if hoch else {}
+    r_tief = sum(v * r[i] for i, v in v_tief.items())
+    r_hoch = sum(v * r[i] for i, v in v_hoch.items())
+    if not hoch:
+        t = 0.0
+        status = ("ok" if abs(r_tief - ziel_r) < 1e-6 else "zu_hoch" if r_tief < ziel_r else "uebertroffen")
+    else:
+        t, status = (ziel_r - r_tief) / (r_hoch - r_tief), "ok"
+    if not b["erreichbar"]:
+        status = "zu_hoch"
+    t = min(max(t, 0.0), 1.0)
+    for i, p in enumerate(pos):
+        p["gewicht"] = 100.0 * ((1.0 - t) * v_tief.get(i, 0.0) + t * v_hoch.get(i, 0.0))
+    erreicht = sum(p["gewicht"] / 100.0 * r[i] for i, p in enumerate(pos))
+    return {"positionen": pos, "benoetigt": ziel_r, "erreicht": erreicht, "status": status}
 
