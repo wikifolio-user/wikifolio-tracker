@@ -26,10 +26,21 @@ def warte_ruhe(page, timeout=90):
     return None
 
 
+IPHONE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
+             "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1")
+IPAD_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+           "(KHTML, like Gecko) Version/18.0 Safari/605.1.15")  # iPadOS meldet sich als Mac
+
+
 def start(p, breite=1400, hoehe=900, mobil=False):
     b = p.chromium.launch(executable_path=EXE)
+    # echte Safari-Kennungen: die App waehlt im Planer die Handy-Darstellung ueber den User-Agent
+    ua = None
+    if mobil:
+        ua = (IPHONE_UA if breite < 600 else IPAD_UA)
     ctx = b.new_context(viewport={"width": breite, "height": hoehe}, is_mobile=mobil,
-                        has_touch=mobil, device_scale_factor=1, locale="de-DE", timezone_id="Europe/Berlin")
+                        has_touch=mobil, device_scale_factor=1, locale="de-DE", timezone_id="Europe/Berlin",
+                        **({"user_agent": ua} if ua else {}))
     page = ctx.new_page()
     page.konsole = []
     page.on("console", lambda m: page.konsole.append(f"{m.type}: {m.text[:200]}"))

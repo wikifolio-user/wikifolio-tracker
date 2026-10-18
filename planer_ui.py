@@ -2120,7 +2120,7 @@ def _gewichtswarnung(platz, m, leer_zeigen=True):
     verletzt = E.regeln_verletzungen(m) if abs(summe - 100.0) <= 0.05 else []
     if verletzt:
         with platz.container():
-            c1, c2 = st.columns([3, 1], vertical_alignment="center")
+            c1, c2 = st.columns([1.5, 1] if _smartphone() else [3, 1], vertical_alignment="center")
             c1.warning("Regeln verletzt: " + " · ".join(verletzt))
             if c2.button("Auf Regeln ausrichten", key=_k("regeln_oben"), width="stretch"):
                 g = E.regeln_anwenden(m, {a["id"]: float(a.get("targetWeight") or 0) for a in E.aktive_assets(m)})
@@ -2132,7 +2132,7 @@ def _gewichtswarnung(platz, m, leer_zeigen=True):
         return
     if abs(summe - 100.0) > 0.05:
         with platz.container():
-            c1, c2 = st.columns([3, 1], vertical_alignment="center")
+            c1, c2 = st.columns([1.5, 1] if _smartphone() else [3, 1], vertical_alignment="center")
             c1.warning(f"Portfolio = {_de(summe, 1)} % – die Rechnung skaliert auf 100 %.")
             if c2.button("Gewichte normalisieren", key=_k("norm_oben"), width="stretch"):
                 E.normalisieren(m)
@@ -2872,7 +2872,7 @@ def _katalog_gross(m, h):
     for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Vola 1J", "Max DD", "Div. %"):
         cfg[c] = _spalte(c, format="%.1f", width="small")
     signatur = zlib.crc32(("|".join(df["WKN/Symbol"].astype(str))).encode())
-    ed = st.data_editor(df, key=_k(f"gk_{signatur}"), hide_index=True, width="stretch", height=_hoehe(len(df)),
+    ed = st.data_editor(df, key=_k(f"gk_{signatur}"), hide_index=True, width="stretch", height=_katalog_hoehe(len(df)),
                         disabled=[c for c in df.columns if c != "＋"], column_config=cfg)
     for i, z in enumerate(zeilen):
         an = bool(ed.iloc[i]["＋"])
@@ -3052,7 +3052,7 @@ def _katalog(m, h):
         else:
             cfg[c] = _spalte(c, format="%.1f", width="small")
     signatur = zlib.crc32(("|".join(df["Name"].astype(str)) + "|".join(kopf)).encode()) if len(df) else 0
-    ed = st.data_editor(df, key=_k(f"kat_{signatur}"), hide_index=True, width="stretch", height=_hoehe(len(df)),
+    ed = st.data_editor(df, key=_k(f"kat_{signatur}"), hide_index=True, width="stretch", height=_katalog_hoehe(len(df)),
                         disabled=[c for c in kopf if c != "＋"], column_config=cfg)
     for i, z in enumerate(zeilen):
         an = bool(ed.iloc[i]["＋"])
@@ -3172,6 +3172,12 @@ def _hoehe(zeilen):
     Scrollen. +16 px Reserve fuer eine evtl. waagerechte Scrollleiste, die
     sonst die letzte Zeile verdeckt."""
     return int(35 * (zeilen + 1) + 3 + 16)
+
+
+def _katalog_hoehe(zeilen):
+    """Katalog-Tabellen: auf dem Smartphone hoechstens 15 Zeilen hoch (der Rest scrollt
+    in der Tabelle), sonst wird die Seite mehrere Bildschirme lang."""
+    return _hoehe(min(zeilen, 15) if _smartphone() else zeilen)
 
 
 def _smartphone():
@@ -5446,9 +5452,11 @@ def render(h):
              "keine Erwartung und keine Anlageempfehlung.")
 
     with st.container(key="pl_nav_ansicht"):
-        ansicht = st.pills("Ansicht", ANSICHTEN, default=ANSICHTEN[1], key="pl_ansicht",
+        # Smartphone: gefuehrter Ablauf als Start - "Alle Bereiche" ist dort sehr lang
+        standard = ANSICHTEN[0] if _smartphone() else ANSICHTEN[1]
+        ansicht = st.pills("Ansicht", ANSICHTEN, default=standard, key="pl_ansicht",
                            help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
-                                "(für Erfahrene) – beide arbeiten mit demselben Modell.") or ANSICHTEN[1]
+                                "(für Erfahrene) – beide arbeiten mit demselben Modell.") or standard
     gefuehrt = ansicht == ANSICHTEN[0]
     status_platz = st.empty()
     platz = {"bilanz": None, "kpi": None}

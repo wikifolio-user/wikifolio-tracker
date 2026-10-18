@@ -940,7 +940,7 @@ st.markdown("""
     [data-testid="stFormSubmitButton"] .stMarkdownEllipsis, [data-testid="stFormSubmitButton"] .stMarkdownEllipsis *,
     [data-testid="stDownloadButton"] .stMarkdownEllipsis, [data-testid="stDownloadButton"] .stMarkdownEllipsis * {
         white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
     }
     [data-testid="stMetricValue"] { font-size: clamp(1.25rem, 5.2vw, 2.25rem) !important; line-height: 1.15 !important; }
     /* Depot | Kurse: nebeneinander erst ab 820 px, darunter untereinander */
