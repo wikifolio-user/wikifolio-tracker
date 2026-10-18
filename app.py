@@ -934,11 +934,11 @@ st.markdown("""
        Streamlit kuerzt Kennzahlen, Feldbeschriftungen und Knopftexte mit "…" - auf dem
        iPhone waren so Werte wie "4.00…" oder "Wahrscheinlichkeit …" nicht lesbar.
        Hier wird stattdessen umgebrochen. */
-    [data-testid="stMetric"] .stMarkdownEllipsis,
-    [data-testid="stWidgetLabel"] .stMarkdownEllipsis,
-    [data-testid="stButton"] .stMarkdownEllipsis,
-    [data-testid="stFormSubmitButton"] .stMarkdownEllipsis,
-    [data-testid="stDownloadButton"] .stMarkdownEllipsis {
+    [data-testid="stMetric"] .stMarkdownEllipsis, [data-testid="stMetric"] .stMarkdownEllipsis *,
+    [data-testid="stWidgetLabel"] .stMarkdownEllipsis, [data-testid="stWidgetLabel"] .stMarkdownEllipsis *,
+    [data-testid="stButton"] .stMarkdownEllipsis, [data-testid="stButton"] .stMarkdownEllipsis *,
+    [data-testid="stFormSubmitButton"] .stMarkdownEllipsis, [data-testid="stFormSubmitButton"] .stMarkdownEllipsis *,
+    [data-testid="stDownloadButton"] .stMarkdownEllipsis, [data-testid="stDownloadButton"] .stMarkdownEllipsis * {
         white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
         overflow-wrap: anywhere;
     }
