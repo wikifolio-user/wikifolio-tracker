@@ -158,7 +158,7 @@ st.markdown("""
        gleiche Schrift, gleiches Gewicht, Neonweiss mit leichtem Schein. */
     .q-name, .hero-label {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.74rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.75rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: 6px;
         text-shadow: 0 0 10px rgba(255, 255, 255, 0.30);
     }
@@ -238,7 +238,7 @@ st.markdown("""
     /* Kompakte Fussnote am Kachelende (Zeitstempel, Stueckzahl) - bewusst
        ohne Chip-Pille, damit sie moeglichst wenig Hoehe kostet. */
     .card-footnote {
-        font-size: 0.72rem; color: var(--muted); margin-top: 8px;
+        font-size: 0.75rem; color: var(--muted); margin-top: 8px;
     }
 
     /* ---------- STAT-CHIPS: gleiche Pill-Optik wie die Meta-Chips
@@ -251,7 +251,7 @@ st.markdown("""
         padding: 6px 12px; border-radius: 999px;
     }
     .stat-chip-label {
-        font-size: 0.68rem; font-weight: 700; color: var(--label);
+        font-size: 0.75rem; font-weight: 700; color: var(--label);
         text-transform: uppercase; letter-spacing: 0.4px;
     }
     .stat-chip-val {
@@ -382,7 +382,7 @@ st.markdown("""
     [data-testid="stSelectbox"] label,
     [data-testid="stSelectbox"] label p {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.74rem !important;
+        font-size: 0.75rem !important;
         font-weight: 700 !important;
         color: #FFFFFF !important;
         letter-spacing: 1.3px !important;
@@ -513,7 +513,7 @@ st.markdown("""
        weisser Rahmen macht die Gliederung auf einen Blick lesbar. */
     .abschnitt {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.74rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.75rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase;
         margin: 16px 0 2px 2px;
         padding-bottom: 7px;
@@ -641,7 +641,7 @@ st.markdown("""
            sein, nicht nur eine Nuance dunkler. */
         background: #1C1F26;
         padding: 9px 10px;
-        font-size: 0.64rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.75rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 0.7px; text-transform: uppercase;
         text-align: center; white-space: nowrap;
         border-bottom: 1px solid var(--line);
@@ -674,7 +674,7 @@ st.markdown("""
         white-space: normal; line-height: 1.25;
     }
     .pt-wknval {
-        color: var(--label); font-weight: 600; font-size: 0.72rem;
+        color: var(--label); font-weight: 600; font-size: 0.75rem;
         letter-spacing: 0.3px;
     }
 
@@ -686,7 +686,7 @@ st.markdown("""
         font-size: 0.78rem;
     }
     .pt-stark { font-weight: 700; font-size: 0.83rem; }
-    .pt-klein { font-size: 0.74rem; opacity: 0.92; }
+    .pt-klein { font-size: 0.75rem; opacity: 0.92; }
     .pt-up { color: #16C784; }
     .pt-down { color: #EA3943; }
     .pt-leer { color: #4B5058; }
@@ -697,14 +697,14 @@ st.markdown("""
        spart auf dem iPhone die Breite fuer die eigentlichen Zahlen. */
     .pt-sub {
         display: block; margin-top: 2px; white-space: normal;
-        font-size: 0.68rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
+        font-size: 0.75rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
     }
     .q-punkte { font-weight: 800; font-size: 0.9rem; }
     .q-prio { color: #16C784; }
     .q-beob { color: #F5B942; }
     .q-nicht { color: #8A9099; }
     .pt td.q-fokus-hl, .pt th.q-fokus-hl { background: rgba(255, 255, 255, 0.05); }
-    .q-legende { font-size: 0.72rem; color: var(--label); margin: -4px 0 10px; }
+    .q-legende { font-size: 0.75rem; color: var(--label); margin: -4px 0 10px; }
     .q-kpis {
         display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         gap: 8px; margin: 6px 0 12px;
@@ -714,7 +714,7 @@ st.markdown("""
         padding: 10px 12px; min-width: 0;
     }
     .q-kpi-l {
-        font-size: 0.64rem; font-weight: 700; color: var(--label);
+        font-size: 0.75rem; font-weight: 700; color: var(--label);
         text-transform: uppercase; letter-spacing: 0.6px;
     }
     .q-kpi-v {
@@ -753,7 +753,7 @@ st.markdown("""
         .q-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .q-kpi-v { font-size: 1.2rem; }
         .q-b-zeile { grid-template-columns: minmax(0, 1fr) 72px 44px; font-size: 0.86rem; }
-        .pt-sub { font-size: 0.74rem; }
+        .pt-sub { font-size: 0.75rem; }
         .q-punkte { font-size: 0.98rem; }
         .pt.pt-kompakt td, .pt.pt-kompakt thead th { padding: 9px 6px; }
     }
@@ -2716,7 +2716,7 @@ NAV_CSS = """
 
 /* Kopf */
 .nav-kopf { text-align: center; padding: 0 0 4px; margin-top: -26px; }
-.nav-credit { font-size: 0.72rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
+.nav-credit { font-size: 0.75rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
               text-shadow: 0 0 6px rgba(255, 255, 255, 0.35); }
 .nav-logo {
     font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
@@ -7543,7 +7543,7 @@ def render_dashboard():
                 # Historische Rate des gewaehlten Werts sichtbar absetzen
                 _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
                            if e["eigene"] else "1px solid #27272A")
-                _marke = (f'<div style="font-size: 0.72rem; font-weight: 700; color: #16C784; '
+                _marke = (f'<div style="font-size: 0.75rem; font-weight: 700; color: #16C784; '
                           f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {_h(basis_name.upper())}</div>'
                           if e["eigene"] else "")
                 # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
