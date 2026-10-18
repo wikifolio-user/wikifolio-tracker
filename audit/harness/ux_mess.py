@@ -46,6 +46,7 @@ MESS_JS = r"""
   const geschnitten = [];
   for (const e of document.querySelectorAll('[data-testid=stMain] p, [data-testid=stMain] span, [data-testid=stMain] div, [data-testid=stMain] td, [data-testid=stMain] th, [data-testid=stMain] label, button')) {
     if (!sichtbar(e) || !e.innerText || e.children.length > 1) continue;
+    if (e.getBoundingClientRect().width <= 2) continue;  // nur fuer Screenreader (visuell versteckt)
     const s = getComputedStyle(e);
     if ((s.overflow === 'hidden' || s.overflowX === 'hidden' || s.textOverflow === 'ellipsis') && e.scrollWidth > e.clientWidth + 2)
       geschnitten.push(name(e));

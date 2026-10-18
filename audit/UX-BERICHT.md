@@ -68,6 +68,10 @@ Schweregrad: **hoch** = Bereich unbenutzbar oder Kernzahlen nicht lesbar · **mi
 | UX-17 | Schrift unter 12 px (Menügruppen 11,2 px, Tabellenköpfe 10,2 px, Planer-Hinweise 11,5 px, Diagrammachsen 11 px) | alle | niedrig | **behoben**: Untergrenze 0,8 rem (≈ 12,8 px), weil Streamlit Markdown teils auf 96 % verkleinert; Diagrammschrift 12 px |
 | UX-18 | Eingabefelder 42 px hoch, Positions-Reiter 40 px, 🔄 in der Kopfleiste 37 px breit | Touch | niedrig | **behoben**: 44 px auf Touch-Geräten |
 | UX-19 | Entwicklungstabelle im Zinsrechner scrollt auf dem Handy seitlich, ist aber per Tastatur nicht erreichbar (axe „scrollable-region-focusable“) | iPhone / Tastatur | mittel | **behoben**: fokussierbarer Scroll-Rahmen |
+| UX-20 | Portfolio-Planer öffnet auf dem Handy in „Alle Bereiche“: Rahmenangaben und Bausteine untereinander, 9.400 px Seite | iPhone | mittel | **behoben**: auf dem Smartphone Start im geführten Ablauf „Schritt für Schritt“ (2.500 px), umschaltbar |
+| UX-21 | Planer-Katalog (72 Werte) in voller Höhe, rund 3.500 px nur für die Tabelle | iPhone | mittel | **behoben**: auf dem Smartphone höchstens 15 Zeilen, der Rest scrollt in der Tabelle |
+| UX-22 | Fortschrittsanzeige im geführten Planer: falsche ARIA-Rollen (axe „aria-required-children“, „aria-prohibited-attr“), Schrittnamen auf dem Handy abgeschnitten, Status nur als Farbe/Symbol | iPhone / Screenreader | mittel | **behoben**: Liste mit Status-Text für Screenreader, Fortschrittsbalken als `progressbar`; auf dem Handy nur der aktive Schritt beschriftet |
+| UX-23 | Knöpfe in schmalen Spalten brachen mitten im Wort um („Gewich·te normali·sieren“), Nebenwirkung von UX-04 | iPhone | niedrig | **behoben**: Umbruch nur an Wortgrenzen, breitere Knopfspalte auf dem Handy |
 
 ## Tastaturbedienung
 
@@ -79,14 +83,14 @@ Anmeldung, Menü, Öffnen einer Ansicht per Enter und Rückweg über „☰ Men�
 |---|---|
 | Kleine Streamlit-interne Bedienelemente: Link „Skip to main content“ (nur bei Tastaturfokus sichtbar), Kalender-Symbol (16 px), Hilfe-„?“ (13 px), Aufklapp-Pfeil der Auswahlfelder, Zahlen-Stepper (42 px), Tabellen-Werkzeugleiste (24 px) | Teil der Streamlit-Komponenten; die eigentlichen Eingabefelder sind groß genug. Nur durch tiefe CSS-Eingriffe änderbar, die bei Streamlit-Updates brechen. |
 | Zahleneingaben mit Dezimalpunkt („24.27“) | Streamlit-`number_input` kennt kein deutsches Format. |
-| Portfolio-Planer: sehr lange Seite (6.000–9.000 px auf dem Handy), viel Fließtext | Empfehlung: auf dem Handy standardmäßig die vorhandene Ansicht „Schritt für Schritt“ öffnen und Erklärtexte in aufklappbare Hinweise verschieben. Größerer Umbau, mit dir abzustimmen. |
+| Portfolio-Planer: einzelne Schritte bleiben lang („Auswahl“ ≈ 5.500 px, „Annahmen & Quellen“ ≈ 5.100 px auf dem iPhone), viel Erklärtext | Die Länge von „Annahmen & Quellen“ kommt in der Sandbox vor allem von „Instrument nicht gefunden“ in jeder Zeile (keine Kursquellen). Weitere Kürzung (Erklärtexte in aufklappbare Hinweise) wäre ein inhaltlicher Umbau des Planers – nur nach Rücksprache. |
 | Lange Firmennamen in Watchlist-Tabellen gekürzt | Gewollt (Tabellenbreite); voller Name im Detail. |
 | `st.components.v1.html` (Ladeanzeige) laut Streamlit „nach 01.06.2026 entfernt“ | Mit der fest eingestellten Version 1.66 funktioniert es. Vor einem Streamlit-Update auf `st.iframe` umstellen. |
 | Nur dunkles Design, kein helles Design | Bewusste Gestaltung; bei Bedarf separat. |
 
 ## Grenzen
 
-- **Kein echtes iOS-Gerät:** Getestet wurde mit Chromium und Touch-Emulation, nicht mit Safari auf iPhone/iPad. Safari-Eigenheiten (z. B. Zoom bei Eingabefeldern unter 16 px, Adressleiste) sind nicht geprüft. Die App setzt Eingabefelder bereits auf 16 px.
+- **Kein echtes iOS-Gerät:** Getestet wurde mit Chromium, Touch-Emulation und Safari-Kennung (User-Agent), nicht mit Safari selbst auf iPhone/iPad. Die Safari-Kennung ist wichtig, weil der Planer über sie die Handy-Darstellung wählt; der erste Messlauf ohne sie hatte die Handy-Darstellung des Planers nicht erfasst. Safari-Eigenheiten (z. B. Zoom bei Eingabefeldern unter 16 px, Adressleiste) sind nicht geprüft. Die App setzt Eingabefelder bereits auf 16 px.
 - **Systemschriftgröße:** Vergrößerte Systemschrift und Bildschirmlupe sind nicht getestet. Mit Screenreadern wurde nicht praktisch gearbeitet, nur automatisiert (axe) und per Tastatur.
 - **Planer-Inhalte:** Die Planer-Bausteine zeigen in der Sandbox „kein Kurs“ (externe Kursquellen gesperrt). Die Planer-Zahlen sind deshalb nicht fachlich beurteilbar, nur Layout und Bedienung.
 - **Ladezeiten:** 1–2 s je Ansicht gelten nur für die lokale Sandbox ohne echte Netzlatenz.
