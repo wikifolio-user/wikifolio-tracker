@@ -1,0 +1,480 @@
+"""Portfolio Builder 2.0 - eine Seite: Kennzahlen, Eingaben, Aufteilung, Diagramme.
+
+Rechnen: portfolio_builder.py (ohne Streamlit). Hier nur Eingabe und Darstellung.
+Jede Aenderung wirkt sofort (kein Berechnen-Knopf); gespeichert wird je Benutzer per Knopf.
+"""
+import copy
+import datetime
+import html
+import json
+
+import pandas as pd
+import streamlit as st
+
+import portfolio_builder as P
+
+try:
+    import nutzerdaten as N
+except Exception:        # pragma: no cover - ohne nutzerdaten.py: gemeinsamer Pfad
+    N = None
+
+PFAD = "state/portfolio_builder.json"
+FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa", "kredit_rate",
+          "einzahlung", "entnahme", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke")
+# Tabellenspalten <-> Felder des Rechenkerns
+SPALTEN = {"Name": "name", "Kurs €": "kurs", "Gewicht %": "gewicht", "Betrag €": "betrag", "Stück": "stueck",
+           "Wert €": "wert"}
+FARBEN = ["#16C784", "#4C9AFF", "#F5B942", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C", "#94A3B8",
+          "#84CC16", "#E879F9"]
+
+CSS = """
+<style>
+.pb-kopf { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:2px 0 12px; }
+.pb-titel { font-size:1.35rem; font-weight:800; color:var(--text,#E9EBEF); letter-spacing:.2px; }
+.pb-titel span { color:var(--up,#16C784); }
+.pb-unter { font-size:.8rem; color:var(--label,#AAB1BE); }
+.pb-kpis { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; margin:0 0 16px; }
+@media (max-width: 819px) { .pb-kpis { grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; } }
+.pb-kpi { background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.015));
+          border:1px solid var(--line,#21252C); border-radius:16px; padding:14px 16px; min-width:0; }
+.pb-kpi .l { font-size:.8rem; color:var(--label,#AAB1BE); font-weight:600; letter-spacing:.3px; }
+.pb-kpi .w { font-size:clamp(1.15rem, 4.6vw, 1.7rem); font-weight:800; color:var(--text,#E9EBEF);
+             font-variant-numeric:tabular-nums; margin-top:4px; overflow-wrap:anywhere; line-height:1.15; }
+.pb-kpi .s { font-size:.8rem; color:var(--muted,#7C8493); margin-top:4px; }
+.pb-kpi.gut .w { color:var(--up,#16C784); } .pb-kpi.schlecht .w { color:var(--down,#EA3943); }
+.pb-karte-t { font-size:.8rem; letter-spacing:1.3px; text-transform:uppercase; font-weight:800;
+              color:var(--text,#E9EBEF); margin:2px 0 8px; }
+.pb-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px 16px; }
+@media (max-width: 819px) { .pb-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+.pb-grid div { display:flex; flex-direction:column; padding:8px 0; border-bottom:1px solid var(--line,#21252C); min-width:0; }
+.pb-grid .l { font-size:.8rem; color:var(--label,#AAB1BE); }
+.pb-grid .w { font-size:1rem; font-weight:700; color:var(--text,#E9EBEF); font-variant-numeric:tabular-nums; }
+.pb-grid .w.gut { color:var(--up,#16C784); } .pb-grid .w.schlecht { color:var(--down,#EA3943); }
+.pb-status { display:inline-block; font-size:.8rem; font-weight:700; padding:3px 10px; border-radius:999px; }
+.pb-status.ok { background:rgba(22,199,132,.14); color:#16C784; border:1px solid rgba(22,199,132,.4); }
+.pb-status.warn { background:rgba(245,185,66,.14); color:#F5B942; border:1px solid rgba(245,185,66,.4); }
+.pb-tab { display:table; width:100%; border-collapse:collapse; font-size:.85rem; font-variant-numeric:tabular-nums; }
+.pb-tab th { text-align:right; color:var(--label,#AAB1BE); font-weight:600; font-size:.8rem; padding:6px 8px;
+             border-bottom:1px solid var(--line,#21252C); white-space:nowrap; }
+.pb-tab td { text-align:right; padding:7px 8px; border-bottom:1px solid var(--line,#21252C); color:var(--text,#E9EBEF);
+             white-space:nowrap; }
+.pb-tab th:first-child, .pb-tab td:first-child { text-align:left; white-space:normal; }
+.pb-tab tr.summe td { font-weight:800; border-bottom:none; }
+.pb-tab i { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:7px; }
+.pb-wrap { overflow-x:auto; }
+@media (max-width: 480px) { .pb-tab .kurs { display:none; } }
+.pb-hinweis { font-size:.8rem; color:var(--label,#AAB1BE); line-height:1.45; }
+/* Eingabereihen: Desktop 4 nebeneinander, Handy 2 */
+@media (max-width: 819px) {
+  [class*="st-key-pb_reihe"] [data-testid="stHorizontalBlock"] { flex-wrap:wrap !important; gap:.6rem !important; }
+  [class*="st-key-pb_reihe"] [data-testid="stColumn"] { flex:0 1 calc(50% - .3rem) !important;
+      min-width:calc(50% - .3rem) !important; width:calc(50% - .3rem) !important; }
+  /* Plus/Minus bei Eurobetraegen auf dem Handy aus - sie nehmen dem Betrag den Platz */
+  [class*="st-key-pb_reihe"] [data-testid="stNumberInputStepDown"],
+  [class*="st-key-pb_reihe"] [data-testid="stNumberInputStepUp"] { display:none !important; }
+  .st-key-pb_diagramme [data-testid="stHorizontalBlock"] { flex-direction:column !important; }
+  .st-key-pb_diagramme [data-testid="stColumn"] { width:100% !important; min-width:100% !important; flex:1 1 100% !important; }
+}
+</style>
+"""
+
+
+# ---------------------------------------------------------------- Format
+def _de(x, dez=0):
+    s = f"{x:,.{dez}f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def eur(x, dez=0):
+    return ("−" if x < -1e-9 else "") + _de(abs(x), dez) + " €"
+
+
+def pct(x, dez=1):
+    return _de(x, dez) + " %"
+
+
+def _esc(t):
+    return html.escape(str(t))
+
+
+def _smartphone():
+    """True auf Smartphones (User-Agent; iPad meldet sich als Mac)."""
+    try:
+        ua = (st.context.headers.get("User-Agent") or "").lower()
+    except Exception:
+        return False
+    return "iphone" in ua or ("android" in ua and "mobile" in ua) or "ipod" in ua
+
+
+# ---------------------------------------------------------------- Speichern je Benutzer
+def _pfad(h):
+    nutzer = (h or {}).get("nutzer")
+    return N.pfad(PFAD, nutzer) if N is not None else PFAD
+
+
+def _laden(h):
+    try:
+        akt = (h or {}).get("gh_aktualisiere")
+        if akt:
+            ok, d = akt(_pfad(h), lambda d: None, default={}, message="portfolio-builder: lesen [skip ci]")
+            if not ok:
+                return None
+        else:
+            d = h["gh_read"](_pfad(h), {})
+    except Exception:
+        return None
+    return (d or {}).get("eingaben") if isinstance(d, dict) else None
+
+
+def _speichern(h, e):
+    daten = {"eingaben": e, "gespeichert": datetime.datetime.now().isoformat(timespec="minutes")}
+    try:
+        akt = (h or {}).get("gh_aktualisiere")
+        if akt:
+            ok, _ = akt(_pfad(h), lambda d: daten, default={}, message="portfolio-builder: speichern [skip ci]")
+            return bool(ok)
+        return bool(h["gh_write"](_pfad(h), daten, message="portfolio-builder: speichern [skip ci]"))
+    except Exception:
+        return False
+
+
+def _fingerabdruck(e):
+    return json.dumps(P.bereinigen(e), sort_keys=True)
+
+
+# ---------------------------------------------------------------- Zustand
+def _in_widgets(e):
+    """Eingaben in die Widget-Schluessel schreiben (vor dem Zeichnen der Widgets)."""
+    st.session_state["pb_einheit_vorher"] = e["laufzeit_einheit"]
+    for k in FELDER:
+        st.session_state[f"pb_{k}"] = e[k]
+    st.session_state["pb_positionen"] = copy.deepcopy(e["positionen"])
+    st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+
+
+def _aus_widgets():
+    e = {k: st.session_state.get(f"pb_{k}") for k in FELDER}
+    e["positionen"] = st.session_state.get("pb_positionen") or []
+    return P.bereinigen(e)
+
+
+def _start(h):
+    konto = str((h or {}).get("nutzer") or "")
+    if st.session_state.get("pb_konto") != konto or "pb_positionen" not in st.session_state:
+        gespeichert = _laden(h)
+        e = P.bereinigen(gespeichert) if gespeichert else P.standard()
+        _in_widgets(e)
+        st.session_state["pb_konto"] = konto
+        st.session_state["pb_gespeichert"] = _fingerabdruck(e) if gespeichert else None
+
+
+def _standard_laden():
+    _in_widgets(P.standard())
+
+
+def _einheit_wechseln():
+    """Jahre <-> Monate: Laufzeit umrechnen, damit derselbe Zeitraum bleibt."""
+    alt = st.session_state.get("pb_einheit_vorher", "Jahre")
+    neu = st.session_state.get("pb_laufzeit_einheit")
+    if neu not in ("Jahre", "Monate"):              # Auswahl abgewaehlt: bei der bisherigen bleiben
+        neu = st.session_state["pb_laufzeit_einheit"] = alt
+    n = int(st.session_state.get("pb_laufzeit") or 1)
+    if alt == "Jahre" and neu == "Monate":
+        st.session_state["pb_laufzeit"] = min(n * 12, P.MAX_MONATE)
+    elif alt == "Monate" and neu == "Jahre":
+        st.session_state["pb_laufzeit"] = max(round(n / 12), 1)
+    st.session_state["pb_einheit_vorher"] = neu
+
+
+def _rate_uebernehmen(rate):
+    st.session_state["pb_kredit_rate"] = round(rate, 2)
+
+
+def _auf_100():
+    st.session_state["pb_positionen"] = P.auf_100(st.session_state.get("pb_positionen") or [])
+    st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+
+
+# ---------------------------------------------------------------- Bausteine der Seite
+def _kpis(r):
+    e = r["eingaben"]
+    netto = r["netto_endvermoegen"]
+    jahre = r["monate"] / 12
+    lz = f"{_de(jahre, 0 if r['monate'] % 12 == 0 else 1)} J." if r["monate"] >= 12 else f"{r['monate']} Mon."
+    karten = [
+        ("Startkapital", eur(r["eigenkapital"]),
+         f"+ Kredit {eur(e['kredit_summe'])}" if e["kredit_summe"] > 0 else "Eigenkapital", ""),
+        ("Portfoliowert", eur(r["portfoliowert"]),
+         f"davon investiert {eur(r['positionen']['investiert'])}", ""),
+        ("Monatlicher Cashflow", ("+" if r["cashflow_monat"] > 1e-9 else "") + eur(r["cashflow_monat"]),
+         "Einzahlung − Entnahme − Kosten − Rate", "gut" if r["cashflow_monat"] > 1e-9 else
+         ("schlecht" if r["cashflow_monat"] < -1e-9 else "")),
+        (f"Endwert nach {lz}", eur(r["endwert"]),
+         f"netto {eur(netto)}" if r["restschuld"] > 0.005 or e["kredit_summe"] > 0 else "Simulation",
+         "gut" if netto >= r["eigenkapital"] else "schlecht"),
+    ]
+    st.markdown('<div class="pb-kpis">' + "".join(
+        f'<div class="pb-kpi {k}"><div class="l">{_esc(l)}</div><div class="w">{_esc(w)}</div>'
+        f'<div class="s">{_esc(s)}</div></div>' for l, w, s, k in karten) + "</div>", unsafe_allow_html=True)
+
+
+def _eingaben():
+    with st.container(border=True):
+        st.markdown('<div class="pb-karte-t">Kapital &amp; Finanzierung</div>', unsafe_allow_html=True)
+        with st.container(key="pb_reihe1"):
+            c = st.columns(4)
+            c[0].number_input("Anfangskapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_anfangskapital")
+            c[1].number_input("Sonstiges Kapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_sonstiges_kapital",
+                              help="Zusätzlich verfügbares Kapital, z. B. Bonus oder Erbe – wird mit angelegt.")
+            c[2].number_input("Erwartete Rendite % p. a.", -P.MAX_RENDITE, P.MAX_RENDITE, step=0.5, format="%.1f", key="pb_rendite_pa",
+                              help="Effektiver Jahreszins für das ganze Portfolio. Monatlich gerechnet mit "
+                                   "(1 + r)^(1/12) − 1.")
+            with c[3]:
+                einheit = st.session_state.get("pb_laufzeit_einheit") or "Jahre"
+                st.number_input(f"Laufzeit ({einheit})", 1, P.MAX_MONATE if einheit == "Monate" else P.MAX_MONATE // 12, step=1,
+                                key="pb_laufzeit")
+        with st.container(key="pb_reihe2"):
+            c = st.columns(4)
+            c[0].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_einzahlung")
+            c[1].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme")
+            c[2].number_input("Ausgaben €/Monat", 0.0, P.MAX_MONATLICH, step=10.0, format="%.0f", key="pb_ausgaben",
+                              help="Laufende Kosten und Gebühren (Depot, Sparplan, Beratung …).")
+            with c[3]:
+                st.segmented_control("Laufzeit in", ["Jahre", "Monate"], key="pb_laufzeit_einheit",
+                                     on_change=_einheit_wechseln)
+        with st.container(key="pb_reihe3"):
+            c = st.columns(4)
+            c[0].number_input("Kredit €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_kredit_summe",
+                              help="Wird mit angelegt und als Schuld wieder abgezogen – zählt also nicht doppelt.")
+            c[1].number_input("Kreditzins % p. a.", 0.0, P.MAX_KREDITZINS, step=0.1, format="%.2f", key="pb_kredit_zins_pa")
+            c[2].number_input("Kreditrate €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.2f", key="pb_kredit_rate",
+                              help="Zins + Tilgung. Wird aus dem monatlichen Cashflow bezahlt.")
+            return c[3]
+
+
+def _kredit_hinweis(spalte, r):
+    e = r["eingaben"]
+    if e["kredit_summe"] <= 0:
+        return
+    k = r["kredit"]
+    with spalte:
+        st.caption(f"Für Tilgung in der Laufzeit: {eur(k['rate_volltilgung'], 2)}/Monat")
+        st.button("Rate übernehmen", key="pb_rate_btn", on_click=_rate_uebernehmen, args=(k["rate_volltilgung"],),
+                  width="stretch")
+    if k["rate_zu_klein"]:
+        st.warning("Die Kreditrate deckt nicht einmal die Zinsen – die Schuld wächst.")
+    elif r["restschuld"] > 0.005:
+        st.info(f"Am Ende der Laufzeit bleibt eine Restschuld von {eur(r['restschuld'])}.")
+
+
+def _tabelle(r):
+    """Editierbare Aufteilung. Gespeichert wird je Position nur das Gewicht; Betrag/Stueck
+    werden daraus gerechnet. Aenderungen (st.data_editor-Delta) -> Gewichte -> neu zeichnen."""
+    e, pos = r["eingaben"], r["positionen"]
+    with st.container(border=True):
+        summe = pos["summe_gewicht"]
+        ok = abs(summe - 100.0) < 0.05
+        st.markdown('<div class="pb-karte-t">Portfolio-Aufteilung</div>', unsafe_allow_html=True)
+        df = pd.DataFrame([{"Name": z["name"], "Kurs €": z["kurs"], "Gewicht %": round(z["gewicht"], 4),
+                            "Betrag €": round(z["betrag"], 2), "Stück": round(z["stueck"], 4),
+                            "Wert €": round(z["wert"], 2)} for z in pos["zeilen"]],
+                          columns=list(SPALTEN))
+        key = f"pb_tab_{st.session_state.get('pb_tab_ver', 0)}"
+        # Handy: die Spalten zum Eintippen zuerst, "Wert" steht in der Positionstabelle darunter
+        reihenfolge = (["Name", "Gewicht %", "Betrag €", "Stück", "Kurs €"] if _smartphone() else list(SPALTEN))
+        st.data_editor(
+            df, key=key, num_rows="dynamic", hide_index=True, width="stretch", column_order=reihenfolge,
+            disabled=["Wert €"],
+            column_config={
+                "Name": st.column_config.TextColumn("Name", width=110 if _smartphone() else "medium",
+                                                    required=True),
+                "Kurs €": st.column_config.NumberColumn("Kurs €", min_value=0.0, format="localized", step=0.01,
+                                                        width="small"),
+                "Gewicht %": st.column_config.NumberColumn("Gewicht %", min_value=0.0, max_value=100.0,
+                                                           format="localized", step=0.1, width="small"),
+                "Betrag €": st.column_config.NumberColumn("Betrag €", min_value=0.0, format="localized", step=1.0,
+                                                          width="small"),
+                "Stück": st.column_config.NumberColumn("Stück", min_value=0.0, format="localized",
+                                                       step=1.0 if e["nur_ganze_stuecke"] else 0.0001, width="small"),
+                "Wert €": st.column_config.NumberColumn("Wert €", format="localized", width="small"),
+            })
+        delta = st.session_state.get(key) or {}
+        geaendert = {i: {SPALTEN[c]: v for c, v in w.items() if c in SPALTEN}
+                     for i, w in (delta.get("edited_rows") or {}).items()}
+        neu = [{SPALTEN[c]: v for c, v in w.items() if c in SPALTEN} for w in (delta.get("added_rows") or [])]
+        weg = delta.get("deleted_rows") or []
+        if any(geaendert.values()) or weg or any(neu):
+            st.session_state["pb_positionen"] = P.aenderungen_anwenden(e["positionen"], pos["kapital"],
+                                                                       geaendert, neu, weg)
+            st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+            st.rerun()
+        c1, c2 = st.columns([1, 1], vertical_alignment="center")
+        c1.toggle("Nur ganze Stücke", key="pb_nur_ganze_stuecke",
+                  help="Stückzahlen abrunden; der Rest bleibt als Cash im Portfolio.")
+        c2.button("Auf 100 % verteilen", key="pb_100_btn", on_click=_auf_100, disabled=ok or not e["positionen"],
+                  width="stretch")
+        texte = ["Prozent, Betrag oder Stück ändern – die anderen Werte rechnen sich sofort mit."]
+        if pos["cash"] > 0.005:
+            texte.append(f"Nicht investiert (Cash): {eur(pos['cash'], 2)}.")
+        if pos["kapital"] <= 0:
+            texte.append("Ohne Kapital lassen sich Betrag und Stück nicht umrechnen – erst Kapital eintragen.")
+        # Summe unter der Tabelle - ueber ihr liegt beim Antippen die Werkzeugleiste der Tabelle
+        st.markdown(f'<div class="pb-hinweis"><span class="pb-status {"ok" if ok else "warn"}">Summe {pct(summe)}'
+                    f'{"" if ok else " – Ziel 100 %"}</span> {_esc(" ".join(texte))}</div>', unsafe_allow_html=True)
+
+
+def _diagramme(r):
+    import plotly.graph_objects as go
+    pos = r["positionen"]
+    namen = [z["name"] for z in pos["zeilen"] if z["wert"] > 0.005]
+    werte = [z["wert"] for z in pos["zeilen"] if z["wert"] > 0.005]
+    farben = [FARBEN[i % len(FARBEN)] for i, z in enumerate(pos["zeilen"]) if z["wert"] > 0.005]
+    if pos["cash"] > 0.005:
+        namen.append("Cash (nicht investiert)")
+        werte.append(pos["cash"])
+        farben.append("#3F4652")
+    with st.container(key="pb_diagramme"):
+        links, rechts = st.columns([1, 1.6], gap="medium")
+        with links, st.container(border=True):
+            st.markdown('<div class="pb-karte-t">Verteilung</div>', unsafe_allow_html=True)
+            if werte:
+                fig = go.Figure(go.Pie(
+                    labels=namen, values=werte, hole=0.62, sort=False, marker=dict(colors=farben, line=dict(width=0)),
+                    textinfo="none", customdata=[eur(w) for w in werte],
+                    hovertemplate="%{label}<br>%{customdata} · %{percent}<extra></extra>"))
+                fig.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", height=300, margin=dict(l=0, r=0, t=0, b=0), separators=",.",
+                    showlegend=True, font=dict(color="#D6D9DE", size=12),
+                    legend=dict(orientation="h", y=-0.05, x=0.5, xanchor="center", font=dict(size=12)),
+                    annotations=[dict(text=f"<b>{eur(r['portfoliowert'])}</b><br><span style='font-size:12px'>"
+                                           f"Portfoliowert</span>", showarrow=False, font=dict(size=15,
+                                                                                               color="#E9EBEF"))])
+                st.plotly_chart(fig, width="stretch", key="pb_donut", config={"displayModeBar": False})
+            else:
+                st.caption("Noch keine Positionen mit Wert.")
+        with rechts, st.container(border=True):
+            st.markdown('<div class="pb-karte-t">Vermögensentwicklung</div>', unsafe_allow_html=True)
+            heute = datetime.date.today().replace(day=1)
+            v = r["verlauf"]
+            x = [_monat_plus(heute, z["monat"]) for z in v]
+            fig = go.Figure()
+            hat_kredit = r["eingaben"]["kredit_summe"] > 0
+            reihen = [("Portfolio", "portfolio", "#16C784")]
+            if hat_kredit:
+                reihen += [("Schulden", "schulden", "#EA3943"), ("Netto (Portfolio − Schulden)", "netto", "#E9EBEF")]
+            for name, feld, farbe in reihen:
+                fig.add_trace(go.Scatter(
+                    x=x, y=[z[feld] for z in v], name=name, mode="lines", line=dict(color=farbe, width=2.4),
+                    customdata=[eur(z[feld]) for z in v], hovertemplate=f"{name}: %{{customdata}}<extra></extra>",
+                    fill="tozeroy" if feld == "portfolio" else None,
+                    fillcolor="rgba(22,199,132,0.10)" if feld == "portfolio" else None))
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=300, separators=",.",
+                margin=dict(l=4, r=4, t=8, b=4), font=dict(color="#D6D9DE", size=12), hovermode="x unified",
+                showlegend=hat_kredit,
+                legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0, font=dict(size=12)),
+                xaxis=dict(showgrid=False, tickformat="%Y"),
+                yaxis=dict(gridcolor="#1E2228", tickformat=",.0f", ticksuffix=" €", side="right", zeroline=False))
+            st.plotly_chart(fig, width="stretch", key="pb_linie", config={"displayModeBar": False})
+
+
+def _monat_plus(d, n):
+    m = d.month - 1 + n
+    return datetime.date(d.year + m // 12, m % 12 + 1, 1)
+
+
+def _positionen_tabelle(r):
+    pos = r["positionen"]
+    zeilen = []
+    for i, z in enumerate(pos["zeilen"]):
+        stueck = _de(z["stueck"], 0 if r["eingaben"]["nur_ganze_stuecke"] or z["stueck"] >= 1000 else 2)
+        zeilen.append(f'<tr><td><i style="background:{FARBEN[i % len(FARBEN)]}"></i>{_esc(z["name"])}</td>'
+                      f'<td>{pct(z["anteil"])}</td><td>{stueck}</td><td class="kurs">{eur(z["kurs"], 2)}</td>'
+                      f'<td>{eur(z["wert"])}</td></tr>')
+    if pos["cash"] > 0.005:
+        zeilen.append(f'<tr><td><i style="background:#3F4652"></i>Cash (nicht investiert)</td>'
+                      f'<td>{pct(pos["cash"] / pos["kapital"] * 100 if pos["kapital"] else 0)}</td>'
+                      f'<td>–</td><td class="kurs">–</td><td>{eur(pos["cash"])}</td></tr>')
+    zeilen.append(f'<tr class="summe"><td>Summe</td><td>{pct(100 if pos["kapital"] else 0)}</td><td></td>'
+                  f'<td class="kurs"></td>'
+                  f'<td>{eur(pos["kapital"])}</td></tr>')
+    with st.container(border=True):
+        st.markdown('<div class="pb-karte-t">Positionen</div>'
+                    '<div class="pb-wrap" tabindex="0" role="region" aria-label="Positionen (seitlich scrollbar)">'
+                    '<table class="pb-tab"><thead><tr><th>Position</th><th>Anteil</th><th>Stück</th><th class="kurs">Kurs</th>'
+                    '<th>Wert</th></tr></thead><tbody>' + "".join(zeilen) + "</tbody></table></div>",
+                    unsafe_allow_html=True)
+
+
+def _ergebnis(r):
+    s, e = r["summen"], r["eingaben"]
+    gewinn = s["rendite"]
+    werte = [
+        ("Verfügbares Anlagekapital", eur(r["anlagekapital"]), ""),
+        ("Monatlicher Netto-Cashflow", eur(r["cashflow_monat"], 2),
+         "gut" if r["cashflow_monat"] > 1e-9 else ("schlecht" if r["cashflow_monat"] < -1e-9 else "")),
+        ("Prognostizierter Endwert", eur(r["endwert"]), ""),
+        ("Verbleibende Kreditschulden", eur(r["restschuld"]), "schlecht" if r["restschuld"] > 0.005 else ""),
+        ("Nettoendvermögen", eur(r["netto_endvermoegen"]),
+         "gut" if r["netto_endvermoegen"] >= r["eigenkapital"] else "schlecht"),
+        ("Ertrag aus Rendite", eur(gewinn), "gut" if gewinn > 0 else ("schlecht" if gewinn < 0 else "")),
+        ("Einzahlungen gesamt", eur(s["einzahlung"]), ""),
+        ("Entnahmen + Ausgaben", eur(s["entnahme"] + s["ausgaben"]), ""),
+        ("Kreditzinsen gesamt", eur(s["zinsen"]), ""),
+    ]
+    with st.container(border=True):
+        st.markdown('<div class="pb-karte-t">Ergebnis</div><div class="pb-grid">' + "".join(
+            f'<div><span class="l">{_esc(l)}</span><span class="w {k}">{_esc(w)}</span></div>' for l, w, k in werte)
+            + "</div>", unsafe_allow_html=True)
+        if s["fehlbetrag"] > 0.005:
+            st.warning(f"Das Portfolio reicht nicht für alle Auszahlungen: insgesamt fehlen {eur(s['fehlbetrag'])}. "
+                       "Es wurde bei 0 gehalten – der Rest müsste von außen kommen.")
+        with st.expander("ℹ️ So wird gerechnet"):
+            st.markdown(
+                f"""<div class="pb-hinweis">
+<b>Anlagekapital</b> = Anfangskapital + sonstiges Kapital + Kredit = {eur(r['anlagekapital'])}.
+Der Kredit wird mit angelegt und als Schuld wieder abgezogen – er zählt nicht doppelt.<br>
+<b>Je Monat</b>: 1) Kreditzinsen = Restschuld × {pct(e['kredit_zins_pa'], 2)} / 12, gezahlt wird die Rate
+(zuletzt nur der Rest). 2) Netto-Cashflow = Einzahlung − Entnahme − Ausgaben − Kreditrate.
+3) Portfolio = Portfolio × (1 + r) + Cashflow mit r = (1 + {pct(e['rendite_pa'], 2)})^(1/12) − 1.
+Unter 0 fällt das Portfolio nicht; fehlende Beträge werden als Fehlbetrag ausgewiesen.<br>
+<b>Nettoendvermögen</b> = Endwert − Restschuld. Szenariorechnung mit gleichbleibender Rendite – keine Prognose
+und keine Anlageempfehlung.</div>""", unsafe_allow_html=True)
+
+
+def _speicherleiste(h, e):
+    gespeichert = st.session_state.get("pb_gespeichert")
+    jetzt = _fingerabdruck(e)
+    st.markdown(f'<div class="pb-hinweis" style="margin-bottom:6px">'
+                f'{"✓ Gespeichert" if gespeichert == jetzt else "Änderungen noch nicht gespeichert"}</div>',
+                unsafe_allow_html=True)
+    c2, c3 = st.columns(2)
+    if c2.button("💾 Speichern", key="pb_speichern", width="stretch", disabled=gespeichert == jetzt):
+        if _speichern(h, e):
+            st.session_state["pb_gespeichert"] = jetzt
+            st.toast("Portfolio gespeichert.")
+            st.rerun()
+        else:
+            st.error("Speichern nicht möglich (Datenspeicher nicht erreichbar). Bitte später erneut versuchen.")
+    c3.button("↺ Standardwerte", key="pb_standard", width="stretch", on_click=_standard_laden)
+
+
+# ---------------------------------------------------------------- Seite
+def render(h):
+    st.markdown(CSS, unsafe_allow_html=True)
+    _start(h)
+    st.markdown('<div class="pb-kopf"><div class="pb-titel">Portfolio Builder <span>2.0</span></div>'
+                '<div class="pb-unter">Alles auf einer Seite · Änderungen wirken sofort</div></div>',
+                unsafe_allow_html=True)
+    kpi_platz = st.empty()
+    kredit_spalte = _eingaben()
+    e = _aus_widgets()
+    r = P.simulation(e)
+    _kredit_hinweis(kredit_spalte, r)
+    _tabelle(r)
+    with kpi_platz.container():
+        _kpis(r)
+    _diagramme(r)
+    _positionen_tabelle(r)
+    _ergebnis(r)
+    _speicherleiste(h, e)

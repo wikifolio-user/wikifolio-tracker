@@ -2613,6 +2613,7 @@ ANSICHT_MUSTER = "📦 Musterdepot"    # aus dem Portfolio-Planer erstellt - But
 ANSICHT_ABFINDUNG = "💶 Abfindungsrechner"
 ANSICHT_ZINS = "🧮 Zinseszinsrechner"
 ANSICHT_BENUTZER = "👥 Benutzer"      # nur fuer den Admin sichtbar
+ANSICHT_BUILDER = "🚀 Portfolio Builder 2.0"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
@@ -2633,6 +2634,7 @@ ANSICHTEN = [
     ANSICHT_ABFINDUNG,          # immer ans Ende: die Kachel-Keys haengen am Index
     ANSICHT_ZINS,
     ANSICHT_BENUTZER,
+    ANSICHT_BUILDER,            # neu: hinten anhaengen, damit die Kachel-Keys der anderen gleich bleiben
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2650,6 +2652,7 @@ ANSICHT_KURZ = {
     ANSICHT_ABFINDUNG: "💶 Abfindung",
     ANSICHT_ZINS: "🧮 Zinsen",
     ANSICHT_BENUTZER: "👥 Benutzer",
+    ANSICHT_BUILDER: "🚀 Builder 2.0",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2663,6 +2666,7 @@ NAV_NAMEN = {
     "🔮 Zukunfts-Prognose": "🔮 Zukunfts-Prognose",
     "📊 Szenario-Simulator (5 Jahre)": "📊 Szenario-Simulator",
     "💼 Portfolio-Planer": "💼 Portfolio-Planer",
+    ANSICHT_BUILDER: "🚀 Portfolio Builder 2.0",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
@@ -2680,13 +2684,13 @@ NAV_ZEILEN = [
     ("Depot", [ANSICHT_DEPOT, ANSICHT_EINST, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_MUSTER]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
-    ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Planer",
-                           "🏆 Watchlist Top 50"]),
+    ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
+                           "💼 Portfolio-Planer", "🏆 Watchlist Top 50"]),
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
+LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", ANSICHT_BUILDER, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
@@ -4858,6 +4862,19 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Portfolio-Planer: {e}")
             notify_app_error("Tab-Portfolio-Planer", e)
+        lade_fertig()
+
+    # --- PORTFOLIO BUILDER 2.0: eigenstaendige, einfache Ein-Seiten-Ansicht
+    # (Rechenkern portfolio_builder.py, Oberflaeche portfolio_builder_ui.py)
+    if gewaehlte_ansicht == ANSICHT_BUILDER:
+        _zugang_pruefen(ANSICHT_BUILDER)
+        try:
+            import portfolio_builder_ui
+            portfolio_builder_ui.render({"gh_read": gh_read, "gh_write": gh_write,
+                                         "gh_aktualisiere": gh_aktualisiere, "nutzer": _nutzer()})
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Portfolio Builder: {e}")
+            notify_app_error("Tab-Portfolio-Builder", e)
         lade_fertig()
 
 
