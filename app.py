@@ -3676,12 +3676,12 @@ def render_dashboard():
                 if wert is None:
                     return '<td class="pt-num">–</td>'
                 farbe = "pt-up" if wert >= 0 else "pt-down"
-                return f'<td class="pt-num pt-stark {farbe}">{wert:+.2f}%</td>'
+                return f'<td class="pt-num pt-stark {farbe}">{vz_zahl(wert, 2)} %</td>'
 
             def _div(wert):
                 if not wert:
                     return '<td class="pt-num">–</td>'
-                return f'<td class="pt-num pt-stark pt-up">{wert:.2f}%</td>'
+                return f'<td class="pt-num pt-stark pt-up">{_de_zahl(wert, 2)} %</td>'
 
             vergleich = (kat.get("vergleich") or {}).get(zr_key)
             mit_trend = vergleich is not None
@@ -4054,7 +4054,7 @@ def render_dashboard():
                     continue
                 farbe = "pt-up" if (v["pot"] or 0) >= 0 else "pt-down"
                 zeilen += (f'<tr><td class="pt-wert"><span class="pt-name">{namen[k]}</span></td>'
-                           f'<td class="pt-num">{v["g"]:.1f} %</td><td class="pt-num">{v["r"]:.1f} %</td>'
+                           f'<td class="pt-num">{_de_zahl(v["g"], 1)} %</td><td class="pt-num">{_de_zahl(v["r"], 1)} %</td>'
                            f'<td class="pt-num">{v["m"]:.1f}x</td>'
                            f'<td class="pt-num pt-stark {farbe}">{v["pot"]:+.0f} %</td></tr>')
             st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr><th class="pt-wert">Fall</th>'
@@ -4292,9 +4292,9 @@ def render_dashboard():
                 f'<td class="pt-num pt-seit">{platz}</td>'
                 f'<td class="pt-wert"><span class="pt-name">{html.escape(z["name"])}</span>'
                 f'<span class="pt-sub">{html.escape(unter)}</span></td>'
-                f'<td class="pt-num pt-stark {"pt-up" if perf >= 0 else "pt-down"}">{perf:+.1f} %</td>'
+                f'<td class="pt-num pt-stark {"pt-up" if perf >= 0 else "pt-down"}">{vz_zahl(perf, 1)} %</td>'
                 f'<td class="pt-num pt-stark {"pt-up" if (fy or 0) >= 5 else "pt-down" if fy is not None and fy < 2 else ""}">'
-                f'{"–" if fy is None else f"{fy:.1f} %"}</td>'
+                f'{"–" if fy is None else f"{_de_zahl(fy, 1)} %"}</td>'
                 f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(z["klasse"], "")}">{z["gesamt"]}</td></tr>')
         st.markdown(f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr>{kopf}</tr></thead>'
                     f'<tbody>{z_html}</tbody></table></div>', unsafe_allow_html=True)
@@ -4318,7 +4318,7 @@ def render_dashboard():
                 x=[min(max(z[zr_key], unten), oben) for z in pts], y=[z["q_ant"] for z in pts],
                 mode="markers", name=titel_kl,
                 marker=dict(color=farbe, size=6 if kl != "nicht" else 5, opacity=0.85 if kl != "nicht" else 0.45),
-                text=[f'{_h(z["name"])} ({_h(z["s"])})<br>Kurs {zr_titel}: {z[zr_key]:+.1f} %<br>'
+                text=[f'{_h(z["name"])} ({_h(z["s"])})<br>Kurs {zr_titel}: {vz_zahl(z[zr_key], 1)} %<br>'
                       f'Qualität {z["q_ant"]:.0f} % · {z["gesamt"]} Punkte' for z in pts],
                 hovertemplate="%{text}<extra></extra>"))
         for x0, y0, text in ((unten, 99, "Qualität hoch · Kurs schwach"), (oben, 99, "Qualität hoch · Kurs stark"),
@@ -4367,7 +4367,7 @@ def render_dashboard():
                     "Läufen aufgebaut.")
             return
         st.caption(f"{mit} von {len(zeilen)} bewerteten Aktien mit Kursdaten · Trennlinien: Qualität "
-                   f"{QK_QUAL_GRENZE} % (ohne Bewertung) und Median der Kursentwicklung ({median:+.1f} %)")
+                   f"{QK_QUAL_GRENZE} % (ohne Bewertung) und Median der Kursentwicklung ({vz_zahl(median, 1)} %)")
         _qk_diagramm(zeilen, zr_key, zr_wahl, median)
 
         f_titel = [f"{t} ({len(felder[f])})" for f, t, _ in QK_FELDER]
@@ -4496,15 +4496,15 @@ def render_dashboard():
                         fy = z.get("fcfy")
                         zl.append([_ue_z(platz, fett=True), _ue_z(f'{z["name"]} ({z["s"]})', fett=True),
                                    _ue_z(z.get("br") or "–"),
-                                   _ue_z(f'{z["p12"]:+.1f} %', "up" if z["p12"] >= 0 else "down", True),
+                                   _ue_z(f'{vz_zahl(z["p12"], 1)} %', "up" if z["p12"] >= 0 else "down", True),
                                    _ue_z(f'{z["q_ant"]:.0f} %'),
                                    _ue_z(z["gesamt"], {"prio": "prio", "beobachten": "beob"}.get(z["klasse"], "nicht"), True),
-                                   _ue_z("–" if fy is None else f"{fy:.1f} %", "up" if (fy or 0) >= 5 else None),
+                                   _ue_z("–" if fy is None else f"{_de_zahl(fy, 1)} %", "up" if (fy or 0) >= 5 else None),
                                    _ue_z(z.get("bew") or "–"),
                                    _ue_z("–" if z.get("mos") is None or z["mos"] <= -200 else f'{z["mos"]:+.0f} %')])
                     ab.append({"titel": f"Qualität × Kurs (1 Jahr): {f_titel[2:].strip()} – alle Aktien "
                                         f"(Top {len(zl)} von {len(felder[f_key])})",
-                               "text": f_text + (f" Median Kursentwicklung: {median:+.1f} %." if median is not None else ""),
+                               "text": f_text + (f" Median Kursentwicklung: {vz_zahl(median, 1)} %." if median is not None else ""),
                                "spalten": [("#", 3, "r"), ("Unternehmen", 22, "l"), ("Branche", 14, "l"),
                                            ("Kurs 1 J.", 7, "r"), ("Qualität", 7, "r"), ("Punkte", 6, "r"),
                                            ("FCF-Rendite", 8, "r"), ("Bewertung", 8, "l"), ("MoS", 7, "r")],
@@ -4555,7 +4555,7 @@ def render_dashboard():
                             continue
                         e, leer = liste[platz - 1], False
                         wert = e.get("div") if zr == div_zr[0] else e.get("perf")
-                        zahl = "–" if wert is None else (f"{wert:.2f} %" if zr == div_zr[0] else f"{wert:+.1f} %")
+                        zahl = "–" if wert is None else (f"{_de_zahl(wert, 2)} %" if zr == div_zr[0] else f"{vz_zahl(wert, 1)} %")
                         v = (kat.get("vergleich") or {}).get(zr)
                         trend = _trend(e.get("vor"), platz)[0] if v is not None else ""
                         name = e["name"] if len(e["name"]) <= 26 else e["name"][:25] + "…"
@@ -5223,7 +5223,7 @@ def render_dashboard():
                 return f'<td class="pt-num pt-leer"{attr}>–</td>'
             farbe = "pt-up" if wert >= 0 else "pt-down"
             klassen = f"pt-num {farbe}" + (" pt-stark" if fett else "") + (" pt-klein" if klein else "")
-            return f'<td class="{klassen}"{attr}>{wert:+.2f}%</td>'
+            return f'<td class="{klassen}"{attr}>{vz_zahl(wert, 2)} %</td>'
 
         zeilen = ""
         for i, e in enumerate(eintraege):
@@ -5390,7 +5390,7 @@ def render_dashboard():
         # Rate stammt aus dem Rueckfall (hochgerechnet bzw. 0 %) - sichtbar kennzeichnen
         _ms_basis = (prognose_rueckfall_hinweis.split(" – ")[0]
                      if prognose_rueckfall_hinweis.startswith("Hochgerechnet") else "0 % p.a. (Historie < 1 Monat)")
-        meilenstein_details_str += f" · Basis {prognose_rendite_pa:.1f} % p.a., {_ms_basis}"
+        meilenstein_details_str += f" · Basis {_de_zahl(prognose_rendite_pa, 1)} % p.a., {_ms_basis}"
 
     richtung = "up" if tages_verenderung_pct >= 0 else "down"
     differenz_zum_vortag = aktueller_kurs - vortag_kurs
@@ -5930,7 +5930,7 @@ def render_dashboard():
                 f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
                 f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a.'
                 f'{" (hochgerechnet)" if (_p_hinweis or "").startswith("Hochgerechnet") else ""}</span>'
-                f'<span class="stat-chip-val">{p_prognose_pa:.1f} %</span></span>'
+                f'<span class="stat-chip-val">{_de_zahl(p_prognose_pa, 1)} %</span></span>'
                 f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
                 '</div>'
                 f'{perf_zeilen_html(p_perioden_depot, 2)}'
