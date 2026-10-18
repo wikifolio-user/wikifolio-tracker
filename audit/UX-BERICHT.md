@@ -11,7 +11,7 @@ Die App lief vorher auf keinem Gerät seitlich über und ist grundsätzlich mobi
 - **eine ungünstige Gewichtung im Depot**: Die eigene Depotsumme kam erst nach der kompletten Kurskachel. Auf Laptop und Desktop liefen alle Kacheln über die volle Bildschirmbreite;
 - **Bedienelemente unter 44 px**, englische Platzhalter und Datumsformate, Fachjargon („Instrument-ID“), Kontrast- und Tastaturmängel.
 
-Alle unten als *behoben* markierten Punkte sind umgesetzt und im zweiten Messlauf nachgeprüft.
+Alle unten als *behoben* markierten Punkte sind umgesetzt und im abschließenden Messlauf über alle Geräte nachgeprüft.
 
 ## Vorgehen
 
@@ -24,7 +24,7 @@ Alle unten als *behoben* markierten Punkte sind umgesetzt und im zweiten Messlau
 | Sichtprüfung | Screenshots aller Ansichten auf iPhone SE, iPad und Laptop gesichtet (Hierarchie, Verständlichkeit, Dichte) |
 | Tastatur | Anmeldung, Menü, Ansicht öffnen und zurück nur mit Tab/Enter, Fokusrahmen geprüft |
 
-Insgesamt 282 Ansichten je Messlauf (47 je Gerät). Skripte: `audit/harness/ux_mess.py`, `ux_tastatur.py`, `ux_spalten.py`.
+Insgesamt 282 Ansichten je Messlauf (47 je Gerät). Skripte: `audit/harness/ux_mess.py`, `ux_tastatur.py`, `ux_spalten.py`; Start der Sandbox mit `AUDIT_SEED=seed_ux` (Marktdaten unter `../markt/state`, axe-core unter `../axe/package`). Vorher/Nachher-Bilder: `audit/belege/ux/`.
 
 ## Messergebnis vorher → nachher
 
@@ -54,7 +54,9 @@ Schweregrad: **hoch** = Bereich unbenutzbar oder Kernzahlen nicht lesbar · **mi
 | UX-14 | Prozente in Tabellen mit Dezimalpunkt („+19.13%“) | alle | niedrig | **behoben**: „+19,13 %“ |
 | UX-15 | Kontrast: Chronik-Kopfzeilen (#71717A) und Szenario-Jahreslabels (10,4 px) unter 4,5:1 | alle | mittel | **behoben** |
 | UX-16 | Seitlich scrollbare Vergleichstabellen per Tastatur nicht erreichbar; Permanentlink im Zinsrechner nur seitlich scrollbar | Tastatur | mittel | **behoben**: Tabellen fokussierbar, Link bricht um |
-| UX-17 | Schrift unter 12 px (Tabellenköpfe 10,2 px, Beschriftungen 10,9–11,8 px) | alle | niedrig | **behoben**: Untergrenze 12 px in App und Planer |
+| UX-17 | Schrift unter 12 px (Menügruppen 11,2 px, Tabellenköpfe 10,2 px, Planer-Hinweise 11,5 px, Diagrammachsen 11 px) | alle | niedrig | **behoben**: Untergrenze 0,8 rem (≈ 12,8 px), weil Streamlit Markdown teils auf 96 % verkleinert; Diagrammschrift 12 px |
+| UX-18 | Eingabefelder 42 px hoch, Positions-Reiter 40 px, 🔄 in der Kopfleiste 37 px breit | Touch | niedrig | **behoben**: 44 px auf Touch-Geräten |
+| UX-19 | Entwicklungstabelle im Zinsrechner scrollt auf dem Handy seitlich, ist aber per Tastatur nicht erreichbar (axe „scrollable-region-focusable“) | iPhone / Tastatur | mittel | **behoben**: fokussierbarer Scroll-Rahmen |
 
 ## Tastaturbedienung
 
@@ -64,7 +66,7 @@ Anmeldung, Menü, Öffnen einer Ansicht per Enter und Rückweg über „☰ Men�
 
 | Punkt | Grund / Empfehlung |
 |---|---|
-| Kleine Streamlit-interne Bedienelemente: Kalender-Symbol (16 px), Aufklapp-Pfeil der Auswahlfelder (38 px), Zahlen-Stepper (42 px), Tabellen-Werkzeugleiste (24 px) | Teil der Streamlit-Komponenten; die eigentlichen Eingabefelder sind groß genug. Nur durch tiefe CSS-Eingriffe änderbar, die bei Streamlit-Updates brechen. |
+| Kleine Streamlit-interne Bedienelemente: Link „Skip to main content“ (nur bei Tastaturfokus sichtbar), Kalender-Symbol (16 px), Hilfe-„?“ (13 px), Aufklapp-Pfeil der Auswahlfelder, Zahlen-Stepper (42 px), Tabellen-Werkzeugleiste (24 px) | Teil der Streamlit-Komponenten; die eigentlichen Eingabefelder sind groß genug. Nur durch tiefe CSS-Eingriffe änderbar, die bei Streamlit-Updates brechen. |
 | Zahleneingaben mit Dezimalpunkt („24.27“) | Streamlit-`number_input` kennt kein deutsches Format. |
 | Portfolio-Planer: sehr lange Seite (6.000–9.000 px auf dem Handy), viel Fließtext | Empfehlung: auf dem Handy standardmäßig die vorhandene Ansicht „Schritt für Schritt“ öffnen und Erklärtexte in aufklappbare Hinweise verschieben. Größerer Umbau, mit dir abzustimmen. |
 | Lange Firmennamen in Watchlist-Tabellen gekürzt | Gewollt (Tabellenbreite); voller Name im Detail. |
