@@ -72,6 +72,7 @@ Schweregrad: **hoch** = Bereich unbenutzbar oder Kernzahlen nicht lesbar · **mi
 | UX-21 | Planer-Katalog (72 Werte) in voller Höhe, rund 3.500 px nur für die Tabelle | iPhone | mittel | **behoben**: auf dem Smartphone höchstens 15 Zeilen, der Rest scrollt in der Tabelle |
 | UX-22 | Fortschrittsanzeige im geführten Planer: falsche ARIA-Rollen (axe „aria-required-children“, „aria-prohibited-attr“), Schrittnamen auf dem Handy abgeschnitten, Status nur als Farbe/Symbol | iPhone / Screenreader | mittel | **behoben**: Liste mit Status-Text für Screenreader, Fortschrittsbalken als `progressbar`; auf dem Handy nur der aktive Schritt beschriftet |
 | UX-23 | Knöpfe in schmalen Spalten brachen mitten im Wort um („Gewich·te normali·sieren“), Nebenwirkung von UX-04 | iPhone | niedrig | **behoben**: Umbruch nur an Wortgrenzen, breitere Knopfspalte auf dem Handy |
+| UX-24 | Planer-Schritte „Auswahl“ (5.500 px) und „Annahmen & Quellen“ (5.100 px) auf dem iPhone sehr lang: Spalten-Legenden, Katalog-Filter, selten genutzte Aktionen und Stammdaten immer ausgeklappt | iPhone | mittel | **behoben**: auf dem Smartphone eingeklappt (ℹ️ Erklärung, ⚙️ Filter, 🗑️ Entfernen/Zurücksetzen, 📚 Datenqualität mit Zahl der Bausteine ohne Kurshistorie im Titel, 🗂️ Stammdaten) → 4.300 px bzw. 2.350 px; Tablet und Desktop unverändert |
 
 ## Tastaturbedienung
 
@@ -83,7 +84,7 @@ Anmeldung, Menü, Öffnen einer Ansicht per Enter und Rückweg über „☰ Men�
 |---|---|
 | Kleine Streamlit-interne Bedienelemente: Link „Skip to main content“ (nur bei Tastaturfokus sichtbar), Kalender-Symbol (16 px), Hilfe-„?“ (13 px), Aufklapp-Pfeil der Auswahlfelder, Zahlen-Stepper (42 px), Tabellen-Werkzeugleiste (24 px) | Teil der Streamlit-Komponenten; die eigentlichen Eingabefelder sind groß genug. Nur durch tiefe CSS-Eingriffe änderbar, die bei Streamlit-Updates brechen. |
 | Zahleneingaben mit Dezimalpunkt („24.27“) | Streamlit-`number_input` kennt kein deutsches Format. |
-| Portfolio-Planer: einzelne Schritte bleiben lang („Auswahl“ ≈ 5.500 px, „Annahmen & Quellen“ ≈ 5.100 px auf dem iPhone), viel Erklärtext | Die Länge von „Annahmen & Quellen“ kommt in der Sandbox vor allem von „Instrument nicht gefunden“ in jeder Zeile (keine Kursquellen). Weitere Kürzung (Erklärtexte in aufklappbare Hinweise) wäre ein inhaltlicher Umbau des Planers – nur nach Rücksprache. |
+| Portfolio-Planer: längster Schritt auf dem iPhone ist „Auswahl“ (≈ 4.300 px) | Er enthält Bausteintabelle und Katalog – beides Kerninhalt. Eine Aufteilung in zwei Unterseiten wäre möglich, ändert aber den Ablauf. |
 | Lange Firmennamen in Watchlist-Tabellen gekürzt | Gewollt (Tabellenbreite); voller Name im Detail. |
 | `st.components.v1.html` (Ladeanzeige) laut Streamlit „nach 01.06.2026 entfernt“ | Mit der fest eingestellten Version 1.66 funktioniert es. Vor einem Streamlit-Update auf `st.iframe` umstellen. |
 | Nur dunkles Design, kein helles Design | Bewusste Gestaltung; bei Bedarf separat. |
