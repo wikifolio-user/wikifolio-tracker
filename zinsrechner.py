@@ -1308,7 +1308,8 @@ def render(basis_url="", gespeichert=None, null=False):
 
     za = zeitachse(q, r)
     st.markdown(_kopf("📅", "Entwicklung", "Kontostand jeweils am Jahrestag"), unsafe_allow_html=True)
-    st.markdown(tabelle_html(za, r), unsafe_allow_html=True)
+    st.markdown('<div tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)" style="overflow-x:auto">'
+                + tabelle_html(za, r) + '</div>', unsafe_allow_html=True)
 
     # Permanentlink: Browser-Adresse zeigt immer die aktuelle Variante
     params = in_url(q)

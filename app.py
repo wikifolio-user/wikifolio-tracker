@@ -960,6 +960,8 @@ st.markdown("""
         [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
         [data-testid="stDownloadButton"] button { min-height: 44px !important; }
         [data-testid="stExpander"] summary { min-height: 44px; }
+        [data-baseweb="input"], [data-baseweb="select"] > div { min-height: 44px !important; }
+        [data-testid="stTabs"] [role="tab"] { min-height: 44px !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -4340,10 +4342,10 @@ def render_dashboard():
         fig.update_layout(
             paper_bgcolor="#000000", plot_bgcolor="#000000", height=380, margin=dict(l=10, r=10, t=10, b=40),
             showlegend=True, legend=dict(orientation="h", y=-0.14, x=0, font=dict(color="#A1A1AA", size=10)),
-            xaxis=dict(title=dict(text=f"Kursentwicklung {zr_titel} (EUR)", font=dict(color="#A1A1AA", size=11)),
+            xaxis=dict(title=dict(text=f"Kursentwicklung {zr_titel} (EUR)", font=dict(color="#A1A1AA", size=12)),
                        ticksuffix=" %", showgrid=True, gridcolor="#1A1A1A", zeroline=True, zerolinecolor="#333",
                        tickfont=dict(color="#A1A1AA")),
-            yaxis=dict(title=dict(text="Qualität (%)", font=dict(color="#A1A1AA", size=11)), range=[0, 100],
+            yaxis=dict(title=dict(text="Qualität (%)", font=dict(color="#A1A1AA", size=12)), range=[0, 100],
                        showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
             dragmode=False)
         st.plotly_chart(fig, width="stretch", key="qk_diagramm", config={"displayModeBar": False})
@@ -7592,7 +7594,7 @@ def render_dashboard():
                 line_color="#00C853", 
                 annotation_text="🎯 100k Zielwert", 
                 annotation_position="top left",
-                annotation_font=dict(color="#00C853", size=11)
+                annotation_font=dict(color="#00C853", size=12)
             )
 
             fig_scen.update_layout(
@@ -7606,7 +7608,7 @@ def render_dashboard():
                     y=-0.15,  
                     xanchor="center", 
                     x=0.5, 
-                    font=dict(color="#E5E7EB", size=11)
+                    font=dict(color="#E5E7EB", size=12)
                 ),
                 xaxis=dict(title="Monate ab heute", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
                 yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
