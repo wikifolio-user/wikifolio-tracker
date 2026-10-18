@@ -18,6 +18,7 @@ Bereichs gefuellt - so zeigen sie immer den aktuellen Stand.
 
 Alle Zahlen: Szenariorechnung, keine Prognose, vor Steuern.
 """
+import contextlib
 import copy
 import datetime
 import hashlib
@@ -2964,7 +2965,7 @@ def _katalog(m, h):
                 "Alternativ hier direkt laden: Das Laden der Kurshistorien "
                 f"({len(D.KATALOG)} Werte) dauert einmalig etwa eine halbe Minute – danach steht der Tagesstand "
                 "gespeichert bereit.")
-    c1, c2 = st.columns([3, 1])
+    c1, c2 = st.columns([1.5, 1] if _smartphone() else [3, 1])
     if werte:
         c1.caption(f"Kennzahlen Stand {d.get('berechnet', '–')} · Quelle ls-tc.de Kurshistorie"
                    + (" · täglich berechnet vom Watchlist-Agenten" if d.get("quelle") == "Agent" else "")
@@ -3009,13 +3010,14 @@ def _katalog(m, h):
                 st.write("→ Kennzahlen: " + (f"Fehler: {r['fehler']}" if r.get("fehler") else
                                             f"ok, 5 J. p.a. {_pct(r.get('historical5Y'))}"))
 
-    typen = ["Alle"] + list(D.KATALOG_TYPEN.values())
-    typ = st.pills("Art", typen, default="Alle", key="pl_kat_typ") or "Alle"
-    gruppen = st.pills("Spalten", list(KATALOG_GRUPPEN), default=["Rendite", "Risiko"], selection_mode="multi",
-                       key="pl_kat_spalten") or []
-    c3, c4 = st.columns([3, 2])
-    sortierung = c3.selectbox("Sortieren nach", KATALOG_SORT, key="pl_kat_sort")
-    absteigend = c4.toggle("Absteigend", value=sortierung not in ("Risk", "Vola 1J", "Name"), key=f"pl_kat_ab_{sortierung}")
+    with _klappe_mobil("⚙️ Filter, Spalten & Sortierung"):
+        typen = ["Alle"] + list(D.KATALOG_TYPEN.values())
+        typ = st.pills("Art", typen, default="Alle", key="pl_kat_typ") or "Alle"
+        gruppen = st.pills("Spalten", list(KATALOG_GRUPPEN), default=["Rendite", "Risiko"], selection_mode="multi",
+                           key="pl_kat_spalten") or []
+        c3, c4 = st.columns([3, 2])
+        sortierung = c3.selectbox("Sortieren nach", KATALOG_SORT, key="pl_kat_sort")
+        absteigend = c4.toggle("Absteigend", value=sortierung not in ("Risk", "Vola 1J", "Name"), key=f"pl_kat_ab_{sortierung}")
 
     # Fehlt fuer einen Wert die eigene Kurshistorie, gelten die Zahlen der Watchlist (Top 500)
     fehlend = [k["wkn"] for k in D.KATALOG if not (werte.get(k["wkn"]) or {}) or werte[k["wkn"]].get("fehler")]
@@ -3072,7 +3074,7 @@ def _katalog(m, h):
         elif not an and z["wkn"] in wahl:
             wahl.remove(z["wkn"])
 
-    st.caption("Renditen = Kursentwicklung (1 J.) bzw. p.a. über 3/5/10 J., Vola = Schwankung der letzten 12 Monate, "
+    _legende("Renditen = Kursentwicklung (1 J.) bzw. p.a. über 3/5/10 J., Vola = Schwankung der letzten 12 Monate, "
                "Max DD = größter Rückgang seit Beginn der Historie. Risk Score 0–100: 45 % Vola, 35 % Drawdown, "
                "20 % Hebel. Base/Bear/Bull: " + D.VORSCHLAG["text"] + " Performance Fee und TER nur, soweit "
                "hinterlegt. Hohe Vergangenheitsrenditen sind keine Zukunftserwartung (Winner Bias).")
@@ -3183,6 +3185,21 @@ def _hoehe(zeilen):
     Scrollen. +16 px Reserve fuer eine evtl. waagerechte Scrollleiste, die
     sonst die letzte Zeile verdeckt."""
     return int(35 * (zeilen + 1) + 3 + 16)
+
+
+def _klappe_mobil(titel):
+    """Selten gebrauchte Einstellungen/Aktionen: auf dem Smartphone eingeklappt, sonst offen."""
+    return st.expander(titel) if _smartphone() else contextlib.nullcontext()
+
+
+def _legende(text):
+    """Lange Spalten- und Methodenerklaerung: auf dem Smartphone eingeklappt (die Seiten
+    werden dort sonst mehrere Bildschirme lang), sonst als Kleingedrucktes."""
+    if _smartphone():
+        with st.expander("ℹ️ Erklärung"):
+            st.caption(text)
+    else:
+        st.caption(text)
 
 
 def _katalog_hoehe(zeilen):
@@ -3586,7 +3603,7 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
         _neu_zeichnen()
         st.rerun()
     _meldung_zeigen()
-    st.caption("Spalten: Gew. % = Anteil · Stück / Kauf € / Real % = was für das Startkapital zum aktuellen Kurs "
+    _legende("Spalten: Gew. % = Anteil · Stück / Kauf € / Real % = was für das Startkapital zum aktuellen Kurs "
                "wirklich gekauft wird (Kurs € = letzter Schlusskurs) · Soll € = Startkapital × Gewicht · "
                "Annahme % = Rendite p.a. (Basis zeigt die Herkunft) · Ist = tatsächliche "
                "Rendite laut Kurshistorie statt Annahme · Fix = bleibt beim Gewichten unverändert · Genutzt % = "
@@ -3611,33 +3628,34 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     else:
         st.caption("Zum Hinzufügen neuer ETFs, Aktien oder Wikifolios den Schalter einschalten.")
 
-    _abschnitt("Baustein entfernen")
-    c9, c10 = st.columns([3, 1], vertical_alignment="center")
-    weg = c9.selectbox("Baustein", [a["id"] for a in m["assets"]], key=_k("del_wahl"),
-                       format_func=lambda i: _asset(m, i)["name"], label_visibility="collapsed")
-    sicher_weg = st.checkbox("Ja, diesen Baustein samt Annahmen endgültig entfernen", key=_k("del_ok"))
-    if c10.button("🗑 Entfernen", key=_k("del_btn"), width="stretch", disabled=not m["assets"] or not sicher_weg):
-        _baustein_entfernen(m, weg)
-        _neu_zeichnen()
-        st.rerun()
-    st.caption("Entfernen löscht den Baustein samt Annahmen aus diesem Modell; „Aktiv“ abwählen lässt ihn in "
-               "der Liste, sein Anteil wird 0 %.")
+    with _klappe_mobil("🗑️ Baustein entfernen · Modell zurücksetzen"):
+        _abschnitt("Baustein entfernen")
+        c9, c10 = st.columns([3, 1], vertical_alignment="center")
+        weg = c9.selectbox("Baustein", [a["id"] for a in m["assets"]], key=_k("del_wahl"),
+                           format_func=lambda i: _asset(m, i)["name"], label_visibility="collapsed")
+        sicher_weg = st.checkbox("Ja, diesen Baustein samt Annahmen endgültig entfernen", key=_k("del_ok"))
+        if c10.button("🗑 Entfernen", key=_k("del_btn"), width="stretch", disabled=not m["assets"] or not sicher_weg):
+            _baustein_entfernen(m, weg)
+            _neu_zeichnen()
+            st.rerun()
+        _legende("Entfernen löscht den Baustein samt Annahmen aus diesem Modell; „Aktiv“ abwählen lässt ihn in "
+                   "der Liste, sein Anteil wird 0 %.")
 
-    _abschnitt("Zurücksetzen")
-    st.caption("„↺ Verwerfen“ unter der Tabelle nimmt nur noch nicht übernommene Tabellen-Änderungen zurück. "
-               "Hier wird das komplette Modell auf das Ausgangsmodell zurückgesetzt – Bausteine, Gewichte, "
-               "Annahmen, Planung und Grenzen.")
-    if _eigener_bereich(h):
-        st.caption("Dein Ausgangsmodell ist leer: Startkapital, Sparrate, Ziel und alle Gewichte 0, keine Entnahme.")
-    sicher = st.checkbox("Ja, alles auf das Ausgangsmodell zurücksetzen", key=_k("reset_ok"))
-    if st.button("↺ Modell komplett zurücksetzen", key=_k("reset_btn"), width="stretch", disabled=not sicher):
-        st.session_state["planer_modell"] = _start_modell(h)
-        for k in ("planer_vorschlag", "planer_meldung", "planer_autogew"):
-            st.session_state.pop(k, None)
-        st.session_state["planer_meldung"] = ("ok", "Modell auf das Ausgangsmodell zurückgesetzt"
-                                              + (" (alle Eingaben 0)." if _eigener_bereich(h) else "."), [])
-        _neu_zeichnen()
-        st.rerun()
+        _abschnitt("Zurücksetzen")
+        _legende("„↺ Verwerfen“ unter der Tabelle nimmt nur noch nicht übernommene Tabellen-Änderungen zurück. "
+                   "Hier wird das komplette Modell auf das Ausgangsmodell zurückgesetzt – Bausteine, Gewichte, "
+                   "Annahmen, Planung und Grenzen.")
+        if _eigener_bereich(h):
+            st.caption("Dein Ausgangsmodell ist leer: Startkapital, Sparrate, Ziel und alle Gewichte 0, keine Entnahme.")
+        sicher = st.checkbox("Ja, alles auf das Ausgangsmodell zurücksetzen", key=_k("reset_ok"))
+        if st.button("↺ Modell komplett zurücksetzen", key=_k("reset_btn"), width="stretch", disabled=not sicher):
+            st.session_state["planer_modell"] = _start_modell(h)
+            for k in ("planer_vorschlag", "planer_meldung", "planer_autogew"):
+                st.session_state.pop(k, None)
+            st.session_state["planer_meldung"] = ("ok", "Modell auf das Ausgangsmodell zurückgesetzt"
+                                                  + (" (alle Eingaben 0)." if _eigener_bereich(h) else "."), [])
+            _neu_zeichnen()
+            st.rerun()
 
 
 def _meldung_zeigen():
@@ -4103,7 +4121,7 @@ def _b_growth(m, R):
     _layout(fig3, 320)
     _chart(fig3, "pl_rebal")
     _tabelle(["Variante", "Endwert glatt", "Endwert Stresspfad", "Max. Verlust", "Rebal."], zeilen)
-    st.caption("Glatte Rechnung: konstante Renditen – Rebalancing verschiebt dort nur Gewicht von stärkeren zu "
+    _legende("Glatte Rechnung: konstante Renditen – Rebalancing verschiebt dort nur Gewicht von stärkeren zu "
                "schwächeren Bausteinen. Stresspfad: zusätzlicher Markteinbruch (Einstellungen unter "
                "„⚠️ Risiko → Stress & Reserve“), in dem Rebalancing antizyklisch wirkt.")
 
@@ -4296,7 +4314,7 @@ def _b_wiki(m, R, hist_assets):
         h = hist_assets.get(a["id"]) or {}
         if h.get("fehler"):
             st.caption(f"{a['name']}: {h['fehler']}")
-    st.caption("„Genutzt p.a.“ = tatsächliche Rendite laut Kurshistorie (5 J. p.a., sonst 3 J., sonst seit Start, "
+    _legende("„Genutzt p.a.“ = tatsächliche Rendite laut Kurshistorie (5 J. p.a., sonst 3 J., sonst seit Start, "
                "sonst 1 J.; bei weniger als 1 Jahr Historie die Ø Monatsrendite seit Start aufs Jahr hochgerechnet – "
                "„hochgerechnet aus N Mon. (Ø Monatsrendite)“, wenig belastbar, bis 1 Jahr Historie vorliegt; "
                "unter 1 Monat der Kategorie-Standard, Richtung 8 % gedämpft). "
@@ -4678,90 +4696,94 @@ def _b_annahmen(m, R, historie, hist_assets):
     regel["text"] = (f"Fehlt eine eigene Bear-/Bull-Annahme: Bear = {_de(regel['bear_faktor'] * 100)} %, "
                      f"Bull = {_de(regel['bull_faktor'] * 100)} % der Basisannahme.")
 
-    _abschnitt("Historical Layer & Datenqualität")
-    zeilen = []
-    for a in m["assets"]:
-        h = historie.get(a["id"]) or {}
-        ha = hist_assets.get(a["id"]) or {}
-        info = R["info"].get(a["id"]) or {}
-        conf = R["conf"].get(a["id"])
-        badges = "".join(f'<span class="pl-badge pl-warn">{_esc(b)}</span>'
-                         for b in E.bias_hinweise(a, info, conf)) if a.get("enabled") else ""
-        if info.get("hinweis"):
-            badges += f'<span class="pl-badge pl-info">{_esc(info["hinweis"])}</span>'
-        quelle = (info.get("herkunft") or {}).get("sourceType") or "–"
-        zeilen.append([
-            f'<span class="pt-name">{_esc(a["name"])}</span><span class="pt-sub">'
-            f'{_esc(ha.get("instrument") or ha.get("fehler") or "")}</span>{badges}',
-            _pct(info.get("brutto")) if a.get("enabled") else "aus",
-            _esc(QUELLEN.get(quelle, quelle)),
-            _pct(h.get("historical5Y")), _pct(h.get("historical10Y")), _pct(h.get("fundamentalModel")),
-            (_de(h.get("jahre"), 1) + " J.") if h.get("jahre") else "–",
-            f"{_de(conf)}/100" if conf is not None else "–",
-            _datum(h.get("stand")) if h.get("stand") else "–",
-        ])
-    _tabelle(["Baustein", "Rendite", "Quelle", "Hist. 5J", "Hist. 10J", "Fundam.", "Historie", "Confidence",
-              "Datenstand"], zeilen)
-    st.caption("Zwei getrennte Ebenen: Historical Layer = gemessene Vergangenheit (ls-tc.de-Kurshistorie, "
-               "Qualitäts-Agent), Assumption Layer = frei gewählte Annahmen für die Rechnung. Confidence misst "
-               "nur die Länge/Belastbarkeit der Datenbasis (1 J. ≈ 22, 5 J. ≈ 71, 10 J. ≈ 92), keine "
-               "Wahrscheinlichkeit. Werte ohne Quelle werden nicht erfunden, sondern bleiben leer.")
+    ohne = sum(1 for a in m["assets"] if (hist_assets.get(a["id"]) or {}).get("fehler"))
+    with _klappe_mobil("📚 Datenquellen & Qualität je Baustein"
+                       + (f" · {ohne} ohne Kurshistorie" if ohne else "")):
+        _abschnitt("Historical Layer & Datenqualität")
+        zeilen = []
+        for a in m["assets"]:
+            h = historie.get(a["id"]) or {}
+            ha = hist_assets.get(a["id"]) or {}
+            info = R["info"].get(a["id"]) or {}
+            conf = R["conf"].get(a["id"])
+            badges = "".join(f'<span class="pl-badge pl-warn">{_esc(b)}</span>'
+                             for b in E.bias_hinweise(a, info, conf)) if a.get("enabled") else ""
+            if info.get("hinweis"):
+                badges += f'<span class="pl-badge pl-info">{_esc(info["hinweis"])}</span>'
+            quelle = (info.get("herkunft") or {}).get("sourceType") or "–"
+            zeilen.append([
+                f'<span class="pt-name">{_esc(a["name"])}</span><span class="pt-sub">'
+                f'{_esc(ha.get("instrument") or ha.get("fehler") or "")}</span>{badges}',
+                _pct(info.get("brutto")) if a.get("enabled") else "aus",
+                _esc(QUELLEN.get(quelle, quelle)),
+                _pct(h.get("historical5Y")), _pct(h.get("historical10Y")), _pct(h.get("fundamentalModel")),
+                (_de(h.get("jahre"), 1) + " J.") if h.get("jahre") else "–",
+                f"{_de(conf)}/100" if conf is not None else "–",
+                _datum(h.get("stand")) if h.get("stand") else "–",
+            ])
+        _tabelle(["Baustein", "Rendite", "Quelle", "Hist. 5J", "Hist. 10J", "Fundam.", "Historie", "Confidence",
+                  "Datenstand"], zeilen)
+        _legende("Zwei getrennte Ebenen: Historical Layer = gemessene Vergangenheit (ls-tc.de-Kurshistorie, "
+                   "Qualitäts-Agent), Assumption Layer = frei gewählte Annahmen für die Rechnung. Confidence misst "
+                   "nur die Länge/Belastbarkeit der Datenbasis (1 J. ≈ 22, 5 J. ≈ 71, 10 J. ≈ 92), keine "
+                   "Wahrscheinlichkeit. Werte ohne Quelle werden nicht erfunden, sondern bleiben leer.")
 
-    ids = [a["id"] for a in m["assets"] if a.get("enabled") and a["category"] != "cash"]
-    if ids:
-        w = E.gewichte(m)
-        fig = go.Figure(go.Scatter(
-            x=[R["conf"].get(i) for i in ids], y=[(R["info"][i]["brutto"] or 0) * 100 for i in ids],
-            mode="markers+text", text=[_asset(m, i)["name"][:18] for i in ids], textposition="top center",
-            textfont=dict(size=10), marker=dict(size=[8 + w[i] * 120 for i in ids], color="#4C9AFF", opacity=0.75),
-            hovertemplate="%{text}: %{y:.1f} % · Conf. %{x}<extra></extra>"))
-        _layout(fig, 360, legende=False, eur=False)
-        fig.update_layout(hovermode="closest")
-        fig.update_xaxes(title="Data Confidence (0–100)", range=[0, 105])
-        fig.update_yaxes(title="Angenommene Rendite % p.a.", side="left")
-        _chart(fig, "pl_conf")
-        st.caption("Rechts oben = hohe Annahme mit guter Datenbasis. Links oben = hohe Annahme mit dünner Datenbasis.")
+        ids = [a["id"] for a in m["assets"] if a.get("enabled") and a["category"] != "cash"]
+        if ids:
+            w = E.gewichte(m)
+            fig = go.Figure(go.Scatter(
+                x=[R["conf"].get(i) for i in ids], y=[(R["info"][i]["brutto"] or 0) * 100 for i in ids],
+                mode="markers+text", text=[_asset(m, i)["name"][:18] for i in ids], textposition="top center",
+                textfont=dict(size=10), marker=dict(size=[8 + w[i] * 120 for i in ids], color="#4C9AFF", opacity=0.75),
+                hovertemplate="%{text}: %{y:.1f} % · Conf. %{x}<extra></extra>"))
+            _layout(fig, 360, legende=False, eur=False)
+            fig.update_layout(hovermode="closest")
+            fig.update_xaxes(title="Data Confidence (0–100)", range=[0, 105])
+            fig.update_yaxes(title="Angenommene Rendite % p.a.", side="left")
+            _chart(fig, "pl_conf")
+            st.caption("Rechts oben = hohe Annahme mit guter Datenbasis. Links oben = hohe Annahme mit dünner Datenbasis.")
 
-    _abschnitt("Stammdaten")
-    kats = list(D.KATEGORIEN)
-    df = pd.DataFrame([{
-        "Baustein": a["name"], "WKN/Ticker": a.get("ticker") or "", "ISIN": a.get("isin") or "",
-        "Kategorie": a["category"], "TER %": None if a.get("expenseRatio") is None else a["expenseRatio"] * 100,
-        "Perf.-Fee %": None if a.get("performanceFee") is None else a["performanceFee"] * 100,
-        "Hebel": a.get("leverage") or 1.0, "Tech %": None if a.get("techAnteil") is None else a["techAnteil"] * 100,
-        "Halbl. %": None if a.get("semiAnteil") is None else a["semiAnteil"] * 100,
-    } for a in m["assets"]])
-    ed = _editor_formular(df, key=_k("stamm"), hide_index=True, height=_hoehe(len(df)), width="stretch", disabled=["Baustein"],
-                        column_config={"Kategorie": st.column_config.SelectboxColumn(options=kats),
-                                       "TER %": st.column_config.NumberColumn(format="%.2f", step=0.05),
-                                       "Perf.-Fee %": st.column_config.NumberColumn(format="%.0f", step=1.0),
-                                       "Hebel": st.column_config.NumberColumn(format="%.1f", step=0.5),
-                                       "Tech %": st.column_config.NumberColumn(format="%.0f", min_value=0, max_value=100),
-                                       "Halbl. %": st.column_config.NumberColumn(format="%.0f", min_value=0, max_value=100)})
-    geaendert = False
+    with _klappe_mobil("🗂️ Stammdaten (WKN/ISIN, Kosten, Hebel)"):
+        _abschnitt("Stammdaten")
+        kats = list(D.KATEGORIEN)
+        df = pd.DataFrame([{
+            "Baustein": a["name"], "WKN/Ticker": a.get("ticker") or "", "ISIN": a.get("isin") or "",
+            "Kategorie": a["category"], "TER %": None if a.get("expenseRatio") is None else a["expenseRatio"] * 100,
+            "Perf.-Fee %": None if a.get("performanceFee") is None else a["performanceFee"] * 100,
+            "Hebel": a.get("leverage") or 1.0, "Tech %": None if a.get("techAnteil") is None else a["techAnteil"] * 100,
+            "Halbl. %": None if a.get("semiAnteil") is None else a["semiAnteil"] * 100,
+        } for a in m["assets"]])
+        ed = _editor_formular(df, key=_k("stamm"), hide_index=True, height=_hoehe(len(df)), width="stretch", disabled=["Baustein"],
+                            column_config={"Kategorie": st.column_config.SelectboxColumn(options=kats),
+                                           "TER %": st.column_config.NumberColumn(format="%.2f", step=0.05),
+                                           "Perf.-Fee %": st.column_config.NumberColumn(format="%.0f", step=1.0),
+                                           "Hebel": st.column_config.NumberColumn(format="%.1f", step=0.5),
+                                           "Tech %": st.column_config.NumberColumn(format="%.0f", min_value=0, max_value=100),
+                                           "Halbl. %": st.column_config.NumberColumn(format="%.0f", min_value=0, max_value=100)})
+        geaendert = False
 
-    def zahl(v, faktor=1.0):
-        return None if pd.isna(v) else float(v) / faktor
+        def zahl(v, faktor=1.0):
+            return None if pd.isna(v) else float(v) / faktor
 
-    for i, a in enumerate(m["assets"]):
-        z = ed.iloc[i]
-        neu = {"ticker": (str(z["WKN/Ticker"]).strip() or None) if not pd.isna(z["WKN/Ticker"]) else None,
-               "isin": (str(z["ISIN"]).strip() or None) if not pd.isna(z["ISIN"]) else None,
-               "category": z["Kategorie"] if z["Kategorie"] in kats else a["category"],
-               "expenseRatio": zahl(z["TER %"], 100), "performanceFee": zahl(z["Perf.-Fee %"], 100),
-               "leverage": zahl(z["Hebel"]) or 1.0, "techAnteil": zahl(z["Tech %"], 100),
-               "semiAnteil": zahl(z["Halbl. %"], 100)}
-        for k, v in neu.items():
-            alt = a.get(k)
-            if (alt is None) != (v is None) or (v is not None and alt != v and not
-                                                 (isinstance(v, float) and isinstance(alt, (int, float))
-                                                  and abs(alt - v) < 1e-12)):
-                a[k] = v
-                geaendert = True
-    if geaendert:
-        st.rerun()
-    st.caption("WKN/ISIN steuern die Kurssuche für den Historical Layer. Wikifolios ohne WKN werden per Name "
-               "gesucht – bitte den gefundenen Namen oben prüfen.")
+        for i, a in enumerate(m["assets"]):
+            z = ed.iloc[i]
+            neu = {"ticker": (str(z["WKN/Ticker"]).strip() or None) if not pd.isna(z["WKN/Ticker"]) else None,
+                   "isin": (str(z["ISIN"]).strip() or None) if not pd.isna(z["ISIN"]) else None,
+                   "category": z["Kategorie"] if z["Kategorie"] in kats else a["category"],
+                   "expenseRatio": zahl(z["TER %"], 100), "performanceFee": zahl(z["Perf.-Fee %"], 100),
+                   "leverage": zahl(z["Hebel"]) or 1.0, "techAnteil": zahl(z["Tech %"], 100),
+                   "semiAnteil": zahl(z["Halbl. %"], 100)}
+            for k, v in neu.items():
+                alt = a.get(k)
+                if (alt is None) != (v is None) or (v is not None and alt != v and not
+                                                     (isinstance(v, float) and isinstance(alt, (int, float))
+                                                      and abs(alt - v) < 1e-12)):
+                    a[k] = v
+                    geaendert = True
+        if geaendert:
+            st.rerun()
+        st.caption("WKN/ISIN steuern die Kurssuche für den Historical Layer. Wikifolios ohne WKN werden per Name "
+                   "gesucht – bitte den gefundenen Namen oben prüfen.")
 
 
 
@@ -5164,7 +5186,7 @@ def _b_kredit(m, R):
                        f"{_de(z['o']['schlussrate'])} € Schlussrate, die aus dem Depot getilgt werden."
                        + ("" if z["x"].get("zins") else " Gerechnet mit 0 % Zins – für eine genaue Rechnung "
                                                        "„Zins %“ eintragen."))
-    st.caption("Zins = aus Betrag, Rate und Laufzeit errechneter Sollzins. „Lohnt ab“ = Rendite p.a., ab der der "
+    _legende("Zins = aus Betrag, Rate und Laufzeit errechneter Sollzins. „Lohnt ab“ = Rendite p.a., ab der der "
                "Kredit mehr bringt, als er kostet. Vorteil = Ergebnis mit Kredit minus Ergebnis, wenn man die Raten "
                "stattdessen selbst anlegt.")
 
@@ -5301,7 +5323,7 @@ def _b_kaufplan(m, R, h, hist_assets, hist_korb):
                        f'<span class="{"pl-gut" if abs(abw) < max(z["kurs"] or 0, 1) else "pl-schlecht"}">'
                        f'{"+" if abw >= 0 else "−"}{_de(abs(abw), 2)} €</span>'])
     _tabelle(["Position", "Gewicht", "Soll", "Kurs", "Stück", "Ist", "Abw."], zeilen)
-    st.caption("Kurs = letzter Schlusskurs laut ls-tc.de (Kurshistorie) – beim echten Kauf weichen Kurse, "
+    _legende("Kurs = letzter Schlusskurs laut ls-tc.de (Kurshistorie) – beim echten Kauf weichen Kurse, "
                "Spreads und Gebühren ab. Ganze Stücke: abgerundet, der Rest wird stückweise auf die Positionen "
                "mit dem größten Rückstand verteilt.")
     if erg["ohne_kurs"]:
