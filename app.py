@@ -5949,6 +5949,13 @@ def render_dashboard():
     # die echten Positionen (reales Kapital), dann die hypothetischen.
     prognose_optionen.extend(prognose_beobachtung_optionen)
 
+    # ---------- ZWEI SPALTEN (Audit UX): links das eigene Depot, rechts die Kurse ----------
+    # Auf breiten Bildschirmen liefen alle Kacheln ueber die volle Breite (Beschriftung und
+    # Wert ~1.000 px auseinander). Unter 640 px stapelt Streamlit die Spalten - auf dem
+    # Handy bleibt die Reihenfolge Depot -> Kurse.
+    _spalte_depot, _spalte_kurse = st.columns([1.1, 1], gap="large")
+    _spalte_depot.__enter__()
+
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if (1 if haupt_aktiv else 0) + len(weitere_positionen) >= 2:
         gesamt_gewinn = gesamt_wert + gesamt_ausgezahlt - gesamt_einstand
@@ -6025,6 +6032,8 @@ def render_dashboard():
         with st.expander("➕ Erste Position anlegen", expanded=True):
             positions_anlage_formular("leer")
 
+    _spalte_depot.__exit__(None, None, None)
+    _spalte_kurse.__enter__()
     # ---------- KURSE (Audit UX: nach dem eigenen Depot) ----------
     # Zuerst steht das eigene Ergebnis (Depot gesamt, Positionen), danach die Kurse des
     # Zertifikats und der beobachteten Werte - auf dem Handy war die Depotsumme vorher
@@ -6101,6 +6110,7 @@ def render_dashboard():
         _render_kursansicht()
     else:
         st.markdown(kurs_karte, unsafe_allow_html=True)
+    _spalte_kurse.__exit__(None, None, None)
 
 
 
