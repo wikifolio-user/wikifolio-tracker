@@ -158,7 +158,7 @@ st.markdown("""
        gleiche Schrift, gleiches Gewicht, Neonweiss mit leichtem Schein. */
     .q-name, .hero-label {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.75rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: 6px;
         text-shadow: 0 0 10px rgba(255, 255, 255, 0.30);
     }
@@ -238,7 +238,7 @@ st.markdown("""
     /* Kompakte Fussnote am Kachelende (Zeitstempel, Stueckzahl) - bewusst
        ohne Chip-Pille, damit sie moeglichst wenig Hoehe kostet. */
     .card-footnote {
-        font-size: 0.75rem; color: var(--muted); margin-top: 8px;
+        font-size: 0.8rem; color: var(--muted); margin-top: 8px;
     }
 
     /* ---------- STAT-CHIPS: gleiche Pill-Optik wie die Meta-Chips
@@ -251,7 +251,7 @@ st.markdown("""
         padding: 6px 12px; border-radius: 999px;
     }
     .stat-chip-label {
-        font-size: 0.75rem; font-weight: 700; color: var(--label);
+        font-size: 0.8rem; font-weight: 700; color: var(--label);
         text-transform: uppercase; letter-spacing: 0.4px;
     }
     .stat-chip-val {
@@ -281,7 +281,7 @@ st.markdown("""
         overflow-wrap: break-word;
     }
     .row-note {
-        display: block; font-size: 0.78rem; color: var(--muted);
+        display: block; font-size: 0.8rem; color: var(--muted);
         font-weight: 400; margin-top: 4px; white-space: normal;
     }
 
@@ -382,7 +382,7 @@ st.markdown("""
     [data-testid="stSelectbox"] label,
     [data-testid="stSelectbox"] label p {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.75rem !important;
+        font-size: 0.8rem !important;
         font-weight: 700 !important;
         color: #FFFFFF !important;
         letter-spacing: 1.3px !important;
@@ -513,7 +513,7 @@ st.markdown("""
        weisser Rahmen macht die Gliederung auf einen Blick lesbar. */
     .abschnitt {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.75rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase;
         margin: 16px 0 2px 2px;
         padding-bottom: 7px;
@@ -641,7 +641,7 @@ st.markdown("""
            sein, nicht nur eine Nuance dunkler. */
         background: #1C1F26;
         padding: 9px 10px;
-        font-size: 0.75rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 0.7px; text-transform: uppercase;
         text-align: center; white-space: nowrap;
         border-bottom: 1px solid var(--line);
@@ -674,7 +674,7 @@ st.markdown("""
         white-space: normal; line-height: 1.25;
     }
     .pt-wknval {
-        color: var(--label); font-weight: 600; font-size: 0.75rem;
+        color: var(--label); font-weight: 600; font-size: 0.8rem;
         letter-spacing: 0.3px;
     }
 
@@ -683,28 +683,28 @@ st.markdown("""
         text-align: right;
         font-family: 'IBM Plex Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
-        font-size: 0.78rem;
+        font-size: 0.8rem;
     }
     .pt-stark { font-weight: 700; font-size: 0.83rem; }
-    .pt-klein { font-size: 0.75rem; opacity: 0.92; }
+    .pt-klein { font-size: 0.8rem; opacity: 0.92; }
     .pt-up { color: #16C784; }
     .pt-down { color: #EA3943; }
     .pt-leer { color: #4B5058; }
-    .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.75rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
+    .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.8rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
 
     /* ---------- WATCHLIST / QUALITAETS-SCORE ----------
        Zweite Zeile unter dem Namen (Kennung, Branche) statt eigener Spalten -
        spart auf dem iPhone die Breite fuer die eigentlichen Zahlen. */
     .pt-sub {
         display: block; margin-top: 2px; white-space: normal;
-        font-size: 0.75rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
+        font-size: 0.8rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
     }
     .q-punkte { font-weight: 800; font-size: 0.9rem; }
     .q-prio { color: #16C784; }
     .q-beob { color: #F5B942; }
     .q-nicht { color: #8A9099; }
     .pt td.q-fokus-hl, .pt th.q-fokus-hl { background: rgba(255, 255, 255, 0.05); }
-    .q-legende { font-size: 0.75rem; color: var(--label); margin: -4px 0 10px; }
+    .q-legende { font-size: 0.8rem; color: var(--label); margin: -4px 0 10px; }
     .q-kpis {
         display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         gap: 8px; margin: 6px 0 12px;
@@ -714,7 +714,7 @@ st.markdown("""
         padding: 10px 12px; min-width: 0;
     }
     .q-kpi-l {
-        font-size: 0.75rem; font-weight: 700; color: var(--label);
+        font-size: 0.8rem; font-weight: 700; color: var(--label);
         text-transform: uppercase; letter-spacing: 0.6px;
     }
     .q-kpi-v {
@@ -753,7 +753,7 @@ st.markdown("""
         .q-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .q-kpi-v { font-size: 1.2rem; }
         .q-b-zeile { grid-template-columns: minmax(0, 1fr) 72px 44px; font-size: 0.86rem; }
-        .pt-sub { font-size: 0.75rem; }
+        .pt-sub { font-size: 0.8rem; }
         .q-punkte { font-size: 0.98rem; }
         .pt.pt-kompakt td, .pt.pt-kompakt thead th { padding: 9px 6px; }
     }
@@ -915,7 +915,7 @@ st.markdown("""
         width: 20px !important; height: 20px !important;
     }
     /* Tabs ruhiger, ohne dicke gruene Unterstreichung */
-    [data-testid="stTabs"] button { font-size: 0.78rem !important; letter-spacing: 0.3px; }
+    [data-testid="stTabs"] button { font-size: 0.8rem !important; letter-spacing: 0.3px; }
     /* Tab-Leiste bei vielen Positionen horizontal scrollbar halten, statt
        die Beschriftungen umbrechen oder abschneiden zu lassen. */
     [data-testid="stTabs"] [data-baseweb="tab-list"] {
@@ -2716,7 +2716,7 @@ NAV_CSS = """
 
 /* Kopf */
 .nav-kopf { text-align: center; padding: 0 0 4px; margin-top: -26px; }
-.nav-credit { font-size: 0.75rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
+.nav-credit { font-size: 0.8rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
               text-shadow: 0 0 6px rgba(255, 255, 255, 0.35); }
 .nav-logo {
     font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
@@ -2727,7 +2727,7 @@ NAV_CSS = """
 .nav-chip {
     /* gleicher Tasten-Look wie die Kacheln: klarer Rand, 3D-Kante, kein Leuchten */
     display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 6px; padding: 7px 16px;
-    border-radius: 999px; font-size: 0.76rem; color: #FFFFFF; font-weight: 700;
+    border-radius: 999px; font-size: 0.8rem; color: #FFFFFF; font-weight: 700;
     border: 1px solid rgba(255, 255, 255, 0.85); background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%);
     box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30);
 }
@@ -2759,7 +2759,7 @@ NAV_CSS = """
    aus dem Bild, kommt links wieder herein, bleibt stehen und pulsiert leicht */
 .nav-gruppe {
     position: relative; height: 38px; margin: 0 4px; overflow: hidden;
-    font-size: 0.7rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
 }
 .nav-gruppe::after {
     content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
@@ -2848,7 +2848,7 @@ NAV_CSS = """
         0 6px 12px rgba(0, 0, 0, 0.6),
         inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
 }
-.st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.76rem !important; font-weight: 700 !important; }
+.st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.8rem !important; font-weight: 700 !important; }
 
 /* Aktualisieren: schlanke Neon-Pille */
 /* klein und mittig direkt unter der Kurs-Pille */
@@ -2904,7 +2904,7 @@ NAV_CSS = """
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(3) { flex: 0 0 auto !important; }
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
 .st-key-nav_leiste [data-testid="stButton"] button {
-    min-height: 44px !important; border-radius: 10px !important; padding: 4px 12px !important;
+    min-height: 44px !important; min-width: 44px !important; border-radius: 10px !important; padding: 4px 12px !important;
     white-space: nowrap !important; background: rgba(255, 255, 255, 0.04) !important;
     border: 1px solid rgba(255, 255, 255, 0.8) !important;
     box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 14px rgba(255, 255, 255, 0.2) !important;
@@ -2915,7 +2915,7 @@ NAV_CSS = """
     overflow-wrap: anywhere; text-align: center; letter-spacing: 0.3px;
     text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
 }
-.nav-stand { font-size: 0.78rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
+.nav-stand { font-size: 0.8rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
 .nav-stand b { color: #FFFFFF; }
 @media (max-width: 700px) {
     .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
@@ -3343,7 +3343,7 @@ def render_chronik():
                 kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
                 st.markdown(f"""
                     <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
-                        <div style="font-size: 0.75rem; color: #A1A1AA;">{html.escape(kopf)}</div>
+                        <div style="font-size: 0.8rem; color: #A1A1AA;">{html.escape(kopf)}</div>
                         <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
                         <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
                     </div>
@@ -7543,7 +7543,7 @@ def render_dashboard():
                 # Historische Rate des gewaehlten Werts sichtbar absetzen
                 _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
                            if e["eigene"] else "1px solid #27272A")
-                _marke = (f'<div style="font-size: 0.75rem; font-weight: 700; color: #16C784; '
+                _marke = (f'<div style="font-size: 0.8rem; font-weight: 700; color: #16C784; '
                           f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {_h(basis_name.upper())}</div>'
                           if e["eigene"] else "")
                 # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
@@ -7552,8 +7552,8 @@ def render_dashboard():
                 # 4+ Leerzeichen Einrueckung als CODEBLOCK und zeigt den
                 # HTML-Quelltext als Text an (genau dieser Fehler trat auf).
                 _jahre = "".join(
-                    f'<div><div style="font-size: 0.75rem; color: #A1A1AA;">{j}J</div>'
-                    f'<div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e[f"j{j}"], 0)}</div></div>'
+                    f'<div><div style="font-size: 0.8rem; color: #A1A1AA;">{j}J</div>'
+                    f'<div style="font-size: 0.8rem; color: #E5E7EB; font-weight: 700;">{fmt(e[f"j{j}"], 0)}</div></div>'
                     for j in range(1, 6)
                 )
                 karten_html += (

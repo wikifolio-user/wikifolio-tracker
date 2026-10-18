@@ -103,7 +103,8 @@ def _sha(b):
 
 def _dump():
     with open(DUMP, "w") as f:
-        json.dump({p: b.decode("utf-8", "replace") for p, (b, _) in STORE.items()}, f, ensure_ascii=False, indent=1)
+        json.dump({p: b.decode("utf-8", "replace") for p, (b, _) in STORE.items()
+                   if not (p.startswith("state/top50") or p.startswith("state/qualitaet"))}, f, ensure_ascii=False, indent=1)
 
 
 def _extra_laden():
