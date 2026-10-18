@@ -67,6 +67,18 @@ def seed(f):
         {"id": "mb1", "name": "Bitcoin - 21Shares ETP (A2T64E)", "wkn": "A2T64E", "instrument_id": "982480"}])
     f.seed("state/benutzer/maria/sparplan_state.json", {"start_datum": "2026-03-01", "rate": 50.0,
                                                         "phasen": [{"ab": "2026-03-01", "rate": 50.0}]})
+    # Werte-Katalog der Watchlist (synthetisch) fuer "Wert hinzufuegen" im Portfolio Builder
+    f.seed("state/planer/katalog_gross_0.json", {
+        "stand": "2026-10-16", "felder": ["typ", "kat", "name", "kennung", "isin", "1J", "3J", "5J", "10J", "kurs",
+                                          "div", "vola", "maxdd", "jahre"],
+        "kategorien": {}, "zeilen": [
+            ["aktie", "tech", "NVIDIA", "918422", "US67066G1040", 40, 300, 900, None, 165.20, 0.1, 45, -60, 20],
+            ["aktie", "industrie", "Siemens", "723610", "DE0007236101", 20, 40, 60, None, 201.35, 2.5, 22, -35, 20],
+            ["etf", "welt", "Vanguard FTSE All-World UCITS ETF Acc", "A2PKXG", "IE00BK5BQT80", 15, 30, 70, None,
+             132.48, 0, 14, -25, 6],
+            ["wikifolio", "wiki", "Hauptindizes Global", "LS9VFS", "DE000LS9VFS2", 25, None, None, None, 150.0,
+             0, 18, -20, 2],
+        ]})
     # Marktdaten (oeffentliche Ranglisten / Qualitaets-Score aus dem State-Branch)
     basis = os.path.join(MARKT, "state")
     for wurzel, _, dateien in os.walk(basis):

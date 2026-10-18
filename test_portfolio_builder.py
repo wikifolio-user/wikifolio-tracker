@@ -154,6 +154,51 @@ class Positionen(unittest.TestCase):
         self.assertEqual([p["gewicht"] for p in gleich], [50.0, 50.0])
 
 
+class Hinzufuegen(unittest.TestCase):
+    def test_rest_bis_100(self):
+        pos = [{"name": "A", "kurs": 10, "gewicht": 70}]
+        neu, ok = P.position_hinzufuegen(pos, "NVIDIA", 120.5, art="aktie", wkn="918422", instrument_id=123)
+        self.assertTrue(ok)
+        self.assertEqual(neu[-1], {"name": "NVIDIA", "kurs": 120.5, "gewicht": 30.0, "art": "aktie",
+                                   "wkn": "918422", "instrument_id": "123"})
+        self.assertEqual(len(pos), 1)                       # Eingabe unveraendert
+
+    def test_volles_portfolio_gewicht_0_oder_vorgegeben(self):
+        pos = [{"name": "A", "kurs": 10, "gewicht": 100}]
+        self.assertEqual(P.position_hinzufuegen(pos, "B")[0][-1]["gewicht"], 0.0)
+        self.assertEqual(P.position_hinzufuegen(pos, "B", gewicht=15)[0][-1]["gewicht"], 15.0)
+
+    def test_kein_doppelter_wert(self):
+        pos = [{"name": "MSCI World", "kurs": 10, "gewicht": 50, "wkn": "A0RPWH"}]
+        self.assertFalse(P.position_hinzufuegen(pos, "Irgendwas", wkn="a0rpwh")[1])
+        self.assertFalse(P.position_hinzufuegen(pos, "msci world ")[1])
+        self.assertTrue(P.position_hinzufuegen(pos, "MSCI World", wkn="ANDERE")[1])
+
+    def test_art_und_kennungen_bleiben_beim_bereinigen(self):
+        e = P.bereinigen({"positionen": [{"name": "W", "kurs": 1, "gewicht": 5, "art": "wikifolio",
+                                          "wkn": "LS9ABC", "isin": "DE000LS9ABC1", "instrument_id": 42},
+                                         {"name": "X", "kurs": 1, "gewicht": 5, "art": "quatsch"}]})
+        self.assertEqual(e["positionen"][0]["art"], "wikifolio")
+        self.assertEqual(e["positionen"][0]["instrument_id"], "42")
+        self.assertEqual(e["positionen"][1]["art"], "sonstig")
+
+    def test_anteile_nach_art(self):
+        e = P.bereinigen(eingaben(anfangskapital=10000, positionen=[
+            {"name": "A", "kurs": 100, "gewicht": 50, "art": "aktie"},
+            {"name": "B", "kurs": 10, "gewicht": 20, "art": "etf"},
+            {"name": "C", "kurs": 10, "gewicht": 20, "art": "etf"}]))
+        a = P.anteile_nach_art(e)
+        self.assertAlmostEqual(a["aktie"], 50)
+        self.assertAlmostEqual(a["etf"], 40)
+        self.assertAlmostEqual(a["cash"], 10)
+
+    def test_art_in_tabelle_aendern(self):
+        pos = [{"name": "A", "kurs": 10, "gewicht": 50, "art": "sonstig"}]
+        neu = P.aenderungen_anwenden(pos, 1000, geaendert={0: {"art": "etf"}}, neu=[{"name": "B", "art": "aktie"}])
+        self.assertEqual([p["art"] for p in neu], ["etf", "aktie"])
+        self.assertEqual(neu[0]["gewicht"], 50)
+
+
 class Bereinigen(unittest.TestCase):
     def test_grenzen(self):
         e = P.bereinigen({"anfangskapital": -5, "laufzeit": 0, "laufzeit_einheit": "x", "rendite_pa": "abc",

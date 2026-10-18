@@ -25,6 +25,10 @@ MAX_KREDITZINS = 30.0       # % p. a.
 MAX_RENDITE = 50.0          # % p. a. (+/-)
 EPS = 1e-9
 
+# Art je Position (fuer Auswahl, Anzeige und Aufteilung nach Art)
+ARTEN = {"aktie": "Aktie", "etf": "ETF / ETP", "wikifolio": "Wikifolio", "krypto": "Krypto",
+         "sonstig": "Sonstiges"}
+
 STANDARD = {
     "anfangskapital": 10000.0,
     "sonstiges_kapital": 0.0,
@@ -39,10 +43,10 @@ STANDARD = {
     "rendite_pa": 6.0,              # %
     "nur_ganze_stuecke": False,
     "positionen": [
-        {"name": "MSCI World ETF", "kurs": 100.0, "gewicht": 60.0},
-        {"name": "Emerging Markets ETF", "kurs": 30.0, "gewicht": 20.0},
-        {"name": "Bitcoin ETP", "kurs": 50.0, "gewicht": 10.0},
-        {"name": "Tagesgeld / Cash", "kurs": 1.0, "gewicht": 10.0},
+        {"name": "MSCI World ETF", "kurs": 100.0, "gewicht": 60.0, "art": "etf"},
+        {"name": "Emerging Markets ETF", "kurs": 30.0, "gewicht": 20.0, "art": "etf"},
+        {"name": "Bitcoin ETP", "kurs": 50.0, "gewicht": 10.0, "art": "krypto"},
+        {"name": "Tagesgeld / Cash", "kurs": 1.0, "gewicht": 10.0, "art": "sonstig"},
     ],
 }
 
@@ -85,8 +89,51 @@ def bereinigen(e):
         gewicht = max(_zahl(p.get("gewicht")), 0.0)
         if not name and kurs <= 0 and gewicht <= 0:
             continue
-        pos.append({"name": name or "Neue Position", "kurs": kurs, "gewicht": gewicht})
+        neu = {"name": name or "Neue Position", "kurs": kurs, "gewicht": gewicht,
+               "art": p.get("art") if p.get("art") in ARTEN else "sonstig"}
+        for k in ("wkn", "isin", "instrument_id"):          # Kennungen fuer den Kursabruf
+            if p.get(k) not in (None, ""):
+                neu[k] = str(p[k]).strip()
+        pos.append(neu)
     aus["positionen"] = pos
+    return aus
+
+
+def rest_gewicht(pos):
+    """Gewicht, das bis 100 % noch frei ist (fuer neue Positionen)."""
+    return max(100.0 - sum(max(_zahl(p.get("gewicht")), 0.0) for p in pos), 0.0)
+
+
+def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", **kennung):
+    """Neue Position anhaengen. gewicht None = der noch freie Rest bis 100 %.
+    Gibt es den Wert schon (gleiche WKN/ISIN, sonst gleicher Name), wird nichts doppelt angelegt.
+    -> (neue Positionen, hinzugefuegt: bool)"""
+    pos = copy.deepcopy(pos)
+    wkn, isin = str(kennung.get("wkn") or "").strip().upper(), str(kennung.get("isin") or "").strip().upper()
+    for p in pos:
+        if (wkn and str(p.get("wkn") or "").upper() == wkn) or (isin and str(p.get("isin") or "").upper() == isin) \
+                or (not wkn and not isin and p["name"].strip().lower() == str(name).strip().lower()):
+            return pos, False
+    neu = {"name": str(name).strip() or "Neue Position", "kurs": max(_zahl(kurs), 0.0),
+           "gewicht": rest_gewicht(pos) if gewicht is None else max(_zahl(gewicht), 0.0),
+           "art": art if art in ARTEN else "sonstig"}
+    for k, v in (("wkn", wkn), ("isin", isin), ("instrument_id", kennung.get("instrument_id"))):
+        if v not in (None, ""):
+            neu[k] = str(v)
+    pos.append(neu)
+    return pos, True
+
+
+def anteile_nach_art(e):
+    """{art: % des Anlagekapitals} nach tatsaechlichem Wert (Cash-Rest als "cash")."""
+    p = positionen(e)
+    if p["kapital"] <= 0:
+        return {}
+    aus = {}
+    for z, q in zip(p["zeilen"], e["positionen"]):
+        aus[q.get("art", "sonstig")] = aus.get(q.get("art", "sonstig"), 0.0) + z["wert"] / p["kapital"] * 100.0
+    if p["cash"] > 0.005:
+        aus["cash"] = aus.get("cash", 0.0) + p["cash"] / p["kapital"] * 100.0
     return aus
 
 
@@ -155,12 +202,15 @@ def aenderungen_anwenden(pos, kapital, geaendert=None, neu=None, geloescht=None)
             p["name"] = str(werte["name"] or "").strip() or p["name"]
         if "kurs" in werte:
             p["kurs"] = max(_zahl(werte["kurs"], p["kurs"]), 0.0)
+        if werte.get("art") in ARTEN:
+            p["art"] = werte["art"]
         p["gewicht"] = gewicht_aus(werte, p)
     weg = {int(i) for i in (geloescht or [])}
     pos = [p for i, p in enumerate(pos) if i not in weg]
     for werte in neu or []:
         p = {"name": str(werte.get("name") or "").strip() or "Neue Position",
-             "kurs": max(_zahl(werte.get("kurs")), 0.0), "gewicht": 0.0}
+             "kurs": max(_zahl(werte.get("kurs")), 0.0), "gewicht": 0.0,
+             "art": werte.get("art") if werte.get("art") in ARTEN else "sonstig"}
         p["gewicht"] = gewicht_aus(werte, p)
         pos.append(p)
     return pos

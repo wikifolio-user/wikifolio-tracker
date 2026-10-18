@@ -22,7 +22,8 @@ PFAD = "state/portfolio_builder.json"
 FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa", "kredit_rate",
           "einzahlung", "entnahme", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke")
 # Tabellenspalten <-> Felder des Rechenkerns
-SPALTEN = {"Name": "name", "Kurs €": "kurs", "Gewicht %": "gewicht", "Betrag €": "betrag", "Stück": "stueck",
+SPALTEN = {"Name": "name", "Art": "art", "Kurs €": "kurs", "Gewicht %": "gewicht", "Betrag €": "betrag",
+           "Stück": "stueck",
            "Wert €": "wert"}
 FARBEN = ["#16C784", "#4C9AFF", "#F5B942", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C", "#94A3B8",
           "#84CC16", "#E879F9"]
@@ -69,6 +70,8 @@ CSS = """
   [class*="st-key-pb_reihe"] [data-testid="stHorizontalBlock"] { flex-wrap:wrap !important; gap:.6rem !important; }
   [class*="st-key-pb_reihe"] [data-testid="stColumn"] { flex:0 1 calc(50% - .3rem) !important;
       min-width:calc(50% - .3rem) !important; width:calc(50% - .3rem) !important; }
+  .st-key-pb_reihe_add [data-testid="stColumn"]:first-child { flex:1 1 100% !important; min-width:100% !important;
+      width:100% !important; }
   /* Plus/Minus bei Eurobetraegen auf dem Handy aus - sie nehmen dem Betrag den Platz */
   [class*="st-key-pb_reihe"] [data-testid="stNumberInputStepDown"],
   [class*="st-key-pb_reihe"] [data-testid="stNumberInputStepUp"] { display:none !important; }
@@ -140,6 +143,122 @@ def _speichern(h, e):
 
 def _fingerabdruck(e):
     return json.dumps(P.bereinigen(e), sort_keys=True)
+
+
+# ---------------------------------------------------------------- Werte-Katalog & Kurse
+PFAD_KATALOG_GROSS = "state/planer/katalog_gross_{}.json"     # vom Watchlist-Agenten (top50_agent.py)
+KATALOG_GROSS_TEILE = 4
+ART_FILTER = {"Alle": None, "Aktien": "aktie", "ETFs & ETPs": "etf", "Wikifolios": "wikifolio"}
+SUCHE = "__suche__"
+
+
+def _art_aus(typ, kategorie=""):
+    t = f"{typ} {kategorie}".lower()
+    if "krypto" in t or "crypto" in t:
+        return "krypto"
+    if "wikifolio" in t:
+        return "wikifolio"
+    if "aktie" in t or "stock" in t or "share" in t:
+        return "aktie"
+    if any(w in t for w in ("etf", "etp", "etc", "etn", "fonds", "fund", "index")):
+        return "etf"
+    return "sonstig"
+
+
+def _katalog(h):
+    """Auswahl zum Hinzufuegen: alle Werte der Watchlist (mit Tageskurs in EUR) + Planer-Katalog.
+    -> [{name, wkn, isin, art, kurs}] ohne Doppelte; je Sitzung und Tag gemerkt."""
+    heute = datetime.date.today().isoformat()
+    gemerkt = st.session_state.get("pb_katalog")
+    if gemerkt and gemerkt[0] == heute:
+        return gemerkt[1]
+    werte, gesehen = [], set()
+
+    def neu(name, wkn, isin, art, kurs):
+        # derselbe Wert kommt aus beiden Quellen teils nur mit WKN, teils mit ISIN - jede Kennung zaehlt
+        schluessel = {k.upper() for k in (wkn, isin) if k} | {"N:" + name.strip().lower()}
+        if not name or schluessel & gesehen:
+            return
+        gesehen.update(schluessel)
+        werte.append({"name": name, "wkn": wkn or "", "isin": isin or "", "art": art,
+                      "kurs": kurs if isinstance(kurs, (int, float)) and kurs > 0 else None})
+
+    lies = (h or {}).get("gh_read_taeglich")
+    for i in range(KATALOG_GROSS_TEILE if lies else 0):
+        try:
+            d = lies(PFAD_KATALOG_GROSS.format(i), None) or {}
+        except Exception:
+            d = {}
+        felder = d.get("felder") or []
+        for z in d.get("zeilen") or []:
+            w = dict(zip(felder, z))
+            kennung = str(w.get("kennung") or "")
+            neu(str(w.get("name") or ""), kennung if _ist_wkn(kennung) else "", str(w.get("isin") or ""),
+                _art_aus(w.get("typ"), w.get("kat")), w.get("kurs"))
+    try:
+        import planer_daten as D
+        for k in D.KATALOG:
+            neu(k["name"], k.get("wkn") or "", k.get("isin") or "",
+                "krypto" if k.get("category") == "crypto" else _art_aus(k.get("typ")), None)
+    except Exception:
+        pass
+    werte.sort(key=lambda w: w["name"].lower())
+    st.session_state["pb_katalog"] = (heute, werte)
+    return werte
+
+
+def _ist_wkn(k):
+    return len(k) == 6 and k.isalnum() and any(c.isdigit() for c in k)
+
+
+def _instrument(h, kennungen, name=""):
+    """Kurs-ID ueber die Suche der Kursquelle (WKN, sonst ISIN, sonst Name). -> Treffer oder None"""
+    suche = (h or {}).get("suche_instrument")
+    if not suche:
+        return None
+    for begriff in [k for k in kennungen if k] + ([name] if name else []):
+        treffer = suche(begriff) or []
+        for t in treffer:
+            if begriff.upper() in (str(t.get("wkn") or "").upper(), str(t.get("isin") or "").upper()):
+                return t
+        if treffer:
+            return treffer[0]
+    return None
+
+
+def _live_kurs(h, instrument_id):
+    hole = (h or {}).get("get_live_kurs")
+    if not hole or not instrument_id:
+        return None
+    try:
+        akt, vor, _ = hole(int(instrument_id))
+    except Exception:
+        return None
+    kurs = akt if akt else vor
+    return float(kurs) if kurs else None
+
+
+def kurse_aktualisieren(h):
+    """Aktuelle Kurse (ls-tc.de) fuer alle Positionen mit WKN/ISIN/Kurs-ID. Gewichte bleiben,
+    Stueckzahlen passen sich an. -> (aktualisiert, ohne_kurs)"""
+    pos = copy.deepcopy(st.session_state.get("pb_positionen") or [])
+    ok, fehlt = 0, []
+    for p in pos:
+        if not (p.get("instrument_id") or p.get("wkn") or p.get("isin")):
+            continue
+        iid = p.get("instrument_id")
+        if not iid:
+            t = _instrument(h, [p.get("wkn"), p.get("isin")])
+            iid = t and t.get("instrument_id")
+        kurs = _live_kurs(h, iid)
+        if kurs:
+            p["kurs"], p["instrument_id"] = round(kurs, 4), str(iid)
+            ok += 1
+        else:
+            fehlt.append(p["name"])
+    st.session_state["pb_positionen"] = pos
+    st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+    return ok, fehlt
 
 
 # ---------------------------------------------------------------- Zustand
@@ -267,7 +386,79 @@ def _kredit_hinweis(spalte, r):
         st.info(f"Am Ende der Laufzeit bleibt eine Restschuld von {eur(r['restschuld'])}.")
 
 
-def _tabelle(r):
+def _hinzufuegen(h, r):
+    """Aktie, ETF oder Wikifolio aus dem Katalog (oder per Suche) als Position anlegen -
+    mit Kurs und dem bis 100 % freien Gewicht als Vorschlag."""
+    e = r["eingaben"]
+    ver = st.session_state.get("pb_add_ver", 0)
+    with st.container(border=True, key="pb_add"):
+        st.markdown('<div class="pb-karte-t">➕ Wert hinzufügen</div>', unsafe_allow_html=True)
+        art_wahl = st.segmented_control("Art", list(ART_FILTER), default="Alle", key="pb_add_art",
+                                        label_visibility="collapsed") or "Alle"
+        art = ART_FILTER[art_wahl]
+        katalog = [w for w in _katalog(h) if art is None or w["art"] == art]
+        optionen = list(range(len(katalog))) + [SUCHE]
+
+        def beschriftung(i):
+            if i == SUCHE:
+                return "🔎 Nicht dabei? Name, WKN oder ISIN suchen …"
+            w = katalog[i]
+            teile = [w["name"], w["wkn"] or w["isin"]]
+            if w["kurs"]:
+                teile.append(eur(w["kurs"], 2))
+            return " · ".join(t for t in teile if t)
+
+        with st.container(key="pb_reihe_add"):
+            c1, c2, c3 = st.columns([3, 1, 1], vertical_alignment="bottom")
+            wahl = c1.selectbox(f"Wert ({len(katalog)} zur Auswahl)", optionen, index=None, format_func=beschriftung,
+                                placeholder="Name oder WKN eintippen …", key=f"pb_add_wahl_{ver}")
+            gewicht = c2.number_input("Gewicht %", 0.0, 100.0, value=round(P.rest_gewicht(e["positionen"]), 2),
+                                      step=1.0, format="%.1f", key=f"pb_add_gew_{ver}",
+                                      help="Vorschlag: der bis 100 % noch freie Anteil.")
+            treffer = None
+            if wahl == SUCHE:
+                begriff = st.text_input("Name, WKN oder ISIN", key=f"pb_add_such_{ver}",
+                                        placeholder="z. B. Siemens, 723610, LS9…").strip()
+                liste = ((h or {}).get("suche_instrument") or (lambda _: []))(begriff)[:12] if len(begriff) >= 2 else []
+                if begriff and len(begriff) >= 2 and not liste:
+                    st.caption("Keine Treffer – andere Schreibweise oder WKN/ISIN versuchen.")
+                if liste:
+                    treffer = st.selectbox(
+                        "Treffer", liste, key=f"pb_add_treffer_{ver}",
+                        format_func=lambda t: " · ".join(x for x in (t.get("name"), t.get("wkn") or t.get("isin"),
+                                                                      t.get("kategorie")) if x))
+            bereit = (wahl is not None and wahl != SUCHE) or treffer is not None
+            if c3.button("Hinzufügen", key=f"pb_add_btn_{ver}", disabled=not bereit, type="primary",
+                         width="stretch"):
+                if treffer is not None:
+                    name, wkn, isin = treffer.get("name"), treffer.get("wkn"), treffer.get("isin")
+                    neu_art, iid = _art_aus(treffer.get("kategorie"), name), treffer.get("instrument_id")
+                    kurs = _live_kurs(h, iid)
+                else:
+                    w = katalog[wahl]
+                    name, wkn, isin, neu_art, kurs, iid = w["name"], w["wkn"], w["isin"], w["art"], w["kurs"], None
+                    if not kurs:
+                        t = _instrument(h, [wkn, isin])
+                        iid = t and t.get("instrument_id")
+                        kurs = _live_kurs(h, iid)
+                pos, ok = P.position_hinzufuegen(e["positionen"], name, kurs or 0.0, gewicht, neu_art, wkn=wkn,
+                                                 isin=isin, instrument_id=iid)
+                if not ok:
+                    st.warning(f"„{name}“ ist schon im Portfolio.")
+                else:
+                    st.session_state["pb_positionen"] = pos
+                    st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+                    st.session_state["pb_add_ver"] = ver + 1
+                    st.session_state["pb_meldung"] = (
+                        f"„{name}“ hinzugefügt ({pct(gewicht)})" + ("" if kurs else
+                                                                    " – Kurs bitte in der Tabelle eintragen"))
+                    st.rerun()
+        meldung = st.session_state.pop("pb_meldung", None)
+        if meldung:
+            st.success(meldung)
+
+
+def _tabelle(h, r):
     """Editierbare Aufteilung. Gespeichert wird je Position nur das Gewicht; Betrag/Stueck
     werden daraus gerechnet. Aenderungen (st.data_editor-Delta) -> Gewichte -> neu zeichnen."""
     e, pos = r["eingaben"], r["positionen"]
@@ -275,19 +466,24 @@ def _tabelle(r):
         summe = pos["summe_gewicht"]
         ok = abs(summe - 100.0) < 0.05
         st.markdown('<div class="pb-karte-t">Portfolio-Aufteilung</div>', unsafe_allow_html=True)
-        df = pd.DataFrame([{"Name": z["name"], "Kurs €": z["kurs"], "Gewicht %": round(z["gewicht"], 4),
+        arten = [p.get("art", "sonstig") for p in e["positionen"]]
+        df = pd.DataFrame([{"Name": z["name"], "Art": P.ARTEN[a_], "Kurs €": z["kurs"],
+                            "Gewicht %": round(z["gewicht"], 4),
                             "Betrag €": round(z["betrag"], 2), "Stück": round(z["stueck"], 4),
-                            "Wert €": round(z["wert"], 2)} for z in pos["zeilen"]],
+                            "Wert €": round(z["wert"], 2)} for z, a_ in zip(pos["zeilen"], arten)],
                           columns=list(SPALTEN))
         key = f"pb_tab_{st.session_state.get('pb_tab_ver', 0)}"
         # Handy: die Spalten zum Eintippen zuerst, "Wert" steht in der Positionstabelle darunter
-        reihenfolge = (["Name", "Gewicht %", "Betrag €", "Stück", "Kurs €"] if _smartphone() else list(SPALTEN))
+        reihenfolge = (["Name", "Gewicht %", "Betrag €", "Stück", "Kurs €", "Art"] if _smartphone()
+                       else list(SPALTEN))
         st.data_editor(
             df, key=key, num_rows="dynamic", hide_index=True, width="stretch", column_order=reihenfolge,
             disabled=["Wert €"],
             column_config={
                 "Name": st.column_config.TextColumn("Name", width=110 if _smartphone() else "medium",
                                                     required=True),
+                "Art": st.column_config.SelectboxColumn("Art", options=list(P.ARTEN.values()), width="small",
+                                                        default=P.ARTEN["sonstig"]),
                 "Kurs €": st.column_config.NumberColumn("Kurs €", min_value=0.0, format="localized", step=0.01,
                                                         width="small"),
                 "Gewicht %": st.column_config.NumberColumn("Gewicht %", min_value=0.0, max_value=100.0,
@@ -299,20 +495,38 @@ def _tabelle(r):
                 "Wert €": st.column_config.NumberColumn("Wert €", format="localized", width="small"),
             })
         delta = st.session_state.get(key) or {}
-        geaendert = {i: {SPALTEN[c]: v for c, v in w.items() if c in SPALTEN}
+        art_key = {v: k for k, v in P.ARTEN.items()}
+
+        def feld(c, v):
+            return art_key.get(v, "sonstig") if c == "Art" else v
+
+        geaendert = {i: {SPALTEN[c]: feld(c, v) for c, v in w.items() if c in SPALTEN}
                      for i, w in (delta.get("edited_rows") or {}).items()}
-        neu = [{SPALTEN[c]: v for c, v in w.items() if c in SPALTEN} for w in (delta.get("added_rows") or [])]
+        neu = [{SPALTEN[c]: feld(c, v) for c, v in w.items() if c in SPALTEN} for w in (delta.get("added_rows") or [])]
         weg = delta.get("deleted_rows") or []
         if any(geaendert.values()) or weg or any(neu):
             st.session_state["pb_positionen"] = P.aenderungen_anwenden(e["positionen"], pos["kapital"],
                                                                        geaendert, neu, weg)
             st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
             st.rerun()
-        c1, c2 = st.columns([1, 1], vertical_alignment="center")
+        c1, c2, c3 = st.columns([1, 1, 1], vertical_alignment="center")
         c1.toggle("Nur ganze Stücke", key="pb_nur_ganze_stuecke",
                   help="Stückzahlen abrunden; der Rest bleibt als Cash im Portfolio.")
         c2.button("Auf 100 % verteilen", key="pb_100_btn", on_click=_auf_100, disabled=ok or not e["positionen"],
                   width="stretch")
+        mit_kennung = any(p.get("wkn") or p.get("isin") or p.get("instrument_id") for p in e["positionen"])
+        if c3.button("🔄 Kurse aktualisieren", key="pb_kurse_btn", width="stretch", disabled=not mit_kennung,
+                     help="Aktuelle Kurse (ls-tc.de) für alle Werte mit WKN/ISIN – die Gewichte bleiben, "
+                          "die Stückzahlen passen sich an."):
+            with st.spinner("Lade Kurse …"):
+                anzahl, fehlt = kurse_aktualisieren(h)
+            st.session_state["pb_meldung_kurse"] = (anzahl, fehlt)
+            st.rerun()
+        gemeldet = st.session_state.pop("pb_meldung_kurse", None)
+        if gemeldet:
+            anzahl, fehlt = gemeldet
+            st.toast(f"{anzahl} Kurs{'e' if anzahl != 1 else ''} aktualisiert"
+                     + (f" · ohne Kurs: {', '.join(fehlt[:3])}" if fehlt else ""))
         texte = ["Prozent, Betrag oder Stück ändern – die anderen Werte rechnen sich sofort mit."]
         if pos["cash"] > 0.005:
             texte.append(f"Nicht investiert (Cash): {eur(pos['cash'], 2)}.")
@@ -395,15 +609,23 @@ def _positionen_tabelle(r):
         zeilen.append(f'<tr><td><i style="background:#3F4652"></i>Cash (nicht investiert)</td>'
                       f'<td>{pct(pos["cash"] / pos["kapital"] * 100 if pos["kapital"] else 0)}</td>'
                       f'<td>–</td><td class="kurs">–</td><td>{eur(pos["cash"])}</td></tr>')
-    zeilen.append(f'<tr class="summe"><td>Summe</td><td>{pct(100 if pos["kapital"] else 0)}</td><td></td>'
-                  f'<td class="kurs"></td>'
-                  f'<td>{eur(pos["kapital"])}</td></tr>')
+    summe_wert = pos["investiert"] + pos["cash"]
+    summe_anteil = summe_wert / pos["kapital"] * 100 if pos["kapital"] else 0.0
+    ueber = summe_anteil > 100.05                 # Gewichte > 100 %: mehr verplant als Kapital da ist
+    zeilen.append(f'<tr class="summe"><td>Summe</td><td{" style=color:#F5B942" if ueber else ""}>{pct(summe_anteil)}'
+                  f'</td><td></td><td class="kurs"></td><td>{eur(summe_wert)}</td></tr>')
+    anteile = P.anteile_nach_art(r["eingaben"])
+    namen = dict(P.ARTEN, cash="Cash")
+    nach_art = " · ".join(f"{namen.get(k, k)} {pct(v)}" for k, v in sorted(anteile.items(), key=lambda x: -x[1]))
     with st.container(border=True):
         st.markdown('<div class="pb-karte-t">Positionen</div>'
                     '<div class="pb-wrap" tabindex="0" role="region" aria-label="Positionen (seitlich scrollbar)">'
                     '<table class="pb-tab"><thead><tr><th>Position</th><th>Anteil</th><th>Stück</th><th class="kurs">Kurs</th>'
                     '<th>Wert</th></tr></thead><tbody>' + "".join(zeilen) + "</tbody></table></div>",
                     unsafe_allow_html=True)
+        if nach_art:
+            st.markdown(f'<div class="pb-hinweis" style="margin-top:8px">Nach Art: {_esc(nach_art)}</div>',
+                        unsafe_allow_html=True)
 
 
 def _ergebnis(r):
@@ -471,7 +693,8 @@ def render(h):
     e = _aus_widgets()
     r = P.simulation(e)
     _kredit_hinweis(kredit_spalte, r)
-    _tabelle(r)
+    _hinzufuegen(h, r)
+    _tabelle(h, r)
     with kpi_platz.container():
         _kpis(r)
     _diagramme(r)
