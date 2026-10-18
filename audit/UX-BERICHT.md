@@ -30,16 +30,16 @@ Insgesamt 282 Ansichten je Messlauf (47 je Gerät). Skripte: `audit/harness/ux_m
 
 | Gerät | Ansichten | Abstürze | Seitl. Überlauf | axe-Verstöße | Abgeschnittene Texte | Touch-Ziele < 44 px | Schrift < 12 px |
 |---|---|---|---|---|---|---|---|
-| iPhone SE | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 38 → **10** | 1144 → **515** | 270 → **0** |
-| iPhone Pro Max | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 18 → **7** | 1149 → **515** | 270 → **0** |
-| iPad hoch | 47 | 4 → **0** | 0 → **0** | 11 → **0** | 6 → **4** | 1148 → **518** | 330 → **0** |
-| iPad quer | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 6 → **4** | 1148 → **518** | 330 → **0** |
-| Laptop | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 6 → **4** | 0 → **0** | 330 → **0** |
-| Desktop | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 7 → **4** | 0 → **0** | 330 → **0** |
+| iPhone SE | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 38 → **6** | 1144 → **483** | 270 → **0** |
+| iPhone Pro Max | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 18 → **3** | 1149 → **483** | 270 → **0** |
+| iPad hoch | 47 | 4 → **0** | 0 → **0** | 11 → **0** | 6 → **0** | 1148 → **518** | 330 → **0** |
+| iPad quer | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 6 → **0** | 1148 → **518** | 330 → **0** |
+| Laptop | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 6 → **0** | 0 → **0** | 330 → **0** |
+| Desktop | 47 | 4 → **0** | 0 → **0** | 4 → **0** | 7 → **0** | 0 → **0** | 330 → **0** |
 
-Abstürze: Ansichten mit Fehlermeldung statt Inhalt (je Gerät 1 × Benutzerverwaltung, 3 × Abfindungsrechner). Längste Ladezeit einer Ansicht im Endlauf: 2,2 s.
+Abstürze: Ansichten mit Fehlermeldung statt Inhalt (je Gerät 1 × Benutzerverwaltung, 3 × Abfindungsrechner). Längste Ladezeit einer Ansicht im Endlauf: 2,4 s.
 
-Verbleibende „abgeschnittene“ Texte sind gewollt: der nur als Symbol gezeigte Knopf „Abmelden“ (Text für Screenreader), lange Firmennamen in der Watchlist-Tabelle und auf dem Handy der Aufklapp-Titel „📅 Wochenveränderung“ neben dem Pfeil.
+Verbleibende „abgeschnittene“ Texte auf dem Handy sind gewollt: lange Firmennamen in der Watchlist-Tabelle und der Aufklapp-Titel „📅 Wochenveränderung“ neben dem Pfeil. Der Endlauf lief mit Safari-Kennung (iPhone/iPad) und zählt nur für Screenreader versteckte Texte nicht mehr als abgeschnitten; die Vorher-Werte enthalten davon je Gerät 4 (Knopf „Abmelden“).
 
 *Touch-Ziele werden nur auf Touch-Geräten gezählt. Die verbleibenden Werte stammen überwiegend aus Streamlit-internen Elementen, die die App nicht steuert (siehe „Offen“).*
 
