@@ -804,7 +804,7 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
                       on_click=_alle_setzen, args=(nn, []))
             # im Formular loesen die Schalter keinen Neuaufbau aus - erst der Speichern-Knopf
             with st.form(f"rechte_form_{nn}", border=False):
-                with st.container(key=f"rechte_{nn}"):
+                with st.container(key=f"rechte_u_{nn}"):   # eigenes Praefix: Benutzer "neu" != Anlegen-Formular
                     _rechte_schalter(st, f"rechte_{nn}", ansichten, namen, erlaubt)
                 with st.container(key=f"rspeichern_{nn}"):
                     gedrueckt = st.form_submit_button("💾 Rechte speichern", width="stretch")

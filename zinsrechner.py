@@ -802,11 +802,11 @@ def analyse_html(a):
     aus_txt = (" + ausgezahlte Zinsen" if a.get("auszahlung") else "")
     zeilen_g = (
         f'<div style="display:grid;grid-template-columns:1fr auto;gap:6px 10px;font-size:.86rem;margin:4px 0 12px">'
-        f'<div>Kapitalerhalt über die ganze Laufzeit<br><span style="color:#a9a79c;font-size:.74rem">Endkapital'
+        f'<div>Kapitalerhalt über die ganze Laufzeit<br><span style="color:#a9a79c;font-size:0.8rem">Endkapital'
         f'{aus_txt} = alles Eingezahlte ({_de(a["eingezahlt"], 0)} €)</span></div><div style="text-align:right"><b>{wert(g["erhalt"])}</b>'
-        f'<br><span style="font-size:.74rem">{status(g["erhalt"])}</span></div>'
+        f'<br><span style="font-size:0.8rem">{status(g["erhalt"])}</span></div>'
         f'<div>Zusätzlich +{_de(a["wachstum"] * 100, 1)} % Wachstum p.a.</div><div style="text-align:right">'
-        f'<b>{wert(g["wachstum"])}</b><br><span style="font-size:.74rem">{status(g["wachstum"])}</span></div></div>')
+        f'<b>{wert(g["wachstum"])}</b><br><span style="font-size:0.8rem">{status(g["wachstum"])}</span></div></div>')
     th = "".join(f'<th style="text-align:{"left" if i == 0 else "right"};padding:6px 4px;color:#a9a79c;font-weight:600;'
                  f'border-bottom:1px solid #2a2a28;white-space:nowrap">{k}</th>'
                  for i, k in enumerate(["Phase", "€/Monat", "Erhalt", f"+{_de(a['wachstum'] * 100, 1)} %",
@@ -818,13 +818,13 @@ def analyse_html(a):
         tr.append("<tr>" + "".join(
             f'<td style="text-align:{"left" if i == 0 else "right"};padding:6px 4px;border-bottom:1px solid #2a2a28;'
             f'white-space:nowrap;vertical-align:top">{c}</td>' for i, c in enumerate([
-                f'{x["von"].strftime("%m/%Y")}–{x["bis"].strftime("%m/%Y")}<div style="font-size:.68rem;color:#a9a79c">'
+                f'{x["von"].strftime("%m/%Y")}–{x["bis"].strftime("%m/%Y")}<div style="font-size:0.8rem;color:#a9a79c">'
                 f'Start {_de(x["kapital"], 0)} €</div>',
                 _de(x["betrag"], 0), wert(x["erhalt"]), wert(x["wachstum"]),
                 f'<span style="color:{farbe}">{"✓" if dk >= 100 else "⚠"} {_de(dk, 0)} %</span>'])) + "</tr>")
     return (zeilen_g + '<table style="width:100%;border-collapse:collapse;font-size:.8rem;color:#e8e6df;'
             f'font-variant-numeric:tabular-nums"><thead><tr>{th}</tr></thead><tbody>{"".join(tr)}</tbody></table>'
-            '<div style="font-size:.72rem;color:#a9a79c;margin-top:6px">Erhalt = Zinssatz, bei dem die Zinsen eines Jahres '
+            '<div style="font-size:0.8rem;color:#a9a79c;margin-top:6px">Erhalt = Zinssatz, bei dem die Zinsen eines Jahres '
             'die Entnahmen dieser Phase genau decken (Kapital bleibt gleich). Deckung = so viel der Entnahmen zahlen die '
             f'Zinsen (nach Steuer) beim gewählten Zinssatz von {_de(z, 2)} %.'
             + (' Zinsen werden ausgezahlt (kein Zinseszins): Kapitalerhalt zählt Kontostand plus ausgezahlte Zinsen.'
@@ -851,7 +851,7 @@ def tabelle_html(za, r):
         rand = z["text"] in ("Start", "Ende")
         label = {"Start": "Anfangskapital", "Ende": "Endkapital"}.get(z["text"], "")
         zellen = [f'{z["datum"].strftime("%d.%m.%Y")}'
-                  + (f'<div style="font-size:.68rem;color:{FARBEN["text2"]};line-height:1.1">{label}</div>'
+                  + (f'<div style="font-size:0.8rem;color:{FARBEN["text2"]};line-height:1.1">{label}</div>'
                      if label else "")]
         leer = z["text"] == "Start"
         if mit_ein:
@@ -866,7 +866,7 @@ def tabelle_html(za, r):
                      f'vertical-align:top;border-bottom:1px solid {FARBEN["grid"]}">{c}</td>'
                      for i, c in enumerate(zellen))
         zeilen.append(f"<tr>{td}</tr>")
-    return (f'<table style="width:100%;border-collapse:collapse;table-layout:auto;font-size:{groesse};'
+    return (f'<table style="display:table;width:100%;border-collapse:collapse;table-layout:auto;font-size:{groesse};'
             f'font-variant-numeric:tabular-nums;color:{FARBEN["text"]}"><thead><tr>{th}</tr></thead>'
             f'<tbody>{"".join(zeilen)}</tbody></table>')
 
@@ -1004,7 +1004,7 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-testid="stNumberInput"],
 .st-key-zr_form [data-testid="stTextInput"],
 .st-key-zr_form [data-testid="stDateInput"] { margin-top: 0 !important; padding-top: 0 !important; }
-.zr-hilfe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: .76rem; color: #c3c2b7;
+.zr-hilfe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 0.8rem; color: #c3c2b7;
             margin: 0 0 4px; padding: 10px 12px; border-radius: 12px; background: #12151c; border: 1px solid #2c313d; }
 .zr-hilfe span { display: inline-flex; align-items: center; gap: 6px; }
 .zr-muster { display: inline-block; width: 26px; height: 16px; border-radius: 5px; background: #0b0d12;
@@ -1308,7 +1308,8 @@ def render(basis_url="", gespeichert=None, null=False):
 
     za = zeitachse(q, r)
     st.markdown(_kopf("📅", "Entwicklung", "Kontostand jeweils am Jahrestag"), unsafe_allow_html=True)
-    st.markdown(tabelle_html(za, r), unsafe_allow_html=True)
+    st.markdown('<div tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)" style="overflow-x:auto">'
+                + tabelle_html(za, r) + '</div>', unsafe_allow_html=True)
 
     # Permanentlink: Browser-Adresse zeigt immer die aktuelle Variante
     params = in_url(q)
@@ -1319,7 +1320,7 @@ def render(basis_url="", gespeichert=None, null=False):
     from urllib.parse import urlencode
     link = (basis_url.rstrip("/") + "/?" if basis_url else "?") + urlencode(params)
     st.markdown(_kopf("🔗", "Permanentlink", "Genau diese Variante wieder aufrufen oder teilen"), unsafe_allow_html=True)
-    st.code(link, language=None)
+    st.code(link, language=None, wrap_lines=True)   # umbrechen statt seitlich scrollen (Tastatur/axe)
     st.caption("Die Adresse im Browser ist jetzt genau dieser Link – als Lesezeichen speichern oder teilen; beim "
                "Öffnen erscheint der Rechner mit allen Werten.")
     st.download_button("📄 Ergebnis als PDF", data=pdf_bericht(q, r, hinweis, link, analyse),

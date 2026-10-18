@@ -158,7 +158,7 @@ st.markdown("""
        gleiche Schrift, gleiches Gewicht, Neonweiss mit leichtem Schein. */
     .q-name, .hero-label {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.74rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: 6px;
         text-shadow: 0 0 10px rgba(255, 255, 255, 0.30);
     }
@@ -238,7 +238,7 @@ st.markdown("""
     /* Kompakte Fussnote am Kachelende (Zeitstempel, Stueckzahl) - bewusst
        ohne Chip-Pille, damit sie moeglichst wenig Hoehe kostet. */
     .card-footnote {
-        font-size: 0.72rem; color: var(--muted); margin-top: 8px;
+        font-size: 0.8rem; color: var(--muted); margin-top: 8px;
     }
 
     /* ---------- STAT-CHIPS: gleiche Pill-Optik wie die Meta-Chips
@@ -251,7 +251,7 @@ st.markdown("""
         padding: 6px 12px; border-radius: 999px;
     }
     .stat-chip-label {
-        font-size: 0.68rem; font-weight: 700; color: var(--label);
+        font-size: 0.8rem; font-weight: 700; color: var(--label);
         text-transform: uppercase; letter-spacing: 0.4px;
     }
     .stat-chip-val {
@@ -281,7 +281,7 @@ st.markdown("""
         overflow-wrap: break-word;
     }
     .row-note {
-        display: block; font-size: 0.78rem; color: var(--muted);
+        display: block; font-size: 0.8rem; color: var(--muted);
         font-weight: 400; margin-top: 4px; white-space: normal;
     }
 
@@ -382,7 +382,7 @@ st.markdown("""
     [data-testid="stSelectbox"] label,
     [data-testid="stSelectbox"] label p {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.74rem !important;
+        font-size: 0.8rem !important;
         font-weight: 700 !important;
         color: #FFFFFF !important;
         letter-spacing: 1.3px !important;
@@ -513,7 +513,7 @@ st.markdown("""
        weisser Rahmen macht die Gliederung auf einen Blick lesbar. */
     .abschnitt {
         font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.74rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase;
         margin: 16px 0 2px 2px;
         padding-bottom: 7px;
@@ -641,7 +641,7 @@ st.markdown("""
            sein, nicht nur eine Nuance dunkler. */
         background: #1C1F26;
         padding: 9px 10px;
-        font-size: 0.64rem; font-weight: 700; color: #FFFFFF;
+        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 0.7px; text-transform: uppercase;
         text-align: center; white-space: nowrap;
         border-bottom: 1px solid var(--line);
@@ -674,7 +674,7 @@ st.markdown("""
         white-space: normal; line-height: 1.25;
     }
     .pt-wknval {
-        color: var(--label); font-weight: 600; font-size: 0.72rem;
+        color: var(--label); font-weight: 600; font-size: 0.8rem;
         letter-spacing: 0.3px;
     }
 
@@ -683,28 +683,28 @@ st.markdown("""
         text-align: right;
         font-family: 'IBM Plex Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
-        font-size: 0.78rem;
+        font-size: 0.8rem;
     }
     .pt-stark { font-weight: 700; font-size: 0.83rem; }
-    .pt-klein { font-size: 0.74rem; opacity: 0.92; }
+    .pt-klein { font-size: 0.8rem; opacity: 0.92; }
     .pt-up { color: #16C784; }
     .pt-down { color: #EA3943; }
     .pt-leer { color: #4B5058; }
-    .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.75rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
+    .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.8rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
 
     /* ---------- WATCHLIST / QUALITAETS-SCORE ----------
        Zweite Zeile unter dem Namen (Kennung, Branche) statt eigener Spalten -
        spart auf dem iPhone die Breite fuer die eigentlichen Zahlen. */
     .pt-sub {
         display: block; margin-top: 2px; white-space: normal;
-        font-size: 0.68rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
+        font-size: 0.8rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
     }
     .q-punkte { font-weight: 800; font-size: 0.9rem; }
     .q-prio { color: #16C784; }
     .q-beob { color: #F5B942; }
     .q-nicht { color: #8A9099; }
     .pt td.q-fokus-hl, .pt th.q-fokus-hl { background: rgba(255, 255, 255, 0.05); }
-    .q-legende { font-size: 0.72rem; color: var(--label); margin: -4px 0 10px; }
+    .q-legende { font-size: 0.8rem; color: var(--label); margin: -4px 0 10px; }
     .q-kpis {
         display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         gap: 8px; margin: 6px 0 12px;
@@ -714,7 +714,7 @@ st.markdown("""
         padding: 10px 12px; min-width: 0;
     }
     .q-kpi-l {
-        font-size: 0.64rem; font-weight: 700; color: var(--label);
+        font-size: 0.8rem; font-weight: 700; color: var(--label);
         text-transform: uppercase; letter-spacing: 0.6px;
     }
     .q-kpi-v {
@@ -753,7 +753,7 @@ st.markdown("""
         .q-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .q-kpi-v { font-size: 1.2rem; }
         .q-b-zeile { grid-template-columns: minmax(0, 1fr) 72px 44px; font-size: 0.86rem; }
-        .pt-sub { font-size: 0.74rem; }
+        .pt-sub { font-size: 0.8rem; }
         .q-punkte { font-size: 0.98rem; }
         .pt.pt-kompakt td, .pt.pt-kompakt thead th { padding: 9px 6px; }
     }
@@ -915,7 +915,7 @@ st.markdown("""
         width: 20px !important; height: 20px !important;
     }
     /* Tabs ruhiger, ohne dicke gruene Unterstreichung */
-    [data-testid="stTabs"] button { font-size: 0.78rem !important; letter-spacing: 0.3px; }
+    [data-testid="stTabs"] button { font-size: 0.8rem !important; letter-spacing: 0.3px; }
     /* Tab-Leiste bei vielen Positionen horizontal scrollbar halten, statt
        die Beschriftungen umbrechen oder abschneiden zu lassen. */
     [data-testid="stTabs"] [data-baseweb="tab-list"] {
@@ -929,6 +929,43 @@ st.markdown("""
     }
     /* Kachel im Tab hat keinen doppelten Abstand nach unten */
     [data-testid="stTabs"] .hero { margin-bottom: 0; }
+
+    /* ---------- UX 10/2026: Lesbarkeit auf kleinen Bildschirmen ----------
+       Streamlit kuerzt Kennzahlen, Feldbeschriftungen und Knopftexte mit "…" - auf dem
+       iPhone waren so Werte wie "4.00…" oder "Wahrscheinlichkeit …" nicht lesbar.
+       Hier wird stattdessen umgebrochen. */
+    [data-testid="stMetric"] .stMarkdownEllipsis, [data-testid="stMetric"] .stMarkdownEllipsis *,
+    [data-testid="stWidgetLabel"] .stMarkdownEllipsis, [data-testid="stWidgetLabel"] .stMarkdownEllipsis *,
+    [data-testid="stButton"] .stMarkdownEllipsis, [data-testid="stButton"] .stMarkdownEllipsis *,
+    [data-testid="stFormSubmitButton"] .stMarkdownEllipsis, [data-testid="stFormSubmitButton"] .stMarkdownEllipsis *,
+    [data-testid="stDownloadButton"] .stMarkdownEllipsis, [data-testid="stDownloadButton"] .stMarkdownEllipsis * {
+        white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
+        overflow-wrap: break-word;
+    }
+    [data-testid="stMetricValue"] { font-size: clamp(1.25rem, 5.2vw, 2.25rem) !important; line-height: 1.15 !important; }
+    /* Depot | Kurse: nebeneinander erst ab 820 px, darunter untereinander */
+    @media (max-width: 819px) {
+        .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"],
+        .st-key-depot_spalten [data-testid="stHorizontalBlock"]:first-of-type {
+            flex-direction: column !important; flex-wrap: wrap !important; gap: 0.7rem !important; }
+        .st-key-depot_spalten [data-testid="stColumn"] {
+            width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; }
+    }
+    /* Touch: Plotly-Werkzeugleiste (22-px-Symbole) ausblenden - Zoomen per Fingergeste geht weiter */
+    @media (pointer: coarse) { .modebar-container { display: none !important; } }
+    [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button { height: auto !important; }
+    /* Touch-Geraete: Trefferflaechen mind. 44 px (Apple HIG) */
+    @media (pointer: coarse) {
+        [data-testid="stButtonGroup"] button { min-height: 44px !important; }
+        [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
+        [data-testid="stDownloadButton"] button { min-height: 44px !important; }
+        [data-testid="stExpander"] summary { min-height: 44px; }
+        [data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
+        [data-testid="stDateInputField"], [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+            min-height: 44px !important; height: auto !important; }
+        [data-testid="stNumberInputField"], [data-testid="stTextInputRootElement"] input { min-height: 44px !important; }
+        [data-testid="stTabs"] [role="tab"] { min-height: 44px !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -2449,6 +2486,19 @@ def check_and_alert_fetch_failure(is_live_data, is_live_history):
                         message="update fetch fail alarm state [skip ci]")
 
 
+def auswahl_kompakt(label, optionen, default=None, key=None, max_pills=6, **kw):
+    """Wenige Optionen als Pillen (ein Tipp, alles sichtbar), viele als Auswahlfeld
+    (Audit UX: 12-15 Pillen fuellten auf dem Handy mehr als eine Bildschirmhoehe,
+    bevor der eigentliche Inhalt kam). Rueckgabe wie st.pills (gewaehlte Option)."""
+    optionen = list(optionen)
+    if len(optionen) <= max_pills:
+        return st.pills(label, optionen, default=default, key=key, **kw)
+    if key and st.session_state.get(key) not in optionen:
+        st.session_state.pop(key, None)                 # z. B. Anzahl im Titel ueber Nacht geaendert
+    idx = optionen.index(default) if default in optionen else 0
+    return st.selectbox(label, optionen, index=idx, key=key, **kw)
+
+
 def tab_label(name, wkn="", max_len=16):
     """Kuerzt Tab-Beschriftungen lesbar statt hart mitten im Wort.
 
@@ -2671,7 +2721,7 @@ NAV_CSS = """
 
 /* Kopf */
 .nav-kopf { text-align: center; padding: 0 0 4px; margin-top: -26px; }
-.nav-credit { font-size: 0.72rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
+.nav-credit { font-size: 0.8rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
               text-shadow: 0 0 6px rgba(255, 255, 255, 0.35); }
 .nav-logo {
     font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
@@ -2682,7 +2732,7 @@ NAV_CSS = """
 .nav-chip {
     /* gleicher Tasten-Look wie die Kacheln: klarer Rand, 3D-Kante, kein Leuchten */
     display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 6px; padding: 7px 16px;
-    border-radius: 999px; font-size: 0.76rem; color: #FFFFFF; font-weight: 700;
+    border-radius: 999px; font-size: 0.8rem; color: #FFFFFF; font-weight: 700;
     border: 1px solid rgba(255, 255, 255, 0.85); background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%);
     box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30);
 }
@@ -2714,7 +2764,7 @@ NAV_CSS = """
    aus dem Bild, kommt links wieder herein, bleibt stehen und pulsiert leicht */
 .nav-gruppe {
     position: relative; height: 38px; margin: 0 4px; overflow: hidden;
-    font-size: 0.7rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
 }
 .nav-gruppe::after {
     content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
@@ -2803,7 +2853,7 @@ NAV_CSS = """
         0 6px 12px rgba(0, 0, 0, 0.6),
         inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
 }
-.st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.76rem !important; font-weight: 700 !important; }
+.st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.8rem !important; font-weight: 700 !important; }
 
 /* Aktualisieren: schlanke Neon-Pille */
 /* klein und mittig direkt unter der Kurs-Pille */
@@ -2859,23 +2909,23 @@ NAV_CSS = """
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(3) { flex: 0 0 auto !important; }
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
 .st-key-nav_leiste [data-testid="stButton"] button {
-    min-height: 38px !important; border-radius: 10px !important; padding: 4px 12px !important;
+    min-height: 44px !important; min-width: 44px !important; border-radius: 10px !important; padding: 4px 12px !important;
     white-space: nowrap !important; background: rgba(255, 255, 255, 0.04) !important;
     border: 1px solid rgba(255, 255, 255, 0.8) !important;
     box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 14px rgba(255, 255, 255, 0.2) !important;
 }
 .st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; color: #FFFFFF !important; }
 .nav-titel {
-    font-size: 1.02rem; font-weight: 700; color: #FFFFFF; white-space: nowrap; overflow: hidden;
-    text-overflow: ellipsis; text-align: center; letter-spacing: 0.3px;
+    font-size: 1.02rem; font-weight: 700; color: #FFFFFF; line-height: 1.2;
+    overflow-wrap: anywhere; text-align: center; letter-spacing: 0.3px;
     text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
 }
-.nav-stand { font-size: 0.72rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
+.nav-stand { font-size: 0.8rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
 .nav-stand b { color: #FFFFFF; }
 @media (max-width: 700px) {
     .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
     .st-key-nav_menue [data-testid="stButton"] button { min-height: 58px !important; }
-    .st-key-nav_menue .st-key-nav_refresh button { min-height: 32px !important; }
+    .st-key-nav_menue .st-key-nav_refresh button { min-height: 44px !important; }
     .nav-titel { font-size: 0.92rem; }
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
@@ -3139,6 +3189,11 @@ def navigation():
                     content: ""; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
                     animation: logoutglow 3s ease-in-out infinite; }
                 /* gleiches sanftes Aufleuchten wie die Ueberschriften (navlogopuls) */
+                /* Touch: 44-px-Trefferflaeche um den kleinen Kreis (Audit UX) */
+                @media (pointer: coarse) {
+                    html body .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::after {
+                        content: ""; position: absolute; inset: -7px; display: block !important; }
+                }
                 @keyframes logoutglow {
                     0%, 100% { box-shadow: 0 0 2px rgba(255,60,60,.25); }
                     50%      { box-shadow: 0 0 8px rgba(255,60,60,.85), 0 0 18px rgba(255,60,60,.4); }
@@ -3293,7 +3348,7 @@ def render_chronik():
                 kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
                 st.markdown(f"""
                     <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
-                        <div style="font-size: 0.72rem; color: #71717A;">{html.escape(kopf)}</div>
+                        <div style="font-size: 0.8rem; color: #A1A1AA;">{html.escape(kopf)}</div>
                         <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
                         <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
                     </div>
@@ -3304,7 +3359,7 @@ def render_chronik():
             with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
                 with st.form("trade_form", clear_on_submit=True):
                     col1, col2 = st.columns([2, 3])
-                    with col1: ed = st.date_input("Datum", heute_date)
+                    with col1: ed = st.date_input("Datum", heute_date, format="DD.MM.YYYY")
                     with col2: eti = st.text_input("Titel")
                     ei = st.text_area("Details")
                     if st.form_submit_button("Speichern") and eti:
@@ -3411,7 +3466,7 @@ def render_dashboard():
                 return '<div class="pt-leer">– keine –</div>'
             k = "".join(f'<th class="{"pt-wert" if i == 0 else "pt-num"}">{h}</th>' for i, h in enumerate(kopf))
             z = "".join("<tr>" + "".join(zeilen_i) + "</tr>" for zeilen_i in zeilen)
-            return f'<div class="pt-wrap"><table class="pt"><thead><tr>{k}</tr></thead><tbody>{z}</tbody></table></div>'
+            return f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt"><thead><tr>{k}</tr></thead><tbody>{z}</tbody></table></div>'
 
         def zelle(text, farbe=None, wert=False):
             # white-space normal: laengere Texte ("→ Beobachten") duerfen auf
@@ -3486,7 +3541,7 @@ def render_dashboard():
         keys = [k for k in keys if indizes[k].get("s")] + [k for k in keys if not indizes[k].get("s")]
         titel = [f'{indizes[k]["titel"]} ({len(indizes[k]["s"])})' if indizes[k].get("s")
                  else f'{indizes[k]["titel"]} (–)' for k in keys]
-        wahl = st.pills("Index", titel, default=titel[0], key=f"{prefix}_index_{region}")
+        wahl = auswahl_kompakt("Index", titel, default=titel[0], key=f"{prefix}_index_{region}")
         # Die Anzahl im Namen kann sich ueber Nacht aendern - eine gespeicherte,
         # nicht mehr vorhandene Auswahl faellt dann auf den ersten Index zurueck
         key = keys[titel.index(wahl)] if wahl in titel else keys[0]
@@ -3576,7 +3631,7 @@ def render_dashboard():
                     st.info("Für diesen Index liegen noch keine Kursdaten vor – sie entstehen beim nächsten Lauf.")
                     return
             else:
-                gewaehlt = st.pills("Kategorie", kat_titel, default=kat_titel[0], key="top50_kategorie")
+                gewaehlt = auswahl_kompakt("Kategorie", kat_titel, default=kat_titel[0], key="top50_kategorie")
                 kat_key = kat_keys[kat_titel.index(gewaehlt)] if gewaehlt in kat_titel else kat_keys[0]
                 kat = kategorien[kat_key]
                 laenge = _listen_laenge("top50")
@@ -3636,12 +3691,12 @@ def render_dashboard():
                 if wert is None:
                     return '<td class="pt-num">–</td>'
                 farbe = "pt-up" if wert >= 0 else "pt-down"
-                return f'<td class="pt-num pt-stark {farbe}">{wert:+.2f}%</td>'
+                return f'<td class="pt-num pt-stark {farbe}">{vz_zahl(wert, 2)} %</td>'
 
             def _div(wert):
                 if not wert:
                     return '<td class="pt-num">–</td>'
-                return f'<td class="pt-num pt-stark pt-up">{wert:.2f}%</td>'
+                return f'<td class="pt-num pt-stark pt-up">{_de_zahl(wert, 2)} %</td>'
 
             vergleich = (kat.get("vergleich") or {}).get(zr_key)
             mit_trend = vergleich is not None
@@ -3669,7 +3724,7 @@ def render_dashboard():
                 spalten = f'<th class="pt-num">{zr_wahl}</th>' + (
                     '<th class="pt-num">Div.-<br>Rendite</th>' if mit_div else "")
             st.markdown(
-                '<div class="pt-wrap"><table class="pt pt-kompakt"><thead><tr>'
+                '<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr>'
                 '<th class="pt-num">#</th>' + ('<th class="pt-num">7&nbsp;T.</th>' if mit_trend else "") +
                 f'<th class="pt-wert">Wert</th>'
                 f'{spalten}'
@@ -3845,7 +3900,7 @@ def render_dashboard():
 
         # Direktvergleich: Kennzahlen als Zeilen, ausgewaehlte Aktien als Spalten
         namen = {z["Symbol"]: z["Unternehmen"] for z in zeilen}
-        auswahl = st.multiselect("Aktien direkt vergleichen (bis 6)", list(namen), max_selections=6,
+        auswahl = st.multiselect("Aktien direkt vergleichen (bis 6)", list(namen), max_selections=6, placeholder="Aktien auswählen …",
                                  default=list(namen)[:3], key="q_vergleich_wahl",
                                  format_func=lambda s_: f"{namen[s_]} ({s_})")
         if auswahl:
@@ -3910,7 +3965,7 @@ def render_dashboard():
         # (die allgemeine Regel blendet dort alle data-spalte-Zellen aus)
         stil = (f'<style>@media (max-width: 700px) {{ .pt.qt td[data-spalte="q_{fokus}"], '
                 f'.pt.qt th[data-spalte="q_{fokus}"] {{ display: table-cell; }} }}</style>')
-        st.markdown(stil + f'<div class="pt-wrap"><table class="pt qt"><thead><tr>{kopf}</tr></thead>'
+        st.markdown(stil + f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt qt"><thead><tr>{kopf}</tr></thead>'
                     f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
         st.markdown('<div class="q-legende">Punkte: <span class="q-prio">■</span> Hohe Analysepriorität · '
                     '<span class="q-beob">■</span> Beobachtungsliste · <span class="q-nicht">■</span> '
@@ -4014,10 +4069,10 @@ def render_dashboard():
                     continue
                 farbe = "pt-up" if (v["pot"] or 0) >= 0 else "pt-down"
                 zeilen += (f'<tr><td class="pt-wert"><span class="pt-name">{namen[k]}</span></td>'
-                           f'<td class="pt-num">{v["g"]:.1f} %</td><td class="pt-num">{v["r"]:.1f} %</td>'
+                           f'<td class="pt-num">{_de_zahl(v["g"], 1)} %</td><td class="pt-num">{_de_zahl(v["r"], 1)} %</td>'
                            f'<td class="pt-num">{v["m"]:.1f}x</td>'
                            f'<td class="pt-num pt-stark {farbe}">{v["pot"]:+.0f} %</td></tr>')
-            st.markdown('<div class="pt-wrap"><table class="pt pt-kompakt"><thead><tr><th class="pt-wert">Fall</th>'
+            st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr><th class="pt-wert">Fall</th>'
                         '<th class="pt-num">FCF-<br>Wachstum</th><th class="pt-num">Kapital-<br>kosten</th>'
                         '<th class="pt-num">Multi-<br>ple</th><th class="pt-num">Wert vs.<br>Kurs</th></tr></thead>'
                         f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
@@ -4077,7 +4132,7 @@ def render_dashboard():
                    "klassen": {kl: sum(1 for s in mitglieder if werte[s]["klasse"] == kl) for kl in Q_KLASSEN}}
             kat_key = f"i:{idx_key}"
         else:
-            wahl = st.pills("Kategorie", titel, default=titel[0], key="q_kategorie")
+            wahl = auswahl_kompakt("Kategorie", titel, default=titel[0], key="q_kategorie")
             kat_key = keys[titel.index(wahl)] if wahl in titel else keys[0]
             kat = kats[kat_key]
             n = _listen_laenge("q")
@@ -4135,7 +4190,7 @@ def render_dashboard():
             return
 
         titel_fokus = ["📊 Alle Kennzahlen"] + [t for _, t, _, _ in Q_SPALTEN]
-        f_wahl = st.pills("Kennzahl in der Tabelle", titel_fokus, default=titel_fokus[0],
+        f_wahl = auswahl_kompakt("Kennzahl in der Tabelle", titel_fokus, default=titel_fokus[0],
                           key="q_fokus") or titel_fokus[0]
         if f_wahl == titel_fokus[0]:
             _q_vergleich(werte, symbole)
@@ -4252,11 +4307,11 @@ def render_dashboard():
                 f'<td class="pt-num pt-seit">{platz}</td>'
                 f'<td class="pt-wert"><span class="pt-name">{html.escape(z["name"])}</span>'
                 f'<span class="pt-sub">{html.escape(unter)}</span></td>'
-                f'<td class="pt-num pt-stark {"pt-up" if perf >= 0 else "pt-down"}">{perf:+.1f} %</td>'
+                f'<td class="pt-num pt-stark {"pt-up" if perf >= 0 else "pt-down"}">{vz_zahl(perf, 1)} %</td>'
                 f'<td class="pt-num pt-stark {"pt-up" if (fy or 0) >= 5 else "pt-down" if fy is not None and fy < 2 else ""}">'
-                f'{"–" if fy is None else f"{fy:.1f} %"}</td>'
+                f'{"–" if fy is None else f"{_de_zahl(fy, 1)} %"}</td>'
                 f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(z["klasse"], "")}">{z["gesamt"]}</td></tr>')
-        st.markdown(f'<div class="pt-wrap"><table class="pt pt-kompakt"><thead><tr>{kopf}</tr></thead>'
+        st.markdown(f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr>{kopf}</tr></thead>'
                     f'<tbody>{z_html}</tbody></table></div>', unsafe_allow_html=True)
 
     def _qk_diagramm(zeilen, zr_key, zr_titel, median):
@@ -4278,7 +4333,7 @@ def render_dashboard():
                 x=[min(max(z[zr_key], unten), oben) for z in pts], y=[z["q_ant"] for z in pts],
                 mode="markers", name=titel_kl,
                 marker=dict(color=farbe, size=6 if kl != "nicht" else 5, opacity=0.85 if kl != "nicht" else 0.45),
-                text=[f'{_h(z["name"])} ({_h(z["s"])})<br>Kurs {zr_titel}: {z[zr_key]:+.1f} %<br>'
+                text=[f'{_h(z["name"])} ({_h(z["s"])})<br>Kurs {zr_titel}: {vz_zahl(z[zr_key], 1)} %<br>'
                       f'Qualität {z["q_ant"]:.0f} % · {z["gesamt"]} Punkte' for z in pts],
                 hovertemplate="%{text}<extra></extra>"))
         for x0, y0, text in ((unten, 99, "Qualität hoch · Kurs schwach"), (oben, 99, "Qualität hoch · Kurs stark"),
@@ -4290,10 +4345,10 @@ def render_dashboard():
         fig.update_layout(
             paper_bgcolor="#000000", plot_bgcolor="#000000", height=380, margin=dict(l=10, r=10, t=10, b=40),
             showlegend=True, legend=dict(orientation="h", y=-0.14, x=0, font=dict(color="#A1A1AA", size=10)),
-            xaxis=dict(title=dict(text=f"Kursentwicklung {zr_titel} (EUR)", font=dict(color="#A1A1AA", size=11)),
+            xaxis=dict(title=dict(text=f"Kursentwicklung {zr_titel} (EUR)", font=dict(color="#A1A1AA", size=12)),
                        ticksuffix=" %", showgrid=True, gridcolor="#1A1A1A", zeroline=True, zerolinecolor="#333",
                        tickfont=dict(color="#A1A1AA")),
-            yaxis=dict(title=dict(text="Qualität (%)", font=dict(color="#A1A1AA", size=11)), range=[0, 100],
+            yaxis=dict(title=dict(text="Qualität (%)", font=dict(color="#A1A1AA", size=12)), range=[0, 100],
                        showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
             dragmode=False)
         st.plotly_chart(fig, width="stretch", key="qk_diagramm", config={"displayModeBar": False})
@@ -4314,7 +4369,7 @@ def render_dashboard():
             kats = gruppen["kategorien"]
             keys = [k for k in gruppen.get("reihenfolge", kats) if k in kats]
             titel = [kats[k]["titel"] for k in keys]
-            wahl = st.pills("Kategorie", titel, default=titel[0], key="qk_kategorie") or titel[0]
+            wahl = auswahl_kompakt("Kategorie", titel, default=titel[0], key="qk_kategorie") or titel[0]
             zeilen = _qk_zeilen(m, keys[titel.index(wahl)] if wahl in titel else keys[0])
         zr_titel = [t for _, t in QK_ZEITRAEUME]
         zr_wahl = st.pills("Zeitraum", zr_titel, default="1 Jahr", key="qk_zeitraum") or "1 Jahr"
@@ -4327,11 +4382,11 @@ def render_dashboard():
                     "Läufen aufgebaut.")
             return
         st.caption(f"{mit} von {len(zeilen)} bewerteten Aktien mit Kursdaten · Trennlinien: Qualität "
-                   f"{QK_QUAL_GRENZE} % (ohne Bewertung) und Median der Kursentwicklung ({median:+.1f} %)")
+                   f"{QK_QUAL_GRENZE} % (ohne Bewertung) und Median der Kursentwicklung ({vz_zahl(median, 1)} %)")
         _qk_diagramm(zeilen, zr_key, zr_wahl, median)
 
         f_titel = [f"{t} ({len(felder[f])})" for f, t, _ in QK_FELDER]
-        f_wahl = st.pills("Feld", f_titel, default=f_titel[0], key="qk_feld")
+        f_wahl = auswahl_kompakt("Feld", f_titel, default=f_titel[0], key="qk_feld")
         f_key, _, f_text = QK_FELDER[f_titel.index(f_wahl) if f_wahl in f_titel else 0]
         st.caption(f_text)
         liste = felder[f_key][:_listen_laenge("qk")]
@@ -4456,15 +4511,15 @@ def render_dashboard():
                         fy = z.get("fcfy")
                         zl.append([_ue_z(platz, fett=True), _ue_z(f'{z["name"]} ({z["s"]})', fett=True),
                                    _ue_z(z.get("br") or "–"),
-                                   _ue_z(f'{z["p12"]:+.1f} %', "up" if z["p12"] >= 0 else "down", True),
+                                   _ue_z(f'{vz_zahl(z["p12"], 1)} %', "up" if z["p12"] >= 0 else "down", True),
                                    _ue_z(f'{z["q_ant"]:.0f} %'),
                                    _ue_z(z["gesamt"], {"prio": "prio", "beobachten": "beob"}.get(z["klasse"], "nicht"), True),
-                                   _ue_z("–" if fy is None else f"{fy:.1f} %", "up" if (fy or 0) >= 5 else None),
+                                   _ue_z("–" if fy is None else f"{_de_zahl(fy, 1)} %", "up" if (fy or 0) >= 5 else None),
                                    _ue_z(z.get("bew") or "–"),
                                    _ue_z("–" if z.get("mos") is None or z["mos"] <= -200 else f'{z["mos"]:+.0f} %')])
                     ab.append({"titel": f"Qualität × Kurs (1 Jahr): {f_titel[2:].strip()} – alle Aktien "
                                         f"(Top {len(zl)} von {len(felder[f_key])})",
-                               "text": f_text + (f" Median Kursentwicklung: {median:+.1f} %." if median is not None else ""),
+                               "text": f_text + (f" Median Kursentwicklung: {vz_zahl(median, 1)} %." if median is not None else ""),
                                "spalten": [("#", 3, "r"), ("Unternehmen", 22, "l"), ("Branche", 14, "l"),
                                            ("Kurs 1 J.", 7, "r"), ("Qualität", 7, "r"), ("Punkte", 6, "r"),
                                            ("FCF-Rendite", 8, "r"), ("Bewertung", 8, "l"), ("MoS", 7, "r")],
@@ -4515,7 +4570,7 @@ def render_dashboard():
                             continue
                         e, leer = liste[platz - 1], False
                         wert = e.get("div") if zr == div_zr[0] else e.get("perf")
-                        zahl = "–" if wert is None else (f"{wert:.2f} %" if zr == div_zr[0] else f"{wert:+.1f} %")
+                        zahl = "–" if wert is None else (f"{_de_zahl(wert, 2)} %" if zr == div_zr[0] else f"{vz_zahl(wert, 1)} %")
                         v = (kat.get("vergleich") or {}).get(zr)
                         trend = _trend(e.get("vor"), platz)[0] if v is not None else ""
                         name = e["name"] if len(e["name"]) <= 26 else e["name"][:25] + "…"
@@ -4556,7 +4611,7 @@ def render_dashboard():
                     zellen += (f'<td class="{"pt-wert" if aus == "l" else "pt-num"}'
                                f'{" ue-fix" if i == namensspalte else ""}" style="{stil}">{inhalt}</td>')
                 zeilen += f'<tr class="{"pt-zebra" if r % 2 else ""}">{zellen}</tr>'
-            st.markdown(f'<div class="ue-wrap"><table class="pt pt-kompakt ue"><thead><tr>{kopf}</tr></thead>'
+            st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt ue"><thead><tr>{kopf}</tr></thead>'
                         f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
 
     def _ue_pdf(abschnitte, stand_text):
@@ -5183,7 +5238,7 @@ def render_dashboard():
                 return f'<td class="pt-num pt-leer"{attr}>–</td>'
             farbe = "pt-up" if wert >= 0 else "pt-down"
             klassen = f"pt-num {farbe}" + (" pt-stark" if fett else "") + (" pt-klein" if klein else "")
-            return f'<td class="{klassen}"{attr}>{wert:+.2f}%</td>'
+            return f'<td class="{klassen}"{attr}>{vz_zahl(wert, 2)} %</td>'
 
         zeilen = ""
         for i, e in enumerate(eintraege):
@@ -5227,7 +5282,7 @@ def render_dashboard():
         )
         # Die Fokus-Klasse steuert per CSS, welche Kennzahl auf schmalen
         # Bildschirmen sichtbar ist (am Desktop sind ohnehin alle zu sehen).
-        return (f'<div class="pt-wrap"><table class="pt pt-fokus-{fokus}">'
+        return (f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-fokus-{fokus}">'
                 f'<thead><tr>{kopf}</tr></thead><tbody>{zeilen}</tbody></table></div>')
 
     # Kennzahlen je Zeitraum: module-weites berechne_performance_kennzahlen() (Audit DEP-08:
@@ -5350,7 +5405,7 @@ def render_dashboard():
         # Rate stammt aus dem Rueckfall (hochgerechnet bzw. 0 %) - sichtbar kennzeichnen
         _ms_basis = (prognose_rueckfall_hinweis.split(" – ")[0]
                      if prognose_rueckfall_hinweis.startswith("Hochgerechnet") else "0 % p.a. (Historie < 1 Monat)")
-        meilenstein_details_str += f" · Basis {prognose_rendite_pa:.1f} % p.a., {_ms_basis}"
+        meilenstein_details_str += f" · Basis {_de_zahl(prognose_rendite_pa, 1)} % p.a., {_ms_basis}"
 
     richtung = "up" if tages_verenderung_pct >= 0 else "down"
     differenz_zum_vortag = aktueller_kurs - vortag_kurs
@@ -5453,7 +5508,7 @@ def render_dashboard():
 
         treffer = st.session_state.get(f"{prefix}_treffer", [])
         if not treffer:
-            st.caption("⚠️ Keine Treffer – Schreibweise prüfen oder Instrument-ID manuell eintragen.")
+            st.caption("⚠️ Keine Treffer – Schreibweise prüfen oder die Kursquelle-ID manuell eintragen.")
             return None
 
         optionen = {
@@ -5488,14 +5543,14 @@ def render_dashboard():
                 value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
                 placeholder="z. B. A0RPWH", key=f"{sfx}_f_wkn")
             neu_inst = st.number_input(
-                "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                "Kursquelle-ID (wird über die Suche gesetzt, optional)", min_value=0, step=1,
                 value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
                 help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
                      "(0) bleiben - dann werden für diese Position keine Kurse geladen "
                      "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
                 key=f"{sfx}_f_inst",
             )
-            neu_datum = st.date_input("Kaufdatum", value=heute_date, key=f"{prefix}_f_datum")
+            neu_datum = st.date_input("Kaufdatum", value=heute_date, key=f"{prefix}_f_datum", format="DD.MM.YYYY")
             neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0,
                                        key=f"{prefix}_f_kurs")
             neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0,
@@ -5514,7 +5569,7 @@ def render_dashboard():
 
                     if neu_inst and test_kurs is None:
                         st.error(
-                            f"Für Instrument-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
+                            f"Für die Kursquelle-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
                             "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
                         )
                     else:
@@ -5532,7 +5587,7 @@ def render_dashboard():
                                 st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
                             else:
                                 st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
-                                           "Instrument-ID kann oben jederzeit ergänzt werden.")
+                                           "Kursquelle-ID kann oben jederzeit ergänzt werden.")
                             st.rerun()
                         else:
                             st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
@@ -5600,7 +5655,7 @@ def render_dashboard():
                 '<span class="meta-chip">keine Live-Daten</span>'
                 '</div>'
                 '<div class="card-footnote">ls-tc.de liefert für diesen Wert gerade '
-                'keine Kurse. Instrument-ID prüfen oder später erneut versuchen.</div>'
+                'keine Kurse. Kursquelle-ID prüfen oder später erneut versuchen.</div>'
                 '</div>'
             )
 
@@ -5708,78 +5763,6 @@ def render_dashboard():
             })
         except Exception as e:
             logging.warning(f"Prognose-Basis für Beobachtungswert '{_beob_name}' fehlgeschlagen: {e}")
-
-    if beobachtung:
-        # EIGENES FRAGMENT: beim Umschalten wird NUR dieser Bereich neu
-        # gezeichnet, nicht das komplette Dashboard. Vorher lief bei jedem
-        # Wechsel der gesamte Aufbau erneut - inkl. Positionsliste, Benchmarks
-        # und aller Kacheln, was die spuerbare Wartezeit verursacht hat.
-        @st.fragment
-        def _render_kursansicht():
-            _zugang_pruefen()      # nur Anmeldung - der Bereich wird auch in anderen Ansichten (verborgen) gebaut
-            # Umschalter bewusst adaptiv:
-            #   bis 3 Werte -> Pills (ein Tap, alles sichtbar)
-            #   ab 4 Werten -> Dropdown (Pills braeuchten sonst 3+ Zeilen)
-            # Die WKN wird aus den Beschriftungen entfernt - sie steht ohnehin
-            # in der Kachel darunter und macht die Buttons nur breiter.
-            def _kurzname(text, fallback=""):
-                ohne_wkn = re.sub(r"\s*\([^)]*\)\s*$", "", (text or "").strip())
-                return ohne_wkn or fallback or "Wert"
-
-            kurs_optionen = ["Hauptindizes Global"] + [
-                _kurzname(e.get("name"), e.get("wkn")) for e in beobachtung
-            ]
-            # Doppelte Namen eindeutig machen, sonst laesst sich die Auswahl
-            # nicht zuordnen (beide Widgets nutzen die Beschriftung als Schluessel).
-            gesehen = {}
-            for i, opt in enumerate(kurs_optionen):
-                if opt in gesehen:
-                    gesehen[opt] += 1
-                    kurs_optionen[i] = f"{opt} ({gesehen[opt]})"
-                else:
-                    gesehen[opt] = 1
-
-            if len(kurs_optionen) <= 3:
-                auswahl = st.pills(
-                    "Wert wählen", kurs_optionen, default=kurs_optionen[0],
-                    key="kurs_ansicht_wahl", label_visibility="collapsed",
-                )
-            else:
-                auswahl = st.selectbox(
-                    "Wert wählen", kurs_optionen,
-                    key="kurs_ansicht_wahl_select",
-                )
-
-            # Abwaehlen ist bei st.pills moeglich - dann auf den ersten Wert
-            # zurueckfallen, damit nie eine leere Ansicht entsteht.
-            if auswahl not in kurs_optionen:
-                auswahl = kurs_optionen[0]
-
-            if auswahl == kurs_optionen[0]:
-                st.markdown(kurs_karte, unsafe_allow_html=True)
-                return
-
-            eintrag = beobachtung[kurs_optionen.index(auswahl) - 1]
-            platz = st.empty()
-
-            fortschritt = fortschritt_anzeige(platz)
-
-            try:
-                # Beide Schritte sind eigene Netzabrufe (bzw. Cache-Treffer) -
-                # der Fortschritt bildet echte Arbeitsschritte ab, nicht bloss
-                # eine Animation.
-                fortschritt(15, f"Lade Kurs für {auswahl} …")
-                karte = beobachtungs_karte(eintrag, fortschritt=fortschritt)
-                platz.empty()
-                st.markdown(karte, unsafe_allow_html=True)
-            except Exception as e:
-                platz.empty()
-                st.error(f"⚠️ Beobachtungswert konnte nicht geladen werden: {e}")
-                notify_app_error(f"Beobachtung-{eintrag.get('wkn', '?')}", e)
-
-        _render_kursansicht()
-    else:
-        st.markdown(kurs_karte, unsafe_allow_html=True)
 
     # ---------- HERO: Depotwert ----------
     sparplan_zusatz = (
@@ -5895,7 +5878,7 @@ def render_dashboard():
                     '</div>'
                     f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
                     f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {de_zahl(float(pos["kaufkurs"]), 2)} € · '
-                    'Instrument-ID ergänzen, um Kurse und Performance zu sehen</div>'
+                    'Kursquelle-ID ergänzen (Position bearbeiten → Suche), um Kurse und Performance zu sehen</div>'
                     '</div>'
                 )
                 positions_karten.append((p_name, karte))
@@ -5962,7 +5945,7 @@ def render_dashboard():
                 f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
                 f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a.'
                 f'{" (hochgerechnet)" if (_p_hinweis or "").startswith("Hochgerechnet") else ""}</span>'
-                f'<span class="stat-chip-val">{p_prognose_pa:.1f} %</span></span>'
+                f'<span class="stat-chip-val">{_de_zahl(p_prognose_pa, 1)} %</span></span>'
                 f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
                 '</div>'
                 f'{perf_zeilen_html(p_perioden_depot, 2)}'
@@ -5980,6 +5963,15 @@ def render_dashboard():
     # Beobachtungswerte (symbolische Prognose-Basis) hinten anfuegen - erst
     # die echten Positionen (reales Kapital), dann die hypothetischen.
     prognose_optionen.extend(prognose_beobachtung_optionen)
+
+    # ---------- ZWEI SPALTEN (Audit UX): links das eigene Depot, rechts die Kurse ----------
+    # Auf breiten Bildschirmen liefen alle Kacheln ueber die volle Breite (Beschriftung und
+    # Wert ~1.000 px auseinander). Unter 640 px stapelt Streamlit die Spalten - auf dem
+    # Handy bleibt die Reihenfolge Depot -> Kurse.
+    # Eigener Container: die App verhindert Spaltenumbrueche global (Kachel-Raster), hier
+    # werden die beiden Spalten unter 820 px per CSS untereinander gestellt (siehe unten).
+    _spalte_depot, _spalte_kurse = st.container(key="depot_spalten").columns([1.1, 1], gap="large")
+    _spalte_depot.__enter__()
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if (1 if haupt_aktiv else 0) + len(weitere_positionen) >= 2:
@@ -6056,6 +6048,86 @@ def render_dashboard():
             '</div>', unsafe_allow_html=True)
         with st.expander("➕ Erste Position anlegen", expanded=True):
             positions_anlage_formular("leer")
+
+    _spalte_depot.__exit__(None, None, None)
+    _spalte_kurse.__enter__()
+    # ---------- KURSE (Audit UX: nach dem eigenen Depot) ----------
+    # Zuerst steht das eigene Ergebnis (Depot gesamt, Positionen), danach die Kurse des
+    # Zertifikats und der beobachteten Werte - auf dem Handy war die Depotsumme vorher
+    # erst nach der kompletten Kurskachel zu sehen.
+    st.markdown('<div class="abschnitt">📈 Kurse</div>', unsafe_allow_html=True)
+    if beobachtung:
+        # EIGENES FRAGMENT: beim Umschalten wird NUR dieser Bereich neu
+        # gezeichnet, nicht das komplette Dashboard. Vorher lief bei jedem
+        # Wechsel der gesamte Aufbau erneut - inkl. Positionsliste, Benchmarks
+        # und aller Kacheln, was die spuerbare Wartezeit verursacht hat.
+        @st.fragment
+        def _render_kursansicht():
+            _zugang_pruefen()      # nur Anmeldung - der Bereich wird auch in anderen Ansichten (verborgen) gebaut
+            # Umschalter bewusst adaptiv:
+            #   bis 3 Werte -> Pills (ein Tap, alles sichtbar)
+            #   ab 4 Werten -> Dropdown (Pills braeuchten sonst 3+ Zeilen)
+            # Die WKN wird aus den Beschriftungen entfernt - sie steht ohnehin
+            # in der Kachel darunter und macht die Buttons nur breiter.
+            def _kurzname(text, fallback=""):
+                ohne_wkn = re.sub(r"\s*\([^)]*\)\s*$", "", (text or "").strip())
+                return ohne_wkn or fallback or "Wert"
+
+            kurs_optionen = ["Hauptindizes Global"] + [
+                _kurzname(e.get("name"), e.get("wkn")) for e in beobachtung
+            ]
+            # Doppelte Namen eindeutig machen, sonst laesst sich die Auswahl
+            # nicht zuordnen (beide Widgets nutzen die Beschriftung als Schluessel).
+            gesehen = {}
+            for i, opt in enumerate(kurs_optionen):
+                if opt in gesehen:
+                    gesehen[opt] += 1
+                    kurs_optionen[i] = f"{opt} ({gesehen[opt]})"
+                else:
+                    gesehen[opt] = 1
+
+            if len(kurs_optionen) <= 3:
+                auswahl = st.pills(
+                    "Kurs anzeigen für", kurs_optionen, default=kurs_optionen[0],
+                    key="kurs_ansicht_wahl",
+                )
+            else:
+                auswahl = st.selectbox(
+                    "Wert wählen", kurs_optionen,
+                    key="kurs_ansicht_wahl_select",
+                )
+
+            # Abwaehlen ist bei st.pills moeglich - dann auf den ersten Wert
+            # zurueckfallen, damit nie eine leere Ansicht entsteht.
+            if auswahl not in kurs_optionen:
+                auswahl = kurs_optionen[0]
+
+            if auswahl == kurs_optionen[0]:
+                st.markdown(kurs_karte, unsafe_allow_html=True)
+                return
+
+            eintrag = beobachtung[kurs_optionen.index(auswahl) - 1]
+            platz = st.empty()
+
+            fortschritt = fortschritt_anzeige(platz)
+
+            try:
+                # Beide Schritte sind eigene Netzabrufe (bzw. Cache-Treffer) -
+                # der Fortschritt bildet echte Arbeitsschritte ab, nicht bloss
+                # eine Animation.
+                fortschritt(15, f"Lade Kurs für {auswahl} …")
+                karte = beobachtungs_karte(eintrag, fortschritt=fortschritt)
+                platz.empty()
+                st.markdown(karte, unsafe_allow_html=True)
+            except Exception as e:
+                platz.empty()
+                st.error(f"⚠️ Beobachtungswert konnte nicht geladen werden: {e}")
+                notify_app_error(f"Beobachtung-{eintrag.get('wkn', '?')}", e)
+
+        _render_kursansicht()
+    else:
+        st.markdown(kurs_karte, unsafe_allow_html=True)
+    _spalte_kurse.__exit__(None, None, None)
 
 
 
@@ -6215,7 +6287,7 @@ def render_dashboard():
                 "Aus vorhandenen Vergleichswerten übernehmen",
                 list(_vorschlaege.keys()), key="beob_vorlage",
                 help="Diese Werte sind in config.BENCHMARKS bereits mit ihrer "
-                     "Instrument-ID hinterlegt - kein Suchen nötig.",
+                     "Kursquelle-ID hinterlegt - kein Suchen nötig.",
             )
             if v_btn.button("Übernehmen", width="stretch", key="beob_vorlage_btn"):
                 _neu_eintrag = {
@@ -6247,7 +6319,7 @@ def render_dashboard():
 
                 nb_name = st.text_input("Name", value=bv_name, key=f"bn_{b_suffix}")
                 nb_wkn = st.text_input("WKN / ISIN", value=bv_wkn, key=f"bw_{b_suffix}")
-                nb_inst = st.number_input("Instrument-ID (ls-tc.de)", min_value=0, step=1,
+                nb_inst = st.number_input("Kursquelle-ID (wird über die Suche gesetzt)", min_value=0, step=1,
                                           value=bv_inst, key=f"bi_{b_suffix}")
 
                 bc_save, bc_del = st.columns(2)
@@ -6303,7 +6375,7 @@ def render_dashboard():
                 value=(b_gewaehlt["wkn"] or b_gewaehlt["isin"]) if b_gewaehlt else "",
                 placeholder="z. B. LS9VSU")
             bneu_inst = st.number_input(
-                "Instrument-ID (ls-tc.de)", min_value=0, step=1,
+                "Kursquelle-ID (wird über die Suche gesetzt)", min_value=0, step=1,
                 value=int(b_gewaehlt["instrument_id"]) if b_gewaehlt else 0,
                 help="Wird durch die Suche oben automatisch gefüllt. Ohne ID kann "
                      "kein Kurs angezeigt werden - hier also Pflicht.",
@@ -6311,12 +6383,12 @@ def render_dashboard():
 
             if st.form_submit_button("👁️ Zur Beobachtung hinzufügen", width="stretch"):
                 if not bneu_name or not bneu_inst:
-                    st.error("Bitte Name und Instrument-ID angeben.")
+                    st.error("Bitte Name und Kursquelle-ID angeben (am einfachsten über die Suche).")
                 else:
                     b_test, _, _ = get_live_kurs(int(bneu_inst))
                     if b_test is None:
                         st.error(
-                            f"Für Instrument-ID {int(bneu_inst)} liefert ls-tc.de keine "
+                            f"Für die Kursquelle-ID {int(bneu_inst)} liefert ls-tc.de keine "
                             "Kursdaten. Bitte die ID prüfen."
                         )
                     else:
@@ -6343,7 +6415,7 @@ def render_dashboard():
                 "Positionen beim nächsten Neustart verloren."
             )
         st.caption(
-            "WKN oder ISIN ins Suchfeld eingeben – Name und Instrument-ID werden "
+            "WKN oder ISIN ins Suchfeld eingeben – Name und Kursquelle-ID werden "
             "automatisch übernommen. "
             + ("Deine Positionen werden nur für dich gespeichert und erscheinen bei der nächsten Anmeldung wieder."
                if eigen else
@@ -6384,13 +6456,13 @@ def render_dashboard():
                 n_name = st.text_input("Name", value=v_name, key=f"n_{suffix}")
                 n_wkn = st.text_input("WKN / ISIN", value=v_wkn, key=f"w_{suffix}", disabled=ist_haupt)
                 n_inst = st.number_input(
-                    "Instrument-ID (ls-tc.de) – optional", min_value=0, step=1,
+                    "Kursquelle-ID (wird über die Suche gesetzt, optional)", min_value=0, step=1,
                     value=v_inst, key=f"i_{suffix}", disabled=ist_haupt,
                     help="0 = keine Kursquelle. Die Position wird dann ohne Kurse "
                          "angezeigt und nicht in die Depot-Summe eingerechnet.",
                 )
                 n_kaufdatum = st.date_input(
-                    "Kaufdatum", value=datetime.date.fromisoformat(pos["kaufdatum"]), key=f"d_{idx}")
+                    "Kaufdatum", format="DD.MM.YYYY", value=datetime.date.fromisoformat(pos["kaufdatum"]), key=f"d_{idx}")
                 n_kaufkurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f",
                                              value=float(pos.get("kaufkurs") or 0), key=f"k_{idx}")
                 n_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0,
@@ -7361,7 +7433,7 @@ def render_dashboard():
                                 "Meilenstein und Simulator."
                             )
                             _auf_datum = st.date_input(
-                                "Auflegungsdatum", value=_gespeichert or _datenbeginn,
+                                "Auflegungsdatum", format="DD.MM.YYYY", value=_gespeichert or _datenbeginn,
                                 key=f"szenario_aufl_datum_{_k}",
                             )
                             _b1, _b2 = st.columns(2)
@@ -7476,7 +7548,7 @@ def render_dashboard():
                 # Historische Rate des gewaehlten Werts sichtbar absetzen
                 _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
                            if e["eigene"] else "1px solid #27272A")
-                _marke = (f'<div style="font-size: 0.72rem; font-weight: 700; color: #16C784; '
+                _marke = (f'<div style="font-size: 0.8rem; font-weight: 700; color: #16C784; '
                           f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {_h(basis_name.upper())}</div>'
                           if e["eigene"] else "")
                 # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
@@ -7485,8 +7557,8 @@ def render_dashboard():
                 # 4+ Leerzeichen Einrueckung als CODEBLOCK und zeigt den
                 # HTML-Quelltext als Text an (genau dieser Fehler trat auf).
                 _jahre = "".join(
-                    f'<div><div style="font-size: 0.65rem; color: #71717A;">{j}J</div>'
-                    f'<div style="font-size: 0.75rem; color: #E5E7EB; font-weight: 700;">{fmt(e[f"j{j}"], 0)}</div></div>'
+                    f'<div><div style="font-size: 0.8rem; color: #A1A1AA;">{j}J</div>'
+                    f'<div style="font-size: 0.8rem; color: #E5E7EB; font-weight: 700;">{fmt(e[f"j{j}"], 0)}</div></div>'
                     for j in range(1, 6)
                 )
                 karten_html += (
@@ -7525,7 +7597,7 @@ def render_dashboard():
                 line_color="#00C853", 
                 annotation_text="🎯 100k Zielwert", 
                 annotation_position="top left",
-                annotation_font=dict(color="#00C853", size=11)
+                annotation_font=dict(color="#00C853", size=12)
             )
 
             fig_scen.update_layout(
@@ -7539,7 +7611,7 @@ def render_dashboard():
                     y=-0.15,  
                     xanchor="center", 
                     x=0.5, 
-                    font=dict(color="#E5E7EB", size=11)
+                    font=dict(color="#E5E7EB", size=12)
                 ),
                 xaxis=dict(title="Monate ab heute", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
                 yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),

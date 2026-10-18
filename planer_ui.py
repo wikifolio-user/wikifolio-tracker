@@ -74,18 +74,18 @@ PLANER_VERSION = "16.10.2026 · 01:00"     # zur Kontrolle, welche Datei gerade 
 
 CSS = """
 <style>
-.pl-phase { font-size: 0.72rem; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: #FFFFFF;
+.pl-phase { font-size: 0.8rem; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: #FFFFFF;
             margin: 14px 0 4px; padding-bottom: 5px; border-bottom: 1px solid rgba(255, 255, 255, 0.25); }
-.pl-hinweis { font-size: 0.72rem; color: var(--label, #8A9099); margin: -2px 0 10px 2px;
+.pl-hinweis { font-size: 0.8rem; color: var(--label, #8A9099); margin: -2px 0 10px 2px;
               letter-spacing: 0.3px; }
-.pl-badge { display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 2px 7px;
+.pl-badge { display: inline-block; font-size: 0.8rem; font-weight: 700; padding: 2px 7px;
             border-radius: 999px; margin: 1px 4px 1px 0; white-space: nowrap; }
 .pl-warn { background: rgba(245, 185, 66, 0.14); color: #F5B942; border: 1px solid rgba(245, 185, 66, 0.4); }
 .pl-info { background: rgba(76, 154, 255, 0.12); color: #8DBBFF; border: 1px solid rgba(76, 154, 255, 0.35); }
 .pl-gut { color: #16C784; } .pl-schlecht { color: #EA3943; }
 .q-kpi-v span.pl-gut, .q-kpi-v span.pl-schlecht { font-size: inherit; font-weight: 800; }
 .q-kpi-v span.pl-gut { color: #16C784; } .q-kpi-v span.pl-schlecht { color: #EA3943; }
-.pl-sub { font-size: 0.72rem; color: var(--label, #8A9099); font-weight: 600; }
+.pl-sub { font-size: 0.8rem; color: var(--label, #8A9099); font-weight: 600; }
 .pl-zeile { font-size: 0.8rem; color: #D6D9DE; margin: 2px 0 12px 2px; line-height: 1.5; }
 .q-kpi-v.pl-klein { font-size: 1.05rem; }
 /* ---- Planer: einheitliche Eingabefelder ----
@@ -134,7 +134,7 @@ CSS = """
 .pl-kpis .q-kpi-l { line-height: 1.3; min-height: 1.7em; }
 .pl-kpis .q-kpi-v { font-size: clamp(1.05rem, 2.1vw, 1.4rem); white-space: nowrap; overflow: hidden;
                     text-overflow: ellipsis; line-height: 1.25; }
-.pl-kpis .pl-sub { font-size: 0.72rem; line-height: 1.35; }
+.pl-kpis .pl-sub { font-size: 0.8rem; line-height: 1.35; }
 @media (max-width: 700px) { .q-kpis.pl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
                             .pl-kpis .q-kpi-v { font-size: 1.12rem; } }
 .pt.ue td.pt-wert.ue-fix { min-width: 110px; max-width: 170px; }
@@ -162,9 +162,9 @@ CSS = """
             background: rgba(255, 255, 255, 0.1); color: #FFFFFF; }
 .sc-name { font-weight: 800; color: #FFFFFF; font-size: 0.92rem; flex: 1 1 auto; min-width: 0;
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sc-typ { font-size: 0.66rem; color: #8A9099; font-weight: 700; text-transform: uppercase; }
+.sc-typ { font-size: 0.8rem; color: #8A9099; font-weight: 700; text-transform: uppercase; }
 .sc-wert { font-weight: 900; font-size: 1.45rem; line-height: 1; }
-.sc-wert small { font-size: 0.62rem; color: #8A9099; font-weight: 700; }
+.sc-wert small { font-size: 0.8rem; color: #8A9099; font-weight: 700; }
 .sc-balken { height: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); margin: 7px 0 8px;
              overflow: hidden; }
 .sc-balken > div { height: 100%; border-radius: 4px; }
@@ -172,23 +172,23 @@ CSS = """
 .sc-bg-gruen { background: #16C784; } .sc-bg-gelb { background: #F5B942; } .sc-bg-rot { background: #EA3943; }
 .sc-bg-grau { background: #5A606B; }
 .sc-teil { display: grid; grid-template-columns: minmax(0, 9.5em) 1fr 2.2em 3.2em; gap: 6px; align-items: center;
-           font-size: 0.74rem; color: #D6D9DE; margin: 2px 0; }
+           font-size: 0.8rem; color: #D6D9DE; margin: 2px 0; }
 .sc-teil .sc-mini { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .sc-teil .sc-mini > div { height: 100%; }
 .sc-teil .sc-zahl { text-align: right; font-weight: 800; }
-.sc-teil .sc-beitrag { text-align: right; color: #8A9099; font-size: 0.7rem; }
+.sc-teil .sc-beitrag { text-align: right; color: #8A9099; font-size: 0.8rem; }
 .sc-warum { font-size: 0.8rem; color: #D6D9DE; margin: 8px 0 4px; line-height: 1.45; }
-.sc-pm { font-size: 0.76rem; line-height: 1.45; margin: 2px 0; }
+.sc-pm { font-size: 0.8rem; line-height: 1.45; margin: 2px 0; }
 .sc-pm .sc-plus { color: #9BE8C6; } .sc-pm .sc-minus { color: #F5A3A8; }
-.sc-meta { font-size: 0.68rem; color: #8A9099; margin-top: 4px; }
-.sc-formel { font-size: 0.78rem; color: #D6D9DE; background: rgba(76, 154, 255, 0.08);
+.sc-meta { font-size: 0.8rem; color: #8A9099; margin-top: 4px; }
+.sc-formel { font-size: 0.8rem; color: #D6D9DE; background: rgba(76, 154, 255, 0.08);
              border: 1px solid rgba(76, 154, 255, 0.3); border-radius: 8px; padding: 6px 10px; margin: 6px 0 10px; }
 @media (max-width: 700px) { .sc-teil { grid-template-columns: minmax(0, 7.5em) 1fr 2.2em 3em; } }
 .an-box { border-left: 3px solid rgba(76, 154, 255, 0.6); background: rgba(76, 154, 255, 0.05);
           border-radius: 0 10px 10px 0; padding: 7px 10px; margin: 2px 0 10px; }
-.an-zeile { font-size: 0.79rem; color: #D6D9DE; line-height: 1.45; margin: 3px 0; }
+.an-zeile { font-size: 0.8rem; color: #D6D9DE; line-height: 1.45; margin: 3px 0; }
 .an-zeile b { color: #FFFFFF; }
-.an-tag { display: inline-block; font-size: 0.6rem; font-weight: 800; padding: 1px 6px; border-radius: 999px;
+.an-tag { display: inline-block; font-size: 0.8rem; font-weight: 800; padding: 1px 6px; border-radius: 999px;
           margin-right: 5px; letter-spacing: 0.3px; text-transform: uppercase; vertical-align: 1px; }
 .an-fakt { background: rgba(22, 199, 132, 0.14); color: #6EE7B7; }
 .an-prognose { background: rgba(245, 185, 66, 0.16); color: #F5B942; }
@@ -255,7 +255,7 @@ def _tabelle(kopf, zeilen, links=(0,)):
             f'{umbruch if (i in links and i) else ""}>{c}</td>'
             for i, c in enumerate(z))
         body.append(f'<tr class="{"pt-zebra" if n % 2 else ""}">{tds}</tr>')
-    st.markdown(f'<div class="ue-wrap"><table class="pt pt-kompakt ue"><thead><tr>{th}</tr></thead>'
+    st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt ue"><thead><tr>{th}</tr></thead>'
                 f'<tbody>{"".join(body)}</tbody></table></div>', unsafe_allow_html=True)
 
 
@@ -1579,29 +1579,36 @@ ANSICHTEN = ["🧭 Schritt für Schritt", "🗂️ Alle Bereiche"]
 WZ_CSS = """
 <style>
 .wz-stepper { display: flex; gap: 6px; margin: 4px 0 6px; }
-.wz-step { flex: 1 1 0; min-width: 0; text-align: center; font-size: 0.66rem; color: #8A9099; font-weight: 700; }
+.wz-step { flex: 1 1 0; min-width: 0; text-align: center; font-size: 0.8rem; color: #8A9099; font-weight: 700; }
 .wz-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 3px; display: flex; align-items: center;
-          justify-content: center; font-size: 0.78rem; font-weight: 900; border: 1.5px solid rgba(255,255,255,0.25);
+          justify-content: center; font-size: 0.8rem; font-weight: 900; border: 1.5px solid rgba(255,255,255,0.25);
           color: #D6D9DE; background: transparent; }
 .wz-step.ok .wz-dot { background: rgba(22,199,132,0.18); border-color: #16C784; color: #16C784; }
 .wz-step.warn .wz-dot { background: rgba(245,185,66,0.15); border-color: #F5B942; color: #F5B942; }
 .wz-step.fehler .wz-dot { background: rgba(234,57,67,0.15); border-color: #EA3943; color: #EA3943; }
 .wz-step.aktiv .wz-dot { box-shadow: 0 0 0 3px rgba(76,154,255,0.45); border-color: #4C9AFF; }
 .wz-step.aktiv { color: #FFFFFF; }
-.wz-lbl { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wz-lbl { display: block; line-height: 1.2; overflow-wrap: break-word; hyphens: manual; }
+.wz-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 480px) {
+    /* Handy: nur der aktive Schritt mit Namen (die Schritt-Knoepfe darueber nennen alle) */
+    .wz-step.aktiv { flex: 2.6 1 0; }
+    .wz-step:not(.aktiv) .wz-lbl { position: absolute; width: 1px; height: 1px; overflow: hidden;
+                                    clip: rect(0 0 0 0); white-space: nowrap; }
+}
 .wz-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 2px 0 10px; }
 .wz-bar > div { height: 100%; background: linear-gradient(90deg, #4C9AFF, #16C784); border-radius: 3px; }
 .wz-kopf { border: 1px solid rgba(76,154,255,0.35); background: rgba(76,154,255,0.06); border-radius: 12px;
            padding: 10px 14px; margin: 4px 0 12px; }
-.wz-kopf .wz-nr { font-size: 0.66rem; letter-spacing: 1.2px; text-transform: uppercase; color: #8DBBFF; font-weight: 800; }
+.wz-kopf .wz-nr { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; color: #8DBBFF; font-weight: 800; }
 .wz-kopf .wz-t { font-size: 1.05rem; font-weight: 900; color: #FFFFFF; margin: 1px 0 2px; }
 .wz-kopf .wz-d { font-size: 0.8rem; color: #C9CDD3; line-height: 1.45; }
 .wz-check { font-size: 0.82rem; color: #D6D9DE; margin: 3px 0; line-height: 1.4; }
 .wz-vs { border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,0.025); }
-.wz-vs-t { font-size: 0.72rem; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 800; color: #FFFFFF;
+.wz-vs-t { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 800; color: #FFFFFF;
            margin-bottom: 4px; }
 .wz-vs-k { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
-.wz-vs-k div { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 5px 7px; font-size: 0.68rem; color: #8A9099; }
+.wz-vs-k div { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 5px 7px; font-size: 0.8rem; color: #8A9099; }
 .wz-vs-k b { display: block; font-size: 0.92rem; color: #FFFFFF; }
 .wz-liste { margin: 2px 0 8px; }
 .wz-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 0.8rem;
@@ -1610,10 +1617,10 @@ WZ_CSS = """
 .wz-row span i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
 .wz-row b { color: #FFFFFF; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .wz-kz .wz-row { font-size: 0.82rem; }
-.wz-vs-u { font-size: 0.66rem; letter-spacing: 1.1px; text-transform: uppercase; color: #8A9099; font-weight: 800;
+.wz-vs-u { font-size: 0.8rem; letter-spacing: 1.1px; text-transform: uppercase; color: #8A9099; font-weight: 800;
            margin: 10px 0 2px; }
-.wz-mehr { font-size: 0.72rem; color: #8A9099; padding-top: 4px; }
-.wz-hinweis { font-size: 0.74rem; color: #8DBBFF; background: rgba(76,154,255,0.08); border-radius: 8px;
+.wz-mehr { font-size: 0.8rem; color: #8A9099; padding-top: 4px; }
+.wz-hinweis { font-size: 0.8rem; color: #8DBBFF; background: rgba(76,154,255,0.08); border-radius: 8px;
               padding: 5px 8px; margin: 4px 0 8px; }
 .wz-hinweis.wz-rot { color: #F5A3A8; background: rgba(234,57,67,0.1); }
 .wz-leer { border: 1px dashed rgba(255,255,255,0.25); border-radius: 12px; padding: 14px; text-align: center;
@@ -1621,7 +1628,7 @@ WZ_CSS = """
 .st-key-pl_wz_weiter button { background: #16305A !important; border: 1px solid #4C9AFF !important; min-height: 46px; }
 .st-key-pl_wz_weiter button, .st-key-pl_wz_weiter button * { color: #FFFFFF !important; font-weight: 800 !important; }
 .st-key-pl_wz_ziel button { border: 1px solid #F5B942 !important; }
-@media (max-width: 700px) { .wz-lbl { font-size: 0.6rem; } .wz-dot { width: 24px; height: 24px; } }
+@media (max-width: 700px) { .wz-lbl { font-size: 0.8rem; } .wz-dot { width: 24px; height: 24px; } }
 </style>
 """
 
@@ -1695,10 +1702,14 @@ def _stepper_html(pruef, aktiv_i):
         status = _schritt_status(pruef, i, i in besucht)
         fertig += status == "ok"
         zeichen = {"ok": "✓", "warn": "!", "fehler": "✕"}.get(status, str(i + 1))
-        teile.append(f'<div class="wz-step {status}{" aktiv" if i == aktiv_i else ""}">'
-                     f'<div class="wz-dot">{zeichen}</div><span class="wz-lbl">{_esc(s_["titel"])}</span></div>')
+        text = {"ok": "erledigt", "warn": "mit Hinweis", "fehler": "fehlt noch"}.get(status, "offen")
+        teile.append(f'<div class="wz-step {status}{" aktiv" if i == aktiv_i else ""}" role="listitem"'
+                     f'{" aria-current=\"step\"" if i == aktiv_i else ""}>'
+                     f'<div class="wz-dot" aria-hidden="true">{zeichen}</div><span class="wz-lbl">{_esc(s_["titel"])}'
+                     f'<span class="wz-sr"> – {text}</span></span></div>')
     return (f'<div class="wz-stepper" role="list" aria-label="Fortschritt">{"".join(teile)}</div>'
-            f'<div class="wz-bar" aria-label="{fertig} von {len(SCHRITTE)} Schritten erledigt">'
+            f'<div class="wz-bar" role="progressbar" aria-valuemin="0" aria-valuemax="{len(SCHRITTE)}" '
+            f'aria-valuenow="{fertig}" aria-label="{fertig} von {len(SCHRITTE)} Schritten erledigt">'
             f'<div style="width:{fertig / len(SCHRITTE) * 100:.0f}%"></div></div>')
 
 
@@ -1796,7 +1807,7 @@ def _vorschau(m, R, mobil=False):
                            textinfo="none", hovertemplate="%{label}: %{value:.1f} %<extra></extra>"))
     fig.update_layout(height=150 if mobil else 165, margin=dict(l=0, r=0, t=0, b=0), showlegend=False,
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      annotations=[dict(text=f"<b>{_de(summe, 1)} %</b><br><span style='font-size:10px'>"
+                      annotations=[dict(text=f"<b>{_de(summe, 1)} %</b><br><span style='font-size:12px'>"
                                          f"{len(ids)} Positionen</span>", x=0.5, y=0.5, showarrow=False,
                                         font=dict(size=15, color="#FFFFFF" if (ok_summe or auto) else "#EA3943"))])
     _chart(fig, "pl_vs_donut")
@@ -2120,7 +2131,7 @@ def _gewichtswarnung(platz, m, leer_zeigen=True):
     verletzt = E.regeln_verletzungen(m) if abs(summe - 100.0) <= 0.05 else []
     if verletzt:
         with platz.container():
-            c1, c2 = st.columns([3, 1], vertical_alignment="center")
+            c1, c2 = st.columns([1.5, 1] if _smartphone() else [3, 1], vertical_alignment="center")
             c1.warning("Regeln verletzt: " + " · ".join(verletzt))
             if c2.button("Auf Regeln ausrichten", key=_k("regeln_oben"), width="stretch"):
                 g = E.regeln_anwenden(m, {a["id"]: float(a.get("targetWeight") or 0) for a in E.aktive_assets(m)})
@@ -2132,7 +2143,7 @@ def _gewichtswarnung(platz, m, leer_zeigen=True):
         return
     if abs(summe - 100.0) > 0.05:
         with platz.container():
-            c1, c2 = st.columns([3, 1], vertical_alignment="center")
+            c1, c2 = st.columns([1.5, 1] if _smartphone() else [3, 1], vertical_alignment="center")
             c1.warning(f"Portfolio = {_de(summe, 1)} % – die Rechnung skaliert auf 100 %.")
             if c2.button("Gewichte normalisieren", key=_k("norm_oben"), width="stretch"):
                 E.normalisieren(m)
@@ -2872,7 +2883,7 @@ def _katalog_gross(m, h):
     for c in ("1J %", "3J p.a.", "5J p.a.", "10J p.a.", "Vola 1J", "Max DD", "Div. %"):
         cfg[c] = _spalte(c, format="%.1f", width="small")
     signatur = zlib.crc32(("|".join(df["WKN/Symbol"].astype(str))).encode())
-    ed = st.data_editor(df, key=_k(f"gk_{signatur}"), hide_index=True, width="stretch", height=_hoehe(len(df)),
+    ed = st.data_editor(df, key=_k(f"gk_{signatur}"), hide_index=True, width="stretch", height=_katalog_hoehe(len(df)),
                         disabled=[c for c in df.columns if c != "＋"], column_config=cfg)
     for i, z in enumerate(zeilen):
         an = bool(ed.iloc[i]["＋"])
@@ -3052,7 +3063,7 @@ def _katalog(m, h):
         else:
             cfg[c] = _spalte(c, format="%.1f", width="small")
     signatur = zlib.crc32(("|".join(df["Name"].astype(str)) + "|".join(kopf)).encode()) if len(df) else 0
-    ed = st.data_editor(df, key=_k(f"kat_{signatur}"), hide_index=True, width="stretch", height=_hoehe(len(df)),
+    ed = st.data_editor(df, key=_k(f"kat_{signatur}"), hide_index=True, width="stretch", height=_katalog_hoehe(len(df)),
                         disabled=[c for c in kopf if c != "＋"], column_config=cfg)
     for i, z in enumerate(zeilen):
         an = bool(ed.iloc[i]["＋"])
@@ -3172,6 +3183,12 @@ def _hoehe(zeilen):
     Scrollen. +16 px Reserve fuer eine evtl. waagerechte Scrollleiste, die
     sonst die letzte Zeile verdeckt."""
     return int(35 * (zeilen + 1) + 3 + 16)
+
+
+def _katalog_hoehe(zeilen):
+    """Katalog-Tabellen: auf dem Smartphone hoechstens 15 Zeilen hoch (der Rest scrollt
+    in der Tabelle), sonst wird die Seite mehrere Bildschirme lang."""
+    return _hoehe(min(zeilen, 15) if _smartphone() else zeilen)
 
 
 def _smartphone():
@@ -5446,9 +5463,11 @@ def render(h):
              "keine Erwartung und keine Anlageempfehlung.")
 
     with st.container(key="pl_nav_ansicht"):
-        ansicht = st.pills("Ansicht", ANSICHTEN, default=ANSICHTEN[1], key="pl_ansicht",
+        # Smartphone: gefuehrter Ablauf als Start - "Alle Bereiche" ist dort sehr lang
+        standard = ANSICHTEN[0] if _smartphone() else ANSICHTEN[1]
+        ansicht = st.pills("Ansicht", ANSICHTEN, default=standard, key="pl_ansicht",
                            help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
-                                "(für Erfahrene) – beide arbeiten mit demselben Modell.") or ANSICHTEN[1]
+                                "(für Erfahrene) – beide arbeiten mit demselben Modell.") or standard
     gefuehrt = ansicht == ANSICHTEN[0]
     status_platz = st.empty()
     platz = {"bilanz": None, "kpi": None}
