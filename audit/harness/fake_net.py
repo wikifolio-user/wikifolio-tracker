@@ -183,8 +183,17 @@ def _contents_path(url):
 _orig = {"get": requests.get, "put": requests.put, "delete": requests.delete, "post": requests.post}
 
 
+def _netz(art, url):
+    p = os.environ.get("NETZ_LOG")
+    if p:
+        import time as _t
+        with open(p, "a") as f:
+            f.write(f"{_t.time():.3f} {art} {url}\n")
+
+
 def _get(url, params=None, headers=None, timeout=None, **kw):
     host = urlparse(url).hostname or ""
+    _netz("GET", url.split("?")[0])
     if host == "api.github.com" and "/contents/" in url:
         ZAEHLER["github_get"] += 1
         return gh_get(_contents_path(url))
@@ -198,6 +207,7 @@ def _get(url, params=None, headers=None, timeout=None, **kw):
 
 
 def _put(url, headers=None, json=None, timeout=None, **kw):
+    _netz("PUT", url)
     ZAEHLER["github_put"] += 1
     return gh_put(_contents_path(url), json or {})
 
