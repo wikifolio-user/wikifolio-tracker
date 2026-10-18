@@ -866,7 +866,7 @@ def tabelle_html(za, r):
                      f'vertical-align:top;border-bottom:1px solid {FARBEN["grid"]}">{c}</td>'
                      for i, c in enumerate(zellen))
         zeilen.append(f"<tr>{td}</tr>")
-    return (f'<table style="width:100%;border-collapse:collapse;table-layout:auto;font-size:{groesse};'
+    return (f'<table style="display:table;width:100%;border-collapse:collapse;table-layout:auto;font-size:{groesse};'
             f'font-variant-numeric:tabular-nums;color:{FARBEN["text"]}"><thead><tr>{th}</tr></thead>'
             f'<tbody>{"".join(zeilen)}</tbody></table>')
 

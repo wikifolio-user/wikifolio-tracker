@@ -960,7 +960,10 @@ st.markdown("""
         [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
         [data-testid="stDownloadButton"] button { min-height: 44px !important; }
         [data-testid="stExpander"] summary { min-height: 44px; }
-        [data-baseweb="input"], [data-baseweb="select"] > div { min-height: 44px !important; }
+        [data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
+        [data-testid="stDateInputField"], [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+            min-height: 44px !important; height: auto !important; }
+        [data-testid="stNumberInputField"], [data-testid="stTextInputRootElement"] input { min-height: 44px !important; }
         [data-testid="stTabs"] [role="tab"] { min-height: 44px !important; }
     }
 </style>
