@@ -943,6 +943,16 @@ st.markdown("""
         overflow-wrap: anywhere;
     }
     [data-testid="stMetricValue"] { font-size: clamp(1.25rem, 5.2vw, 2.25rem) !important; line-height: 1.15 !important; }
+    /* Depot | Kurse: nebeneinander erst ab 820 px, darunter untereinander */
+    @media (max-width: 819px) {
+        .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"],
+        .st-key-depot_spalten [data-testid="stHorizontalBlock"]:first-of-type {
+            flex-direction: column !important; flex-wrap: wrap !important; gap: 0.7rem !important; }
+        .st-key-depot_spalten [data-testid="stColumn"] {
+            width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; }
+    }
+    /* Touch: Plotly-Werkzeugleiste (22-px-Symbole) ausblenden - Zoomen per Fingergeste geht weiter */
+    @media (pointer: coarse) { .modebar-container { display: none !important; } }
     [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button { height: auto !important; }
     /* Touch-Geraete: Trefferflaechen mind. 44 px (Apple HIG) */
     @media (pointer: coarse) {
@@ -5953,7 +5963,9 @@ def render_dashboard():
     # Auf breiten Bildschirmen liefen alle Kacheln ueber die volle Breite (Beschriftung und
     # Wert ~1.000 px auseinander). Unter 640 px stapelt Streamlit die Spalten - auf dem
     # Handy bleibt die Reihenfolge Depot -> Kurse.
-    _spalte_depot, _spalte_kurse = st.columns([1.1, 1], gap="large")
+    # Eigener Container: die App verhindert Spaltenumbrueche global (Kachel-Raster), hier
+    # werden die beiden Spalten unter 820 px per CSS untereinander gestellt (siehe unten).
+    _spalte_depot, _spalte_kurse = st.container(key="depot_spalten").columns([1.1, 1], gap="large")
     _spalte_depot.__enter__()
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
