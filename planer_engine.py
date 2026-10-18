@@ -1885,11 +1885,54 @@ def ziel_genau_ausrichten(modell, renditen_netto, rebalancing=None, toleranz=0.0
         else:
             lo = mitte
     f = lo
+    # Gewichtungs-Regeln gelten auch hier: die Reserve waechst hoechstens bis zu ihrem
+    # Maximum, keine Klasse faellt unter ihr Minimum. Reicht das nicht, um aufs Ziel zu
+    # kommen, bleibt das Ziel eben uebertroffen (begrenzt=True) - statt z. B. 95 % Reserve.
+    f_min, begrenzt = _feinabgleich_untergrenze(probe, invest, fest, res["id"], rest0), False
+    if f < f_min - 1e-9:
+        f, begrenzt = f_min, True
     ew = endwert(f)
+    if begrenzt and f >= 1.0 - 1e-9:
+        return {"gewichte": None, "endwert": ew, "reserve_id": res["id"], "geaendert": False,
+                "begrenzt": True}
     return {"gewichte": {a["id"]: float(a.get("targetWeight") or 0) for a in probe["assets"]
                          if a["id"] in basis or a["id"] == res["id"]},
             "endwert": ew, "reserve_id": res["id"], "geaendert": True, "faktor": f,
-            "fixierte_angepasst": fixierte_angepasst}
+            "fixierte_angepasst": fixierte_angepasst, "begrenzt": begrenzt}
+
+
+def _feinabgleich_untergrenze(modell, invest, fest, reserve_id, rest0):
+    """Kleinster Faktor f (0..1) fuer den Feinabgleich, bei dem die Gewichtungs-Regeln
+    noch eingehalten sind: Reserve-Klasse <= max, jede verkleinerte Klasse >= min.
+    Gewichte in % (auf 100 normiert), invest wird mit f skaliert, die Reserve nimmt den Rest."""
+    regeln = struktur_regeln(modell)
+    menge = sum(invest.values())
+    if not regeln or menge <= 0:
+        return 0.0
+    assets = {a["id"]: a for a in modell["assets"]}
+    f_min = 0.0
+    hi_cash = regeln.get("cash", (0.0, 100.0))[1]
+    # weitere Cash-Bausteine (ausser der Reserve) bleiben unveraendert bzw. skalieren mit
+    cash_inv = sum(g for i, g in invest.items() if _typ(assets[i]) == "cash")
+    cash_fest = sum(g for i, g in fest.items() if _typ(assets[i]) == "cash")
+    # Cash-Klasse(f) = Reserve rest0 + menge*(1-f)  +  cash_inv*f  +  cash_fest  <=  hi_cash
+    nenner = menge - cash_inv
+    if nenner > 1e-9:
+        f_min = max(f_min, 1.0 - (hi_cash - rest0 - cash_fest - cash_inv) / nenner)
+    klassen = {}
+    for i, g in invest.items():
+        k = _typ(assets[i])
+        if k != "cash":
+            klassen.setdefault(k, [0.0, 0.0])[0] += g
+    for i, g in fest.items():
+        k = _typ(assets[i])
+        if k in klassen:
+            klassen[k][1] += g
+    for k, (inv_k, fest_k) in klassen.items():
+        lo_k = regeln.get(k, (0.0, 100.0))[0]
+        if inv_k > 1e-9 and lo_k > fest_k:
+            f_min = max(f_min, (lo_k - fest_k) / inv_k)
+    return min(max(f_min, 0.0), 1.0)
 
 
 def rendite_fuer_restwert(kapital, monatlich, ziel_restwert, *, jahre=30, **kw):

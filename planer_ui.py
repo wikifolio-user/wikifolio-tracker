@@ -25,6 +25,7 @@ import hashlib
 import html
 import json
 import math
+import pickle
 import re
 import time
 import zlib
@@ -43,10 +44,51 @@ try:
 except Exception:        # pragma: no cover - ohne nutzerdaten.py: bisherige (gemeinsame) Pfade
     N = None
 
+# Reine Engine-Funktionen (Ergebnis haengt nur von den Argumenten ab, Argumente bleiben
+# unveraendert - siehe test_planer.MemoEngine). Jeder Klick im Planer laeuft das ganze
+# Skript neu durch; ohne Zwischenspeicher rechnete schon ein reiner Seitenwechsel
+# Zielsuche, Gewichtung und Projektion jedes Mal (doppelt) neu.
+MEMO_FUNKTIONEN = ("zusammenfassung", "gewichtung_fuer_zielvermoegen", "gewichtung_fuer_rendite",
+                   "ziel_genau_ausrichten", "alle_renditen", "confidence_fuer", "projektion",
+                   "entnahmeplan", "tornado", "risiko_kennzahlen", "zeit_bis_ziel")
+MEMO_MAX = 96          # Eintraege je Sitzung (aelteste fliegen zuerst raus)
+
+
+def _memo_speicher():
+    try:
+        return st.session_state.setdefault("planer_memo", {})
+    except Exception:        # ohne Streamlit-Sitzung (Tests, Skripte): ungepuffert rechnen
+        return None
+
+
+def _gemerkt(name):
+    def aufruf(*args, **kw):
+        speicher = _memo_speicher()
+        try:
+            schluessel = (name, hashlib.sha1(pickle.dumps((args, sorted(kw.items())), protocol=4)).hexdigest())
+        except Exception:
+            schluessel = None
+        if speicher is None or schluessel is None:
+            return getattr(E, name)(*args, **kw)
+        if schluessel in speicher:
+            erg = speicher.pop(schluessel)
+        else:
+            erg = getattr(E, name)(*args, **kw)
+            while len(speicher) >= MEMO_MAX:
+                speicher.pop(next(iter(speicher)))
+        speicher[schluessel] = erg
+        return copy.deepcopy(erg)        # Aufrufer duerfen das Ergebnis ergaenzen
+    aufruf.__name__ = name
+    return aufruf
+
+
+EM = type("GemerkteEngine", (), {n: staticmethod(_gemerkt(n)) for n in MEMO_FUNKTIONEN})
+
 PFAD_SZENARIEN = "state/planer/szenarien.json"     # je Benutzer ueber nutzerdaten.pfad
 PFAD_MUSTERDEPOT = "state/musterdepot.json"        # je Benutzer ueber nutzerdaten.pfad
 QUALITAET_DETAIL_TEILE = 32          # wie qualitaet_agent.DETAIL_TEILE
 HIST_CACHE_SEK = 6 * 3600
+HIST_MERKEN_SEK = 600     # Kurshistorien/Kennzahlen je Sitzung: kein Neuaufbau bei jedem Klick
 
 # Navigation: 6 Hauptbereiche in Arbeitsreihenfolge, darunter Unterseiten
 HAUPT = ["🧩 Portfolio", "⚖️ Gewichtung", "📈 Ergebnis", "💳 Kredit", "⚠️ Risiko", "🔬 Analyse", "🗂️ Daten"]
@@ -488,6 +530,10 @@ def _modell(h):
         if not isinstance(eintrag, dict) or not isinstance(eintrag.get("modell"), dict):
             eintrag = None
         st.session_state["planer_modell"] = _migriere(eintrag["modell"]) if eintrag else _start_modell(h)
+        # Standard des Kaufplans gleich beim Laden: sonst setzt ihn erst die Kaufplan-Seite,
+        # und schon das blosse Anschauen zaehlt als Aenderung (automatisches Speichern)
+        _mm = st.session_state["planer_modell"]
+        _mm.setdefault("kaufplan", {"betrag": float(_mm["rahmen"].get("startkapital") or 0.0), "bruch": False})
         st.session_state["planer_name"] = (daten.get("aktiv") or "Aktuelles Modell") if eintrag else None
         st.session_state["planer_konto"] = konto
         # Gespeicherter Stand nicht lesbar: NICHT automatisch speichern - sonst wuerde
@@ -707,6 +753,34 @@ def _historie(m, h):
     return assets, korb
 
 
+def _hist_schluessel(m, h):
+    """Alles, wovon _historie und _fundamentaldaten abhaengen - nicht die Gewichte."""
+    return (h["heute"].isoformat(),
+            tuple((a["id"], a["category"], a.get("ticker"), a.get("isin"), a["name"], bool(a.get("enabled")))
+                  for a in m["assets"]),
+            tuple((k["id"], k.get("isin"), k.get("yahoo")) for k in m["korb"]),
+            tuple(sorted((str(k), str(v)) for k, v in (h.get("benchmarks") or {}).items())))
+
+
+def _historie_gemerkt(m, h):
+    """Kurshistorien und Kennzahlen je Sitzung merken (HIST_MERKEN_SEK): ein Klick auf einen
+    anderen Schritt oder eine Gewichtsaenderung laedt nichts neu, die Ladeanzeige erscheint
+    nur, wenn wirklich geladen wird. "🔄 Kurse aktualisieren" leert den Speicher."""
+    schluessel = _hist_schluessel(m, h)
+    gemerkt = st.session_state.get("planer_hist")
+    if gemerkt and gemerkt[0] == schluessel and time.time() - gemerkt[1] < HIST_MERKEN_SEK:
+        return copy.deepcopy(gemerkt[2])
+    with st.spinner("Lade historische Daten …"):
+        try:
+            hist_assets, hist_korb = _historie(m, h)
+        except Exception:
+            hist_assets, hist_korb = {}, {}
+        fund, fund_stand = _fundamentaldaten(m, h)
+    erg = (hist_assets, hist_korb, fund, fund_stand)
+    st.session_state["planer_hist"] = (schluessel, time.time(), copy.deepcopy(erg))
+    return erg
+
+
 def _fundamentaldaten(m, h):
     """Kennzahlen der Korb-Aktien aus den Detaildateien des Qualitaets-Agenten."""
     aus, stand = {}, None
@@ -887,20 +961,20 @@ def _mit_krediten(m):
 
 
 def _rechne(m, historie, korb_score):
-    info = E.alle_renditen(m, historie)
+    info = EM.alle_renditen(m, historie)
     r = E.rendite_map(info)
-    conf = E.confidence_fuer(m, historie)
+    conf = EM.confidence_fuer(m, historie)
     reb = m["rebalancing"]
     # Manuelle Rendite: das GANZE Portfolio waechst gleichmaessig mit genau diesem Satz p.a.
     # (kein Auseinanderdriften der Bausteine) - Kapital inkl. Kredite, Entnahme, Restschuld
     r_calc = r
     if _auto_modus(m) == "manuell" and r:
         satz = _rendite_manuell(m)
-        grenzen = E.gewichtung_fuer_rendite(m, r, satz)
+        grenzen = EM.gewichtung_fuer_rendite(m, r, satz)
         if not grenzen.get("fehler") and not grenzen.get("erreichbar", True):
             satz = min(max(satz, grenzen["min"]), grenzen["max"])
         r_calc = {i: satz for i in r}
-    zus = E.zusammenfassung(_mit_krediten(m), r_calc, rebalancing=reb)
+    zus = EM.zusammenfassung(_mit_krediten(m), r_calc, rebalancing=reb)
     kr = _kredit_rahmen(m)
     zus["kredit"] = kr
     zus["endwert_netto"] = zus["endwert"] - (kr["restschuld"] if kr else 0.0)
@@ -1040,16 +1114,16 @@ def _auto_gewichtung(m, R):
         return False
     if modus == "ziel" and _ziel_in_entnahme(m):
         ben = _benoetigt(m)
-        erg = E.gewichtung_fuer_rendite(m, R["r"], ben)
+        erg = EM.gewichtung_fuer_rendite(m, R["r"], ben)
         erg["benoetigt"] = ben
     elif modus == "ziel":
-        erg = E.gewichtung_fuer_zielvermoegen(_mit_krediten(m), R["r"], R["reb"])
+        erg = EM.gewichtung_fuer_zielvermoegen(_mit_krediten(m), R["r"], R["reb"])
     elif modus == "manuell":
         # gewichteter Mittelwert = manueller Satz (gerechnet wird gleichmaessig mit diesem Satz)
-        erg = E.gewichtung_fuer_rendite(m, R["r"], _rendite_manuell(m))
+        erg = EM.gewichtung_fuer_rendite(m, R["r"], _rendite_manuell(m))
         erg["soll"] = _rendite_manuell(m)
     else:
-        erg = E.gewichtung_fuer_rendite(m, R["r"], float(_entnahme_daten(m)["rendite_pa"]) / 100.0)
+        erg = EM.gewichtung_fuer_rendite(m, R["r"], float(_entnahme_daten(m)["rendite_pa"]) / 100.0)
     erg["modus"] = modus
     st.session_state["planer_autogew"] = erg
     if erg.get("fehler"):
@@ -1069,7 +1143,7 @@ def _ziel_feinabgleich(m, R):
     if _auto_modus(m) != "ziel" or _ziel_in_entnahme(m):
         st.session_state.pop("planer_feinabgleich", None)
         return False
-    erg = E.ziel_genau_ausrichten(_mit_krediten(m), R.get("r_calc", R["r"]), R["reb"])
+    erg = EM.ziel_genau_ausrichten(_mit_krediten(m), R.get("r_calc", R["r"]), R["reb"])
     st.session_state["planer_feinabgleich"] = erg
     if erg.get("fehler") or not erg.get("geaendert"):
         return False
@@ -1943,7 +2017,7 @@ def _kpis(platz, m, R):
                         eff_m = _mit_krediten(m)
                         ohne_m = dict(eff_m, rahmen={k_: v_ for k_, v_ in eff_m["rahmen"].items()
                                                      if k_ != "entnahme_parallel"})
-                        ohne_ew = E.projektion(ohne_m, R.get("r_calc", R["r"]), rebalancing=R["reb"])["endwert"]
+                        ohne_ew = EM.projektion(ohne_m, R.get("r_calc", R["r"]), rebalancing=R["reb"])["endwert"]
                         kr_ = R["zus"].get("kredit")
                         rs_ = kr_["restschuld"] if kr_ else 0.0
                         kosten_ent = ohne_ew - proj["endwert"]
@@ -2020,6 +2094,11 @@ def _kpis(platz, m, R):
                           + f'<b>{_pct(auto["rendite"])} p.a.</b> ausgerichtet'
                           + ("" if auto["erreichbar"] else f' (mit diesen Bausteinen max. {_pct(auto["max"])})'))
         fa = st.session_state.get("planer_feinabgleich") or {}
+        if fa.get("begrenzt"):
+            zeilen.insert(1 if fa.get("geaendert") else 0,
+                          f'⚠ Ziel wird übertroffen (Endwert {_eur(fa.get("endwert"))}): Um es genau zu treffen, '
+                          'müsste mehr in die Reserve, als die Gewichtungs-Regeln erlauben. Ziel erhöhen, Sparrate '
+                          'senken oder die Regel „Nachkaufreserve max. %“ anpassen.')
         if fa.get("geaendert"):
             res = _asset(m, fa["reserve_id"])
             zeilen.insert(0, f'🎯 Ziel genau getroffen: Schon die defensivste Verteilung lag über dem Ziel – deshalb '
@@ -2071,7 +2150,7 @@ def _regeln_editor(m, pre=""):
     ist = E.klassen_anteile(m)
     df = pd.DataFrame([{"Kategorie": D.REGEL_KLASSEN[k], "Min %": float(rg["klassen"][k]["min"]),
                         "Max %": float(rg["klassen"][k]["max"]),
-                        "Ist %": round(ist.get(k, 0.0), 1) if k in ist else None}
+                        "Ist %": _de(ist.get(k, 0.0), 1) if k in ist else "–"}
                        for k in D.REGEL_KLASSEN])
     ed = st.data_editor(
         df, key=_k(f"{pre}regeln_tab_{st.session_state.get('planer_rg_ver', 0)}"), hide_index=True, width="stretch",
@@ -2080,8 +2159,9 @@ def _regeln_editor(m, pre=""):
             "Kategorie": st.column_config.TextColumn("Kategorie"),
             "Min %": st.column_config.NumberColumn("Min %", min_value=0.0, max_value=100.0, step=1.0, format="%.0f"),
             "Max %": st.column_config.NumberColumn("Max %", min_value=0.0, max_value=100.0, step=1.0, format="%.0f"),
-            "Ist %": st.column_config.NumberColumn("Ist %", format="%.1f",
-                                                   help="Aktueller Anteil (leer = kein Baustein dieser Kategorie aktiv)"),
+            # Text statt Zahl: Streamlit zeigt leere Zahlenfelder als graues "None"
+            "Ist %": st.column_config.TextColumn("Ist %",
+                                                 help="Aktueller Anteil (– = kein Baustein dieser Kategorie aktiv)"),
         })
     if ed is not None and len(ed) == len(df):
         neu = {}
@@ -3799,7 +3879,7 @@ def _vorschlag_grenzen(eff, R, zielwert, ziel_txt):
         if not o or o.get("fehler"):
             return o, None, None
         g = {i: o["gewichte"].get(i, 0.0) for i in aktive}
-        return o, g, E.projektion(_mit_gewichten(eff, g), R["r"], rebalancing=R["reb"])["endwert"]
+        return o, g, EM.projektion(_mit_gewichten(eff, g), R["r"], rebalancing=R["reb"])["endwert"]
 
     o, g, ew = opt(zielwert)
     if not o or o.get("fehler"):
@@ -3888,7 +3968,7 @@ def _b_gewichtung(m, R):
     vorher = R["zus"].get("endwert_netto", R["zus"]["endwert"])
     try:     # gleiche Rechnung wie die KPIs (Kredite, Entnahme, Rechenrenditen, nach Restschuld)
         _kr = R["zus"].get("kredit")
-        nachher = E.projektion(_mit_krediten(_mit_gewichten(m, gew)), R.get("r_calc", R["r"]),
+        nachher = EM.projektion(_mit_krediten(_mit_gewichten(m, gew)), R.get("r_calc", R["r"]),
                                rebalancing=R["reb"])["endwert"] - (_kr["restschuld"] if _kr else 0.0)
     except Exception:
         nachher = None
@@ -4112,8 +4192,8 @@ def _b_growth(m, R):
     zeilen = []
     for n, (art, titel) in enumerate(varianten):
         reb = dict(R["reb"], art=art)
-        p = E.projektion(m, R["r"], rebalancing=reb)
-        ps = E.projektion(m, R["r"], rebalancing=reb, stress=m["stress"])
+        p = EM.projektion(m, R["r"], rebalancing=reb)
+        ps = EM.projektion(m, R["r"], rebalancing=reb, stress=m["stress"])
         fig3.add_trace(go.Scatter(x=x, y=ps["monatswerte"], name=f"{titel} (Stresspfad)",
                                   line=dict(color=FARBEN[n], width=2)))
         zeilen.append([_esc(titel), _eur(p["endwert"]), _eur(ps["endwert"]), _pct(ps["max_verlust_pfad"], anteil=False),
@@ -4438,9 +4518,9 @@ def _b_modelle(m, R, historie, h):
         for n, e in daten["szenarien"].items():
             try:
                 mm = _migriere(e["modell"])
-                r = E.rendite_map(E.alle_renditen(mm, historie))
-                zz = E.zusammenfassung(mm, r, rebalancing=mm["rebalancing"])
-                rk = E.risiko_kennzahlen(mm, r, E.confidence_fuer(mm, historie), historie)
+                r = E.rendite_map(EM.alle_renditen(mm, historie))
+                zz = EM.zusammenfassung(mm, r, rebalancing=mm["rebalancing"])
+                rk = EM.risiko_kennzahlen(mm, r, EM.confidence_fuer(mm, historie), historie)
                 zeilen.append([_esc(n), f'<b>{_eur(zz["endwert"])}</b>', _pct(zz["modell_cagr"]),
                                _pct(rk["wikifolio_anteil"], 0, anteil=False), _pct(rk["hebel_anteil"], 0, anteil=False),
                                _pct(rk["max_gewicht"], 0, anteil=False), _de(rk["confidence_gewichtet"]),
@@ -4453,7 +4533,7 @@ def _b_modelle(m, R, historie, h):
 
 # --- 7 Risiko & Konzentration -----------------------------------------------
 def _b_risiko(m, R, historie):
-    rk = E.risiko_kennzahlen(m, R["r"], R["conf"], historie)
+    rk = EM.risiko_kennzahlen(m, R["r"], R["conf"], historie)
     if not rk:
         st.info("Keine aktiven Bausteine.")
         return
@@ -4569,8 +4649,8 @@ def _b_reserve(m, R):
         st.caption("Modellhafter Markteinbruch zusätzlich zum Trend der Annahmen. Hebelprodukte fallen mit ihrem "
                    "Hebel, Cash gar nicht.")
 
-    ohne = E.projektion(m, R["r"], rebalancing=R["reb"], stress=stress)
-    mit = E.projektion(m, R["r"], rebalancing=R["reb"], stress=stress, nachkauf=nk, scores=R["scores"],
+    ohne = EM.projektion(m, R["r"], rebalancing=R["reb"], stress=stress)
+    mit = EM.projektion(m, R["r"], rebalancing=R["reb"], stress=stress, nachkauf=nk, scores=R["scores"],
                        confidences=R["conf"])
     x = [i / 12 for i in range(len(mit["monatswerte"]))]
     fig = go.Figure()
@@ -4613,7 +4693,7 @@ def _b_sensitiv(m, R):
     _abschnitt("Sensitivität (Tornado)")
     delta = st.select_slider("Abweichung je Annahme", options=[5, 10, 15, 20, 30], value=10,
                              format_func=lambda v: f"± {v} Pp.", key="pl_tornado_delta")
-    basis, zeilen = E.tornado(m, R["r"], delta / 100.0, rebalancing=R["reb"])
+    basis, zeilen = EM.tornado(m, R["r"], delta / 100.0, rebalancing=R["reb"])
     namen = {a["id"]: a["name"] for a in m["assets"]}
     zeilen = [z for z in zeilen if z["spanne"] > 1][:10]
     fig = go.Figure()
@@ -4805,7 +4885,7 @@ def _entnahme_rechnen(m, R, e=None):
               steuersatz=(e["steuersatz"] / 100.0) if e["steuer"] else 0.0,
               freibetrag=e["freibetrag"] if e["steuer"] else 0.0,
               stufen=e.get("stufen"), start_monat=_entnahme_start_monat(m))
-    plan = E.entnahmeplan(kapital, rendite, e["monatlich"], jahre=int(e["dauer_jahre"]), **kw)
+    plan = EM.entnahmeplan(kapital, rendite, e["monatlich"], jahre=int(e["dauer_jahre"]), **kw)
     return kapital, rendite, kw, plan
 
 
@@ -4852,8 +4932,8 @@ def _entnahme_gegen_gewinne(m, R, e, kapital, rendite, plan):
     if r_auf is None:
         r_auf = rendite
     spar = float(m["rahmen"].get("sparrate_monat") or 0)
-    ohne, _ = E.zeit_bis_ziel(start, r_auf, ziel, spar)
-    mit, verlauf = E.zeit_bis_ziel(start, r_auf, ziel, spar, ent, float(e["dynamik_pa"]) / 100.0,
+    ohne, _ = EM.zeit_bis_ziel(start, r_auf, ziel, spar)
+    mit, verlauf = EM.zeit_bis_ziel(start, r_auf, ziel, spar, ent, float(e["dynamik_pa"]) / 100.0,
                                    stufen=e.get("stufen"))
 
     def dauer(mon):
@@ -4893,7 +4973,7 @@ def _b_entnahme(m, R):
         st.caption(f"Rendite in der Entnahme wie Aufbauphase: {_pct(rendite)} p.a. – so hohe Renditen über "
                    "Jahrzehnte durchzuhalten ist nicht plausibel; eine eigene Annahme ist meist ehrlicher.")
     jahre = e["dauer_jahre"]
-    plan = E.entnahmeplan(kapital, rendite, e["monatlich"], jahre=jahre, **kw)
+    plan = EM.entnahmeplan(kapital, rendite, e["monatlich"], jahre=jahre, **kw)
     verzehr = E.entnahme_fuer(kapital, rendite, jahre=jahre, **kw)
     erhalt = E.entnahme_fuer(kapital, rendite, jahre=jahre, ziel_restwert=kapital, **kw)
     reicht = plan["reicht_dauerhaft"] or plan["dauer_monate"] >= jahre * 12
@@ -4939,7 +5019,7 @@ def _b_entnahme(m, R):
     zeilen = []
     for d in (-0.04, -0.02, 0.0, 0.02):
         r = rendite + d
-        p = E.entnahmeplan(kapital, r, e["monatlich"], jahre=jahre, **kw)
+        p = EM.entnahmeplan(kapital, r, e["monatlich"], jahre=jahre, **kw)
         ok = p["reicht_dauerhaft"] or p["dauer_monate"] >= jahre * 12
         zeilen.append([("<b>" if d == 0 else "") + _pct(r) + ("</b>" if d == 0 else ""),
                        f'<span class="{"pl-gut" if ok else "pl-schlecht"}">{_dauer_text(p)}</span>',
@@ -5039,7 +5119,7 @@ def _kredit_rechnen(m, R):
         sum(g * R.get("r_calc", R["r"]).get(i, 0.0) for i, g in E.gewichte(m).items())
     jahre_aufbau = int(m["rahmen"].get("horizont_jahre") or 0)
     horizont = max(jahre_aufbau, max(int(x["jahre"]) for x in kredite))
-    ek_end = E.zusammenfassung(m, R.get("r_calc", R["r"]), rebalancing=R["reb"])["endwert"] if jahre_aufbau == horizont and jahre_aufbau > 0 else \
+    ek_end = EM.zusammenfassung(m, R.get("r_calc", R["r"]), rebalancing=R["reb"])["endwert"] if jahre_aufbau == horizont and jahre_aufbau > 0 else \
         float(m["rahmen"]["startkapital"]) * (1 + r) ** horizont
     zeilen = []
     for x in kredite:
@@ -5528,12 +5608,7 @@ def render(h):
                                  key=f"pl_unter_{HAUPT.index(haupt)}", label_visibility="collapsed") \
                     or UNTER[haupt][0]
 
-    with st.spinner("Lade historische Daten …"):
-        try:
-            hist_assets, hist_korb = _historie(m, h)
-        except Exception:
-            hist_assets, hist_korb = {}, {}
-        fund, fund_stand = _fundamentaldaten(m, h)
+    hist_assets, hist_korb, fund, fund_stand = _historie_gemerkt(m, h)
     je_score, korb_score = _scores(m, fund)
     historie = _layer(m, hist_assets, hist_korb, fund)
     # Annahmen automatisch aus den bisherigen Renditen p.a. (nur automatisch

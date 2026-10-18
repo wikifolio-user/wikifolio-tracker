@@ -2972,6 +2972,7 @@ def kurse_neu_laden():
     try:
         import planer_ui
         planer_ui._hist_eines_cache.clear()
+        st.session_state.pop("planer_hist", None)      # gemerkte Planer-Historie dieser Sitzung
     except Exception:
         pass
 
@@ -7712,7 +7713,9 @@ _LADE_JS = """
       '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#21252C; overflow:hidden; }' +
       '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#16C784; transition:width .2s linear; }' +
       /* reine Navigation (Ansicht/Schritt/Unterseite): Inhalt nicht abdunkeln */
-      'html.lade-still [data-stale="true"], html.lade-still .stale-element { opacity:1 !important; transition:none !important; }';
+      'html.lade-still [data-stale="true"], html.lade-still .stale-element { opacity:1 !important; transition:none !important; }' +
+      /* kurze Neuberechnungen (die meisten Klicks) nicht abdunkeln - erst nach 1,2 s */
+      'html.lade-js [data-stale="true"], html.lade-js .stale-element { transition:opacity .25s ease 1.2s !important; }';
     D.head.appendChild(st);
     var b = D.createElement('div');
     b.id = 'lade-banner';
@@ -7723,8 +7726,12 @@ _LADE_JS = """
     /* EINE Anzeige fuer alles: der genaue Balken der App (.loading-overlay) wird nur noch
        ausgelesen, nicht mehr gezeigt. Angezeigt wird immer der hoechste Wert aus Hochrechnung
        und genauem Stand - die Zahl laeuft so nur vorwaerts, von 0 bis 100 %. Folgt direkt
-       ein weiterer Ladeschritt (innerhalb 0,6 s), laeuft die Zahl einfach weiter. */
+       ein weiterer Ladeschritt (innerhalb NACHLAUF_MS), laeuft die Zahl einfach weiter. */
     var start = 0, timer = null, sichtbar = false, wert = 0, ende = null;
+    /* Balken erst ab 1,2 s Rechenzeit; nach dem Ende kurz 100 % und weg (vorher 0,6 + 0,35 s
+       Nachlauf - der Balken stand dadurch noch rund eine Sekunde, obwohl die Seite fertig war,
+       und ein Klick in dieser Zeit liess ihn einfach weiterlaufen) */
+    var AB_SEK = 1.2, NACHLAUF_MS = 250, HUNDERT_MS = 150;
     /* Klicks auf reine Navigation (Container mit Key "pl_nav...") zeigen keinen Ladebalken:
        die Seite wird zwar neu gerechnet, das dauert aber nur Sekundenbruchteile. Dauert es
        ausnahmsweise laenger als 4 s, erscheint der Balken doch. */
@@ -7737,7 +7744,7 @@ _LADE_JS = """
     D.addEventListener('keydown', merkeNav, true);
     function setze(p) { wert = p; pct.textContent = Math.floor(p) + ' %'; fill.style.width = p + '%'; }
     function tick() {
-      var t = (Date.now() - start) / 1000 - 0.9;
+      var t = (Date.now() - start) / 1000 - AB_SEK;
       var ov = D.querySelector('.loading-overlay');
       var genau = null;
       if (ov) {
@@ -7746,7 +7753,7 @@ _LADE_JS = """
         var tt = (ov.querySelector('.loading-text') || {}).textContent;
         if (tt) txt.textContent = tt;
       }
-      if (still && !sichtbar && t < 3.1) return;
+      if (still && !sichtbar && t < 2.8) return;
       if (t < 0 && genau === null && !sichtbar) return;
       if (!sichtbar) { b.style.display = 'block'; sichtbar = true; }
       var schaetz = 95 * (1 - Math.exp(-Math.max(t, 0) / 3.5));
@@ -7764,8 +7771,8 @@ _LADE_JS = """
         setze(100);
         setTimeout(function () {
           if (!timer) { b.style.display = 'none'; sichtbar = false; setze(0); txt.textContent = 'Lade Daten …'; }
-        }, 350);
-      }, 600);
+        }, HUNDERT_MS);
+      }, NACHLAUF_MS);
     }
     function pruefe() {
       var app = D.querySelector('[data-testid="stApp"]');

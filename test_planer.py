@@ -1,4 +1,5 @@
 """Tests fuer den Portfolio-Planer (python3 -m unittest test_planer)."""
+import copy
 import unittest
 
 import planer_daten as D
@@ -1658,6 +1659,7 @@ class ZielGenau(unittest.TestCase):
 
     def test_ueberschiessendes_ziel_wird_genau_getroffen(self):
         m, r, ak = self._modell()
+        m["rahmen"]["regeln"]["aktiv"] = False          # ohne Regeln: beliebig viel Reserve
         ak[1]["targetWeight"] = 30.0
         r[ak[1]["id"]] = 2.5                        # extrem renditestarker Baustein
         f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
@@ -1685,3 +1687,113 @@ class ZielGenau(unittest.TestCase):
         m["rahmen"]["zielvermoegen"] = 10_000_000
         f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
         self.assertFalse(f["geaendert"])
+
+    def _uebernehmen(self, m, f):
+        for a in m["assets"]:
+            if a["id"] in (f["gewichte"] or {}):
+                a["targetWeight"] = f["gewichte"][a["id"]]
+
+    def test_regeln_begrenzen_die_reserve(self):
+        """Fehlerbild: Ziel leicht erreichbar -> 95 % Nachkaufreserve trotz Regel max. 10 %."""
+        m, r, ak = self._modell()
+        m["rahmen"]["zielvermoegen"] = 160000           # mit 8 % p.a. schon fast ohne Anlage erreicht
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self.assertTrue(f["begrenzt"])
+        self._uebernehmen(m, f)
+        self.assertEqual(E.regeln_verletzungen(m), [])
+        self.assertLessEqual(E.klassen_anteile(m)["cash"], 10.0 + 1e-6)
+        self.assertGreater(E.projektion(m, r, rebalancing={"art": "keins"})["endwert"], 160000)
+
+    def test_innerhalb_der_regeln_genau(self):
+        m, r, ak = self._modell()
+        r["reserve"] = 0.0                                   # Reserve ohne Rendite
+        voll = E.projektion(m, r, rebalancing={"art": "keins"})["endwert"]
+        m["rahmen"]["regeln"]["klassen"]["cash"]["max"] = 30.0     # Seed liegt schon bei 10 %
+        m["rahmen"]["zielvermoegen"] = round(voll * 0.98)   # wenig drueber: Reserve bleibt unter 30 %
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self.assertTrue(f["geaendert"])
+        self.assertFalse(f["begrenzt"])
+        self._uebernehmen(m, f)
+        self.assertEqual(E.regeln_verletzungen(m), [])
+        self.assertAlmostEqual(E.projektion(m, r, rebalancing={"art": "keins"})["endwert"],
+                               m["rahmen"]["zielvermoegen"], delta=50)
+
+    def test_mindestanteil_bleibt(self):
+        m, r, ak = self._modell()
+        m["rahmen"]["regeln"]["klassen"]["cash"]["max"] = 100.0
+        k = E._typ(ak[0])
+        m["rahmen"]["regeln"]["klassen"][k]["min"] = 20.0
+        m["rahmen"]["zielvermoegen"] = 160000
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self._uebernehmen(m, f)
+        self.assertGreaterEqual(E.klassen_anteile(m)[k], 20.0 - 1e-6)
+
+
+class MemoEngine(unittest.TestCase):
+    """Zwischenspeicher der reinen Engine-Funktionen (planer_ui.EM): nur zulaessig, wenn
+    die Funktionen ihre Argumente nicht veraendern - sonst wuerde ein Treffer im Speicher
+    eine Aenderung am Modell verschlucken."""
+
+    def _modell(self):
+        m = D.seed_modell()
+        m["rahmen"].update({"startkapital": 20000.0, "sparrate_monat": 500.0, "zielvermoegen": 150000.0,
+                            "horizont_jahre": 10})
+        r = E.rendite_map(E.alle_renditen(m))
+        return m, r
+
+    def _unveraendert(self, fn, *args, **kw):
+        vorher = copy.deepcopy((args, kw))
+        fn(*args, **kw)
+        self.assertEqual(vorher, (args, kw), f"{fn.__name__} veraendert seine Argumente")
+
+    def test_keine_argumente_veraendert(self):
+        m, r = self._modell()
+        reb = m["rebalancing"]
+        conf = E.confidence_fuer(m)
+        self._unveraendert(E.zusammenfassung, m, r, rebalancing=reb)
+        self._unveraendert(E.gewichtung_fuer_zielvermoegen, m, r, reb)
+        self._unveraendert(E.gewichtung_fuer_rendite, m, r, 0.06)
+        self._unveraendert(E.ziel_genau_ausrichten, m, r, reb)
+        self._unveraendert(E.alle_renditen, m, {})
+        self._unveraendert(E.confidence_fuer, m, {})
+        self._unveraendert(E.projektion, m, r, rebalancing=reb, stress=m.get("stress"))
+        self._unveraendert(E.entnahmeplan, 100000.0, 0.05, 500.0, jahre=20)
+        self._unveraendert(E.tornado, m, r, 0.1, rebalancing=reb)
+        self._unveraendert(E.risiko_kennzahlen, m, r, conf, {})
+        self._unveraendert(E.zeit_bis_ziel, 20000.0, 0.06, 150000.0, 500.0)
+
+    def test_alle_gemerkten_funktionen_geprueft(self):
+        self.assertEqual(set(U.MEMO_FUNKTIONEN), {
+            "zusammenfassung", "gewichtung_fuer_zielvermoegen", "gewichtung_fuer_rendite",
+            "ziel_genau_ausrichten", "alle_renditen", "confidence_fuer", "projektion",
+            "entnahmeplan", "tornado", "risiko_kennzahlen", "zeit_bis_ziel"})
+
+    def test_treffer_gleich_und_unabhaengig(self):
+        speicher = {}
+        alt = U._memo_speicher
+        U._memo_speicher = lambda: speicher
+        try:
+            m, r = self._modell()
+            a = U.EM.zusammenfassung(m, r, rebalancing=m["rebalancing"])
+            self.assertEqual(len(speicher), 1)
+            a["endwert"] = -1                      # Aufrufer ergaenzt/aendert sein Ergebnis
+            b = U.EM.zusammenfassung(m, r, rebalancing=m["rebalancing"])
+            self.assertEqual(len(speicher), 1)     # Treffer
+            self.assertEqual(b["endwert"], E.zusammenfassung(m, r, rebalancing=m["rebalancing"])["endwert"])
+            m["rahmen"]["sparrate_monat"] = 900.0  # geaendertes Modell -> neu gerechnet
+            c = U.EM.zusammenfassung(m, r, rebalancing=m["rebalancing"])
+            self.assertEqual(len(speicher), 2)
+            self.assertNotEqual(c["endwert"], b["endwert"])
+        finally:
+            U._memo_speicher = alt
+
+    def test_speicher_begrenzt(self):
+        speicher = {}
+        alt = U._memo_speicher
+        U._memo_speicher = lambda: speicher
+        try:
+            for i in range(U.MEMO_MAX + 10):
+                U.EM.zeit_bis_ziel(1000.0 + i, 0.05, 50000.0, 100.0)
+            self.assertEqual(len(speicher), U.MEMO_MAX)
+        finally:
+            U._memo_speicher = alt
