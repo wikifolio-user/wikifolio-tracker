@@ -291,3 +291,72 @@ def simulation(e):
         "kredit": {"rate_zu_klein": rate_zu_klein, "getilgt_monat": getilgt_monat,
                    "rate_volltilgung": rate_fuer_tilgung(e["kredit_summe"], e["kredit_zins_pa"], n)},
     }
+
+
+# ---------------------------------------------------------------- Rangliste (Top 100)
+KRITERIEN = {
+    "5J p.a.": "Rendite pro Jahr über 5 Jahre",
+    "3J p.a.": "Rendite pro Jahr über 3 Jahre",
+    "1J": "Kursentwicklung der letzten 12 Monate",
+    "Rendite/Risiko": "5 J. p. a. geteilt durch die Schwankung (Vola) – Rendite je Risiko",
+}
+
+
+def pro_jahr(gesamt_pct, jahre):
+    """Gesamtentwicklung in % ueber n Jahre -> Rendite p. a. in % (geometrisch). None, wenn nicht rechenbar."""
+    if gesamt_pct is None or jahre <= 0:
+        return None
+    try:
+        g = float(gesamt_pct)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(g) or g <= -100:
+        return None
+    return ((1 + g / 100.0) ** (1.0 / jahre) - 1) * 100.0
+
+
+def kennzahlen(w):
+    """Kennzahlen eines Katalogwerts (Felder 1J/3J/5J = Gesamtentwicklung in %, vola, maxdd)."""
+    p5, p3 = pro_jahr(w.get("5J"), 5), pro_jahr(w.get("3J"), 3)
+    vola = w.get("vola")
+    vola = float(vola) if isinstance(vola, (int, float)) and vola > 0 else None
+    eins = w.get("1J")
+    return {"1J": float(eins) if isinstance(eins, (int, float)) else None, "3J p.a.": p3, "5J p.a.": p5,
+            "Rendite/Risiko": (p5 / vola) if p5 is not None and vola else None,
+            "vola": vola, "maxdd": w.get("maxdd") if isinstance(w.get("maxdd"), (int, float)) else None}
+
+
+def rangliste(werte, kriterium="5J p.a.", art=None, n=100):
+    """Die besten n Werte nach einem Kriterium (absteigend). Werte ohne Kennzahl fuer das Kriterium
+    fallen heraus. art: nur diese Art (None = alle Arten gemischt).
+    -> [dict(wert, rang, **kennzahlen)]"""
+    aus = []
+    for w in werte:
+        if art and w.get("art") != art:
+            continue
+        k = kennzahlen(w)
+        if k.get(kriterium) is None:
+            continue
+        aus.append(dict(w, **k))
+    aus.sort(key=lambda x: (-x[kriterium], x.get("name", "").lower()))
+    for i, x in enumerate(aus[:n], 1):
+        x["rang"] = i
+    return aus[:n]
+
+
+def mehrere_hinzufuegen(pos, werte):
+    """Mehrere Werte auf einmal anlegen; der bis 100 % freie Rest wird gleichmaessig verteilt
+    (nur auf die wirklich neuen Werte). -> (neue Positionen, Anzahl neu, Namen schon vorhanden)"""
+    pos = copy.deepcopy(pos)
+    neu_werte, schon = [], []
+    for w in werte:
+        _, ok = position_hinzufuegen(pos + [dict(name=x["name"], kurs=0, gewicht=0, wkn=x.get("wkn"),
+                                                 isin=x.get("isin")) for x in neu_werte],
+                                     w["name"], wkn=w.get("wkn"), isin=w.get("isin"))
+        (neu_werte if ok else schon).append(w if ok else w["name"])
+    anteil = rest_gewicht(pos) / len(neu_werte) if neu_werte else 0.0
+    for w in neu_werte:
+        pos, _ = position_hinzufuegen(pos, w["name"], w.get("kurs") or 0.0, anteil, w.get("art", "sonstig"),
+                                      wkn=w.get("wkn"), isin=w.get("isin"))
+    return pos, len(neu_werte), schon
+

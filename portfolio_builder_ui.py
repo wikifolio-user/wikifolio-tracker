@@ -174,14 +174,14 @@ def _katalog(h):
         return gemerkt[1]
     werte, gesehen = [], set()
 
-    def neu(name, wkn, isin, art, kurs):
+    def neu(name, wkn, isin, art, kurs, **kennz):
         # derselbe Wert kommt aus beiden Quellen teils nur mit WKN, teils mit ISIN - jede Kennung zaehlt
         schluessel = {k.upper() for k in (wkn, isin) if k} | {"N:" + name.strip().lower()}
         if not name or schluessel & gesehen:
             return
         gesehen.update(schluessel)
-        werte.append({"name": name, "wkn": wkn or "", "isin": isin or "", "art": art,
-                      "kurs": kurs if isinstance(kurs, (int, float)) and kurs > 0 else None})
+        werte.append(dict({"name": name, "wkn": wkn or "", "isin": isin or "", "art": art,
+                           "kurs": kurs if isinstance(kurs, (int, float)) and kurs > 0 else None}, **kennz))
 
     lies = (h or {}).get("gh_read_taeglich")
     for i in range(KATALOG_GROSS_TEILE if lies else 0):
@@ -194,7 +194,8 @@ def _katalog(h):
             w = dict(zip(felder, z))
             kennung = str(w.get("kennung") or "")
             neu(str(w.get("name") or ""), kennung if _ist_wkn(kennung) else "", str(w.get("isin") or ""),
-                _art_aus(w.get("typ"), w.get("kat")), w.get("kurs"))
+                _art_aus(w.get("typ"), w.get("kat")), w.get("kurs"),
+                **{k: w.get(k) for k in ("1J", "3J", "5J", "10J", "vola", "maxdd", "jahre")})
     try:
         import planer_daten as D
         for k in D.KATALOG:
@@ -396,66 +397,124 @@ def _hinzufuegen(h, r):
         art_wahl = st.segmented_control("Art", list(ART_FILTER), default="Alle", key="pb_add_art",
                                         label_visibility="collapsed") or "Alle"
         art = ART_FILTER[art_wahl]
-        katalog = [w for w in _katalog(h) if art is None or w["art"] == art]
-        optionen = list(range(len(katalog))) + [SUCHE]
-
-        def beschriftung(i):
-            if i == SUCHE:
-                return "🔎 Nicht dabei? Name, WKN oder ISIN suchen …"
-            w = katalog[i]
-            teile = [w["name"], w["wkn"] or w["isin"]]
-            if w["kurs"]:
-                teile.append(eur(w["kurs"], 2))
-            return " · ".join(t for t in teile if t)
-
-        with st.container(key="pb_reihe_add"):
-            c1, c2, c3 = st.columns([3, 1, 1], vertical_alignment="bottom")
-            wahl = c1.selectbox(f"Wert ({len(katalog)} zur Auswahl)", optionen, index=None, format_func=beschriftung,
-                                placeholder="Name oder WKN eintippen …", key=f"pb_add_wahl_{ver}")
-            gewicht = c2.number_input("Gewicht %", 0.0, 100.0, value=round(P.rest_gewicht(e["positionen"]), 2),
-                                      step=1.0, format="%.1f", key=f"pb_add_gew_{ver}",
-                                      help="Vorschlag: der bis 100 % noch freie Anteil.")
-            treffer = None
-            if wahl == SUCHE:
-                begriff = st.text_input("Name, WKN oder ISIN", key=f"pb_add_such_{ver}",
-                                        placeholder="z. B. Siemens, 723610, LS9…").strip()
-                liste = ((h or {}).get("suche_instrument") or (lambda _: []))(begriff)[:12] if len(begriff) >= 2 else []
-                if begriff and len(begriff) >= 2 and not liste:
-                    st.caption("Keine Treffer – andere Schreibweise oder WKN/ISIN versuchen.")
-                if liste:
-                    treffer = st.selectbox(
-                        "Treffer", liste, key=f"pb_add_treffer_{ver}",
-                        format_func=lambda t: " · ".join(x for x in (t.get("name"), t.get("wkn") or t.get("isin"),
-                                                                      t.get("kategorie")) if x))
-            bereit = (wahl is not None and wahl != SUCHE) or treffer is not None
-            if c3.button("Hinzufügen", key=f"pb_add_btn_{ver}", disabled=not bereit, type="primary",
-                         width="stretch"):
-                if treffer is not None:
-                    name, wkn, isin = treffer.get("name"), treffer.get("wkn"), treffer.get("isin")
-                    neu_art, iid = _art_aus(treffer.get("kategorie"), name), treffer.get("instrument_id")
-                    kurs = _live_kurs(h, iid)
-                else:
-                    w = katalog[wahl]
-                    name, wkn, isin, neu_art, kurs, iid = w["name"], w["wkn"], w["isin"], w["art"], w["kurs"], None
-                    if not kurs:
-                        t = _instrument(h, [wkn, isin])
-                        iid = t and t.get("instrument_id")
-                        kurs = _live_kurs(h, iid)
-                pos, ok = P.position_hinzufuegen(e["positionen"], name, kurs or 0.0, gewicht, neu_art, wkn=wkn,
-                                                 isin=isin, instrument_id=iid)
-                if not ok:
-                    st.warning(f"„{name}“ ist schon im Portfolio.")
-                else:
-                    st.session_state["pb_positionen"] = pos
-                    st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
-                    st.session_state["pb_add_ver"] = ver + 1
-                    st.session_state["pb_meldung"] = (
-                        f"„{name}“ hinzugefügt ({pct(gewicht)})" + ("" if kurs else
-                                                                    " – Kurs bitte in der Tabelle eintragen"))
-                    st.rerun()
+        einzeln, top = st.tabs(["Einzeln auswählen", "🏆 Top 100"])
+        with top:
+            _top100(h, e, art, art_wahl)
+        with einzeln:
+            _einzeln(h, e, art, ver)
         meldung = st.session_state.pop("pb_meldung", None)
         if meldung:
             st.success(meldung)
+
+
+def _einzeln(h, e, art, ver):
+    """Einen Wert aus dem Katalog (oder per Suche) anlegen."""
+    katalog = [w for w in _katalog(h) if art is None or w["art"] == art]
+    optionen = list(range(len(katalog))) + [SUCHE]
+
+    def beschriftung(i):
+        if i == SUCHE:
+            return "🔎 Nicht dabei? Name, WKN oder ISIN suchen …"
+        w = katalog[i]
+        teile = [w["name"], w["wkn"] or w["isin"]]
+        if w["kurs"]:
+            teile.append(eur(w["kurs"], 2))
+        return " · ".join(t for t in teile if t)
+
+    with st.container(key="pb_reihe_add"):
+        c1, c2, c3 = st.columns([3, 1, 1], vertical_alignment="bottom")
+        wahl = c1.selectbox(f"Wert ({len(katalog)} zur Auswahl)", optionen, index=None, format_func=beschriftung,
+                            placeholder="Name oder WKN eintippen …", key=f"pb_add_wahl_{ver}")
+        gewicht = c2.number_input("Gewicht %", 0.0, 100.0, value=round(P.rest_gewicht(e["positionen"]), 2),
+                                  step=1.0, format="%.1f", key=f"pb_add_gew_{ver}",
+                                  help="Vorschlag: der bis 100 % noch freie Anteil.")
+        treffer = None
+        if wahl == SUCHE:
+            begriff = st.text_input("Name, WKN oder ISIN", key=f"pb_add_such_{ver}",
+                                    placeholder="z. B. Siemens, 723610, LS9…").strip()
+            liste = ((h or {}).get("suche_instrument") or (lambda _: []))(begriff)[:12] if len(begriff) >= 2 else []
+            if begriff and len(begriff) >= 2 and not liste:
+                st.caption("Keine Treffer – andere Schreibweise oder WKN/ISIN versuchen.")
+            if liste:
+                treffer = st.selectbox(
+                    "Treffer", liste, key=f"pb_add_treffer_{ver}",
+                    format_func=lambda t: " · ".join(x for x in (t.get("name"), t.get("wkn") or t.get("isin"),
+                                                                  t.get("kategorie")) if x))
+        bereit = (wahl is not None and wahl != SUCHE) or treffer is not None
+        if c3.button("Hinzufügen", key=f"pb_add_btn_{ver}", disabled=not bereit, type="primary",
+                     width="stretch"):
+            if treffer is not None:
+                name, wkn, isin = treffer.get("name"), treffer.get("wkn"), treffer.get("isin")
+                neu_art, iid = _art_aus(treffer.get("kategorie"), name), treffer.get("instrument_id")
+                kurs = _live_kurs(h, iid)
+            else:
+                w = katalog[wahl]
+                name, wkn, isin, neu_art, kurs, iid = w["name"], w["wkn"], w["isin"], w["art"], w["kurs"], None
+                if not kurs:
+                    t = _instrument(h, [wkn, isin])
+                    iid = t and t.get("instrument_id")
+                    kurs = _live_kurs(h, iid)
+            pos, ok = P.position_hinzufuegen(e["positionen"], name, kurs or 0.0, gewicht, neu_art, wkn=wkn,
+                                             isin=isin, instrument_id=iid)
+            if not ok:
+                st.warning(f"„{name}“ ist schon im Portfolio.")
+            else:
+                st.session_state["pb_positionen"] = pos
+                st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+                st.session_state["pb_add_ver"] = ver + 1
+                st.session_state["pb_meldung"] = (
+                    f"„{name}“ hinzugefügt ({pct(gewicht)})" + ("" if kurs else
+                                                                " – Kurs bitte in der Tabelle eintragen"))
+                st.rerun()
+
+
+def _top100(h, e, art, art_wahl):
+    """Rangliste der besten 100 Werte (Watchlist-Katalog) - Zeilen anhaken und uebernehmen."""
+    alle = _katalog(h)
+    kriterium = st.session_state.get("pb_top_krit") or next(iter(P.KRITERIEN))
+    liste = P.rangliste(alle, kriterium, art)
+    st.selectbox(f"Top {len(liste)} · {art_wahl} · sortiert nach", list(P.KRITERIEN), key="pb_top_krit",
+                 format_func=lambda k: f"{k} – {P.KRITERIEN[k]}")
+    if not liste:
+        st.info("Für die Rangliste fehlen Kennzahlen – sie kommen mit dem nächsten Lauf des Watchlist-Agenten.")
+        return
+    df = pd.DataFrame([{"#": x["rang"], "Name": x["name"], "Art": P.ARTEN.get(x["art"], "Sonstiges"),
+                        "Kurs €": x.get("kurs"), "1J %": x.get("1J"), "3J p.a. %": x.get("3J p.a."),
+                        "5J p.a. %": x.get("5J p.a."), "Rendite/Risiko": x.get("Rendite/Risiko"),
+                        "Vola %": x.get("vola"), "Max DD %": x.get("maxdd")}
+                       for x in liste])
+    zahl = {c: st.column_config.NumberColumn(c, format="localized", width="small")
+            for c in ("Kurs €", "1J %", "3J p.a. %", "5J p.a. %", "Rendite/Risiko", "Vola %", "Max DD %")}
+    spalte = {"5J p.a.": "5J p.a. %", "3J p.a.": "3J p.a. %", "1J": "1J %"}.get(kriterium, kriterium)
+    # Handy: die Spalte, nach der sortiert wird, direkt neben dem Namen
+    reihenfolge = (["#", "Name", spalte] + [c for c in ("5J p.a. %", "1J %", "Art", "Kurs €") if c != spalte]
+                   if _smartphone() else list(df.columns))
+    auswahl = st.dataframe(
+        df.round(2), key=f"pb_top_tab_{kriterium}_{art_wahl}_{st.session_state.get('pb_add_ver', 0)}",
+        hide_index=True, width="stretch", height=420, on_select="rerun", selection_mode="multi-row",
+        column_order=reihenfolge,
+        column_config=dict(zahl, **{"#": st.column_config.NumberColumn("#", width=36),
+                                     "Name": st.column_config.TextColumn(
+                                         "Name", width=130 if _smartphone() else "medium")}))
+    zeilen = list(getattr(getattr(auswahl, "selection", None), "rows", []) or [])
+    rest = P.rest_gewicht(e["positionen"])
+    st.markdown(f'<div class="pb-hinweis">Zeilen anhaken (Kästchen links) – der freie Rest von {pct(rest)} wird '
+                f'gleichmäßig auf die neuen Werte verteilt. Vergangene Renditen sind keine Prognose.</div>',
+                unsafe_allow_html=True)
+    if st.button(f"➕ {len(zeilen)} ausgewählte hinzufügen" if zeilen else "➕ Ausgewählte hinzufügen",
+                 key="pb_top_btn", type="primary", disabled=not zeilen, width="stretch"):
+        werte = [liste[i] for i in zeilen if 0 <= i < len(liste)]
+        pos, anzahl, schon = P.mehrere_hinzufuegen(e["positionen"], werte)
+        st.session_state["pb_positionen"] = pos
+        st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+        st.session_state["pb_add_ver"] = st.session_state.get("pb_add_ver", 0) + 1
+        st.session_state["pb_meldung"] = (
+            f"{anzahl} Wert{'e' if anzahl != 1 else ''} hinzugefügt"
+            + (f" mit je {pct(rest / anzahl)}" if anzahl and rest > 0.05 else
+               " mit 0 % – das Portfolio war schon zu 100 % verteilt; Gewichte in der Tabelle anpassen" if anzahl
+               else "")
+            + (f" · schon vorhanden: {', '.join(schon[:3])}" if schon else ""))
+        st.rerun()
 
 
 def _tabelle(h, r):
