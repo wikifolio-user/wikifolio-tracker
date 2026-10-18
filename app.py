@@ -4871,7 +4871,9 @@ def render_dashboard():
         try:
             import portfolio_builder_ui
             portfolio_builder_ui.render({"gh_read": gh_read, "gh_write": gh_write,
-                                         "gh_aktualisiere": gh_aktualisiere, "nutzer": _nutzer()})
+                                         "gh_aktualisiere": gh_aktualisiere, "nutzer": _nutzer(),
+                                         "gh_read_taeglich": gh_read_taeglich, "suche_instrument": suche_instrument,
+                                         "get_live_kurs": get_live_kurs})
         except Exception as e:
             st.error(f"⚠️ Fehler im Portfolio Builder: {e}")
             notify_app_error("Tab-Portfolio-Builder", e)

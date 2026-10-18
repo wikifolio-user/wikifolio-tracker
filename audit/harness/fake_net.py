@@ -79,6 +79,18 @@ def kursreihe(instrument_id):
     return out
 
 
+# synthetische Treffer der ls-tc-Suche (Name/WKN/ISIN -> instrumentId)
+SUCHE = [
+    {"instrumentId": 501, "displayname": "Siemens AG", "wkn": "723610", "isin": "DE0007236101", "categoryName": "Aktie"},
+    {"instrumentId": 502, "displayname": "SAP SE", "wkn": "716460", "isin": "DE0007164600", "categoryName": "Aktie"},
+    {"instrumentId": 503, "displayname": "Xtrackers MSCI World UCITS ETF", "wkn": "A1XB5U", "isin": "IE00BJ0KDQ92",
+     "categoryName": "ETF"},
+    {"instrumentId": 504, "displayname": "FF Inlinetrading", "wkn": "LS9VSU", "isin": "DE000LS9VSU1",
+     "categoryName": "Wikifolio-Zertifikat"},
+    {"instrumentId": 505, "displayname": "NVIDIA Corp.", "wkn": "918422", "isin": "US67066G1040", "categoryName": "Aktie"},
+]
+
+
 def lstc(params):
     if _fault().get("lstc") == "down":
         raise requests.ConnectionError("ls-tc down (fault)")
@@ -197,6 +209,11 @@ def _get(url, params=None, headers=None, timeout=None, **kw):
     if host == "api.github.com" and "/contents/" in url:
         ZAEHLER["github_get"] += 1
         return gh_get(_contents_path(url))
+    if host.endswith("ls-tc.de") and "/instrument/search" in url:
+        ZAEHLER["lstc"] += 1
+        q = str((params or {}).get("q") or "").lower()
+        return R(200, [t for t in SUCHE if q and (q in t["displayname"].lower() or q == t["wkn"].lower()
+                                                   or q == t["isin"].lower())])
     if host.endswith("ls-tc.de"):
         ZAEHLER["lstc"] += 1
         q = {k: [str(v)] for k, v in (params or {}).items()}

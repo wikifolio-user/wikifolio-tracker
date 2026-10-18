@@ -154,6 +154,93 @@ class Positionen(unittest.TestCase):
         self.assertEqual([p["gewicht"] for p in gleich], [50.0, 50.0])
 
 
+class Hinzufuegen(unittest.TestCase):
+    def test_rest_bis_100(self):
+        pos = [{"name": "A", "kurs": 10, "gewicht": 70}]
+        neu, ok = P.position_hinzufuegen(pos, "NVIDIA", 120.5, art="aktie", wkn="918422", instrument_id=123)
+        self.assertTrue(ok)
+        self.assertEqual(neu[-1], {"name": "NVIDIA", "kurs": 120.5, "gewicht": 30.0, "art": "aktie",
+                                   "wkn": "918422", "instrument_id": "123"})
+        self.assertEqual(len(pos), 1)                       # Eingabe unveraendert
+
+    def test_volles_portfolio_gewicht_0_oder_vorgegeben(self):
+        pos = [{"name": "A", "kurs": 10, "gewicht": 100}]
+        self.assertEqual(P.position_hinzufuegen(pos, "B")[0][-1]["gewicht"], 0.0)
+        self.assertEqual(P.position_hinzufuegen(pos, "B", gewicht=15)[0][-1]["gewicht"], 15.0)
+
+    def test_kein_doppelter_wert(self):
+        pos = [{"name": "MSCI World", "kurs": 10, "gewicht": 50, "wkn": "A0RPWH"}]
+        self.assertFalse(P.position_hinzufuegen(pos, "Irgendwas", wkn="a0rpwh")[1])
+        self.assertFalse(P.position_hinzufuegen(pos, "msci world ")[1])
+        self.assertTrue(P.position_hinzufuegen(pos, "MSCI World", wkn="ANDERE")[1])
+
+    def test_art_und_kennungen_bleiben_beim_bereinigen(self):
+        e = P.bereinigen({"positionen": [{"name": "W", "kurs": 1, "gewicht": 5, "art": "wikifolio",
+                                          "wkn": "LS9ABC", "isin": "DE000LS9ABC1", "instrument_id": 42},
+                                         {"name": "X", "kurs": 1, "gewicht": 5, "art": "quatsch"}]})
+        self.assertEqual(e["positionen"][0]["art"], "wikifolio")
+        self.assertEqual(e["positionen"][0]["instrument_id"], "42")
+        self.assertEqual(e["positionen"][1]["art"], "sonstig")
+
+    def test_anteile_nach_art(self):
+        e = P.bereinigen(eingaben(anfangskapital=10000, positionen=[
+            {"name": "A", "kurs": 100, "gewicht": 50, "art": "aktie"},
+            {"name": "B", "kurs": 10, "gewicht": 20, "art": "etf"},
+            {"name": "C", "kurs": 10, "gewicht": 20, "art": "etf"}]))
+        a = P.anteile_nach_art(e)
+        self.assertAlmostEqual(a["aktie"], 50)
+        self.assertAlmostEqual(a["etf"], 40)
+        self.assertAlmostEqual(a["cash"], 10)
+
+    def test_art_in_tabelle_aendern(self):
+        pos = [{"name": "A", "kurs": 10, "gewicht": 50, "art": "sonstig"}]
+        neu = P.aenderungen_anwenden(pos, 1000, geaendert={0: {"art": "etf"}}, neu=[{"name": "B", "art": "aktie"}])
+        self.assertEqual([p["art"] for p in neu], ["etf", "aktie"])
+        self.assertEqual(neu[0]["gewicht"], 50)
+
+
+class Rangliste(unittest.TestCase):
+    WERTE = [
+        {"name": "A", "art": "aktie", "1J": 10, "3J": 33.1, "5J": 61.051, "vola": 20, "wkn": "AAAAA1"},
+        {"name": "B", "art": "etf", "1J": 50, "3J": 10, "5J": 100, "vola": 10, "wkn": "BBBBB1"},
+        {"name": "C", "art": "wikifolio", "1J": 5, "3J": None, "5J": None, "vola": 5, "wkn": "LS9CCC"},
+        {"name": "D", "art": "aktie", "1J": -20, "3J": -50, "5J": 300, "vola": 60, "isin": "US0000000001"},
+    ]
+
+    def test_pro_jahr(self):
+        self.assertAlmostEqual(P.pro_jahr(61.051, 5), 10.0, places=6)     # 1,1^5 = 1,61051
+        self.assertAlmostEqual(P.pro_jahr(100, 5), (2 ** 0.2 - 1) * 100, places=9)
+        self.assertIsNone(P.pro_jahr(-100, 5))
+        self.assertIsNone(P.pro_jahr(None, 3))
+
+    def test_sortierung_5j(self):
+        r = P.rangliste(self.WERTE, "5J p.a.")
+        self.assertEqual([x["name"] for x in r], ["D", "B", "A"])          # C ohne 5 Jahre faellt heraus
+        self.assertEqual([x["rang"] for x in r], [1, 2, 3])
+        self.assertAlmostEqual(r[0]["5J p.a."], (4 ** 0.2 - 1) * 100, places=9)
+
+    def test_rendite_je_risiko_und_art(self):
+        r = P.rangliste(self.WERTE, "Rendite/Risiko")
+        self.assertEqual(r[0]["name"], "B")                              # 14,9 % / 10 > 32 % / 60
+        self.assertEqual([x["name"] for x in P.rangliste(self.WERTE, "1J", art="aktie")], ["A", "D"])
+
+    def test_begrenzt_auf_n(self):
+        viele = [{"name": f"W{i}", "art": "etf", "1J": i} for i in range(150)]
+        r = P.rangliste(viele, "1J", n=100)
+        self.assertEqual(len(r), 100)
+        self.assertEqual(r[0]["name"], "W149")
+
+    def test_mehrere_hinzufuegen_rest_gleich_verteilt(self):
+        pos = [{"name": "X", "kurs": 1, "gewicht": 70, "wkn": "BBBBB1"}]
+        neu, n, schon = P.mehrere_hinzufuegen(pos, [dict(w, kurs=10) for w in self.WERTE[:3]] + [self.WERTE[0]])
+        self.assertEqual(n, 2)                                           # A und C; B (gleiche WKN) und A doppelt
+        self.assertEqual(sorted(schon), ["A", "B"])
+        self.assertEqual([p["name"] for p in neu], ["X", "A", "C"])
+        self.assertAlmostEqual(neu[1]["gewicht"], 15.0)
+        self.assertAlmostEqual(neu[2]["gewicht"], 15.0)
+        self.assertEqual(neu[2]["art"], "wikifolio")
+
+
 class Bereinigen(unittest.TestCase):
     def test_grenzen(self):
         e = P.bereinigen({"anfangskapital": -5, "laufzeit": 0, "laufzeit_einheit": "x", "rendite_pa": "abc",

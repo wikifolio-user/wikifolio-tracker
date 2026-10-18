@@ -30,6 +30,22 @@ def _chronik():
     return ein
 
 
+def _synthetische_werte(n=150):
+    """Weitere synthetische Katalogwerte (alle Arten) fuer die Top-100-Rangliste - feste Pseudozufallswerte."""
+    import random
+    zufall = random.Random(7)
+    arten = [("aktie", "Testaktie"), ("etf", "Test-ETF"), ("wikifolio", "Test-Wikifolio")]
+    zeilen = []
+    for i in range(n):
+        typ, wort = arten[i % 3]
+        r5 = zufall.uniform(-30, 400)
+        zeilen.append([typ, "test", f"{wort} {i + 1:03d}", f"T{i:05d}", f"XX{i:010d}", round(zufall.uniform(-40, 120), 1),
+                       round(zufall.uniform(-50, 200), 1), round(r5, 1) if i % 10 else None, None,
+                       round(zufall.uniform(5, 400), 2), 0, round(zufall.uniform(8, 70), 1),
+                       round(zufall.uniform(-80, -5), 1), 5 if i % 10 else 2])
+    return zeilen
+
+
 def seed(f):
     f.seed("state/benutzer.json", {"benutzer": {
         "maria": {"hash": login.passwort_hash("Maria-Test-Pass-1"), "aktiv": True, "ansichten": None},
@@ -67,6 +83,18 @@ def seed(f):
         {"id": "mb1", "name": "Bitcoin - 21Shares ETP (A2T64E)", "wkn": "A2T64E", "instrument_id": "982480"}])
     f.seed("state/benutzer/maria/sparplan_state.json", {"start_datum": "2026-03-01", "rate": 50.0,
                                                         "phasen": [{"ab": "2026-03-01", "rate": 50.0}]})
+    # Werte-Katalog der Watchlist (synthetisch) fuer "Wert hinzufuegen" im Portfolio Builder
+    f.seed("state/planer/katalog_gross_0.json", {
+        "stand": "2026-10-16", "felder": ["typ", "kat", "name", "kennung", "isin", "1J", "3J", "5J", "10J", "kurs",
+                                          "div", "vola", "maxdd", "jahre"],
+        "kategorien": {}, "zeilen": [
+            ["aktie", "tech", "NVIDIA", "918422", "US67066G1040", 40, 300, 900, None, 165.20, 0.1, 45, -60, 20],
+            ["aktie", "industrie", "Siemens", "723610", "DE0007236101", 20, 40, 60, None, 201.35, 2.5, 22, -35, 20],
+            ["etf", "welt", "Vanguard FTSE All-World UCITS ETF Acc", "A2PKXG", "IE00BK5BQT80", 15, 30, 70, None,
+             132.48, 0, 14, -25, 6],
+            ["wikifolio", "wiki", "Hauptindizes Global", "LS9VFS", "DE000LS9VFS2", 25, None, None, None, 150.0,
+             0, 18, -20, 2],
+        ] + _synthetische_werte()})
     # Marktdaten (oeffentliche Ranglisten / Qualitaets-Score aus dem State-Branch)
     basis = os.path.join(MARKT, "state")
     for wurzel, _, dateien in os.walk(basis):
