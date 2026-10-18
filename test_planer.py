@@ -1659,6 +1659,7 @@ class ZielGenau(unittest.TestCase):
 
     def test_ueberschiessendes_ziel_wird_genau_getroffen(self):
         m, r, ak = self._modell()
+        m["rahmen"]["regeln"]["aktiv"] = False          # ohne Regeln: beliebig viel Reserve
         ak[1]["targetWeight"] = 30.0
         r[ak[1]["id"]] = 2.5                        # extrem renditestarker Baustein
         f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
@@ -1686,6 +1687,46 @@ class ZielGenau(unittest.TestCase):
         m["rahmen"]["zielvermoegen"] = 10_000_000
         f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
         self.assertFalse(f["geaendert"])
+
+    def _uebernehmen(self, m, f):
+        for a in m["assets"]:
+            if a["id"] in (f["gewichte"] or {}):
+                a["targetWeight"] = f["gewichte"][a["id"]]
+
+    def test_regeln_begrenzen_die_reserve(self):
+        """Fehlerbild: Ziel leicht erreichbar -> 95 % Nachkaufreserve trotz Regel max. 10 %."""
+        m, r, ak = self._modell()
+        m["rahmen"]["zielvermoegen"] = 160000           # mit 8 % p.a. schon fast ohne Anlage erreicht
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self.assertTrue(f["begrenzt"])
+        self._uebernehmen(m, f)
+        self.assertEqual(E.regeln_verletzungen(m), [])
+        self.assertLessEqual(E.klassen_anteile(m)["cash"], 10.0 + 1e-6)
+        self.assertGreater(E.projektion(m, r, rebalancing={"art": "keins"})["endwert"], 160000)
+
+    def test_innerhalb_der_regeln_genau(self):
+        m, r, ak = self._modell()
+        r["reserve"] = 0.0                                   # Reserve ohne Rendite
+        voll = E.projektion(m, r, rebalancing={"art": "keins"})["endwert"]
+        m["rahmen"]["regeln"]["klassen"]["cash"]["max"] = 30.0     # Seed liegt schon bei 10 %
+        m["rahmen"]["zielvermoegen"] = round(voll * 0.98)   # wenig drueber: Reserve bleibt unter 30 %
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self.assertTrue(f["geaendert"])
+        self.assertFalse(f["begrenzt"])
+        self._uebernehmen(m, f)
+        self.assertEqual(E.regeln_verletzungen(m), [])
+        self.assertAlmostEqual(E.projektion(m, r, rebalancing={"art": "keins"})["endwert"],
+                               m["rahmen"]["zielvermoegen"], delta=50)
+
+    def test_mindestanteil_bleibt(self):
+        m, r, ak = self._modell()
+        m["rahmen"]["regeln"]["klassen"]["cash"]["max"] = 100.0
+        k = E._typ(ak[0])
+        m["rahmen"]["regeln"]["klassen"][k]["min"] = 20.0
+        m["rahmen"]["zielvermoegen"] = 160000
+        f = E.ziel_genau_ausrichten(m, r, {"art": "keins"})
+        self._uebernehmen(m, f)
+        self.assertGreaterEqual(E.klassen_anteile(m)[k], 20.0 - 1e-6)
 
 
 class MemoEngine(unittest.TestCase):

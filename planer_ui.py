@@ -2094,6 +2094,11 @@ def _kpis(platz, m, R):
                           + f'<b>{_pct(auto["rendite"])} p.a.</b> ausgerichtet'
                           + ("" if auto["erreichbar"] else f' (mit diesen Bausteinen max. {_pct(auto["max"])})'))
         fa = st.session_state.get("planer_feinabgleich") or {}
+        if fa.get("begrenzt"):
+            zeilen.insert(1 if fa.get("geaendert") else 0,
+                          f'⚠ Ziel wird übertroffen (Endwert {_eur(fa.get("endwert"))}): Um es genau zu treffen, '
+                          'müsste mehr in die Reserve, als die Gewichtungs-Regeln erlauben. Ziel erhöhen, Sparrate '
+                          'senken oder die Regel „Nachkaufreserve max. %“ anpassen.')
         if fa.get("geaendert"):
             res = _asset(m, fa["reserve_id"])
             zeilen.insert(0, f'🎯 Ziel genau getroffen: Schon die defensivste Verteilung lag über dem Ziel – deshalb '
