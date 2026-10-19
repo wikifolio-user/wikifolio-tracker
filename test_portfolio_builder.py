@@ -261,6 +261,36 @@ class Rangliste(unittest.TestCase):
         self.assertEqual(neu[2]["art"], "wikifolio")
 
 
+class Renditen(unittest.TestCase):
+    def test_junger_wert_bekommt_1j_oder_10j(self):
+        self.assertAlmostEqual(P.katalog_rendite({"1J": 35.0}), 35.0)               # nur 1 Jahr Historie
+        self.assertAlmostEqual(P.katalog_rendite({"3J": 33.1, "1J": 80}), 10.0, places=6)   # 3 J. vor 1 J.
+        self.assertAlmostEqual(P.katalog_rendite({"10J": 159.37424601}), 10.0, places=6)
+        self.assertIsNone(P.katalog_rendite({}))
+
+    def test_fehlende_renditen_aus_katalog(self):
+        katalog = [{"name": "Wiki Alpha", "wkn": "", "isin": "DE000LS9AAA1", "1J": 40.0},
+                   {"name": "MSCI World ETF", "wkn": "A0RPWH", "isin": "", "5J": 61.051}]
+        pos = [{"name": "wiki alpha ", "kurs": 100, "gewicht": 50},                  # ueber den Namen
+               {"name": "Irgendwas", "kurs": 1, "gewicht": 30, "wkn": "a0rpwh"},     # ueber die WKN
+               {"name": "Eigene", "kurs": 1, "gewicht": 20, "rendite": 3},           # eigene bleibt
+               {"name": "Unbekannt", "kurs": 1, "gewicht": 0}]
+        katalog[0].update(kurs=150.0, art="wikifolio")
+        neu, n = P.renditen_ergaenzen(pos, katalog)
+        self.assertEqual(n, 2)
+        self.assertEqual([p.get("rendite") for p in neu], [40.0, 10.0, 3, None])
+        self.assertEqual((neu[0]["art"], neu[0]["isin"]), ("wikifolio", "DE000LS9AAA1"))   # Art + ISIN
+        self.assertEqual(neu[0]["kurs"], 100)                                       # vorhandener Kurs bleibt
+        ohne_kurs, _ = P.renditen_ergaenzen([{"name": "Wiki Alpha", "kurs": 0, "gewicht": 10}], katalog)
+        self.assertEqual(ohne_kurs[0]["kurs"], 150.0)                               # fehlender Kurs ergaenzt
+        self.assertEqual(P.renditen_ergaenzen(neu, katalog)[1], 0)                  # nichts mehr zu tun
+        self.assertNotIn("rendite", pos[0])                                         # Eingabe unveraendert
+        # in der Tabelle bewusst geleert -> allgemeine Rendite, wird nicht wieder vorgeschlagen
+        geleert = P.aenderungen_anwenden(neu, 10000, geaendert={0: {"rendite": None}})
+        self.assertTrue(P.bereinigen(eingaben(positionen=geleert))["positionen"][0]["allgemein"])
+        self.assertIsNone(P.renditen_ergaenzen(geleert, katalog)[0][0].get("rendite"))
+
+
 class Rebalancing(unittest.TestCase):
     def _e(self, pos, **kw):
         return eingaben(anfangskapital=10000, positionen=pos, **kw)
@@ -350,7 +380,7 @@ class Zielvermoegen(unittest.TestCase):
         self.assertEqual(pos[0]["rendite"], 7.46)
         self.assertAlmostEqual(P.katalog_rendite({"5J": 61.051}), 10.0, places=6)
         self.assertAlmostEqual(P.katalog_rendite({"3J": 33.1}), 10.0, places=6)
-        self.assertIsNone(P.katalog_rendite({"1J": 5}))
+        self.assertEqual(P.katalog_rendite({"1J": 5}), 5.0)                  # junger Wert: letzte 12 Monate
         neu, _, _ = P.mehrere_hinzufuegen([], [{"name": "W", "art": "etf", "5J": 61.051, "kurs": 5}])
         self.assertAlmostEqual(neu[0]["rendite"], 10.0)
         neu = P.aenderungen_anwenden(pos, 1000, geaendert={0: {"rendite": None}})

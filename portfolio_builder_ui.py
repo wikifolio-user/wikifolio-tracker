@@ -715,6 +715,10 @@ def _tabelle(h, r):
                  ["Prozent, Betrag oder Stück ändern – die anderen Werte rechnen sich sofort mit."])
         if pos["cash"] > 0.005:
             texte.append(f"Nicht investiert (Cash): {eur(pos['cash'], 2)}.")
+        ohne_rendite = [p["name"] for p in e["positionen"] if p.get("rendite") is None and not p.get("allgemein")]
+        if ohne_rendite:
+            texte.append(f"Ohne Renditedaten (es gilt die allgemeine Rendite {pct(e['rendite_pa'], 2)}): "
+                         f"{', '.join(ohne_rendite[:4])} – eigene erwartete Rendite in der Tabelle eintragen.")
         if pos["kapital"] <= 0:
             texte.append("Ohne Kapital lassen sich Betrag und Stück nicht umrechnen – erst Kapital eintragen.")
         # Summe unter der Tabelle - ueber ihr liegt beim Antippen die Werkzeugleiste der Tabelle
@@ -898,6 +902,14 @@ def render(h):
     kpi_platz = st.empty()
     kredit_spalte, ziel_spalte = _eingaben()
     e = _aus_widgets()
+    if any((p.get("rendite") is None and not p.get("allgemein")) or p["kurs"] <= 0 or p.get("art") == "sonstig"
+           for p in e["positionen"]):
+        # fehlende Rendite/Kurs/Art (Suche, eigene Zeilen, aeltere Staende) aus dem Katalog vorschlagen
+        pos, n = P.renditen_ergaenzen(e["positionen"], _katalog(h))
+        if n:
+            st.session_state["pb_positionen"] = pos
+            st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+            e = _aus_widgets()
     z = None
     if e["auto_ziel"] and e["zielvermoegen"] > 0:
         # Gewichte automatisch: vor der Rechnung, damit Kennzahlen, Tabelle und Diagramme zusammenpassen

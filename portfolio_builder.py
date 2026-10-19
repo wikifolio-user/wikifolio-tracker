@@ -98,6 +98,8 @@ def bereinigen(e):
         r = _zahl(p.get("rendite"), None)
         if r is not None:                                     # eigene erwartete Rendite % p. a.
             neu["rendite"] = min(max(r, -MAX_RENDITE), MAX_RENDITE)
+        elif p.get("allgemein"):                              # bewusst geleert: allgemeine Rendite
+            neu["allgemein"] = True
         for k in ("wkn", "isin", "instrument_id"):          # Kennungen fuer den Kursabruf
             if p.get(k) not in (None, ""):
                 neu[k] = str(p[k]).strip()
@@ -166,9 +168,47 @@ def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", rendi
 
 
 def katalog_rendite(w):
-    """Erwartete Rendite fuer einen Katalogwert als Vorschlag: 5 J. p. a., sonst 3 J. p. a. (None = keine)."""
+    """Erwartete Rendite fuer einen Katalogwert als Vorschlag: 5 J. p. a., sonst 3 J. p. a., sonst
+    10 J. p. a., sonst die Entwicklung der letzten 12 Monate (junge Werte, z. B. viele Wikifolios).
+    None = keine Daten."""
     k = kennzahlen(w)
-    return k["5J p.a."] if k["5J p.a."] is not None else k["3J p.a."]
+    for r in (k["5J p.a."], k["3J p.a."], pro_jahr(w.get("10J"), 10), k["1J"]):
+        if r is not None:
+            return r
+    return None
+
+
+def renditen_ergaenzen(pos, katalog):
+    """Fehlende Angaben aus dem Katalog nachtragen (Abgleich ueber WKN/ISIN, sonst den Namen):
+    erwartete Rendite (ausser bewusst geleert), Kurs (wenn 0), WKN/ISIN und die Art (statt "Sonstiges").
+    -> (neue Positionen, Anzahl geaenderter Positionen)"""
+    pos = copy.deepcopy(pos)
+    nach_kennung, nach_name = {}, {}
+    for w in katalog or []:
+        for k in (w.get("wkn"), w.get("isin")):
+            if k:
+                nach_kennung.setdefault(str(k).strip().upper(), w)
+        if w.get("name"):
+            nach_name.setdefault(str(w["name"]).strip().lower(), w)
+    n = 0
+    for p in pos:
+        w = (next((nach_kennung[k] for k in (str(p.get("wkn") or "").upper(), str(p.get("isin") or "").upper())
+                   if k and k in nach_kennung), None) or nach_name.get(str(p.get("name") or "").strip().lower()))
+        if not w:
+            continue
+        vorher = dict(p)
+        r = katalog_rendite(w)
+        if p.get("rendite") is None and not p.get("allgemein") and r is not None:
+            p["rendite"] = round(min(max(r, -MAX_RENDITE), MAX_RENDITE), 2)
+        if _zahl(p.get("kurs")) <= 0 and _zahl(w.get("kurs")) > 0:
+            p["kurs"] = float(w["kurs"])
+        for k in ("wkn", "isin"):
+            if not p.get(k) and w.get(k):
+                p[k] = str(w[k])
+        if p.get("art", "sonstig") == "sonstig" and w.get("art") in ARTEN and w.get("art") != "sonstig":
+            p["art"] = w["art"]
+        n += p != vorher
+    return pos, n
 
 
 def anteile_nach_art(e):
@@ -253,10 +293,12 @@ def aenderungen_anwenden(pos, kapital, geaendert=None, neu=None, geloescht=None)
             p["art"] = werte["art"]
         if "rendite" in werte:                                # leer = allgemeine Rendite
             r = _zahl(werte["rendite"], None)
-            if r is None:
+            if r is None:                                     # bewusst geleert: nicht wieder vorschlagen
                 p.pop("rendite", None)
+                p["allgemein"] = True
             else:
                 p["rendite"] = min(max(r, -MAX_RENDITE), MAX_RENDITE)
+                p.pop("allgemein", None)
         p["gewicht"] = gewicht_aus(werte, p)
     weg = {int(i) for i in (geloescht or [])}
     pos = [p for i, p in enumerate(pos) if i not in weg]
