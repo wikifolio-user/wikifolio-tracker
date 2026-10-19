@@ -261,6 +261,35 @@ class Rangliste(unittest.TestCase):
         self.assertEqual(neu[2]["art"], "wikifolio")
 
 
+class Rebalancing(unittest.TestCase):
+    def _e(self, pos, **kw):
+        return eingaben(anfangskapital=10000, positionen=pos, **kw)
+
+    POS = [{"name": "A", "kurs": 100, "gewicht": 60}, {"name": "B", "kurs": 50, "gewicht": 20},
+           {"name": "N1", "kurs": 10, "gewicht": 0}, {"name": "N2", "kurs": 20, "gewicht": 0}]
+
+    def test_anteilig_neue_bekommen_durchschnitt(self):
+        neu = P.rebalancing(self._e(self.POS))
+        g = [p["gewicht"] for p in neu]
+        self.assertAlmostEqual(sum(g), 100.0, places=9)
+        self.assertAlmostEqual(g[0] / g[1], 3.0, places=9)                # Verhaeltnis A:B bleibt
+        self.assertAlmostEqual(g[2], 40 / 160 * 100, places=9)            # Durchschnitt 40: 60+20+40+40
+        zeilen = P.positionen(P.bereinigen(self._e(neu)))["zeilen"]
+        self.assertAlmostEqual(zeilen[2]["stueck"], 10000 * g[2] / 100 / 10, places=6)
+
+    def test_gleich_und_alle_null(self):
+        self.assertEqual([p["gewicht"] for p in P.rebalancing(self._e(self.POS), "gleich")], [25.0] * 4)
+        null = [dict(p, gewicht=0) for p in self.POS]
+        self.assertEqual([p["gewicht"] for p in P.rebalancing(self._e(null))], [25.0] * 4)
+
+    def test_ziel_ohne_zielvermoegen_wie_anteilig(self):
+        self.assertEqual(P.rebalancing(self._e(self.POS), "ziel"), P.rebalancing(self._e(self.POS)))
+        z = P.rebalancing(self._e([dict(p, rendite=r) for p, r in zip(self.POS, (8, 2, 12, 4))],
+                                  zielvermoegen=20000, einzahlung=0), "ziel")
+        self.assertAlmostEqual(sum(p["gewicht"] for p in z), 100.0, places=9)
+        self.assertTrue(all(p["gewicht"] > 0 for p in z))
+
+
 class Zielvermoegen(unittest.TestCase):
     def _e(self, **kw):
         e = eingaben(anfangskapital=100000, rendite_pa=6, zielvermoegen=200000, positionen=[

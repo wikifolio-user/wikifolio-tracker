@@ -954,6 +954,9 @@ st.markdown("""
     /* Touch: Plotly-Werkzeugleiste (22-px-Symbole) ausblenden - Zoomen per Fingergeste geht weiter */
     @media (pointer: coarse) { .modebar-container { display: none !important; } }
     [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button { height: auto !important; }
+    /* Primaer-Knoepfe: primaryColor ist Weiss - Schrift dunkel, sonst Weiss auf Weiss */
+    [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p {
+        color: #0A0B0D !important; }
     /* Touch-Geraete: Trefferflaechen mind. 44 px (Apple HIG) */
     @media (pointer: coarse) {
         [data-testid="stButtonGroup"] button { min-height: 44px !important; }

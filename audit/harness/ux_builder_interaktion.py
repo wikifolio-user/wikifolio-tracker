@@ -46,7 +46,7 @@ with sync_playwright() as p:
     zelle(page, 2, 4, "40")                                   # Stueck Bitcoin = 40 (Kurs 50)
     print("Stück 40 ->", positionen(page)[2])
     print("Summe-Badge:", page.locator(".pb-status").first.inner_text())
-    page.get_by_role("button", name="Auf 100 % verteilen").click(); br.warte_ruhe(page); page.wait_for_timeout(500)
+    page.get_by_role("button", name="⚖️ Rebalancing").click(); br.warte_ruhe(page); page.wait_for_timeout(500)
     print("nach Auf 100 %:", [r[:2] for r in positionen(page)], page.locator(".pb-status").first.inner_text())
     # Kredit
     page.get_by_label("Kredit €", exact=True).fill("20000"); page.keyboard.press("Enter"); br.warte_ruhe(page)

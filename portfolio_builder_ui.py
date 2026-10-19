@@ -244,17 +244,20 @@ def _live_kurs(h, instrument_id):
     return float(kurs) if kurs else None
 
 
-def kurse_aktualisieren(h):
+def kurse_aktualisieren(h, nur_fehlende=False):
     """Aktuelle Kurse (ls-tc.de) fuer alle Positionen mit WKN/ISIN/Kurs-ID. Gewichte bleiben,
-    Stueckzahlen passen sich an. -> (aktualisiert, ohne_kurs)"""
+    Stueckzahlen passen sich an. nur_fehlende: nur Positionen ohne Kurs - die werden notfalls
+    ueber ihren Namen gesucht. -> (aktualisiert, ohne_kurs)"""
     pos = copy.deepcopy(st.session_state.get("pb_positionen") or [])
     ok, fehlt = 0, []
     for p in pos:
-        if not (p.get("instrument_id") or p.get("wkn") or p.get("isin")):
+        if nur_fehlende and p.get("kurs", 0) > 0:
+            continue
+        if not nur_fehlende and not (p.get("instrument_id") or p.get("wkn") or p.get("isin")):
             continue
         iid = p.get("instrument_id")
         if not iid:
-            t = _instrument(h, [p.get("wkn"), p.get("isin")])
+            t = _instrument(h, [p.get("wkn"), p.get("isin")], p["name"] if nur_fehlende else "")
             iid = t and t.get("instrument_id")
         kurs = _live_kurs(h, iid)
         if kurs:
@@ -331,9 +334,16 @@ def _rate_uebernehmen(rate):
     st.session_state["pb_kredit_rate"] = round(rate, 2)
 
 
-def _auf_100():
-    st.session_state["pb_positionen"] = P.auf_100(st.session_state.get("pb_positionen") or [])
+def _rebalancing(h, e, methode):
+    """Alle Werte neu berechnen: fehlende Kurse holen, dann neu gewichten (zusammen 100 %)."""
+    fehlt = []
+    if any(p.get("kurs", 0) <= 0 for p in e["positionen"]):
+        with st.spinner("Hole fehlende Kurse …"):
+            _, fehlt = kurse_aktualisieren(h, nur_fehlende=True)
+    e = dict(e, positionen=st.session_state.get("pb_positionen") or e["positionen"])
+    st.session_state["pb_positionen"] = P.rebalancing(e, methode)
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+    st.session_state["pb_meldung_rebal"] = fehlt
 
 
 # ---------------------------------------------------------------- Bausteine der Seite
@@ -651,12 +661,42 @@ def _tabelle(h, r):
                                                                        geaendert, neu, weg)
             st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
             st.rerun()
-        c1, c2, c3 = st.columns([1, 1, 1], vertical_alignment="center")
+        # Rebalancing: alle neuen und bestehenden Werte in einem Schritt neu berechnen
+        null = [p["name"] for p in e["positionen"] if p["gewicht"] <= 1e-9]
+        ohne_kurs = [p["name"] for p in e["positionen"] if p["kurs"] <= 0]
+        if null or ohne_kurs or not ok:
+            offen = ([f"{len(null)} Wert{'e' if len(null) != 1 else ''} mit 0 % ({', '.join(null[:3])})"]
+                     if null else []) + ([f"{len(ohne_kurs)} ohne Kurs ({', '.join(ohne_kurs[:3])})"]
+                                         if ohne_kurs else []) + ([] if ok else [f"Summe {pct(summe)}"])
+            st.markdown(f'<div class="pb-hinweis"><span class="pb-status warn">Noch nicht eingerechnet</span> '
+                        f'{_esc(" · ".join(offen))} – „⚖️ Rebalancing“ berechnet alle Werte neu.</div>',
+                        unsafe_allow_html=True)
+        with st.container(key="pb_reihe_rebal"):
+            # Handy: Auswahl und Knopf untereinander (nebeneinander waere die Auswahl unlesbar schmal)
+            r1, r2 = (st.container(), st.container()) if _smartphone() else st.columns([2, 1],
+                                                                                    vertical_alignment="bottom")
+            # "Automatisch aufs Ziel" verteilt ohnehin selbst - dort nur diese Methode
+            methoden = ["ziel"] if auto else [m for m in P.REBALANCING if m != "ziel" or e["zielvermoegen"] > 0]
+            methode = r1.selectbox("Rebalancing", methoden, format_func=P.REBALANCING.get,
+                                   key=f"pb_rebal_{int(auto)}",
+                                   help="Wie die Prozente neu verteilt werden (zusammen 100 %):\n\n"
+                                        "- **Gewichte behalten, 0 % ergänzen**: die Verhältnisse bleiben, Werte mit "
+                                        "0 % bekommen den durchschnittlichen Anteil\n"
+                                        "- **Alle gleich gewichten**: jeder Wert gleich viel\n"
+                                        "- **Aufs Zielvermögen**: nach erwarteter Rendite, so dass das Ziel erreicht "
+                                        "wird\n\nFehlende Kurse werden vorher geholt; Betrag und Stück rechnen sich "
+                                        "danach aus Kapital und Kurs.")
+            if r2.button("⚖️ Rebalancing", key="pb_rebal_btn", type="primary", width="stretch",
+                         disabled=not e["positionen"]):
+                _rebalancing(h, e, methode)
+                st.rerun()
+        gemeldet = st.session_state.pop("pb_meldung_rebal", None)
+        if gemeldet is not None:
+            st.toast("⚖️ Alle Werte neu berechnet – zusammen 100 %"
+                     + (f" · ohne Kurs (bitte eintragen): {', '.join(gemeldet[:3])}" if gemeldet else ""))
+        c1, c3 = st.columns([1, 1], vertical_alignment="center")
         c1.toggle("Nur ganze Stücke", key="pb_nur_ganze_stuecke",
                   help="Stückzahlen abrunden; der Rest bleibt als Cash im Portfolio.")
-        c2.button("Auf 100 % verteilen", key="pb_100_btn", on_click=_auf_100,
-                  disabled=ok or not e["positionen"] or auto,
-                  width="stretch")
         mit_kennung = any(p.get("wkn") or p.get("isin") or p.get("instrument_id") for p in e["positionen"])
         if c3.button("🔄 Kurse aktualisieren", key="pb_kurse_btn", width="stretch", disabled=not mit_kennung,
                      help="Aktuelle Kurse (ls-tc.de) für alle Werte mit WKN/ISIN – die Gewichte bleiben, "
