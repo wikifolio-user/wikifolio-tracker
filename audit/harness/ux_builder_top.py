@@ -14,7 +14,7 @@ with sync_playwright() as p:
     if not page.locator(".st-key-nav_menue button", has_text="Portfolio Builder").first.is_visible():
         page.get_by_role("button", name="☰ Menü").click(); br.warte_ruhe(page)
     page.locator(".st-key-nav_menue button", has_text="Portfolio Builder").first.click(); br.warte_ruhe(page, 60)
-    page.get_by_role("button", name="↺ Standardwerte").click(); br.warte_ruhe(page); page.wait_for_timeout(600)
+    page.get_by_role("button", name="↺ Standardwerte").click(); br.warte_ruhe(page); page.get_by_role("button", name="Ja, zurücksetzen").click(); br.warte_ruhe(page); page.wait_for_timeout(600)
     # Gewichte frei machen: Bitcoin + Tagesgeld auf 0 -> 20 % Rest
     page.get_by_role("tab", name="🏆 Top 100").click(); page.wait_for_timeout(800)
     print("Label:", page.locator(".st-key-pb_add label", has_text="sortiert nach").first.inner_text())

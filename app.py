@@ -3044,6 +3044,37 @@ def rechner_merken(bereich, sofort=False):
         return False
 
 
+# Eingaben ohne eigene Datei (Zukunfts-Prognose, Simulation): Streamlit loescht Widget-Werte,
+# sobald ihre Ansicht nicht gezeichnet wird. Je Sitzung gemerkt und beim naechsten Anlegen des
+# Felds als Startwert eingesetzt; Knoepfe und das gespeicherte Auflegungsdatum bleiben aussen vor.
+SITZUNG_EINGABEN = re.compile(r"^(prognose_rate_|prognose_wert_wahl$|mc_jahre$|mc_shrinkage$|szenario_)"
+                              r"(?!(.*_)?(aufl|del|save)_)")
+
+
+def sitzung_eingaben_merken(session_state):
+    """Zu Beginn jedes Laufs - solange die Felder noch bestehen - ihre Werte merken."""
+    merk = session_state.setdefault("_sitzung_eingaben", {})
+    for k in list(session_state.keys()):
+        k = str(k)
+        if SITZUNG_EINGABEN.match(k):
+            merk[k] = session_state[k]
+
+
+def _startwert(key, standard):
+    """Startwert eines Felds: der in dieser Sitzung gemerkte, sonst die Vorbelegung. Immer
+    mitgeben: legt der Browser das Feld neu an, zeigt er sonst den Mindestwert, waehrend der
+    Server noch den alten Wert haelt (die Felder sind ueber ihren Key identifiziert)."""
+    return {"value": (st.session_state.get("_sitzung_eingaben") or {}).get(key, standard)}
+
+
+def _startauswahl(key, optionen):
+    """Wie _startwert fuer Auswahlfelder: gemerkter Eintrag, falls es ihn noch gibt."""
+    gemerkt = (st.session_state.get("_sitzung_eingaben") or {}).get(key)
+    if gemerkt not in optionen:
+        return {}
+    return {"index": list(optionen).index(gemerkt)}
+
+
 def eingaben_offene_speichern():
     """Zurueckgehaltene (gedrosselte) Eingaben sofort speichern - beim Verlassen
     einer Ansicht und beim Abmelden."""
@@ -3387,6 +3418,7 @@ def render_chronik():
 @st.fragment(run_every=NAV_PRUEF_SEK)
 def render_dashboard():
     _zugang_pruefen()       # Audit SEC-10: auch der periodische Fragment-Neuaufbau prueft die Anmeldung
+    sitzung_eingaben_merken(st.session_state)
     now_berlin = datetime.datetime.now(BERLIN_TZ)
     heute_date = now_berlin.date()
 
@@ -7079,7 +7111,8 @@ def render_dashboard():
                 )
                 namen = [o["name"] for o in prognose_optionen]
                 gewaehlter_name = st.selectbox(
-                    "Prognose Basis auswählen:", namen, key="prognose_wert_wahl",
+                    "Prognose Basis auswählen:", namen, **_startauswahl("prognose_wert_wahl", namen),
+                    key="prognose_wert_wahl",
                 )
                 opt = next(o for o in prognose_optionen if o["name"] == gewaehlter_name)
             else:
@@ -7101,7 +7134,7 @@ def render_dashboard():
             opt_cagr_pa = st.number_input(
                 "Angenommene Rendite p.a. (%) für diese Prognose",
                 min_value=-99.0, max_value=100000.0, step=0.5,
-                value=round(opt["cagr_pa"], 2), key=_default_key,
+                **_startwert(_default_key, round(opt["cagr_pa"], 2)), key=_default_key,
                 help="Vorbelegt mit der aus der Kurshistorie ermittelten Rate. "
                      "Frei überschreibbar, um andere Annahmen durchzurechnen.",
             )
@@ -7208,10 +7241,10 @@ def render_dashboard():
             st.markdown('<div class="abschnitt">📉 Bandbreite möglicher Verläufe</div>',
                         unsafe_allow_html=True)
 
-            mc_jahre = st.slider("Zeitraum der Simulation (Jahre)", 1, 15, 5,
+            mc_jahre = st.slider("Zeitraum der Simulation (Jahre)", 1, 15, **_startwert("mc_jahre", 5),
                                  key="mc_jahre")
             mc_shrinkage = st.toggle(
-                "Dämpfung bei kurzer Historie", value=True, key="mc_shrinkage",
+                "Dämpfung bei kurzer Historie", **_startwert("mc_shrinkage", True), key="mc_shrinkage",
                 help="Zieht den geschätzten Trend Richtung einer konservativen "
                      "Marktrendite (8 % p.a.) - je weniger Historie vorliegt, "
                      "desto stärker. Ohne Dämpfung wird ein kurzer Boom "
@@ -7348,7 +7381,8 @@ def render_dashboard():
             STANDARD = "📐 Standard (−10 bis +30 % p.a., 10.000 €)"
             _basis_namen = [STANDARD] + [o["name"] for o in prognose_optionen]
             basis_name = st.selectbox(
-                "Wert auswählen:", _basis_namen, key="szenario_basis_wahl",
+                "Wert auswählen:", _basis_namen, **_startauswahl("szenario_basis_wahl", _basis_namen),
+                key="szenario_basis_wahl",
             )
             basis = next((o for o in prognose_optionen if o["name"] == basis_name), None)
 
@@ -7381,21 +7415,25 @@ def render_dashboard():
             col_sk, col_en = st.columns(2)
             with col_sk:
                 startkapital_szenario = st.number_input(
-                    "✏️ Startkapital (€)", min_value=0.0, value=round(_vorbelegung["start"], 2),
+                    "✏️ Startkapital (€)", min_value=0.0,
+                    **_startwert(f"szenario_startkapital_{_k}", round(_vorbelegung["start"], 2)),
                     step=100.0, key=f"szenario_startkapital_{_k}",
                 )
             with col_en:
                 entnahme_eingabe = st.number_input(
-                    "✏️ Monatliche Entnahme (€)", min_value=0.0, value=_vorbelegung["entnahme"],
+                    "✏️ Monatliche Entnahme (€)", min_value=0.0,
+                    **_startwert(f"szenario_entnahme_{_k}", _vorbelegung["entnahme"]),
                     step=10.0, key=f"szenario_entnahme_{_k}",
                 )
             sparrate_szenario = st.number_input(
-                "✏️ Monatliche Sparrate (€)", min_value=0.0, value=_vorbelegung["sparrate"],
+                "✏️ Monatliche Sparrate (€)", min_value=0.0,
+                **_startwert(f"szenario_sparrate_{_k}", _vorbelegung["sparrate"]),
                 step=10.0, key=f"szenario_sparrate_{_k}",
                 help="Zusätzliche monatliche Einzahlung - erhöht das Kapital jeden Monat, statt es zu verringern.",
             )
 
-            ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", value=False, key="szenario_ohne_entnahme")
+            ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", **_startwert("szenario_ohne_entnahme", False),
+                                  key="szenario_ohne_entnahme")
             entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
             netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
 
@@ -7477,7 +7515,8 @@ def render_dashboard():
                                            f"zu {WIKIFOLIO_STARTKURS:.0f} €.")
 
                     _daempfen = st.toggle(
-                        "Dämpfung bei kurzer Historie", value=False, key=f"szenario_daempf_{_k}",
+                        "Dämpfung bei kurzer Historie", **_startwert(f"szenario_daempf_{_k}", False),
+                        key=f"szenario_daempf_{_k}",
                         help="Zieht das Ergebnis Richtung einer konservativen Marktrendite "
                              "(8 % p.a.), je weniger Historie vorliegt. Aus = der ungefilterte "
                              "Median über alle Zeiträume.",
@@ -7495,7 +7534,7 @@ def render_dashboard():
                 rate_pa_szenario = st.number_input(
                     "✏️ Angenommene Rendite p.a. (%)",
                     min_value=-99.0, max_value=100000.0, step=0.5,
-                    value=round(max(_prod_pa, -99.0), 2), key=f"szenario_rate_{_k}",
+                    **_startwert(f"szenario_rate_{_k}", round(max(_prod_pa, -99.0), 2)), key=f"szenario_rate_{_k}",
                     help="Vorbelegt mit der bisherigen Entwicklung dieses Produkts - "
                          "unabhängig davon, wann du selbst gekauft hast. "
                          "Frei überschreibbar, um andere Annahmen durchzurechnen.",
