@@ -18,7 +18,7 @@ with sync_playwright() as p:
     if not page.locator(".st-key-nav_menue button", has_text="Portfolio Builder").first.is_visible():
         page.get_by_role("button", name="☰ Menü").click(); br.warte_ruhe(page)
     page.locator(".st-key-nav_menue button", has_text="Portfolio Builder").first.click(); br.warte_ruhe(page, 60)
-    page.get_by_role("button", name="↺ Standardwerte").click(); br.warte_ruhe(page); page.wait_for_timeout(600)
+    page.get_by_role("button", name="↺ Standardwerte").click(); br.warte_ruhe(page); page.get_by_role("button", name="Ja, zurücksetzen").click(); br.warte_ruhe(page); page.wait_for_timeout(600)
     feld(page, "Zielvermögen €", 80000)
     print("Ziel-Hinweis:", page.locator(".pb-hinweis", has_text="Nötig").first.inner_text().replace("\n", " "))
     # NVIDIA aus dem Katalog (bringt seine 5-J.-Rendite mit)

@@ -119,17 +119,19 @@ def _pfad(h):
 
 
 def _laden(h):
+    """-> (eingaben oder None, ok). ok=False: gespeicherter Stand gerade nicht lesbar - dann darf
+    nicht automatisch gespeichert werden, sonst ueberschriebe der Standard den gespeicherten Stand."""
     try:
         akt = (h or {}).get("gh_aktualisiere")
         if akt:
             ok, d = akt(_pfad(h), lambda d: None, default={}, message="portfolio-builder: lesen [skip ci]")
             if not ok:
-                return None
+                return None, False
         else:
             d = h["gh_read"](_pfad(h), {})
     except Exception:
-        return None
-    return (d or {}).get("eingaben") if isinstance(d, dict) else None
+        return None, False
+    return ((d or {}).get("eingaben") if isinstance(d, dict) else None), True
 
 
 def _speichern(h, e):
@@ -268,6 +270,7 @@ def kurse_aktualisieren(h):
 # ---------------------------------------------------------------- Zustand
 def _in_widgets(e):
     """Eingaben in die Widget-Schluessel schreiben (vor dem Zeichnen der Widgets)."""
+    st.session_state["pb_daten"] = copy.deepcopy(e)
     st.session_state["pb_einheit_vorher"] = e["laufzeit_einheit"]
     for k in FELDER:
         st.session_state[f"pb_{k}"] = e[k]
@@ -275,20 +278,34 @@ def _in_widgets(e):
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
 
 
+def _widgets_wiederherstellen():
+    """Streamlit raeumt die Werte von Eingabefeldern weg, sobald eine andere Ansicht offen war
+    (die Felder wurden dann nicht gezeichnet). Fehlende Feldwerte kommen aus der eigenen Kopie
+    pb_daten zurueck - sonst stuenden nach dem Zurueckwechseln alle Eingaben auf 0."""
+    daten = st.session_state.get("pb_daten") or {}
+    for k in FELDER:
+        if f"pb_{k}" not in st.session_state and k in daten:
+            st.session_state[f"pb_{k}"] = daten[k]
+
+
 def _aus_widgets():
     e = {k: st.session_state.get(f"pb_{k}") for k in FELDER}
     e["positionen"] = st.session_state.get("pb_positionen") or []
-    return P.bereinigen(e)
+    e = P.bereinigen(e)
+    st.session_state["pb_daten"] = copy.deepcopy(e)
+    return e
 
 
 def _start(h):
     konto = str((h or {}).get("nutzer") or "")
-    if st.session_state.get("pb_konto") != konto or "pb_positionen" not in st.session_state:
-        gespeichert = _laden(h)
+    if st.session_state.get("pb_konto") != konto or "pb_daten" not in st.session_state:
+        gespeichert, ok = _laden(h)
         e = P.bereinigen(gespeichert) if gespeichert else P.standard()
         _in_widgets(e)
         st.session_state["pb_konto"] = konto
-        st.session_state["pb_gespeichert"] = _fingerabdruck(e) if gespeichert else None
+        st.session_state["pb_lesefehler"] = not ok
+        st.session_state["pb_gespeichert"] = _fingerabdruck(e)       # Ausgangsstand = nichts zu speichern
+    _widgets_wiederherstellen()
 
 
 def _standard_laden():
@@ -783,21 +800,42 @@ Unter 0 fällt das Portfolio nicht; fehlende Beträge werden als Fehlbetrag ausg
 und keine Anlageempfehlung.</div>""", unsafe_allow_html=True)
 
 
-def _speicherleiste(h, e):
-    gespeichert = st.session_state.get("pb_gespeichert")
+def _automatisch_speichern(h, e):
+    """Jede Aenderung wird sofort im Ordner des Benutzers gespeichert (kein Speichern-Knopf).
+    -> ("ok", "HH:MM") | ("unveraendert", zeit) | ("lesefehler", None) | ("fehler", None)"""
     jetzt = _fingerabdruck(e)
-    st.markdown(f'<div class="pb-hinweis" style="margin-bottom:6px">'
-                f'{"✓ Gespeichert" if gespeichert == jetzt else "Änderungen noch nicht gespeichert"}</div>',
-                unsafe_allow_html=True)
-    c2, c3 = st.columns(2)
-    if c2.button("💾 Speichern", key="pb_speichern", width="stretch", disabled=gespeichert == jetzt):
-        if _speichern(h, e):
-            st.session_state["pb_gespeichert"] = jetzt
-            st.toast("Portfolio gespeichert.")
-            st.rerun()
-        else:
-            st.error("Speichern nicht möglich (Datenspeicher nicht erreichbar). Bitte später erneut versuchen.")
-    c3.button("↺ Standardwerte", key="pb_standard", width="stretch", on_click=_standard_laden)
+    if jetzt == st.session_state.get("pb_gespeichert"):
+        return "unveraendert", st.session_state.get("pb_gespeichert_um")
+    if st.session_state.get("pb_lesefehler"):
+        return "lesefehler", None
+    if _speichern(h, e):
+        st.session_state["pb_gespeichert"] = jetzt
+        st.session_state["pb_gespeichert_um"] = datetime.datetime.now().strftime("%H:%M")
+        return "ok", st.session_state["pb_gespeichert_um"]
+    return "fehler", None
+
+
+def _speicherleiste(h, e):
+    art, zeit = _automatisch_speichern(h, e)
+    text = {"ok": f"✓ Automatisch gespeichert · {zeit} Uhr",
+            "unveraendert": f"✓ Gespeichert{f' · {zeit} Uhr' if zeit else ''} – Änderungen werden automatisch "
+                            "gespeichert",
+            "lesefehler": "⚠ Dein gespeicherter Stand war beim Öffnen nicht lesbar – damit er nicht überschrieben "
+                          "wird, wird gerade nicht automatisch gespeichert. Bitte die Seite neu laden.",
+            "fehler": "⚠ Speichern gerade nicht möglich (Datenspeicher nicht erreichbar) – wird bei der nächsten "
+                      "Änderung erneut versucht."}[art]
+    st.markdown(f'<div class="pb-hinweis" style="margin-bottom:6px">{_esc(text)}</div>', unsafe_allow_html=True)
+    # Zuruecksetzen ueberschreibt den gespeicherten Stand sofort - deshalb mit Rueckfrage
+    if not st.session_state.get("pb_reset_frage"):
+        st.button("↺ Standardwerte", key="pb_standard", width="stretch",
+                  on_click=lambda: st.session_state.update(pb_reset_frage=True))
+    else:
+        st.warning("Alle Eingaben und Positionen auf die Standardwerte zurücksetzen? Das wird sofort gespeichert.")
+        c1, c2 = st.columns(2)
+        c1.button("Ja, zurücksetzen", key="pb_standard_ja", type="primary", width="stretch",
+                  on_click=lambda: (_standard_laden(), st.session_state.update(pb_reset_frage=False)))
+        c2.button("Abbrechen", key="pb_standard_nein", width="stretch",
+                  on_click=lambda: st.session_state.update(pb_reset_frage=False))
 
 
 # ---------------------------------------------------------------- Seite

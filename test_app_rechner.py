@@ -394,5 +394,36 @@ class QuellcodeRegeln(unittest.TestCase):
         self.assertNotIn("70€/Monat", self.src)
 
 
+class SitzungEingaben(unittest.TestCase):
+    """Prognose-/Szenario-Eingaben ueberstehen einen Ansichtswechsel (Streamlit verwirft
+    Widget-Werte nicht gezeichneter Ansichten)."""
+    @classmethod
+    def setUpClass(cls):
+        import re
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), encoding="utf-8") as f:
+            baum = ast.parse(f.read())
+        teile = [n for n in baum.body if (isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "SITZUNG_EINGABEN")
+                 or (isinstance(n, ast.FunctionDef) and n.name == "sitzung_eingaben_merken")]
+        cls.ns = {"re": re}
+        exec(compile(ast.Module(body=teile, type_ignores=[]), "app.py", "exec"), cls.ns)
+
+    def test_merkt_eingaben_aber_keine_knoepfe(self):
+        s = {"szenario_startkapital_Wert_A": 2500.0, "szenario_rate_Wert_A": 7.5, "mc_jahre": 9,
+             "prognose_rate_Wert A": 4.2, "prognose_wert_wahl": "Wert A", "szenario_basis_wahl": "Wert A",
+             "szenario_aufl_datum_Wert_A": datetime.date(2020, 1, 1), "szenario_aufl_save_Wert_A": True,
+             "szenario_aufl_del_Wert_A": False, "pb_kapital": 1, "zr_start": 5}
+        self.ns["sitzung_eingaben_merken"](s)
+        self.assertEqual(set(s["_sitzung_eingaben"]), {
+            "szenario_startkapital_Wert_A", "szenario_rate_Wert_A", "mc_jahre", "prognose_rate_Wert A",
+            "prognose_wert_wahl", "szenario_basis_wahl"})
+
+    def test_verworfene_werte_bleiben_gemerkt(self):
+        s = {"mc_jahre": 9}
+        self.ns["sitzung_eingaben_merken"](s)
+        del s["mc_jahre"]                       # Ansicht nicht gezeichnet -> Streamlit raeumt auf
+        self.ns["sitzung_eingaben_merken"](s)
+        self.assertEqual(s["_sitzung_eingaben"]["mc_jahre"], 9)
+
+
 if __name__ == "__main__":
     unittest.main()
