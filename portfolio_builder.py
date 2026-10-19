@@ -446,6 +446,42 @@ def mehrere_hinzufuegen(pos, werte):
     return einpassen(pos, range(start, len(pos))), len(neu_werte), schon
 
 
+# ---------------------------------------------------------------- Rebalancing
+REBALANCING = {
+    "anteilig": "Gewichte behalten, 0 % ergänzen",
+    "gleich": "Alle gleich gewichten",
+    "ziel": "Aufs Zielvermögen",
+}
+
+
+def rebalancing(e, methode="anteilig"):
+    """Alle Positionen neu gewichten, zusammen genau 100 %. Betrag und Stueck rechnen sich danach
+    aus Gewicht und Kurs.
+    - anteilig: bestehende Verhaeltnisse bleiben; Positionen mit 0 % zaehlen wie der Durchschnitt
+      der uebrigen (alle 0 -> gleich verteilt)
+    - gleich:   jede Position 100 % / Anzahl
+    - ziel:     wie "Automatisch aufs Ziel" (ohne Zielvermoegen wie anteilig)
+    -> neue Positionen (Eingabe unveraendert)"""
+    e = bereinigen(e)
+    pos = copy.deepcopy(e["positionen"])
+    if not pos:
+        return pos
+    if methode == "gleich":
+        for p in pos:
+            p["gewicht"] = 100.0 / len(pos)
+        return pos
+    if methode == "ziel" and e["zielvermoegen"] > 0:
+        z = ziel_gewichte(dict(e, positionen=rebalancing(e, "anteilig")))
+        if z and z["positionen"]:
+            return z["positionen"]
+    gesetzt = [p["gewicht"] for p in pos if p["gewicht"] > EPS]
+    mittel = sum(gesetzt) / len(gesetzt) if gesetzt else 1.0
+    for p in pos:
+        if p["gewicht"] <= EPS:
+            p["gewicht"] = mittel
+    return auf_100(pos)
+
+
 # ---------------------------------------------------------------- Zielvermoegen
 def benoetigte_rendite(e):
     """Portfolio-Rendite % p. a., mit der das Netto-Endvermoegen genau das Zielvermoegen erreicht
