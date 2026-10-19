@@ -244,6 +244,23 @@ class Rangliste(unittest.TestCase):
         self.assertEqual(r[0]["name"], "B")                              # 14,9 % / 10 > 32 % / 60
         self.assertEqual([x["name"] for x in P.rangliste(self.WERTE, "1J", art="aktie")], ["A", "D"])
 
+    def test_2j_10j_suche_und_seiten(self):
+        w = [{"name": "Wiki Eins", "art": "wikifolio", "2J": 44.0, "wkn": "LS9AAA"},
+             {"name": "Wiki Zwei", "art": "wikifolio", "2J": 21.0, "10J": 159.37424601},
+             {"name": "Aktie", "art": "aktie", "1J": 5}]
+        r = P.rangliste(w, "2J p.a.", art="wikifolio")
+        self.assertEqual([x["name"] for x in r], ["Wiki Eins", "Wiki Zwei"])
+        self.assertAlmostEqual(r[0]["2J p.a."], 20.0, places=6)                    # 1,44 = 1,2²
+        self.assertAlmostEqual(P.rangliste(w, "10J p.a.")[0]["10J p.a."], 10.0, places=6)
+        self.assertEqual([x["rang"] for x in P.suchen(r, "zwei")], [2])           # Rang bleibt
+        self.assertEqual(len(P.suchen(r, "ls9aaa")), 1)
+        self.assertEqual(P.suchen(r, ""), r)
+        liste = list(range(45))
+        self.assertEqual(P.seite(liste, 1), (list(range(20)), 1, 3))
+        self.assertEqual(P.seite(liste, 3), (list(range(40, 45)), 3, 3))
+        self.assertEqual(P.seite(liste, 9)[1], 3)                                  # begrenzt
+        self.assertEqual(P.seite([], 1), ([], 1, 1))
+
     def test_begrenzt_auf_n(self):
         viele = [{"name": f"W{i}", "art": "etf", "1J": i} for i in range(150)]
         r = P.rangliste(viele, "1J", n=100)

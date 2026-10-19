@@ -478,11 +478,14 @@ def simulation(e, rendite_pa=None):
 
 # ---------------------------------------------------------------- Rangliste (Top 100)
 KRITERIEN = {
-    "5J p.a.": "Rendite pro Jahr über 5 Jahre",
+    "1J": "Entwicklung der letzten 12 Monate",
+    "2J p.a.": "Rendite pro Jahr über 2 Jahre",
     "3J p.a.": "Rendite pro Jahr über 3 Jahre",
-    "1J": "Kursentwicklung der letzten 12 Monate",
+    "5J p.a.": "Rendite pro Jahr über 5 Jahre",
+    "10J p.a.": "Rendite pro Jahr über 10 Jahre",
     "Rendite/Risiko": "5 J. p. a. geteilt durch die Schwankung (Vola) – Rendite je Risiko",
 }
+LAENGEN = (25, 50, 100, 250, 500)
 
 
 def pro_jahr(gesamt_pct, jahre):
@@ -501,12 +504,30 @@ def pro_jahr(gesamt_pct, jahre):
 def kennzahlen(w):
     """Kennzahlen eines Katalogwerts (Felder 1J/3J/5J = Gesamtentwicklung in %, vola, maxdd)."""
     p5, p3 = pro_jahr(w.get("5J"), 5), pro_jahr(w.get("3J"), 3)
+    p2, p10 = pro_jahr(w.get("2J"), 2), pro_jahr(w.get("10J"), 10)
     vola = w.get("vola")
     vola = float(vola) if isinstance(vola, (int, float)) and vola > 0 else None
     eins = w.get("1J")
-    return {"1J": float(eins) if isinstance(eins, (int, float)) else None, "3J p.a.": p3, "5J p.a.": p5,
+    return {"1J": float(eins) if isinstance(eins, (int, float)) else None, "2J p.a.": p2, "3J p.a.": p3,
+            "5J p.a.": p5, "10J p.a.": p10,
             "Rendite/Risiko": (p5 / vola) if p5 is not None and vola else None,
             "vola": vola, "maxdd": w.get("maxdd") if isinstance(w.get("maxdd"), (int, float)) else None}
+
+
+def suchen(liste, begriff):
+    """Rangliste nach Name/WKN/ISIN filtern (Teilwort, Gross-/Kleinschreibung egal); Raenge bleiben."""
+    b = str(begriff or "").strip().lower()
+    if not b:
+        return list(liste)
+    return [x for x in liste if b in " ".join(str(x.get(k) or "") for k in ("name", "wkn", "isin")).lower()]
+
+
+def seite(liste, nr, groesse=20):
+    """Ausschnitt einer Liste fuer Seite nr (ab 1, wird auf gueltige Seiten begrenzt).
+    -> (eintraege, nr, anzahl_seiten)"""
+    seiten = max((len(liste) + groesse - 1) // groesse, 1)
+    nr = min(max(int(nr or 1), 1), seiten)
+    return liste[(nr - 1) * groesse:nr * groesse], nr, seiten
 
 
 def rangliste(werte, kriterium="5J p.a.", art=None, n=100):
