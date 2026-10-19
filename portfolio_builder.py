@@ -169,13 +169,75 @@ def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", rendi
 
 def katalog_rendite(w):
     """Erwartete Rendite fuer einen Katalogwert als Vorschlag: 5 J. p. a., sonst 3 J. p. a., sonst
-    10 J. p. a., sonst die Entwicklung der letzten 12 Monate (junge Werte, z. B. viele Wikifolios).
+    10 J., sonst 2 J. p. a., sonst die Entwicklung der letzten 12 Monate (junge Werte, z. B. viele Wikifolios).
     None = keine Daten."""
     k = kennzahlen(w)
-    for r in (k["5J p.a."], k["3J p.a."], pro_jahr(w.get("10J"), 10), k["1J"]):
+    for r in (k["5J p.a."], k["3J p.a."], pro_jahr(w.get("10J"), 10), pro_jahr(w.get("2J"), 2), k["1J"]):
         if r is not None:
             return r
     return None
+
+
+ZEITRAEUME = ("1J", "2J", "3J", "5J", "10J")
+
+
+def _name_schluessel(name):
+    return "".join(c for c in str(name or "").lower() if c.isalnum())
+
+
+def mit_ranglisten(katalog, ranglisten, neu_arten=("wikifolio", "etf")):
+    """Katalog um die Entwicklung aus den Watchlist-Ranglisten (Top 50 / Top 500 je Zeitraum) ergaenzen.
+    ranglisten = [(art, [(name, kennung, {zeitraum: entwicklung gesamt %})])]. Werte ohne eigene Zahlen
+    bekommen sie (Abgleich ueber WKN/ISIN, sonst den Namen); Werte der Arten neu_arten, die nur in den
+    Ranglisten stehen, kommen dazu (Aktien nicht - deren Listen umfassen tausende Werte). -> neue Liste"""
+    werte = copy.deepcopy(list(katalog or []))
+    je_kennung, je_name = {}, {}
+    for w in werte:
+        for k in (w.get("wkn"), w.get("isin")):
+            if k:
+                je_kennung.setdefault(str(k).strip().upper(), w)
+        je_name.setdefault(_name_schluessel(w.get("name")), w)
+    for art, liste in ranglisten:
+        for name, kennung, perf in liste:
+            perf = {z: float(v) for z, v in (perf or {}).items()
+                    if z in ZEITRAEUME and isinstance(v, (int, float)) and v > -100}
+            if not name or not perf:
+                continue
+            k = str(kennung or "").strip().upper()
+            w = je_kennung.get(k) if k else None
+            w = w or je_name.get(_name_schluessel(name))
+            if w is None and art not in neu_arten:
+                continue
+            if w is None:
+                w = {"name": str(name), "wkn": k if len(k) == 6 else "", "isin": k if len(k) == 12 else "",
+                     "art": art if art in ARTEN else "sonstig", "kurs": None}
+                werte.append(w)
+                if k:
+                    je_kennung[k] = w
+                je_name[_name_schluessel(name)] = w
+            for z, v in perf.items():
+                if w.get(z) is None:
+                    w[z] = v
+    return werte
+
+
+def entwicklung_aus_historie(punkte):
+    """[(ts_ms, kurs)] -> {zeitraum: Entwicklung gesamt %} fuer 1/2/3/5/10 Jahre, soweit die Historie
+    reicht (wie in den Ranglisten). Leer bei zu kurzer Historie."""
+    reihe = sorted((float(t), float(k)) for t, k in punkte or []
+                   if isinstance(t, (int, float)) and isinstance(k, (int, float)) and k > 0)
+    if len(reihe) < 10:
+        return {}
+    tag_ms, ende, letzter = 86400000.0, reihe[-1][0], reihe[-1][1]
+    aus = {}
+    for z, jahre in (("1J", 1), ("2J", 2), ("3J", 3), ("5J", 5), ("10J", 10)):
+        stichtag = ende - jahre * 365.25 * tag_ms
+        if reihe[0][0] > stichtag + 10 * tag_ms:         # Historie reicht nicht so weit zurueck
+            break
+        vorher = [k for t, k in reihe if t <= stichtag]
+        start = vorher[-1] if vorher else reihe[0][1]
+        aus[z] = (letzter / start - 1.0) * 100.0
+    return aus
 
 
 def renditen_ergaenzen(pos, katalog):

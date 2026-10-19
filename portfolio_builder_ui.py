@@ -3,6 +3,7 @@
 Rechnen: portfolio_builder.py (ohne Streamlit). Hier nur Eingabe und Darstellung.
 Jede Aenderung wirkt sofort (kein Berechnen-Knopf); gespeichert wird je Benutzer per Knopf.
 """
+import contextlib
 import copy
 import datetime
 import html
@@ -208,9 +209,44 @@ def _katalog(h):
                 "krypto" if k.get("category") == "crypto" else _art_aus(k.get("typ")), None)
     except Exception:
         pass
+    werte = P.mit_ranglisten(werte, _ranglisten(lies))
     werte.sort(key=lambda w: w["name"].lower())
     st.session_state["pb_katalog"] = (heute, werte)
     return werte
+
+
+def _ranglisten(lies):
+    """Entwicklung je Zeitraum aus den Dateien der Watchlist (Top 50 / Top 500 je Kategorie und alle
+    Aktien der Index-Listen) - dieselben Zahlen, die dort angezeigt werden. -> [(art, [(name, kennung, perf)])]"""
+    if not lies:
+        return []
+
+    def datei(pfad):
+        try:
+            return lies(pfad, None) or {}
+        except Exception:
+            return {}
+
+    aus = []
+    for key, kat in (datei("state/top50.json").get("kategorien") or {}).items():
+        art = "wikifolio" if "wikifolio" in key else "etf" if key == "etf" else "aktie"
+        je = {}
+        for zr, liste in (kat.get("top") or {}).items():
+            for e in liste or []:
+                je.setdefault((e.get("name"), e.get("wkn")), {})[zr] = e.get("perf")
+        for zr, liste in (datei(f"state/top50_lang_{key}.json").get("top") or {}).items():
+            for r in liste or []:
+                if len(r) >= 3:
+                    je.setdefault((r[0], r[1]), {})[zr] = r[2]
+        aus.append((art, [(n, k, p) for (n, k), p in je.items()]))
+    for i in range(4):
+        d = datei(f"state/top50_alle_{i}.json")
+        f = d.get("felder") or []
+        if "name" in f:
+            aus.append(("aktie", [(z[f.index("name")], z[f.index("kennung")] if "kennung" in f else None,
+                                   {zr: z[f.index(zr)] for zr in P.ZEITRAEUME if zr in f})
+                                  for z in d.get("zeilen") or []]))
+    return aus
 
 
 def _ist_wkn(k):
@@ -268,6 +304,51 @@ def kurse_aktualisieren(h, nur_fehlende=False):
     st.session_state["pb_positionen"] = pos
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
     return ok, fehlt
+
+
+def _renditen_aus_historie(h, pos):
+    """Werte, die weder im Katalog noch in den Ranglisten stehen: erwartete Rendite aus der eigenen
+    Kurshistorie (ls-tc.de, wie im Depot). Je Sitzung nur einmal je Wert versucht. -> (pos, Anzahl)"""
+    lade = (h or {}).get("lade_historie")
+    if not lade:
+        return pos, 0
+    versucht = st.session_state.setdefault("pb_hist_versucht", {})
+    pos, n = copy.deepcopy(pos), 0
+
+    def schluessel_von(p):
+        return str(p.get("instrument_id") or p.get("wkn") or p.get("isin") or "N:" + p["name"].lower()).upper()
+
+    offen = [p for p in pos if (p.get("rendite") is None and not p.get("allgemein")) or p["kurs"] <= 0]
+    offen = [p for p in offen if p.get("instrument_id") or p.get("wkn") or p.get("isin") or p["kurs"] <= 0]
+    if not offen:
+        return pos, 0
+    neu = any(schluessel_von(p) not in versucht for p in offen)
+    with st.spinner("Hole Renditen aus der Kurshistorie …") if neu else contextlib.nullcontext():
+        for p in offen:
+            schluessel = schluessel_von(p)
+            if schluessel not in versucht:
+                iid = p.get("instrument_id")
+                if not iid:
+                    t = _instrument(h, [p.get("wkn"), p.get("isin")], p["name"])
+                    iid = t and t.get("instrument_id")
+                try:
+                    punkte = lade(int(iid)) if iid else []
+                except Exception:
+                    punkte = []
+                letzter = next((k for _, k in reversed(punkte or []) if isinstance(k, (int, float)) and k > 0),
+                               None)
+                versucht[schluessel] = {"rendite": P.katalog_rendite(P.entwicklung_aus_historie(punkte)),
+                                        "iid": iid, "kurs": letzter}
+            gef = versucht[schluessel]
+            vorher = dict(p)
+            if gef["rendite"] is not None and p.get("rendite") is None and not p.get("allgemein"):
+                p["rendite"] = round(min(max(gef["rendite"], -P.MAX_RENDITE), P.MAX_RENDITE), 2)
+            if gef["iid"] and not p.get("instrument_id"):
+                p["instrument_id"] = str(gef["iid"])
+            if p["kurs"] <= 0 and gef["kurs"]:
+                p["kurs"] = round(float(gef["kurs"]), 4)
+            n += p != vorher
+    return pos, n
 
 
 # ---------------------------------------------------------------- Zustand
@@ -906,7 +987,8 @@ def render(h):
            for p in e["positionen"]):
         # fehlende Rendite/Kurs/Art (Suche, eigene Zeilen, aeltere Staende) aus dem Katalog vorschlagen
         pos, n = P.renditen_ergaenzen(e["positionen"], _katalog(h))
-        if n:
+        pos, m = _renditen_aus_historie(h, pos)
+        if n or m:
             st.session_state["pb_positionen"] = pos
             st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
             e = _aus_widgets()

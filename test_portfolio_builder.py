@@ -268,6 +268,35 @@ class Renditen(unittest.TestCase):
         self.assertAlmostEqual(P.katalog_rendite({"10J": 159.37424601}), 10.0, places=6)
         self.assertIsNone(P.katalog_rendite({}))
 
+    def test_ranglisten_ergaenzen_katalog(self):
+        katalog = [{"name": "FF Inlinetrading", "wkn": "", "isin": "DE000LS9VSU5", "art": "wikifolio", "1J": None,
+                    "kurs": 1228.75},
+                   {"name": "Siemens", "wkn": "723610", "isin": "", "art": "aktie", "5J": 60.0}]
+        ranglisten = [("wikifolio", [("FF Inlinetrading", "LS9VSU", {"1J": 44.0, "2J": 96.0, "3M": 12.0}),
+                                     ("Nur in Rangliste", "LS9ZZZ", {"1J": 30.0})]),
+                      ("aktie", [("Siemens AG", "723610", {"5J": 99.0, "1J": 10.0})])]
+        neu = P.mit_ranglisten(katalog, ranglisten)
+        ff, siemens, nur = neu
+        self.assertEqual((ff["1J"], ff["2J"]), (44.0, 96.0))                        # ueber den Namen
+        self.assertNotIn("3M", ff)
+        self.assertAlmostEqual(P.katalog_rendite(ff), 40.0, places=6)              # 2 J. p. a.: 1,96 = 1,4²
+        self.assertEqual((siemens["5J"], siemens["1J"]), (60.0, 10.0))              # eigene Zahl bleibt
+        self.assertEqual((nur["name"], nur["wkn"], nur["art"]), ("Nur in Rangliste", "LS9ZZZ", "wikifolio"))
+        self.assertIsNone(katalog[0]["1J"])                                         # Eingabe unveraendert
+        nur_aktie = P.mit_ranglisten([], [("aktie", [("Irgendeine AG", "A1B2C3", {"1J": 5.0})])])
+        self.assertEqual(nur_aktie, [])                                             # Aktien nur ergaenzen
+
+    def test_entwicklung_aus_historie(self):
+        tag = 86400000
+        # 2,5 Jahre taeglich, Kurs waechst 20 % p. a. stetig
+        punkte = [(i * tag, 100 * 1.2 ** (i / 365.25)) for i in range(int(2.5 * 365.25) + 1)]
+        e = P.entwicklung_aus_historie(punkte)
+        self.assertEqual(sorted(e), ["1J", "2J"])                                   # 3 J. reicht nicht
+        self.assertAlmostEqual(e["1J"], 20.0, delta=0.1)
+        self.assertAlmostEqual(P.katalog_rendite(e), 20.0, delta=0.1)               # 2 J. p. a.
+        self.assertEqual(P.entwicklung_aus_historie(punkte[:200]), {})              # unter 1 Jahr
+        self.assertEqual(P.entwicklung_aus_historie([]), {})
+
     def test_fehlende_renditen_aus_katalog(self):
         katalog = [{"name": "Wiki Alpha", "wkn": "", "isin": "DE000LS9AAA1", "1J": 40.0},
                    {"name": "MSCI World ETF", "wkn": "A0RPWH", "isin": "", "5J": 61.051}]
