@@ -276,6 +276,7 @@ def _in_widgets(e):
         st.session_state[f"pb_{k}"] = e[k]
     st.session_state["pb_positionen"] = copy.deepcopy(e["positionen"])
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+    st.session_state["pb_add_ver"] = st.session_state.get("pb_add_ver", 0) + 1   # Vorschlaege neu
 
 
 def _widgets_wiederherstellen():
@@ -426,12 +427,14 @@ def _ziel_hinweis(spalte, r, z):
                     unsafe_allow_html=True)
     if z and e["auto_ziel"]:
         if z["status"] == "zu_hoch":
-            st.warning(f"Mit diesen Werten ist das Ziel nicht erreichbar: höchstens {pct(z['erreicht'], 2)} p. a. "
-                       f"(alles im renditestärksten Wert). Nötig wären {pct(z['benoetigt'], 2)} – Werte mit höherer "
-                       "Rendite hinzufügen, Laufzeit/Einzahlung erhöhen oder das Ziel senken.")
+            st.warning(f"Mit diesen Werten ist das Ziel nicht erreichbar: selbst der renditestärkste Wert bringt "
+                       f"nur {pct(z['spanne'][1], 2)} p. a., nötig wären {pct(z['benoetigt'], 2)}. Deine Aufteilung "
+                       "bleibt deshalb wie sie ist – Werte mit höherer Rendite hinzufügen, Laufzeit/Einzahlung "
+                       "erhöhen oder das Ziel senken.")
         elif z["status"] == "uebertroffen":
-            st.info("Schon der Wert mit der niedrigsten Rendite übertrifft das Ziel – alles liegt in ihm. Für eine "
-                    "breitere Verteilung einen Wert mit niedrigerer Rendite (z. B. Tagesgeld) hinzufügen.")
+            st.info(f"Das Ziel wird schon übertroffen – nötig wären nur {pct(z['benoetigt'], 2)} p. a., schon der "
+                    f"renditeschwächste Wert bringt {pct(z['spanne'][0], 2)}. Deine Aufteilung bleibt deshalb wie "
+                    "sie ist; neue Werte bekommen automatisch einen Anteil.")
         elif z["status"] == "leer":
             st.info("Für die automatische Verteilung erst Werte hinzufügen.")
 
@@ -489,9 +492,13 @@ def _einzeln(h, e, art, ver):
         c1, c2, c3 = st.columns([3, 1, 1], vertical_alignment="bottom")
         wahl = c1.selectbox(f"Wert ({len(katalog)} zur Auswahl)", optionen, index=None, format_func=beschriftung,
                             placeholder="Name oder WKN eintippen …", key=f"pb_add_wahl_{ver}")
-        gewicht = c2.number_input("Gewicht %", 0.0, 100.0, value=round(P.rest_gewicht(e["positionen"]), 2),
+        frei = P.rest_gewicht(e["positionen"])
+        vorschlag = frei if frei > 0.05 else 100.0 / (len(e["positionen"]) + 1)
+        gewicht = c2.number_input("Gewicht %", 0.0, 100.0, value=round(vorschlag, 2),
                                   step=1.0, format="%.1f", key=f"pb_add_gew_{ver}",
-                                  help="Vorschlag: der bis 100 % noch freie Anteil.")
+                                  help="Vorschlag: der bis 100 % noch freie Anteil – ist nichts mehr frei, ein "
+                                       "gleicher Anteil. Die übrigen Werte werden dann automatisch anteilig "
+                                       "gekürzt (zusammen 100 %). 0 = automatisch.")
         treffer = None
         if wahl == SUCHE:
             begriff = st.text_input("Name, WKN oder ISIN", key=f"pb_add_such_{ver}",
@@ -527,9 +534,11 @@ def _einzeln(h, e, art, ver):
                 st.session_state["pb_positionen"] = pos
                 st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
                 st.session_state["pb_add_ver"] = ver + 1
+                anteil = pos[-1]["gewicht"]
                 st.session_state["pb_meldung"] = (
-                    f"„{name}“ hinzugefügt ({pct(gewicht)})" + ("" if kurs else
-                                                                " – Kurs bitte in der Tabelle eintragen"))
+                    f"„{name}“ hinzugefügt ({pct(anteil)})"
+                    + (" – die übrigen Werte wurden anteilig angepasst" if frei < anteil - 0.05 else "")
+                    + ("" if kurs else " – Kurs bitte in der Tabelle eintragen, dann rechnen sich die Stücke"))
                 st.rerun()
 
 
@@ -563,9 +572,10 @@ def _top100(h, e, art, art_wahl):
                                          "Name", width=130 if _smartphone() else "medium")}))
     zeilen = list(getattr(getattr(auswahl, "selection", None), "rows", []) or [])
     rest = P.rest_gewicht(e["positionen"])
-    st.markdown(f'<div class="pb-hinweis">Zeilen anhaken (Kästchen links) – der freie Rest von {pct(rest)} wird '
-                f'gleichmäßig auf die neuen Werte verteilt. Vergangene Renditen sind keine Prognose.</div>',
-                unsafe_allow_html=True)
+    verteilt = (f"der freie Rest von {pct(rest)} wird gleichmäßig auf die neuen Werte verteilt" if rest > 0.05 else
+                "jeder neue Wert bekommt einen gleichen Anteil, die übrigen werden anteilig gekürzt")
+    st.markdown(f'<div class="pb-hinweis">Zeilen anhaken (Kästchen links) – {verteilt}. '
+                f'Vergangene Renditen sind keine Prognose.</div>', unsafe_allow_html=True)
     if st.button(f"➕ {len(zeilen)} ausgewählte hinzufügen" if zeilen else "➕ Ausgewählte hinzufügen",
                  key="pb_top_btn", type="primary", disabled=not zeilen, width="stretch"):
         werte = [liste[i] for i in zeilen if 0 <= i < len(liste)]
@@ -575,9 +585,8 @@ def _top100(h, e, art, art_wahl):
         st.session_state["pb_add_ver"] = st.session_state.get("pb_add_ver", 0) + 1
         st.session_state["pb_meldung"] = (
             f"{anzahl} Wert{'e' if anzahl != 1 else ''} hinzugefügt"
-            + (f" mit je {pct(rest / anzahl)}" if anzahl and rest > 0.05 else
-               " mit 0 % – das Portfolio war schon zu 100 % verteilt; Gewichte in der Tabelle anpassen" if anzahl
-               else "")
+            + (f" mit je {pct(pos[-1]['gewicht'])}" if anzahl else "")
+            + (" – die übrigen Werte wurden anteilig angepasst" if anzahl and rest < 0.05 else "")
             + (f" · schon vorhanden: {', '.join(schon[:3])}" if schon else ""))
         st.rerun()
 
@@ -591,7 +600,8 @@ def _tabelle(h, r):
         ok = abs(summe - 100.0) < 0.05
         st.markdown('<div class="pb-karte-t">Portfolio-Aufteilung</div>', unsafe_allow_html=True)
         arten = [p.get("art", "sonstig") for p in e["positionen"]]
-        renditen = [p.get("rendite") for p in e["positionen"]]
+        # ohne eigene Angabe gilt die allgemeine Rendite - die steht dann auch in der Zelle (statt "None")
+        renditen = [round(P.position_rendite(e, p), 2) for p in e["positionen"]]
         df = pd.DataFrame([{"Name": z["name"], "Art": P.ARTEN[a_], "Rendite % p. a.": rd, "Kurs €": z["kurs"],
                             "Gewicht %": round(z["gewicht"], 4),
                             "Betrag €": round(z["betrag"], 2), "Stück": round(z["stueck"], 4),
@@ -614,8 +624,8 @@ def _tabelle(h, r):
                 "Rendite % p. a.": st.column_config.NumberColumn(
                     "Rendite % p. a.", min_value=-P.MAX_RENDITE, max_value=P.MAX_RENDITE, format="localized",
                     step=0.1, width="small",
-                    help="Erwartete Rendite dieses Werts (Vorschlag aus der bisherigen 5-J.-Rendite). Leer = die "
-                         "allgemeine Rendite oben."),
+                    help="Erwartete Rendite dieses Werts (Vorschlag aus der bisherigen 5-J.-Rendite). Ohne eigene "
+                         "Angabe gilt die allgemeine Rendite oben; Zelle leeren = wieder die allgemeine."),
                 "Kurs €": st.column_config.NumberColumn("Kurs €", min_value=0.0, format="localized", step=0.01,
                                                         width="small"),
                 "Gewicht %": st.column_config.NumberColumn("Gewicht %", min_value=0.0, max_value=100.0,
