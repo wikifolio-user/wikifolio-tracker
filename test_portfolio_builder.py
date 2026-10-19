@@ -163,10 +163,30 @@ class Hinzufuegen(unittest.TestCase):
                                    "wkn": "918422", "instrument_id": "123"})
         self.assertEqual(len(pos), 1)                       # Eingabe unveraendert
 
-    def test_volles_portfolio_gewicht_0_oder_vorgegeben(self):
+    def test_volles_portfolio_macht_automatisch_platz(self):
+        pos = [{"name": "A", "kurs": 10, "gewicht": 75}, {"name": "B", "kurs": 10, "gewicht": 25}]
+        neu = P.position_hinzufuegen(pos, "C", 20.0)[0]                # ohne Gewicht: gleicher Anteil 1/3
+        self.assertEqual([round(p["gewicht"], 6) for p in neu], [round(75 * 2 / 3, 6), round(25 * 2 / 3, 6),
+                                                                 round(100 / 3, 6)])
+        neu = P.position_hinzufuegen(pos, "C", 20.0, gewicht=0)[0]     # 0 % zaehlt wie "ohne Gewicht"
+        self.assertAlmostEqual(neu[-1]["gewicht"], 100 / 3)
+        neu = P.position_hinzufuegen(pos, "C", gewicht=20)[0]          # vorgegeben: bleibt, Rest anteilig
+        self.assertEqual([round(p["gewicht"], 6) for p in neu], [60.0, 20.0, 20.0])
+        self.assertAlmostEqual(sum(p["gewicht"] for p in neu), 100.0)
+
+    def test_neue_tabellenzeile_mit_0_prozent_bekommt_anteil_und_stueck(self):
+        pos = [{"name": "A", "kurs": 100, "gewicht": 100}]
+        neu = P.aenderungen_anwenden(pos, 10000, neu=[{"name": "B", "kurs": 50, "gewicht": 0}])
+        self.assertEqual([p["gewicht"] for p in neu], [50.0, 50.0])
+        e = P.bereinigen(dict(P.standard(), anfangskapital=10000, sonstiges_kapital=0, kredit_summe=0, positionen=neu))
+        zeilen = P.positionen(e)["zeilen"]
+        self.assertAlmostEqual(zeilen[1]["stueck"], 100.0)            # 5.000 € / 50 €
+
+    def test_mehrere_in_volles_portfolio(self):
         pos = [{"name": "A", "kurs": 10, "gewicht": 100}]
-        self.assertEqual(P.position_hinzufuegen(pos, "B")[0][-1]["gewicht"], 0.0)
-        self.assertEqual(P.position_hinzufuegen(pos, "B", gewicht=15)[0][-1]["gewicht"], 15.0)
+        neu, n, _ = P.mehrere_hinzufuegen(pos, [{"name": "X", "kurs": 1}, {"name": "Y", "kurs": 1}])
+        self.assertEqual(n, 2)
+        self.assertEqual([round(p["gewicht"], 6) for p in neu], [round(100 / 3, 6)] * 3)
 
     def test_kein_doppelter_wert(self):
         pos = [{"name": "MSCI World", "kurs": 10, "gewicht": 50, "wkn": "A0RPWH"}]
@@ -272,6 +292,13 @@ class Zielvermoegen(unittest.TestCase):
         b = P.benoetigte_rendite(e)
         self.assertAlmostEqual(P.simulation(e, rendite_pa=b["rendite"])["netto_endvermoegen"], 300000, delta=1)
 
+    def test_ziel_gewichte_neue_position_mit_0_prozent_bleibt_nicht_bei_0(self):
+        pos = self._e()["positionen"] + [{"name": "D", "kurs": 5, "gewicht": 0, "rendite": 12}]
+        z = P.ziel_gewichte(self._e(positionen=pos))
+        self.assertEqual(z["status"], "ok")
+        self.assertGreater(z["positionen"][3]["gewicht"], 1.0)
+        self.assertAlmostEqual(z["erreicht"], z["benoetigt"], places=6)
+
     def test_ziel_gewichte_treffen_ziel(self):
         z = P.ziel_gewichte(self._e())
         self.assertEqual(z["status"], "ok")
@@ -306,12 +333,20 @@ class Zielvermoegen(unittest.TestCase):
         z = P.ziel_gewichte(self._e(zielvermoegen=400000))          # braucht ~14,9 % > 10 %
         self.assertEqual(z["status"], "zu_hoch")
         self.assertLess(z["erreicht"], z["benoetigt"])
-        g = {p["name"]: p["gewicht"] for p in z["positionen"]}
-        self.assertAlmostEqual(g["A"], 100.0)                       # alles in den staerksten Wert der Gruppe
+        self.assertEqual(z["spanne"], (2.0, 10.0))
+        # keine Mischung trifft das Ziel: die eigene Aufteilung bleibt, kein Wert fliegt heraus
+        self.assertEqual([p["gewicht"] for p in z["positionen"]], [30.0, 30.0, 40.0])
         z = P.ziel_gewichte(self._e(zielvermoegen=110000))          # braucht ~1 % < 2 %
         self.assertEqual(z["status"], "uebertroffen")
-        g = {p["name"]: p["gewicht"] for p in z["positionen"]}
-        self.assertAlmostEqual(g["B"], 100.0)                       # am naechsten am Ziel: niedrigste Rendite
+        self.assertEqual([p["gewicht"] for p in z["positionen"]], [30.0, 30.0, 40.0])
+
+    def test_ziel_uebertroffen_neuer_wert_mit_0_prozent_bekommt_anteil(self):
+        pos = self._e()["positionen"] + [{"name": "D", "kurs": 5, "gewicht": 0, "rendite": 30}]
+        z = P.ziel_gewichte(self._e(zielvermoegen=110000, positionen=pos))
+        self.assertEqual(z["status"], "uebertroffen")
+        g = [p["gewicht"] for p in z["positionen"]]
+        self.assertTrue(all(x > 1.0 for x in g))
+        self.assertAlmostEqual(sum(g), 100.0, places=9)
 
 
 class Bereinigen(unittest.TestCase):

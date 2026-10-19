@@ -111,8 +111,40 @@ def rest_gewicht(pos):
     return max(100.0 - sum(max(_zahl(p.get("gewicht")), 0.0) for p in pos), 0.0)
 
 
+def einpassen(pos, neu):
+    """Neue Positionen (Indizes in neu) automatisch einpassen:
+    - ohne Gewicht (0) bekommen sie den noch freien Rest bis 100 % zu gleichen Teilen; ist nichts
+      mehr frei, je einen gleichen Anteil (100 % / Anzahl aller Positionen);
+    - ergibt das zusammen mehr als 100 %, werden die bisherigen Positionen anteilig gekuerzt, so dass
+      die neuen ihr Gewicht behalten und die Summe genau 100 % ist.
+    -> neue Liste (Eingabe unveraendert)"""
+    pos = copy.deepcopy(pos)
+    neu = sorted({i for i in neu if 0 <= i < len(pos)})
+    if not neu:
+        return pos
+    leer = [i for i in neu if pos[i]["gewicht"] <= EPS]
+    if leer:
+        rest = rest_gewicht(pos)
+        anteil = rest / len(leer) if rest > 0.05 else 100.0 / len(pos)
+        for i in leer:
+            pos[i]["gewicht"] = anteil
+    summe = sum(p["gewicht"] for p in pos)
+    if summe <= 100.0 + 1e-9:
+        return pos
+    s_neu = sum(pos[i]["gewicht"] for i in neu)
+    s_alt = summe - s_neu
+    if s_neu >= 100.0 or s_alt <= EPS:
+        return auf_100(pos)
+    faktor = (100.0 - s_neu) / s_alt
+    for i, p in enumerate(pos):
+        if i not in neu:
+            p["gewicht"] *= faktor
+    return pos
+
+
 def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", rendite=None, **kennung):
-    """Neue Position anhaengen. gewicht None = der noch freie Rest bis 100 %.
+    """Neue Position anhaengen und automatisch einpassen (siehe einpassen): gewicht None oder 0 =
+    freier Rest bis 100 %, sonst ein gleicher Anteil; die uebrigen werden bei Bedarf anteilig gekuerzt.
     Gibt es den Wert schon (gleiche WKN/ISIN, sonst gleicher Name), wird nichts doppelt angelegt.
     -> (neue Positionen, hinzugefuegt: bool)"""
     pos = copy.deepcopy(pos)
@@ -122,7 +154,7 @@ def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", rendi
                 or (not wkn and not isin and p["name"].strip().lower() == str(name).strip().lower()):
             return pos, False
     neu = {"name": str(name).strip() or "Neue Position", "kurs": max(_zahl(kurs), 0.0),
-           "gewicht": rest_gewicht(pos) if gewicht is None else max(_zahl(gewicht), 0.0),
+           "gewicht": 0.0 if gewicht is None else max(_zahl(gewicht), 0.0),
            "art": art if art in ARTEN else "sonstig"}
     for k, v in (("wkn", wkn), ("isin", isin), ("instrument_id", kennung.get("instrument_id"))):
         if v not in (None, ""):
@@ -130,7 +162,7 @@ def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", rendi
     if _zahl(rendite, None) is not None:
         neu["rendite"] = round(min(max(_zahl(rendite), -MAX_RENDITE), MAX_RENDITE), 2)
     pos.append(neu)
-    return pos, True
+    return einpassen(pos, [len(pos) - 1]), True
 
 
 def katalog_rendite(w):
@@ -228,13 +260,18 @@ def aenderungen_anwenden(pos, kapital, geaendert=None, neu=None, geloescht=None)
         p["gewicht"] = gewicht_aus(werte, p)
     weg = {int(i) for i in (geloescht or [])}
     pos = [p for i, p in enumerate(pos) if i not in weg]
+    vorher = len(pos)
     for werte in neu or []:
         p = {"name": str(werte.get("name") or "").strip() or "Neue Position",
              "kurs": max(_zahl(werte.get("kurs")), 0.0), "gewicht": 0.0,
              "art": werte.get("art") if werte.get("art") in ARTEN else "sonstig"}
         p["gewicht"] = gewicht_aus(werte, p)
+        r = _zahl(werte.get("rendite"), None)
+        if r is not None:
+            p["rendite"] = min(max(r, -MAX_RENDITE), MAX_RENDITE)
         pos.append(p)
-    return pos
+    # neue Zeilen ohne Gewicht bekommen automatisch einen Anteil (die uebrigen werden angepasst)
+    return einpassen(pos, range(vorher, len(pos)))
 
 
 def auf_100(pos):
@@ -396,11 +433,17 @@ def mehrere_hinzufuegen(pos, werte):
                                                  isin=x.get("isin")) for x in neu_werte],
                                      w["name"], wkn=w.get("wkn"), isin=w.get("isin"))
         (neu_werte if ok else schon).append(w if ok else w["name"])
-    anteil = rest_gewicht(pos) / len(neu_werte) if neu_werte else 0.0
+    start = len(pos)
     for w in neu_werte:
-        pos, _ = position_hinzufuegen(pos, w["name"], w.get("kurs") or 0.0, anteil, w.get("art", "sonstig"),
-                                      rendite=katalog_rendite(w), wkn=w.get("wkn"), isin=w.get("isin"))
-    return pos, len(neu_werte), schon
+        pos.append({"name": str(w["name"]).strip() or "Neue Position", "kurs": max(_zahl(w.get("kurs")), 0.0),
+                    "gewicht": 0.0, "art": w.get("art") if w.get("art") in ARTEN else "sonstig"})
+        for k in ("wkn", "isin"):
+            if w.get(k) not in (None, ""):
+                pos[-1][k] = str(w[k])
+        r = katalog_rendite(w)
+        if r is not None:
+            pos[-1]["rendite"] = round(min(max(r, -MAX_RENDITE), MAX_RENDITE), 2)
+    return einpassen(pos, range(start, len(pos))), len(neu_werte), schon
 
 
 # ---------------------------------------------------------------- Zielvermoegen
@@ -438,8 +481,10 @@ def ziel_gewichte(e):
     Die Positionen werden in "Basis" (Rendite <= benoetigt) und "Wachstum" (Rendite > benoetigt)
     geteilt. Innerhalb jeder Gruppe bleiben die bisherigen Verhaeltnisse (alle 0 -> gleich verteilt);
     zwischen den Gruppen wird so gemischt, dass der gewichtete Mittelwert genau die benoetigte Rendite
-    ist. Fehlt eine Gruppe, geht alles in den Wert, der dem Ziel am naechsten kommt. Zusammen immer 100 %.
-    -> {"positionen", "benoetigt", "erreicht" (Rendite nach Verteilung), "status"} oder None ohne Ziel.
+    ist. Trifft keine Mischung das Ziel (alle Werte darunter bzw. darueber), bleibt die eigene Aufteilung
+    stehen - es fliegt kein Wert heraus. Positionen mit 0 % bekommen einen Anteil. Zusammen immer 100 %.
+    -> {"positionen", "benoetigt", "erreicht" (Rendite nach Verteilung), "status", "spanne" (niedrigste,
+       hoechste Rendite der Werte)} oder None ohne Ziel.
        status: "ok" | "zu_hoch" (Ziel mit diesen Werten nicht erreichbar) | "uebertroffen" (schon die
        Basis-Werte liegen ueber dem Ziel bzw. es gibt keine) | "leer" (keine Positionen)"""
     e = bereinigen(e)
@@ -448,35 +493,41 @@ def ziel_gewichte(e):
         return None
     pos = copy.deepcopy(e["positionen"])
     if not pos:
-        return {"positionen": pos, "benoetigt": b["rendite"], "erreicht": None, "status": "leer"}
+        return {"positionen": pos, "benoetigt": b["rendite"], "erreicht": None, "status": "leer", "spanne": None}
     ziel_r = b["rendite"]
     r = [position_rendite(e, p) for p in pos]
     tief = [i for i in range(len(pos)) if r[i] <= ziel_r + 1e-9]
     hoch = [i for i in range(len(pos)) if r[i] > ziel_r + 1e-9]
 
     def verteilung(gruppe):
-        s = sum(pos[i]["gewicht"] for i in gruppe)
-        return {i: (pos[i]["gewicht"] / s if s > EPS else 1.0 / len(gruppe)) for i in gruppe}
+        # Positionen mit 0 % (z. B. gerade hinzugefuegt) zaehlen wie der Durchschnitt ihrer Gruppe -
+        # sonst blieben sie bei der automatischen Verteilung fuer immer bei 0
+        g = {i: pos[i]["gewicht"] for i in gruppe}
+        gesetzt = [v for v in g.values() if v > EPS]
+        mittel = sum(gesetzt) / len(gesetzt) if gesetzt else 1.0
+        g = {i: (v if v > EPS else mittel) for i, v in g.items()}
+        s = sum(g.values())
+        return {i: v / s for i, v in g.items()}
 
+    spanne = (min(r), max(r))
     if not hoch or not tief:
-        # keine Mischung trifft das Ziel: so nah wie moeglich - alles in den Wert mit der hoechsten
-        # (Ziel zu hoch) bzw. niedrigsten Rendite (Ziel schon uebertroffen), bei Gleichstand gleich verteilt
-        grenze = max(r) if not hoch else min(r)
-        tief = [i for i in range(len(pos)) if abs(r[i] - grenze) <= 1e-9]
-        hoch = []
-    v_tief, v_hoch = verteilung(tief), verteilung(hoch) if hoch else {}
-    r_tief = sum(v * r[i] for i, v in v_tief.items())
-    r_hoch = sum(v * r[i] for i, v in v_hoch.items())
-    if not hoch:
-        t = 0.0
-        status = ("ok" if abs(r_tief - ziel_r) < 1e-6 else "zu_hoch" if r_tief < ziel_r else "uebertroffen")
+        # keine Mischung trifft das Ziel genau: die eigene Aufteilung bleibt (nur 0 % -> Anteil)
+        t, hoch = 0.0, []
+        tief = list(range(len(pos)))
+        status = ("ok" if abs(spanne[1] - ziel_r) < 1e-6 and abs(spanne[0] - ziel_r) < 1e-6
+                  else "uebertroffen" if spanne[0] > ziel_r else "zu_hoch")
     else:
-        t, status = (ziel_r - r_tief) / (r_hoch - r_tief), "ok"
+        status = "ok"
+    v_tief, v_hoch = verteilung(tief), verteilung(hoch) if hoch else {}
+    if hoch:
+        r_tief = sum(v * r[i] for i, v in v_tief.items())
+        r_hoch = sum(v * r[i] for i, v in v_hoch.items())
+        t = (ziel_r - r_tief) / (r_hoch - r_tief)
     if not b["erreichbar"]:
         status = "zu_hoch"
     t = min(max(t, 0.0), 1.0)
     for i, p in enumerate(pos):
         p["gewicht"] = 100.0 * ((1.0 - t) * v_tief.get(i, 0.0) + t * v_hoch.get(i, 0.0))
     erreicht = sum(p["gewicht"] / 100.0 * r[i] for i, p in enumerate(pos))
-    return {"positionen": pos, "benoetigt": ziel_r, "erreicht": erreicht, "status": status}
+    return {"positionen": pos, "benoetigt": ziel_r, "erreicht": erreicht, "status": status, "spanne": spanne}
 
