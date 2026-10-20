@@ -22,7 +22,8 @@ MAX_MONATE = 600            # 50 Jahre
 MAX_KAPITAL = 1e9
 MAX_MONATLICH = 1e7
 MAX_KREDITZINS = 30.0       # % p. a.
-MAX_RENDITE = 50.0          # % p. a. (+/-)
+MAX_RENDITE = 200.0         # % p. a. - junge Wikifolios liegen oft deutlich ueber 50 %
+MIN_RENDITE = -99.0         # darunter ist eine Jahresrendite nicht mehr sinnvoll (Totalverlust)
 EPS = 1e-9
 
 # Art je Position (fuer Auswahl, Anzeige und Aufteilung nach Art)
@@ -42,6 +43,7 @@ STANDARD = {
     "laufzeit_einheit": "Jahre",    # "Jahre" | "Monate"
     "rendite_pa": 6.0,              # % - fuer Positionen ohne eigene Rendite und den Cash-Rest
     "zielvermoegen": 0.0,           # EUR netto am Ende (0 = kein Ziel)
+    "rendite_basis": "1J",          # Grundlage der Rendite-Vorschlaege (siehe BASEN)
     "auto_ziel": False,             # Gewichte automatisch so verteilen, dass das Ziel erreicht wird
     "nur_ganze_stuecke": False,
     "positionen": [
@@ -77,9 +79,10 @@ def bereinigen(e):
     for k in ("kredit_rate", "einzahlung", "entnahme", "ausgaben"):
         aus[k] = min(max(_zahl(aus[k]), 0.0), MAX_MONATLICH)
     aus["kredit_zins_pa"] = min(max(_zahl(aus["kredit_zins_pa"]), 0.0), MAX_KREDITZINS)
-    aus["rendite_pa"] = min(max(_zahl(aus["rendite_pa"]), -MAX_RENDITE), MAX_RENDITE)
+    aus["rendite_pa"] = min(max(_zahl(aus["rendite_pa"]), MIN_RENDITE), MAX_RENDITE)
     aus["zielvermoegen"] = min(max(_zahl(aus["zielvermoegen"]), 0.0), MAX_KAPITAL)
     aus["auto_ziel"] = bool(aus.get("auto_ziel"))
+    aus["rendite_basis"] = aus.get("rendite_basis") if aus.get("rendite_basis") in BASEN else "1J"
     aus["laufzeit_einheit"] = "Monate" if aus.get("laufzeit_einheit") == "Monate" else "Jahre"
     aus["laufzeit"] = min(max(int(_zahl(aus["laufzeit"], 1)), 1),
                           MAX_MONATE if aus["laufzeit_einheit"] == "Monate" else MAX_MONATE // 12)
@@ -97,7 +100,11 @@ def bereinigen(e):
                "art": p.get("art") if p.get("art") in ARTEN else "sonstig"}
         r = _zahl(p.get("rendite"), None)
         if r is not None:                                     # eigene erwartete Rendite % p. a.
-            neu["rendite"] = min(max(r, -MAX_RENDITE), MAX_RENDITE)
+            neu["rendite"] = min(max(r, MIN_RENDITE), MAX_RENDITE)
+            if p.get("rendite_quelle"):                       # woher: "eigene" oder der Datenzeitraum
+                neu["rendite_quelle"] = str(p["rendite_quelle"])[:40]
+            if p.get("rendite_basis") in BASEN:
+                neu["rendite_basis"] = p["rendite_basis"]
         elif p.get("allgemein"):                              # bewusst geleert: allgemeine Rendite
             neu["allgemein"] = True
         for k in ("wkn", "isin", "instrument_id"):          # Kennungen fuer den Kursabruf
@@ -162,23 +169,43 @@ def position_hinzufuegen(pos, name, kurs=0.0, gewicht=None, art="sonstig", rendi
         if v not in (None, ""):
             neu[k] = str(v)
     if _zahl(rendite, None) is not None:
-        neu["rendite"] = round(min(max(_zahl(rendite), -MAX_RENDITE), MAX_RENDITE), 2)
+        neu["rendite"] = round(min(max(_zahl(rendite), MIN_RENDITE), MAX_RENDITE), 2)
     pos.append(neu)
     return einpassen(pos, [len(pos) - 1]), True
 
 
-def katalog_rendite(w):
-    """Erwartete Rendite fuer einen Katalogwert als Vorschlag: 5 J. p. a., sonst 3 J. p. a., sonst
-    10 J., sonst 2 J. p. a., sonst die Entwicklung der letzten 12 Monate (junge Werte, z. B. viele Wikifolios).
-    None = keine Daten."""
-    k = kennzahlen(w)
-    for r in (k["5J p.a."], k["3J p.a."], pro_jahr(w.get("10J"), 10), pro_jahr(w.get("2J"), 2), k["1J"]):
-        if r is not None:
-            return r
-    return None
+# Grundlage des Rendite-Vorschlags
+BASEN = {"1J": "1 Jahr (wie bei wikifolio)", "lang": "Längster Zeitraum p. a."}
+_LANG = (("5J", 5), ("3J", 3), ("10J", 10), ("2J", 2), ("1J", 1))
+_EIN_JAHR = (("1J", 1), ("2J", 2), ("3J", 3), ("5J", 5), ("10J", 10))
+_KURZ = (("9M", 0.75), ("6M", 0.5), ("3M", 0.25))      # junge Werte: Entwicklung dieses Zeitraums
 
 
-ZEITRAEUME = ("1J", "2J", "3J", "5J", "10J")
+def rendite_vorschlag(w, basis="1J", kurz=True):
+    """Erwartete Rendite % p. a. als Vorschlag -> (wert, quelle) bzw. (None, None) ohne Daten.
+    basis "1J": die Entwicklung der letzten 12 Monate (wie wikifolio sie als "1 Jahr" zeigt), fehlt sie,
+    der naechstlaengere Zeitraum p. a.; "lang": der laengste vorhandene Zeitraum p. a. Werte juenger als
+    ein Jahr: die Entwicklung der letzten 9/6/3 Monate - bewusst nicht hochgerechnet (aus +80 % in sechs
+    Monaten wuerden sonst ueber 200 % p. a.); kurz=False laesst sie weg. Begrenzt auf MIN_RENDITE..MAX_RENDITE."""
+    for z, jahre in (_EIN_JAHR if basis == "1J" else _LANG) + (_KURZ if kurz else ()):
+        r = pro_jahr(w.get(z), jahre) if jahre > 1 else _zahl(w.get(z), None)
+        if r is None:
+            continue
+        quelle = ("1 J." if z == "1J" else f"{z[:-1]} M. (jünger als 1 Jahr)" if z.endswith("M")
+                  else f"{z[:-1]} J. p. a.")
+        if r > MAX_RENDITE or r < MIN_RENDITE:
+            r = min(max(r, MIN_RENDITE), MAX_RENDITE)
+            quelle += f" (begrenzt auf {r:.0f} %)"
+        return r, quelle
+    return None, None
+
+
+def katalog_rendite(w, basis="1J"):
+    """Nur der Wert des Rendite-Vorschlags (None = keine Daten)."""
+    return rendite_vorschlag(w, basis)[0]
+
+
+ZEITRAEUME = ("3M", "6M", "9M", "1J", "2J", "3J", "5J", "10J")
 
 
 def _name_schluessel(name):
@@ -222,7 +249,7 @@ def mit_ranglisten(katalog, ranglisten, neu_arten=("wikifolio", "etf")):
 
 
 def entwicklung_aus_historie(punkte):
-    """[(ts_ms, kurs)] -> {zeitraum: Entwicklung gesamt %} fuer 1/2/3/5/10 Jahre, soweit die Historie
+    """[(ts_ms, kurs)] -> {zeitraum: Entwicklung gesamt %} fuer 3/6/9 Monate und 1/2/3/5/10 Jahre, soweit die Historie
     reicht (wie in den Ranglisten). Leer bei zu kurzer Historie."""
     reihe = sorted((float(t), float(k)) for t, k in punkte or []
                    if isinstance(t, (int, float)) and isinstance(k, (int, float)) and k > 0)
@@ -230,7 +257,8 @@ def entwicklung_aus_historie(punkte):
         return {}
     tag_ms, ende, letzter = 86400000.0, reihe[-1][0], reihe[-1][1]
     aus = {}
-    for z, jahre in (("1J", 1), ("2J", 2), ("3J", 3), ("5J", 5), ("10J", 10)):
+    for z, jahre in (("3M", 0.25), ("6M", 0.5), ("9M", 0.75), ("1J", 1), ("2J", 2), ("3J", 3), ("5J", 5),
+                     ("10J", 10)):
         stichtag = ende - jahre * 365.25 * tag_ms
         if reihe[0][0] > stichtag + 10 * tag_ms:         # Historie reicht nicht so weit zurueck
             break
@@ -240,9 +268,18 @@ def entwicklung_aus_historie(punkte):
     return aus
 
 
-def renditen_ergaenzen(pos, katalog):
-    """Fehlende Angaben aus dem Katalog nachtragen (Abgleich ueber WKN/ISIN, sonst den Namen):
-    erwartete Rendite (ausser bewusst geleert), Kurs (wenn 0), WKN/ISIN und die Art (statt "Sonstiges").
+def rendite_automatisch(p):
+    """Rendite der Position darf aus den Daten (neu) vorgeschlagen werden: nicht selbst eingetragen
+    und nicht bewusst auf die allgemeine gesetzt."""
+    return p.get("rendite_quelle") != "eigene" and not p.get("allgemein")
+
+
+def renditen_ergaenzen(pos, katalog, basis="1J", kurz=True):
+    """Angaben aus dem Katalog nachtragen (Abgleich ueber WKN/ISIN, sonst den Namen): erwartete Rendite
+    samt Quelle - automatisch vorgeschlagene werden aktuell gehalten, selbst eingetragene bleiben -,
+    Kurs (wenn 0), WKN/ISIN und die Art (statt "Sonstiges"). kurz=False: nur Zeitraeume ab einem Jahr -
+    fehlt ein Wert in einer Rangliste, ist er nicht unbedingt jung (nur nicht unter den Besten); dann
+    zuerst die eigene Kurshistorie fragen.
     -> (neue Positionen, Anzahl geaenderter Positionen)"""
     pos = copy.deepcopy(pos)
     nach_kennung, nach_name = {}, {}
@@ -259,9 +296,15 @@ def renditen_ergaenzen(pos, katalog):
         if not w:
             continue
         vorher = dict(p)
-        r = katalog_rendite(w)
-        if p.get("rendite") is None and not p.get("allgemein") and r is not None:
-            p["rendite"] = round(min(max(r, -MAX_RENDITE), MAX_RENDITE), 2)
+        r, quelle = rendite_vorschlag(w, basis, kurz)
+        bisher = str(p.get("rendite_quelle") or "")
+        if kurz:     # kurze Zeitraeume nur, wo noch nichts Besseres steht (keine eigene Kurshistorie)
+            darf = p.get("rendite") is None or p.get("rendite_basis") != basis or (
+                "jünger" in bisher and not bisher.startswith("Kurshistorie"))
+        else:        # ab einem Jahr: ersetzt jeden automatischen Vorschlag ausser dem aus der Kurshistorie
+            darf = not bisher.startswith("Kurshistorie") or p.get("rendite_basis") != basis
+        if rendite_automatisch(p) and r is not None and darf:
+            p["rendite"], p["rendite_quelle"], p["rendite_basis"] = round(r, 2), quelle, basis
         if _zahl(p.get("kurs")) <= 0 and _zahl(w.get("kurs")) > 0:
             p["kurs"] = float(w["kurs"])
         for k in ("wkn", "isin"):
@@ -357,9 +400,11 @@ def aenderungen_anwenden(pos, kapital, geaendert=None, neu=None, geloescht=None)
             r = _zahl(werte["rendite"], None)
             if r is None:                                     # bewusst geleert: nicht wieder vorschlagen
                 p.pop("rendite", None)
+                p.pop("rendite_quelle", None)
                 p["allgemein"] = True
             else:
-                p["rendite"] = min(max(r, -MAX_RENDITE), MAX_RENDITE)
+                p["rendite"] = min(max(r, MIN_RENDITE), MAX_RENDITE)
+                p["rendite_quelle"] = "eigene"                 # selbst eingetragen: bleibt stehen
                 p.pop("allgemein", None)
         p["gewicht"] = gewicht_aus(werte, p)
     weg = {int(i) for i in (geloescht or [])}
@@ -372,7 +417,7 @@ def aenderungen_anwenden(pos, kapital, geaendert=None, neu=None, geloescht=None)
         p["gewicht"] = gewicht_aus(werte, p)
         r = _zahl(werte.get("rendite"), None)
         if r is not None:
-            p["rendite"] = min(max(r, -MAX_RENDITE), MAX_RENDITE)
+            p["rendite"], p["rendite_quelle"] = min(max(r, MIN_RENDITE), MAX_RENDITE), "eigene"
         pos.append(p)
     # neue Zeilen ohne Gewicht bekommen automatisch einen Anteil (die uebrigen werden angepasst)
     return einpassen(pos, range(vorher, len(pos)))
@@ -567,7 +612,7 @@ def mehrere_hinzufuegen(pos, werte):
                 pos[-1][k] = str(w[k])
         r = katalog_rendite(w)
         if r is not None:
-            pos[-1]["rendite"] = round(min(max(r, -MAX_RENDITE), MAX_RENDITE), 2)
+            pos[-1]["rendite"] = round(min(max(r, MIN_RENDITE), MAX_RENDITE), 2)
     return einpassen(pos, range(start, len(pos))), len(neu_werte), schon
 
 
@@ -611,7 +656,7 @@ def rebalancing(e, methode="anteilig"):
 def benoetigte_rendite(e):
     """Portfolio-Rendite % p. a., mit der das Netto-Endvermoegen genau das Zielvermoegen erreicht
     (Bisektion ueber die Simulation; Kredit, Ein-/Auszahlungen und Laufzeit wie eingegeben).
-    -> {"rendite", "erreichbar"} oder None ohne Ziel. erreichbar=False: liegt ausserhalb +/-MAX_RENDITE."""
+    -> {"rendite", "erreichbar"} oder None ohne Ziel. erreichbar=False: liegt ausserhalb MIN_RENDITE..MAX_RENDITE."""
     e = bereinigen(e)
     ziel = e["zielvermoegen"]
     if ziel <= 0:
@@ -620,7 +665,7 @@ def benoetigte_rendite(e):
     def netto(r):
         return simulation(e, rendite_pa=r)["netto_endvermoegen"]
 
-    lo, hi = -MAX_RENDITE, MAX_RENDITE
+    lo, hi = MIN_RENDITE, MAX_RENDITE
     if netto(hi) < ziel:
         return {"rendite": hi, "erreichbar": False}
     if netto(lo) >= ziel:

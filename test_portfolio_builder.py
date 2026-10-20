@@ -281,7 +281,8 @@ class Rangliste(unittest.TestCase):
 class Renditen(unittest.TestCase):
     def test_junger_wert_bekommt_1j_oder_10j(self):
         self.assertAlmostEqual(P.katalog_rendite({"1J": 35.0}), 35.0)               # nur 1 Jahr Historie
-        self.assertAlmostEqual(P.katalog_rendite({"3J": 33.1, "1J": 80}), 10.0, places=6)   # 3 J. vor 1 J.
+        self.assertEqual(P.katalog_rendite({"3J": 33.1, "1J": 80}), 80.0)                      # 1 J. wie wikifolio
+        self.assertAlmostEqual(P.katalog_rendite({"3J": 33.1, "1J": 80}, "lang"), 10.0, places=6)  # laengster
         self.assertAlmostEqual(P.katalog_rendite({"10J": 159.37424601}), 10.0, places=6)
         self.assertIsNone(P.katalog_rendite({}))
 
@@ -295,8 +296,9 @@ class Renditen(unittest.TestCase):
         neu = P.mit_ranglisten(katalog, ranglisten)
         ff, siemens, nur = neu
         self.assertEqual((ff["1J"], ff["2J"]), (44.0, 96.0))                        # ueber den Namen
-        self.assertNotIn("3M", ff)
-        self.assertAlmostEqual(P.katalog_rendite(ff), 40.0, places=6)              # 2 J. p. a.: 1,96 = 1,4²
+        self.assertEqual(ff["3M"], 12.0)                                            # junge Werte: kurze Zeitraeume
+        self.assertEqual(P.katalog_rendite(ff), 44.0)                               # 1 J.
+        self.assertAlmostEqual(P.katalog_rendite(ff, "lang"), 40.0, places=6)      # 2 J. p. a.: 1,96 = 1,4²
         self.assertEqual((siemens["5J"], siemens["1J"]), (60.0, 10.0))              # eigene Zahl bleibt
         self.assertEqual((nur["name"], nur["wkn"], nur["art"]), ("Nur in Rangliste", "LS9ZZZ", "wikifolio"))
         self.assertIsNone(katalog[0]["1J"])                                         # Eingabe unveraendert
@@ -308,11 +310,56 @@ class Renditen(unittest.TestCase):
         # 2,5 Jahre taeglich, Kurs waechst 20 % p. a. stetig
         punkte = [(i * tag, 100 * 1.2 ** (i / 365.25)) for i in range(int(2.5 * 365.25) + 1)]
         e = P.entwicklung_aus_historie(punkte)
-        self.assertEqual(sorted(e), ["1J", "2J"])                                   # 3 J. reicht nicht
+        self.assertEqual(sorted(e), ["1J", "2J", "3M", "6M", "9M"])                 # 3 J. reicht nicht
         self.assertAlmostEqual(e["1J"], 20.0, delta=0.1)
-        self.assertAlmostEqual(P.katalog_rendite(e), 20.0, delta=0.1)               # 2 J. p. a.
-        self.assertEqual(P.entwicklung_aus_historie(punkte[:200]), {})              # unter 1 Jahr
+        self.assertAlmostEqual(P.katalog_rendite(e), 20.0, delta=0.1)               # 1 J.
+        self.assertAlmostEqual(P.katalog_rendite(e, "lang"), 20.0, delta=0.1)       # 2 J. p. a.
+        jung = P.entwicklung_aus_historie(punkte[:200])                             # gut ein halbes Jahr
+        self.assertEqual(sorted(jung), ["3M", "6M"])
+        r, q = P.rendite_vorschlag(jung)
+        self.assertEqual(q, "6 M. (jünger als 1 Jahr)")
+        self.assertAlmostEqual(r, (1.2 ** 0.5 - 1) * 100, delta=0.2)               # Entwicklung der 6 Monate
         self.assertEqual(P.entwicklung_aus_historie([]), {})
+
+    def test_vorschlag_quelle_und_junge_werte(self):
+        self.assertEqual(P.rendite_vorschlag({"1J": 46.88, "3J": 33.1}), (46.88, "1 J."))
+        r, q = P.rendite_vorschlag({"1J": 46.88, "3J": 33.1}, "lang")
+        self.assertEqual(q, "3 J. p. a.")
+        self.assertAlmostEqual(r, 10.0, places=6)
+        # juenger als 1 Jahr: der laengste kurze Zeitraum, nicht hochgerechnet
+        self.assertEqual(P.rendite_vorschlag({"6M": 82.62, "3M": 28.57}), (82.62, "6 M. (jünger als 1 Jahr)"))
+        self.assertEqual(P.rendite_vorschlag({"6M": 250.0}), (200.0, "6 M. (jünger als 1 Jahr) (begrenzt auf 200 %)"))
+        self.assertEqual(P.rendite_vorschlag({"1J": 80.0}), (80.0, "1 J."))         # nicht mehr bei 50 % gekappt
+        self.assertEqual(P.rendite_vorschlag({}), (None, None))
+
+    def test_automatische_renditen_bleiben_aktuell_eigene_bleiben(self):
+        katalog = [{"name": "W", "wkn": "LS9AAA", "1J": 40.0, "3J": 33.1}]
+        pos = [{"name": "W", "kurs": 1, "gewicht": 50, "wkn": "LS9AAA", "rendite": 10.0},   # alter Vorschlag
+               {"name": "W2", "kurs": 1, "gewicht": 50, "wkn": "LS9AAA", "rendite": 7.0, "rendite_quelle": "eigene"}]
+        neu, _ = P.renditen_ergaenzen(pos, katalog)
+        self.assertEqual((neu[0]["rendite"], neu[0]["rendite_quelle"]), (40.0, "1 J."))
+        self.assertEqual(neu[1]["rendite"], 7.0)                                     # selbst eingetragen
+        lang, _ = P.renditen_ergaenzen(neu, katalog, "lang")
+        self.assertAlmostEqual(lang[0]["rendite"], 10.0)
+        getippt = P.aenderungen_anwenden(neu, 1000, geaendert={0: {"rendite": 12}})
+        self.assertEqual(getippt[0]["rendite_quelle"], "eigene")
+        self.assertEqual(P.bereinigen(eingaben(positionen=getippt))["positionen"][0]["rendite_quelle"], "eigene")
+
+    def test_reihenfolge_katalog_historie_kurz_ist_stabil(self):
+        katalog = [{"name": "Jung", "wkn": "LS9JJJ", "6M": 82.62}]
+        p = [{"name": "Jung", "kurs": 10, "gewicht": 100, "wkn": "LS9JJJ"}]
+        # 1) ab 1 Jahr: nichts im Katalog -> bleibt offen fuer die Kurshistorie
+        p1, n = P.renditen_ergaenzen(p, katalog, kurz=False)
+        self.assertIsNone(p1[0].get("rendite"))
+        # 2) Kurshistorie liefert 1 J. -> 3) kurze Ranglisten-Zeitraeume ueberschreiben das nicht
+        p1[0].update(rendite=17.7, rendite_quelle="Kurshistorie 1 J.", rendite_basis="1J")
+        p3, k = P.renditen_ergaenzen(p1, katalog, kurz=True)
+        self.assertEqual((p3[0]["rendite"], k), (17.7, 0))
+        self.assertEqual(P.renditen_ergaenzen(p3, katalog, kurz=False)[1], 0)      # stabil
+        # ohne Kurshistorie: der kurze Zeitraum
+        p4, _ = P.renditen_ergaenzen(p, katalog, kurz=True)
+        self.assertEqual((p4[0]["rendite"], p4[0]["rendite_quelle"]), (82.62, "6 M. (jünger als 1 Jahr)"))
+        self.assertEqual(P.renditen_ergaenzen(p4, katalog, kurz=True)[1], 0)       # stabil
 
     def test_fehlende_renditen_aus_katalog(self):
         katalog = [{"name": "Wiki Alpha", "wkn": "", "isin": "DE000LS9AAA1", "1J": 40.0},
@@ -471,12 +518,12 @@ class Bereinigen(unittest.TestCase):
         self.assertEqual(P.bereinigen({"laufzeit": 900, "laufzeit_einheit": "Monate"})["laufzeit"], P.MAX_MONATE)
 
     def test_grenzen_der_eingabefelder(self):
-        e = P.bereinigen({"rendite_pa": 120, "kredit_zins_pa": 45, "einzahlung": 5e8, "anfangskapital": 5e12})
+        e = P.bereinigen({"rendite_pa": 250, "kredit_zins_pa": 45, "einzahlung": 5e8, "anfangskapital": 5e12})
         self.assertEqual(e["rendite_pa"], P.MAX_RENDITE)
         self.assertEqual(e["kredit_zins_pa"], P.MAX_KREDITZINS)
         self.assertEqual(e["einzahlung"], P.MAX_MONATLICH)
         self.assertEqual(e["anfangskapital"], P.MAX_KAPITAL)
-        self.assertEqual(P.bereinigen({"rendite_pa": -80})["rendite_pa"], -P.MAX_RENDITE)
+        self.assertEqual(P.bereinigen({"rendite_pa": -150})["rendite_pa"], P.MIN_RENDITE)
 
 
 if __name__ == "__main__":
