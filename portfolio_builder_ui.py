@@ -3,6 +3,7 @@
 Rechnen: portfolio_builder.py (ohne Streamlit). Hier nur Eingabe und Darstellung.
 Jede Aenderung wirkt sofort (kein Berechnen-Knopf); gespeichert wird je Benutzer per Knopf.
 """
+import contextlib
 import copy
 import datetime
 import html
@@ -208,9 +209,44 @@ def _katalog(h):
                 "krypto" if k.get("category") == "crypto" else _art_aus(k.get("typ")), None)
     except Exception:
         pass
+    werte = P.mit_ranglisten(werte, _ranglisten(lies))
     werte.sort(key=lambda w: w["name"].lower())
     st.session_state["pb_katalog"] = (heute, werte)
     return werte
+
+
+def _ranglisten(lies):
+    """Entwicklung je Zeitraum aus den Dateien der Watchlist (Top 50 / Top 500 je Kategorie und alle
+    Aktien der Index-Listen) - dieselben Zahlen, die dort angezeigt werden. -> [(art, [(name, kennung, perf)])]"""
+    if not lies:
+        return []
+
+    def datei(pfad):
+        try:
+            return lies(pfad, None) or {}
+        except Exception:
+            return {}
+
+    aus = []
+    for key, kat in (datei("state/top50.json").get("kategorien") or {}).items():
+        art = "wikifolio" if "wikifolio" in key else "etf" if key == "etf" else "aktie"
+        je = {}
+        for zr, liste in (kat.get("top") or {}).items():
+            for e in liste or []:
+                je.setdefault((e.get("name"), e.get("wkn")), {})[zr] = e.get("perf")
+        for zr, liste in (datei(f"state/top50_lang_{key}.json").get("top") or {}).items():
+            for r in liste or []:
+                if len(r) >= 3:
+                    je.setdefault((r[0], r[1]), {})[zr] = r[2]
+        aus.append((art, [(n, k, p) for (n, k), p in je.items()]))
+    for i in range(4):
+        d = datei(f"state/top50_alle_{i}.json")
+        f = d.get("felder") or []
+        if "name" in f:
+            aus.append(("aktie", [(z[f.index("name")], z[f.index("kennung")] if "kennung" in f else None,
+                                   {zr: z[f.index(zr)] for zr in P.ZEITRAEUME if zr in f})
+                                  for z in d.get("zeilen") or []]))
+    return aus
 
 
 def _ist_wkn(k):
@@ -268,6 +304,51 @@ def kurse_aktualisieren(h, nur_fehlende=False):
     st.session_state["pb_positionen"] = pos
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
     return ok, fehlt
+
+
+def _renditen_aus_historie(h, pos):
+    """Werte, die weder im Katalog noch in den Ranglisten stehen: erwartete Rendite aus der eigenen
+    Kurshistorie (ls-tc.de, wie im Depot). Je Sitzung nur einmal je Wert versucht. -> (pos, Anzahl)"""
+    lade = (h or {}).get("lade_historie")
+    if not lade:
+        return pos, 0
+    versucht = st.session_state.setdefault("pb_hist_versucht", {})
+    pos, n = copy.deepcopy(pos), 0
+
+    def schluessel_von(p):
+        return str(p.get("instrument_id") or p.get("wkn") or p.get("isin") or "N:" + p["name"].lower()).upper()
+
+    offen = [p for p in pos if (p.get("rendite") is None and not p.get("allgemein")) or p["kurs"] <= 0]
+    offen = [p for p in offen if p.get("instrument_id") or p.get("wkn") or p.get("isin") or p["kurs"] <= 0]
+    if not offen:
+        return pos, 0
+    neu = any(schluessel_von(p) not in versucht for p in offen)
+    with st.spinner("Hole Renditen aus der Kurshistorie …") if neu else contextlib.nullcontext():
+        for p in offen:
+            schluessel = schluessel_von(p)
+            if schluessel not in versucht:
+                iid = p.get("instrument_id")
+                if not iid:
+                    t = _instrument(h, [p.get("wkn"), p.get("isin")], p["name"])
+                    iid = t and t.get("instrument_id")
+                try:
+                    punkte = lade(int(iid)) if iid else []
+                except Exception:
+                    punkte = []
+                letzter = next((k for _, k in reversed(punkte or []) if isinstance(k, (int, float)) and k > 0),
+                               None)
+                versucht[schluessel] = {"rendite": P.katalog_rendite(P.entwicklung_aus_historie(punkte)),
+                                        "iid": iid, "kurs": letzter}
+            gef = versucht[schluessel]
+            vorher = dict(p)
+            if gef["rendite"] is not None and p.get("rendite") is None and not p.get("allgemein"):
+                p["rendite"] = round(min(max(gef["rendite"], -P.MAX_RENDITE), P.MAX_RENDITE), 2)
+            if gef["iid"] and not p.get("instrument_id"):
+                p["instrument_id"] = str(gef["iid"])
+            if p["kurs"] <= 0 and gef["kurs"]:
+                p["kurs"] = round(float(gef["kurs"]), 4)
+            n += p != vorher
+    return pos, n
 
 
 # ---------------------------------------------------------------- Zustand
@@ -474,9 +555,9 @@ def _hinzufuegen(h, r):
         art_wahl = st.segmented_control("Art", list(ART_FILTER), default="Alle", key="pb_add_art",
                                         label_visibility="collapsed") or "Alle"
         art = ART_FILTER[art_wahl]
-        einzeln, top = st.tabs(["Einzeln auswählen", "🏆 Top 100"])
+        einzeln, top = st.tabs(["Einzeln auswählen", "🏆 Top-Listen"])
         with top:
-            _top100(h, e, art, art_wahl)
+            _toplisten(h, e, art, art_wahl)
         with einzeln:
             _einzeln(h, e, art, ver)
         meldung = st.session_state.pop("pb_meldung", None)
@@ -552,43 +633,99 @@ def _einzeln(h, e, art, ver):
                 st.rerun()
 
 
-def _top100(h, e, art, art_wahl):
-    """Rangliste der besten 100 Werte (Watchlist-Katalog) - Zeilen anhaken und uebernehmen."""
+TOP_SEITE = 20          # Raenge je Seite - die Tabelle zeigt eine Seite ganz, ohne eigenes Scrollen
+ZEITRAUM_KURZ = {"1J": "1 Jahr", "2J p.a.": "2 Jahre p. a.", "3J p.a.": "3 Jahre p. a.", "5J p.a.": "5 Jahre p. a.",
+                 "10J p.a.": "10 Jahre p. a.", "Rendite/Risiko": "Rendite je Risiko"}
+
+
+def _top_seite_setzen(nr):
+    st.session_state["pb_top_seite"] = nr
+
+
+def _toplisten(h, e, art, art_wahl):
+    """Ranglisten (Watchlist: Top 50/500 je Kategorie) - nach Zeitraum, Laenge und Suche gegliedert,
+    seitenweise je 20 Raenge. Zeilen anhaken und uebernehmen."""
     alle = _katalog(h)
-    kriterium = st.session_state.get("pb_top_krit") or next(iter(P.KRITERIEN))
-    liste = P.rangliste(alle, kriterium, art)
-    st.selectbox(f"Top {len(liste)} · {art_wahl} · sortiert nach", list(P.KRITERIEN), key="pb_top_krit",
-                 format_func=lambda k: f"{k} – {P.KRITERIEN[k]}")
-    if not liste:
-        st.info("Für die Rangliste fehlen Kennzahlen – sie kommen mit dem nächsten Lauf des Watchlist-Agenten.")
+    with st.container(key="pb_top_reihe"):
+        c1, c2, c3 = st.columns([1.2, 0.8, 1.4], vertical_alignment="bottom")
+        kriterium = c1.selectbox("Sortiert nach", list(P.KRITERIEN), key="pb_top_krit",
+                                 format_func=ZEITRAUM_KURZ.get, help="\n\n".join(
+                                     f"**{ZEITRAUM_KURZ[k]}**: {v}" for k, v in P.KRITERIEN.items()))
+        laenge = c2.selectbox("Länge", P.LAENGEN, index=P.LAENGEN.index(100), key="pb_top_n",
+                              format_func=lambda n: f"Top {n}")
+        begriff = c3.text_input("In der Liste suchen", key="pb_top_such", placeholder="Name oder WKN …")
+    rangliste = P.rangliste(alle, kriterium, art, n=laenge)
+    liste = P.suchen(rangliste, begriff)
+    # bei neuer Auswahl wieder auf Seite 1
+    signatur = (kriterium, laenge, art_wahl, begriff)
+    if st.session_state.get("pb_top_signatur") != signatur:
+        st.session_state["pb_top_signatur"] = signatur
+        st.session_state["pb_top_seite"] = 1
+    zeilen_seite, nr, seiten = P.seite(liste, st.session_state.get("pb_top_seite", 1), TOP_SEITE)
+    if not rangliste:
+        st.info("Für diese Rangliste fehlen Kennzahlen – sie kommen mit dem nächsten Lauf des Watchlist-Agenten."
+                + (" Für junge Werte (z. B. viele Wikifolios) gibt es oft nur „1 Jahr“." if kriterium != "1J" else ""))
         return
-    df = pd.DataFrame([{"#": x["rang"], "Name": x["name"], "Art": P.ARTEN.get(x["art"], "Sonstiges"),
-                        "Kurs €": x.get("kurs"), "1J %": x.get("1J"), "3J p.a. %": x.get("3J p.a."),
-                        "5J p.a. %": x.get("5J p.a."), "Rendite/Risiko": x.get("Rendite/Risiko"),
-                        "Vola %": x.get("vola"), "Max DD %": x.get("maxdd")}
-                       for x in liste])
-    zahl = {c: st.column_config.NumberColumn(c, format="localized", width="small")
-            for c in ("Kurs €", "1J %", "3J p.a. %", "5J p.a. %", "Rendite/Risiko", "Vola %", "Max DD %")}
-    spalte = {"5J p.a.": "5J p.a. %", "3J p.a.": "3J p.a. %", "1J": "1J %"}.get(kriterium, kriterium)
-    # Handy: die Spalte, nach der sortiert wird, direkt neben dem Namen
-    reihenfolge = (["#", "Name", spalte] + [c for c in ("5J p.a. %", "1J %", "Art", "Kurs €") if c != spalte]
-                   if _smartphone() else list(df.columns))
+    if not liste:
+        st.info(f"„{begriff}“ ist nicht unter den Top {laenge} – Suche ändern oder die Liste verlängern.")
+        return
+
+    sortiert = ZEITRAUM_KURZ[kriterium] + ("" if kriterium == "Rendite/Risiko" else " %")
+    weitere = [k for k in ("1J", "3J p.a.", "5J p.a.") if k != kriterium]
+    df = pd.DataFrame([dict({"#": x["rang"], "Name": x["name"], "Art": P.ARTEN.get(x["art"], "Sonstiges"),
+                             sortiert: x.get(kriterium)},
+                            **{ZEITRAUM_KURZ[k] + " %": x.get(k) for k in weitere},
+                            **{"Vola %": x.get("vola"), "Max DD %": x.get("maxdd"), "Kurs €": x.get("kurs")})
+                       for x in zeilen_seite])
+    zahlen = [c for c in df.columns if c not in ("#", "Name", "Art")]
+    # Spalten, die auf dieser Seite ganz leer sind (z. B. Vola/Kurs bei Wikifolios aus den Ranglisten), weglassen
+    leer = [c for c in zahlen if df[c].isna().all() and c != sortiert]
+    df = df.drop(columns=leer + (["Art"] if art is not None else []))
+    zahlen = [c for c in zahlen if c not in leer]
+    # deutsch formatiert, fehlende Werte als "–" (statt "None")
+    for c in zahlen:
+        stellen = 2 if c in ("Kurs €", "Rendite je Risiko") else 1
+        df[c] = ["–" if v is None or v != v else _de(v, stellen) for v in df[c]]
+    # Handy: Rang, Name, sortierte Spalte vorn - der Rest per Wischen
+    reihenfolge = ["#", "Name", sortiert] + [c for c in df.columns if c not in ("#", "Name", sortiert)]
     auswahl = st.dataframe(
-        df.round(2), key=f"pb_top_tab_{kriterium}_{art_wahl}_{st.session_state.get('pb_add_ver', 0)}",
-        hide_index=True, width="stretch", height=420, on_select="rerun", selection_mode="multi-row",
+        df, key=f"pb_top_tab_{'_'.join(map(str, signatur))}_{nr}_{st.session_state.get('pb_add_ver', 0)}",
+        hide_index=True, width="stretch", height=38 + 35 * len(df), on_select="rerun", selection_mode="multi-row",
         column_order=reihenfolge,
-        column_config=dict(zahl, **{"#": st.column_config.NumberColumn("#", width=36),
-                                     "Name": st.column_config.TextColumn(
-                                         "Name", width=130 if _smartphone() else "medium")}))
+        column_config=dict({c: st.column_config.TextColumn(c, width="small", alignment="right") for c in zahlen},
+                           **{"#": st.column_config.NumberColumn("#", width=40),
+                              "Name": st.column_config.TextColumn("Name", width=140 if _smartphone() else "medium")}))
+    # Seiten unter der Tabelle (darueber laege beim Antippen ihre Werkzeugleiste): Rangbereich
+    # direkt waehlbar, dazu vor/zurueck
+    if seiten > 1:
+        with st.container(key="pb_top_nav"):
+            n1, n2, n3 = st.columns([0.5, 2, 0.5], vertical_alignment="bottom")
+            n1.button("◀", key="pb_top_zur", on_click=_top_seite_setzen, args=(nr - 1,), disabled=nr <= 1,
+                      width="stretch", help="Vorherige Seite")
+            bereiche = list(range(1, seiten + 1))
+
+            def bereich(i):
+                teil = liste[(i - 1) * TOP_SEITE:i * TOP_SEITE]
+                return f"Rang {teil[0]['rang']}–{teil[-1]['rang']}  ({i}/{seiten})"
+
+            wahl = n2.selectbox("Seite", bereiche, index=nr - 1, format_func=bereich, key=f"pb_top_bereich_{nr}",
+                                label_visibility="collapsed")
+            if wahl != nr:
+                st.session_state["pb_top_seite"] = wahl
+                st.rerun()
+            n3.button("▶", key="pb_top_vor", on_click=_top_seite_setzen, args=(nr + 1,), disabled=nr >= seiten,
+                      width="stretch", help="Nächste Seite")
+
     zeilen = list(getattr(getattr(auswahl, "selection", None), "rows", []) or [])
     rest = P.rest_gewicht(e["positionen"])
     verteilt = (f"der freie Rest von {pct(rest)} wird gleichmäßig auf die neuen Werte verteilt" if rest > 0.05 else
                 "jeder neue Wert bekommt einen gleichen Anteil, die übrigen werden anteilig gekürzt")
-    st.markdown(f'<div class="pb-hinweis">Zeilen anhaken (Kästchen links) – {verteilt}. '
+    st.markdown(f'<div class="pb-hinweis">Top {laenge} · {_esc(art_wahl)} · nach {ZEITRAUM_KURZ[kriterium]}'
+                f'{f" · {len(liste)} Treffer" if begriff else ""} – Zeilen anhaken (Kästchen links), {verteilt}. '
                 f'Vergangene Renditen sind keine Prognose.</div>', unsafe_allow_html=True)
     if st.button(f"➕ {len(zeilen)} ausgewählte hinzufügen" if zeilen else "➕ Ausgewählte hinzufügen",
                  key="pb_top_btn", type="primary", disabled=not zeilen, width="stretch"):
-        werte = [liste[i] for i in zeilen if 0 <= i < len(liste)]
+        werte = [zeilen_seite[i] for i in zeilen if 0 <= i < len(zeilen_seite)]
         pos, anzahl, schon = P.mehrere_hinzufuegen(e["positionen"], werte)
         st.session_state["pb_positionen"] = pos
         st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
@@ -906,7 +1043,8 @@ def render(h):
            for p in e["positionen"]):
         # fehlende Rendite/Kurs/Art (Suche, eigene Zeilen, aeltere Staende) aus dem Katalog vorschlagen
         pos, n = P.renditen_ergaenzen(e["positionen"], _katalog(h))
-        if n:
+        pos, m = _renditen_aus_historie(h, pos)
+        if n or m:
             st.session_state["pb_positionen"] = pos
             st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
             e = _aus_widgets()
