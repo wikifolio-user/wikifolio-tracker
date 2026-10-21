@@ -1,5 +1,5 @@
 import unittest
-from investment_scanner_pro_engine import kaufplan, entnahmeplan, holdings_from_csv
+from investment_scanner_pro_engine import kaufplan, entnahmeplan, holdings_from_csv, treffer_waehlen
 
 
 def portfolio():
@@ -75,6 +75,26 @@ class Engine(unittest.TestCase):
     def test_csv_invalid_price_rejected(self):
         with self.assertRaises(ValueError):
             holdings_from_csv('Name;ISIN;Stueck;KursEUR\nX;DE000;3;-3\n')
+
+
+class Kurssuche(unittest.TestCase):
+    T = [{'instrument_id': 1, 'name': 'Apple Inc.', 'wkn': '865985', 'isin': 'US0378331005', 'kategorie': 'Aktie'},
+         {'instrument_id': 2, 'name': 'Apple Hospitality REIT', 'wkn': 'A2AJHS', 'isin': 'US03784Y2000',
+          'kategorie': 'Aktie'},
+         {'instrument_id': 3, 'name': 'Apple Inc. Turbo Call', 'wkn': 'XY1234', 'isin': 'DE000XY12345',
+          'kategorie': 'Knock-Out'}]
+
+    def test_exakt_ueber_isin_oder_wkn(self):
+        self.assertEqual(treffer_waehlen({'isin': 'us0378331005'}, self.T), (self.T[0], 'exakt'))
+        self.assertEqual(treffer_waehlen({'wkn': 'A2AJHS'}, self.T), (self.T[1], 'exakt'))
+        self.assertEqual(treffer_waehlen({'isin': 'US0000000000'}, self.T), (None, None))   # nie ueber Namen
+
+    def test_name_nur_eindeutig_und_nur_aktien(self):
+        self.assertEqual(treffer_waehlen({'name': 'Apple Inc', 'ticker': 'AAPL'}, self.T), (self.T[0], 'name'))
+        self.assertEqual(treffer_waehlen({'name': 'Apple', 'ticker': 'AAPL'}, self.T), (self.T[0], 'name'))  # Rechtsform egal
+        self.assertEqual(treffer_waehlen({'name': 'Apple Computer'}, self.T), (None, None))      # anderer Name
+        doppelt = self.T + [dict(self.T[0], instrument_id=9, isin='US0378331099')]
+        self.assertEqual(treffer_waehlen({'name': 'Apple Inc.'}, doppelt), (None, None))
 
 
 if __name__ == '__main__':

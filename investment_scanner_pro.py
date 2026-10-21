@@ -52,28 +52,32 @@ def _refresh_live(h, positions, limit):
     if not callable(suche) or not callable(kurs_f):
         return 0, ['Kursdienst ist nicht angebunden.']
     quotes = dict(st.session_state.get('isp_quotes') or {})
+    frisch = _quote_map()
+    # Werte ohne frischen Kurs zuerst - ein zweiter Klick holt so die restlichen
+    positions = sorted(positions, key=lambda p: E.key(p) in frisch)
     success, failed = 0, []
     for p in positions[:limit]:
         ident = str(p.get('isin') or p.get('wkn') or '').strip().upper()
-        if not ident:
-            failed.append(str(p.get('name') or 'Ohne ISIN/WKN'))
+        begriff = ident or str(p.get('name') or '').strip()
+        if not begriff:
+            failed.append('Ohne Kennung')
             continue
         try:
-            treffer = suche(ident) or []
-            exakt = next((r for r in treffer if str(r.get('isin') or '').strip().upper() == ident
-                          or str(r.get('wkn') or '').strip().upper() == ident), None)
-            if not exakt or not exakt.get('instrument_id'):
-                failed.append(ident)
+            treffer, art = E.treffer_waehlen(p, suche(begriff) or [])
+            if not treffer:
+                failed.append(ident or str(p.get('name')))
                 continue
-            value, _, source = kurs_f(exakt['instrument_id'])
+            value, _, source = kurs_f(treffer['instrument_id'])
             if E.positive(value) <= 0:
-                failed.append(ident)
+                failed.append(ident or str(p.get('name')))
                 continue
             quotes[E.key(p)] = {'kurs': float(value), 'zeit': datetime.now(timezone.utc).isoformat(),
-                                 'quelle': f"{source or 'LS-TC'} · EUR-Abruf"}
+                                 'quelle': f"{source or 'LS-TC'} · EUR-Abruf"
+                                           + (f" · über Namen zugeordnet ({treffer.get('isin')}) – bitte prüfen"
+                                              if art == 'name' else '')}
             success += 1
         except Exception:
-            failed.append(ident)
+            failed.append(ident or str(p.get('name')))
     st.session_state['isp_quotes'] = quotes
     return success, failed
 
@@ -192,12 +196,15 @@ def seite(h):
     require_live = st.toggle('Für Neukäufe nur frisch abgerufene EUR-Kurse verwenden (empfohlen)',
                              value=True, key='isp_strict')
     c = _spalten(2)
-    count = c[0].slider('Wie viele Top-Positionen auf Echtkurse prüfen?', 1, 25, 10, key='isp_check_count')
+    n_pos = max(len(d['positionen']), 1)
+    count = c[0].slider('Wie viele Positionen auf Echtkurse prüfen?', 1, max(n_pos, 2), n_pos, key='isp_check_count',
+                        help='Standard: alle Positionen des Musterdepots. Werte ohne frischen Kurs werden zuerst '
+                             'abgefragt.')
     if c[1].button('🔄 Jetzt echte Börsenkurse abrufen', width="stretch", key='isp_fetch'):
         with st.spinner('Abruf über die bestehende LS-TC-Anbindung …'):
             ok, missing = _refresh_live(h, d['positionen'], count)
-        st.info(f'{ok} von {min(count, len(d["positionen"]))} abgefragten Wertpapieren '
-                f'exakt zugeordnet. Weitere oder fehlende Werte bleiben ohne Echtkurs.')
+        st.info(f'{ok} von {min(count, len(d["positionen"]))} abgefragten Wertpapieren mit Kurs zugeordnet. '
+                'Werte, die ls-tc.de nicht führt, bleiben ohne Echtkurs.')
         if missing:
             st.caption('Nicht verfügbar: ' + ', '.join(missing[:8]))
     quotes = _quote_map()
@@ -220,6 +227,9 @@ def seite(h):
         'bestand_eur': 'Bestand €', 'kurs_eur': 'Kurs €', 'quelle': 'Kursquelle',
         'kurszeit': 'Kursabruf', 'stueck_kauf': 'Kauf Stück', 'kauf_eur': 'Kauf €',
         'nachher_eur': 'Wert danach €', 'anteil_gesamt_pct': 'Anteil gesamt %'})
+    for spalte in ('Kurs €', 'Score'):
+        if spalte in table:
+            table[spalte] = pd.to_numeric(table[spalte], errors='coerce')
     st.dataframe(table, width="stretch", hide_index=True)
     if not table.empty:
         st.download_button('📥 Kaufplan CSV herunterladen', table.to_csv(index=False, sep=';').encode('utf-8-sig'),
