@@ -134,8 +134,11 @@ def _berechnen(h, e, katalog):
     if ziel > 0 and (a["wahrscheinlichkeit"] or 0) < 0.5:
         alt = S.alternativen(mu, sigma, e, ziel, e["scan_kosten"], depot=depot)
     benoetigt = P.benoetigte_rendite(e) if ziel > 0 else None
+    zd = None
+    if benoetigt and (a["wahrscheinlichkeit"] or 0) < 0.5:     # Ziel mit dem normalen Depot unwahrscheinlich
+        zd = S.ziel_depot(bewertet, benoetigt["rendite"], e["scan_max_gewicht"])
     return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand, "depot_profil": depot_profil,
-            "kurse_nachgeladen": nachgeladen,
+            "kurse_nachgeladen": nachgeladen, "ziel_depot": zd,
             "anzahl": {k: sum(1 for c in bewertet if c["art"] == k) for k in ("aktie", "etf", "wikifolio")},
             "bewertet": bewertet, "aufteilung": auft, "depot": depot, "optimierung": opt, "mu": mu, "sigma": sigma,
             "auswertung": a, "verlauf": S.verlauf_jaehrlich(sim), "restschuld": rest, "start": start,
@@ -227,6 +230,33 @@ def _ziel_zeile(erg):
     (st.success if w >= 0.5 else st.warning if w >= 0.2 else st.error)(text)
 
 
+def _ziel_depot_anzeige(erg, kapital):
+    """Zielrendite-Depot: rechnerisch aufs Ziel - nach vergangener Rendite, bewusst riskant."""
+    zd = erg.get("ziel_depot")
+    if not zd or not zd["positionen"]:
+        return
+    ben = (erg.get("benoetigt") or {}).get("rendite")
+    st.markdown("#### 🎯 Zielrendite-Musterdepot")
+    if zd["erreicht"]:
+        st.warning(f"Rechnerisch erreichbar: Diese {len(zd['positionen'])} Werte hatten in der Vergangenheit zusammen "
+                   f"≈ {_pct(zd['hist_rendite'], 1)} p. a. – nötig sind ≈ {_pct(ben, 1)} p. a. Das setzt voraus, dass "
+                   "sich die außergewöhnlichen Renditen der Vergangenheit wiederholen – sehr riskant, große Verluste "
+                   "möglich, keine Anlageempfehlung.")
+    else:
+        st.error(f"Selbst die renditestärksten Werte mit Kurs hatten zusammen nur ≈ {_pct(zd['hist_rendite'], 1)} p. a. "
+                 f"– nötig wären ≈ {_pct(ben, 1)} p. a. Das ist das renditestärkste mögliche Depot.")
+    md = st.session_state.get("pb_scan_md_ziel")
+    if md:
+        {"ok": st.success, "warnung": st.warning, "fehler": st.error}[md[0]](md[1])
+    zeilen = [[f"<b>{_esc(p['name'])}</b>", _pct(p["gewicht"]), _eur(kapital * p["gewicht"] / 100),
+               _pct(p["prognose"]["mu"], 1, True), f"{p.get('hist_jahre', '–')} J.", ART_TITEL[p["art"]],
+               _esc(_kennung(p))] for p in zd["positionen"]]
+    if zd["cash"] > 0.01:
+        zeilen.append(["<b>Cash</b>", _pct(zd["cash"]), _eur(kapital * zd["cash"] / 100), "", "", "Cash", "–"])
+    _tabelle_html(["Wertpapier", "Gewicht", "Betrag", "Rendite p. a. (bisher)", "Zeitraum", "Kategorie",
+                   "ISIN / WKN / Ticker"], zeilen, rechts=(1, 2, 3, 4), breit=True)
+
+
 def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
     md = st.session_state.get("pb_scan_md")
     if md:
@@ -260,6 +290,7 @@ def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
               width="stretch", on_click=_uebernehmen, args=(d, zum_builder),
               help="Ersetzt die Positionen im Portfolio Builder durch das Musterdepot (Gewichte, erwartete Renditen "
                    "aus der Prognose) und öffnet ihn. „Automatisch aufs Ziel“ wird dabei ausgeschaltet.")
+    _ziel_depot_anzeige(erg, kapital)
 
 
 def _uebernehmen(d, danach=None):
@@ -341,24 +372,26 @@ def _prognose_fuer(depot, e, erg):
         return None
 
 
-def _musterdepot_speichern(h, erg, e):
+def _musterdepot_speichern(h, erg, e, depot=None, titel=None, profil=None, basis="modell"):
     """Nach jedem Scan: das Musterdepot mit genau den Prozentanteilen des gewaehlten Risikoprofils als NEUES
     Musterdepot ins Menue "📦 Musterdepot" schreiben (eigener Name je Scan, vorhandene bleiben unveraendert).
     Kurse aus den Top-500-Daten. -> Meldung (art, text)"""
     import planer_ui as PU
-    depot = erg.get("depot_profil") or erg["depot"]
+    depot = depot or erg.get("depot_profil") or erg["depot"]
     if not depot["positionen"]:
         return ("warnung", "Kein Musterdepot angelegt – das Depot ist leer.")
     auft = erg["aufteilung"]
-    profil = (f"{PROFIL_TITEL.get(e['scan_profil'], e['scan_profil'])}: "
-              + " / ".join(f"{ART_TITEL[k]} {_de(auft[k])} %" for k in ("etf", "aktie", "wikifolio", "cash")))
+    profil = profil or (f"{PROFIL_TITEL.get(e['scan_profil'], e['scan_profil'])}: "
+                        + " / ".join(f"{ART_TITEL[k]} {_de(auft[k])} %" for k in ("etf", "aktie", "wikifolio", "cash")))
     heute = datetime.date.today()
     eintrag, ohne = S.musterdepot_eintrag(depot, erg["start"], _instrumente(h, depot), heute.isoformat(),
                                           profil=profil)
     if not eintrag["positionen"]:
         return ("warnung", "Kein Musterdepot angelegt – für keine Position gibt es einen Kurs in den Top-500-Daten.")
-    titel = PROFIL_TITEL.get(e["scan_profil"], e["scan_profil"])
+    titel = titel or PROFIL_TITEL.get(e["scan_profil"], e["scan_profil"])
     eintrag["prognose"] = _prognose_fuer(depot, e, erg)
+    if eintrag["prognose"]:
+        eintrag["prognose"]["basis"] = basis
     gespeichert = {}
 
     def _anlegen(d):
@@ -726,6 +759,11 @@ def render(h, e, katalog_fn, zum_builder=None):
             st.session_state["pb_scan_erg"], st.session_state["pb_scan_sig"] = erg, sig
             with st.spinner("Lege das Investment Scanner Musterdepot an (Kurse von heute) …"):
                 st.session_state["pb_scan_md"] = _musterdepot_speichern(h, erg, e)
+                zd = erg.get("ziel_depot")
+                st.session_state["pb_scan_md_ziel"] = _musterdepot_speichern(
+                    h, erg, e, zd, "Zielrendite",
+                    f"Zielrendite: renditestärkste Werte nach vergangener Rendite (Ø {_pct(zd['hist_rendite'], 1)} p. a.)",
+                    "historisch") if zd and zd["positionen"] else None
             st.session_state["pb_scan_verkauf_ver"] = st.session_state.get("pb_scan_verkauf_ver", 0) + 1
             st.rerun()                                # Entnahme-Karte oben zeigt das neue Depot
             veraltet = False

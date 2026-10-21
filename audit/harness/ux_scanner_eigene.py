@@ -21,5 +21,14 @@ with sync_playwright() as p:
     print("Ziel:", [z[:220] for z in t.splitlines() if "nötig" in z][:1])
     zeile = [z for z in t.splitlines() if z.startswith("Cash / Tagesgeld")]
     print("Cash-Zeile:", zeile[:1])
+    print("Zielrendite:", [z[:200] for z in t.splitlines() if "Rechnerisch erreichbar" in z or "renditestärksten" in z
+                           or "Zielrendite" in z][:4])
     print("Fehler:", [z for z in t.splitlines() if "Fehler" in z or "Traceback" in z][:3])
+    page.locator(".st-key-pb_scan_zum_muster button").first.click(); br.warte_ruhe(page, 120)
+    pills = page.locator('.st-key-md_wahl button')
+    print("Pills:", [x.inner_text() for x in pills.all()][-3:])
+    # zuletzt angelegtes (Zielrendite) ist vorausgewaehlt - ein Klick wuerde es abwaehlen
+    t = br.text(page); zz = t.splitlines()
+    i = next((k for k, z in enumerate(zz) if z.strip().upper() == "ERWARTETE RENDITE"), None)
+    print("Musterdepot Zielrendite:", zz[i - 6:i + 8] if i else None)
     b.close()

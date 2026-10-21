@@ -765,3 +765,51 @@ def kurs_fehlt(bewertet, min_score=55, je_klasse=25):
         if n[c["art"]] <= je_klasse and not (c.get("kurs") or 0) > 0:
             aus.append(c)
     return aus
+
+
+def ziel_depot(bewertet, benoetigt, max_gewicht=5.0, max_je_branche=3, tagesgeld=None):
+    """'Zielrendite'-Depot: so zusammengestellt, dass es das Ziel RECHNERISCH erreicht - nach der vergangenen
+    Rendite p. a. der Werte (nicht nach der vorsichtigen Prognose). Bewusst renditemaximierend und damit
+    riskant: Werte mit Kurs, deren bisherige Rendite p. a. (laengster Zeitraum) die noetige schon erreicht hat -
+    lange Historie (mind. 3 J.) vor kurzer, jeweils nach Score; reicht das nicht fuer 100 %, die renditestaerksten
+    uebrigen. Gleich gewichtet mit max_gewicht je Wert, ohne Cash, je Branche hoechstens max_je_branche Aktien.
+    -> depot (wie musterdepot) + "hist_rendite" (% p. a., gewichtet) + "erreicht" (>= benoetigt)"""
+    max_gewicht = max(float(max_gewicht), 0.5)
+    n = int(math.ceil(100.0 / max_gewicht - 1e-9))
+
+    kand = []
+    for c in bewertet:
+        r, j = hist_rendite(c)
+        if r is not None and j >= 1 and (c.get("kurs") or 0) > 0:
+            kand.append((r, j, c))
+    ziel = benoetigt if benoetigt is not None else float("-inf")
+    # Reihenfolge: erst Werte, die die noetige Rendite schon geschafft haben - mit langer Historie (mind. 3 J.)
+    # vor kurzer, jeweils nach Score; erst danach (falls noetig) die renditestaerksten uebrigen
+    reihe = (sorted([k for k in kand if k[0] >= ziel and k[1] >= 3], key=lambda k: -(k[2].get("score") or 0))
+             + sorted([k for k in kand if k[0] >= ziel and k[1] < 3], key=lambda k: -(k[2].get("score") or 0))
+             + sorted([k for k in kand if k[0] < ziel], key=lambda k: -k[0]))
+    gew, branchen = [], {}
+    for r, j, c in reihe:
+        if c["art"] == "aktie" and c.get("branche"):
+            if branchen.get(c["branche"], 0) >= max_je_branche:
+                continue
+            branchen[c["branche"]] = branchen.get(c["branche"], 0) + 1
+        gew.append((r, j, c))
+        if len(gew) >= n:
+            break
+    if not gew:
+        return {"positionen": [], "cash": 100.0, "max_gewicht": max_gewicht, "hinweise": [], "hist_rendite": None,
+                "erreicht": False}
+    w = min(max_gewicht, 100.0 / len(gew))
+    pos = []
+    for r, j, c in gew:
+        p = copy.deepcopy(c)
+        p["gewicht"] = w
+        p["prognose"] = dict(p.get("prognose") or {}, mu=r, sigma=vola(c)[0])
+        p["hist_jahre"] = j
+        pos.append(p)
+    cash = max(100.0 - w * len(pos), 0.0)
+    hist = sum(w / 100.0 * r for r, _, _ in gew) + cash / 100.0 * ANNAHMEN["tagesgeld"]
+    hinweise = [] if cash < 0.01 else [f"Nur {len(pos)} Werte mit Kurs und Historie – {cash:.1f} % bleiben Cash."]
+    return {"positionen": pos, "cash": cash, "max_gewicht": max_gewicht, "hinweise": hinweise, "hist_rendite": hist,
+            "erreicht": benoetigt is not None and hist >= benoetigt}
