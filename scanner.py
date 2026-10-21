@@ -678,3 +678,30 @@ def empfehlungen(bestehende, depot, bewertet, toleranz=1.0):
         if k not in vorhanden:
             aus.append({"name": p["name"], "aktion": "Neu", "ist": 0.0, "soll": p["gewicht"], "score": p["score"]})
     return aus
+
+
+# ---------------------------------------------------------------- Musterdepot (Menue "📦 Musterdepot")
+MUSTERDEPOT_NAME = "Investment Scanner Musterdepot"
+
+
+def musterdepot_eintrag(depot, kapital, kurse, heute, name=MUSTERDEPOT_NAME, profil=""):
+    """Musterdepot im Format des Menues "📦 Musterdepot" (planer_ui.render_musterdepot): ganze Stuecke je
+    Position zum Kurs von heute, alles Uebrige (Cash-Anteil, Rundung, Werte ohne Kurs) ist Cash.
+    kurse = {kennung(p): (instrument_id, kurs_eur)}. -> (eintrag, [Namen ohne Kurs])"""
+    pos, ohne = [], []
+    for p in depot["positionen"]:
+        iid, kurs = (kurse.get(kennung(p)) or (None, None))
+        if not iid or not kurs or kurs <= 0:
+            ohne.append(p["name"])
+            continue
+        stueck = math.floor(kapital * p["gewicht"] / 100.0 / kurs + 1e-9)
+        if stueck <= 0:
+            ohne.append(p["name"])
+            continue
+        pos.append({"name": p["name"], "wkn": p.get("wkn") or "", "isin": p.get("isin") or "",
+                    "instrument_id": iid, "stueck": stueck, "kaufkurs": kurs, "kaufwert": round(stueck * kurs, 2),
+                    "gewicht_soll": round(p["gewicht"], 3), "teil_von": None})
+    eintrag = {"name": name, "erstellt": heute, "kaufwert": float(kapital),
+               "cash": round(float(kapital) - sum(z["kaufwert"] for z in pos), 2), "positionen": pos,
+               "quelle": "Investment-Scanner" + (f" · {profil}" if profil else "")}
+    return eintrag, ohne

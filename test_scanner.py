@@ -193,6 +193,19 @@ class EigeneEckdaten(unittest.TestCase):
         self.assertEqual(S.einstellungen_bereinigen({})["scan_kapital"], -1.0)  # noch nie gesetzt
 
 
+class MusterdepotEintrag(unittest.TestCase):
+    def test_ganze_stuecke_rest_cash(self):
+        depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 60.0, "isin": "IE00A"},
+                                {"name": "B", "art": "aktie", "gewicht": 30.0, "wkn": "BBB111"},
+                                {"name": "C", "art": "wikifolio", "gewicht": 10.0, "wkn": "LS9CCC"}], "cash": 0.0}
+        e, ohne = S.musterdepot_eintrag(depot, 10000, {"IE00A": (1, 33.0), "BBB111": (2, 1000.0)}, "2026-10-21",
+                                        profil="Hoch")
+        self.assertEqual([(p["name"], p["stueck"]) for p in e["positionen"]], [("A", 181), ("B", 3)])
+        self.assertEqual(ohne, ["C"])                                           # ohne Kurs -> Cash
+        self.assertAlmostEqual(e["cash"], 10000 - 181 * 33 - 3 * 1000, places=6)
+        self.assertEqual((e["name"], e["quelle"]), ("Investment Scanner Musterdepot", "Investment-Scanner · Hoch"))
+
+
 class Risiken(unittest.TestCase):
     def test_stress_und_empfehlungen(self):
         depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 50.0, "wkn": "AAA", "score": 80},

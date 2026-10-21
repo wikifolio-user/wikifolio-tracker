@@ -118,6 +118,7 @@ def _berechnen(h, e, katalog):
     bewertet = S.bewerten(kand, jahre)
     auft = S.aufteilung(e)
     depot = S.musterdepot(bewertet, auft, e["scan_max_gewicht"])
+    depot_profil = depot                           # genau die Prozentanteile des Risikoprofils (fuers Musterdepot)
     ziel = e["zielvermoegen"]
     opt = None
     if e["scan_optimieren"] and depot["positionen"]:
@@ -131,7 +132,7 @@ def _berechnen(h, e, katalog):
     if ziel > 0 and (a["wahrscheinlichkeit"] or 0) < 0.5:
         alt = S.alternativen(mu, sigma, e, ziel, e["scan_kosten"], depot=depot)
     benoetigt = P.benoetigte_rendite(e) if ziel > 0 else None
-    return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand,
+    return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand, "depot_profil": depot_profil,
             "anzahl": {k: sum(1 for c in bewertet if c["art"] == k) for k in ("aktie", "etf", "wikifolio")},
             "bewertet": bewertet, "aufteilung": auft, "depot": depot, "optimierung": opt, "mu": mu, "sigma": sigma,
             "auswertung": a, "verlauf": S.verlauf_jaehrlich(sim), "restschuld": rest, "start": start,
@@ -165,7 +166,12 @@ def _kennung(c):
     return c.get("isin") or c.get("wkn") or c.get("ticker") or "–"
 
 
-def _musterdepot(erg, kapital, zum_builder=None):
+def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
+    md = st.session_state.get("pb_scan_md")
+    if md:
+        {"ok": st.success, "warnung": st.warning, "fehler": st.error}[md[0]](md[1])
+        if md[0] == "ok" and zum_muster:
+            st.button("📦 Musterdepot ansehen", key="pb_scan_zum_muster", on_click=zum_muster)
     d = erg["depot"]
     for hw in d["hinweise"]:
         st.info(hw)
@@ -218,6 +224,63 @@ def _uebernehmen(d, danach=None):
                                       "geholt, die Stückzahlen rechnen sich daraus.")
     if danach:
         danach()
+
+
+def _instrumente(h, depot):
+    """{kennung: (instrument_id, kurs_eur)} ueber die Kursquelle - exakt ueber WKN/ISIN, sonst nur eindeutig
+    ueber den Namen. Kurs-IDs werden je Sitzung gemerkt."""
+    suche, hole = (h or {}).get("suche_instrument"), (h or {}).get("get_live_kurs")
+    if not (suche and hole):
+        return {}
+    import investment_scanner_pro_engine as PRO
+    ids = st.session_state.setdefault("pb_scan_iid", {})
+    aus = {}
+    for p in depot["positionen"]:
+        k = S.kennung(p)
+        try:
+            if k not in ids:
+                t, _ = PRO.treffer_waehlen(p, suche(p.get("isin") or p.get("wkn") or p.get("name")) or [])
+                ids[k] = int(t["instrument_id"]) if t else None
+            if ids[k]:
+                akt, vor, _ = hole(ids[k])
+                kurs = akt or vor
+                if kurs and kurs > 0:
+                    aus[k] = (ids[k], float(kurs))
+        except Exception:
+            continue
+    return aus
+
+
+def _musterdepot_speichern(h, erg, e):
+    """Nach jedem Scan: das Musterdepot mit genau den Prozentanteilen des gewaehlten Risikoprofils als
+    "Investment Scanner Musterdepot" ins Menue "📦 Musterdepot" schreiben (ersetzt das vorige - die Entwicklung
+    zaehlt ab heute). -> Meldung (art, text)"""
+    import planer_ui as PU
+    depot = erg.get("depot_profil") or erg["depot"]
+    if not depot["positionen"]:
+        return ("warnung", "Kein Musterdepot angelegt – das Depot ist leer.")
+    auft = erg["aufteilung"]
+    profil = (f"{PROFIL_TITEL.get(e['scan_profil'], e['scan_profil'])}: "
+              + " / ".join(f"{ART_TITEL[k]} {_de(auft[k])} %" for k in ("etf", "aktie", "wikifolio", "cash")))
+    eintrag, ohne = S.musterdepot_eintrag(depot, erg["start"], _instrumente(h, depot),
+                                          datetime.date.today().isoformat(), profil=profil)
+    if not eintrag["positionen"]:
+        return ("warnung", "Kein Musterdepot angelegt – für keine Position war ein Kurs von heute abrufbar.")
+
+    def _anlegen(d):
+        if not isinstance(d.get("depots"), dict):
+            d["depots"] = {}
+        d["depots"][S.MUSTERDEPOT_NAME] = eintrag
+        d["aktiv"] = S.MUSTERDEPOT_NAME
+        return d
+    if not PU._aendern_speichern(h, PU._pfad(h, PU.PFAD_MUSTERDEPOT), _anlegen,
+                                 f"scanner: {S.MUSTERDEPOT_NAME} [skip ci]"):
+        return ("fehler", "Musterdepot nicht gespeichert (Datenspeicher nicht erreichbar).")
+    text = (f"„{S.MUSTERDEPOT_NAME}“ angelegt ({profil}): {len(eintrag['positionen'])} Positionen in ganzen "
+            f"Stücken zum Kurs von heute, Cash {_eur(eintrag['cash'], 2)}.")
+    if ohne:
+        text += f" Ohne Kurs (bleibt Cash): {', '.join(ohne[:4])}" + (" …" if len(ohne) > 4 else "") + "."
+    return ("ok", text)
 
 
 def _top_investments(erg):
@@ -587,6 +650,8 @@ def render(h, e, katalog_fn, zum_builder=None):
             with st.spinner("Bewerte Aktien, ETFs und wikifolios und simuliere 10.000 Verläufe …"):
                 erg = _berechnen(h, e, katalog_fn())
             st.session_state["pb_scan_erg"], st.session_state["pb_scan_sig"] = erg, sig
+            with st.spinner("Lege das Investment Scanner Musterdepot an (Kurse von heute) …"):
+                st.session_state["pb_scan_md"] = _musterdepot_speichern(h, erg, e)
             st.session_state["pb_scan_verkauf_ver"] = st.session_state.get("pb_scan_verkauf_ver", 0) + 1
             st.rerun()                                # Entnahme-Karte oben zeigt das neue Depot
             veraltet = False
@@ -598,7 +663,7 @@ def render(h, e, katalog_fn, zum_builder=None):
         tabs = st.tabs(["📦 Musterdepot", "🏆 Top-Investments", "📈 Prognose", "💸 Entnahme", "⚠️ Risiken",
                         "🧭 Plan", "ℹ️ Daten"])
         with tabs[0]:
-            _musterdepot(erg, kapital, zum_builder)
+            _musterdepot(erg, kapital, zum_builder, (h or {}).get("zum_muster"))
         with tabs[1]:
             _top_investments(erg)
         with tabs[2]:
