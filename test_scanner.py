@@ -233,6 +233,14 @@ class Top500Kurse(unittest.TestCase):
                          "Investment Scanner · Hoch · 21.10.2026 (2)")       # nie ueberschreiben
 
 
+class KursFehlt(unittest.TestCase):
+    def test_nur_moegliche_depotwerte_ohne_kurs(self):
+        b = [{"art": "etf", "name": f"E{i}", "ausreichend": True, "score": 90 - i, "kurs": None if i % 2 else 5.0}
+             for i in range(6)] + [{"art": "etf", "name": "Schwach", "ausreichend": True, "score": 20, "kurs": None},
+                                   {"art": "etf", "name": "Jung", "ausreichend": False, "score": 99, "kurs": None}]
+        self.assertEqual([c["name"] for c in S.kurs_fehlt(b, je_klasse=4)], ["E1", "E3"])
+
+
 class Risiken(unittest.TestCase):
     def test_stress_und_empfehlungen(self):
         depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 50.0, "wkn": "AAA", "score": 80},

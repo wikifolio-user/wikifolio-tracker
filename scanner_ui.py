@@ -116,6 +116,7 @@ def _berechnen(h, e, katalog):
     kand, stand = _daten(h, katalog)
     jahre = P.monate(e) / 12.0
     bewertet = S.bewerten(kand, jahre)
+    nachgeladen = _kurse_nachladen(h, bewertet)
     auft = S.aufteilung(e)
     depot = S.musterdepot(bewertet, auft, e["scan_max_gewicht"], nur_mit_kurs=True)   # Stueckzahlen moeglich
     depot_profil = depot                           # genau die Prozentanteile des Risikoprofils (fuers Musterdepot)
@@ -133,12 +134,51 @@ def _berechnen(h, e, katalog):
         alt = S.alternativen(mu, sigma, e, ziel, e["scan_kosten"], depot=depot)
     benoetigt = P.benoetigte_rendite(e) if ziel > 0 else None
     return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand, "depot_profil": depot_profil,
+            "kurse_nachgeladen": nachgeladen,
             "anzahl": {k: sum(1 for c in bewertet if c["art"] == k) for k in ("aktie", "etf", "wikifolio")},
             "bewertet": bewertet, "aufteilung": auft, "depot": depot, "optimierung": opt, "mu": mu, "sigma": sigma,
             "auswertung": a, "verlauf": S.verlauf_jaehrlich(sim), "restschuld": rest, "start": start,
             "eingezahlt": start + sum(c for c in cfs if c > 0), "alternativen": alt, "benoetigt": benoetigt,
             "entnommen": sum(S.entnahmen(e, depot)),
             "monate": len(cfs), "eingaben": dict(e)}
+
+
+def _kurse_nachladen(h, bewertet):
+    """Aktuelle Kurse fuer moegliche Depotwerte ohne Kurs in den Top-500-Daten: Kurs-ID aus den Top-500-Listen
+    (sonst exakte Suche ueber WKN/ISIN), dann der aktuelle Kurs von ls-tc.de. Traegt kurs + instrument_id in
+    die Kandidaten ein. -> Anzahl nachgeladen"""
+    hole, suche = (h or {}).get("get_live_kurs"), (h or {}).get("suche_instrument")
+    fehlt = S.kurs_fehlt(bewertet)
+    if not fehlt or not hole:
+        return 0
+    import investment_scanner_pro_engine as PRO
+    import planer_ui as PU
+    ids = S.top500_ids(_lies(h, "state/top50_ids.json"), _lies(h, "state/top50_wikifolios.json"))
+    gemerkt = st.session_state.setdefault("pb_scan_iid", {})
+
+    def kurs_holen(c):
+        k = S.kennung(c)
+        iid = next((ids[x.upper()] for x in (c.get("isin"), c.get("wkn")) if x and x.upper() in ids), None)
+        if iid is None and suche and (c.get("isin") or c.get("wkn")):
+            if k not in gemerkt:
+                t, art = PRO.treffer_waehlen(c, suche(c.get("isin") or c.get("wkn")) or [])
+                gemerkt[k] = int(t["instrument_id"]) if t and art == "exakt" else None
+            iid = gemerkt[k]
+        if not iid:
+            return None
+        akt, vor, _ = hole(iid)
+        kurs = akt or vor
+        return (iid, float(kurs)) if kurs and kurs > 0 else None
+
+    erg = PU._parallel([(i, kurs_holen, (c,)) for i, c in enumerate(fehlt)])
+    n = 0
+    for i, c in enumerate(fehlt):
+        r = erg.get(i)
+        if isinstance(r, tuple):
+            c["instrument_id"], c["kurs"] = r
+            c["kurs_quelle"] = "ls-tc.de aktuell"
+            n += 1
+    return n
 
 
 def _signatur(e):
@@ -292,7 +332,9 @@ def _musterdepot_speichern(h, erg, e):
                                  "scanner: neues Musterdepot [skip ci]"):
         return ("fehler", "Musterdepot nicht gespeichert (Datenspeicher nicht erreichbar).")
     text = (f"Neues Musterdepot „{gespeichert.get('name')}“ angelegt ({profil}): {len(eintrag['positionen'])} "
-            f"Positionen in ganzen Stücken zum Kurs aus den Top-500-Daten, Cash {_eur(eintrag['cash'], 2)}. "
+            f"Positionen in ganzen Stücken zum Kurs aus den Top-500-Daten"
+            + (f" ({erg['kurse_nachgeladen']} fehlende aktuell von ls-tc.de nachgeladen)" if erg.get("kurse_nachgeladen") else "")
+            + f", Cash {_eur(eintrag['cash'], 2)}. "
             "Frühere Musterdepots bleiben erhalten.")
     if ohne:
         text += f" Ohne Kurs (bleibt Cash): {', '.join(ohne[:4])}" + (" …" if len(ohne) > 4 else "") + "."

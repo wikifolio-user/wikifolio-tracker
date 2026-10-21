@@ -737,7 +737,8 @@ def kurse_aus_top500(depot, ids):
         kurs = p.get("kurs")
         if not kurs or kurs <= 0:
             continue
-        iid = next((ids[k.upper()] for k in (p.get("isin"), p.get("wkn")) if k and k.upper() in ids), None)
+        iid = p.get("instrument_id") or next((ids[k.upper()] for k in (p.get("isin"), p.get("wkn"))
+                                               if k and k.upper() in ids), None)
         aus[kennung(p)] = (iid, float(kurs))
     return aus
 
@@ -749,3 +750,16 @@ def musterdepot_name(vorhanden, profil_titel, heute):
     while name in vorhanden:
         name, nr = f"{basis} ({nr})", nr + 1
     return name
+
+
+def kurs_fehlt(bewertet, min_score=55, je_klasse=25):
+    """Kandidaten, die ins Musterdepot kommen koennten (genug Daten, Score >= min_score, je Klasse die besten
+    je_klasse), aber keinen Kurs in den Top-500-Daten haben - fuer sie wird der aktuelle Kurs nachgeladen."""
+    aus, n = [], {}
+    for c in bewertet:
+        if not c.get("ausreichend") or (c.get("score") or 0) < min_score:
+            continue
+        n[c["art"]] = n.get(c["art"], 0) + 1
+        if n[c["art"]] <= je_klasse and not (c.get("kurs") or 0) > 0:
+            aus.append(c)
+    return aus
