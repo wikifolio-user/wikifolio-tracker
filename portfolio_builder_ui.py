@@ -22,7 +22,7 @@ except Exception:        # pragma: no cover - ohne nutzerdaten.py: gemeinsamer P
 PFAD = "state/portfolio_builder.json"
 FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa", "kredit_rate",
           "einzahlung", "entnahme", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke",
-          "zielvermoegen", "auto_ziel")
+          "zielvermoegen", "auto_ziel", "rendite_basis")
 # Tabellenspalten <-> Felder des Rechenkerns
 SPALTEN = {"Name": "name", "Art": "art", "Rendite % p. a.": "rendite", "Kurs €": "kurs", "Gewicht %": "gewicht",
            "Betrag €": "betrag", "Stück": "stueck",
@@ -306,7 +306,7 @@ def kurse_aktualisieren(h, nur_fehlende=False):
     return ok, fehlt
 
 
-def _renditen_aus_historie(h, pos):
+def _renditen_aus_historie(h, pos, basis="1J"):
     """Werte, die weder im Katalog noch in den Ranglisten stehen: erwartete Rendite aus der eigenen
     Kurshistorie (ls-tc.de, wie im Depot). Je Sitzung nur einmal je Wert versucht. -> (pos, Anzahl)"""
     lade = (h or {}).get("lade_historie")
@@ -316,9 +316,14 @@ def _renditen_aus_historie(h, pos):
     pos, n = copy.deepcopy(pos), 0
 
     def schluessel_von(p):
-        return str(p.get("instrument_id") or p.get("wkn") or p.get("isin") or "N:" + p["name"].lower()).upper()
+        return basis + ":" + str(p.get("instrument_id") or p.get("wkn") or p.get("isin")
+                                 or "N:" + p["name"].lower()).upper()
 
-    offen = [p for p in pos if (p.get("rendite") is None and not p.get("allgemein")) or p["kurs"] <= 0]
+    # ohne Rendite, auf anderer Grundlage vorgeschlagen (z. B. aeltere Staende) oder nur aus einem kurzen
+    # Ranglisten-Zeitraum - die eigene Historie weiss es genauer
+    offen = [p for p in pos if p["kurs"] <= 0 or (P.rendite_automatisch(p) and (
+        p.get("rendite") is None or p.get("rendite_basis") != basis
+        or ("jünger" in str(p.get("rendite_quelle")) and not str(p.get("rendite_quelle")).startswith("Kurshistorie"))))]
     offen = [p for p in offen if p.get("instrument_id") or p.get("wkn") or p.get("isin") or p["kurs"] <= 0]
     if not offen:
         return pos, 0
@@ -337,12 +342,13 @@ def _renditen_aus_historie(h, pos):
                     punkte = []
                 letzter = next((k for _, k in reversed(punkte or []) if isinstance(k, (int, float)) and k > 0),
                                None)
-                versucht[schluessel] = {"rendite": P.katalog_rendite(P.entwicklung_aus_historie(punkte)),
-                                        "iid": iid, "kurs": letzter}
+                r, quelle = P.rendite_vorschlag(P.entwicklung_aus_historie(punkte), basis)
+                versucht[schluessel] = {"rendite": r, "quelle": quelle, "iid": iid, "kurs": letzter}
             gef = versucht[schluessel]
             vorher = dict(p)
-            if gef["rendite"] is not None and p.get("rendite") is None and not p.get("allgemein"):
-                p["rendite"] = round(min(max(gef["rendite"], -P.MAX_RENDITE), P.MAX_RENDITE), 2)
+            if gef["rendite"] is not None and P.rendite_automatisch(p):
+                p["rendite"], p["rendite_basis"] = round(gef["rendite"], 2), basis
+                p["rendite_quelle"] = "Kurshistorie " + gef["quelle"]
             if gef["iid"] and not p.get("instrument_id"):
                 p["instrument_id"] = str(gef["iid"])
             if p["kurs"] <= 0 and gef["kurs"]:
@@ -471,7 +477,7 @@ def _eingaben():
             c = st.columns(4, vertical_alignment="bottom")
             c[0].number_input("Ausgaben €/Monat", 0.0, P.MAX_MONATLICH, step=10.0, format="%.0f", key="pb_ausgaben",
                               help="Laufende Kosten und Gebühren (Depot, Sparplan, Beratung …).")
-            c[1].number_input("Rendite % p. a.", -P.MAX_RENDITE, P.MAX_RENDITE, step=0.5, format="%.1f",
+            c[1].number_input("Rendite % p. a.", P.MIN_RENDITE, P.MAX_RENDITE, step=0.5, format="%.1f",
                               key="pb_rendite_pa",
                               help="Erwartete Rendite für Positionen ohne eigene Rendite und für nicht investiertes "
                                    "Geld. Eigene Werte je Position in der Spalte „Rendite % p. a.“ der Aufteilung.")
@@ -612,7 +618,7 @@ def _einzeln(h, e, art, ver):
             else:
                 w = katalog[wahl]
                 name, wkn, isin, neu_art, kurs, iid = w["name"], w["wkn"], w["isin"], w["art"], w["kurs"], None
-                rendite = P.katalog_rendite(w)          # Vorschlag: bisherige Rendite p. a. (5 J., sonst 3 J.)
+                rendite = P.katalog_rendite(w, e["rendite_basis"])     # Vorschlag aus den bisherigen Renditen
                 if not kurs:
                     t = _instrument(h, [wkn, isin])
                     iid = t and t.get("instrument_id")
@@ -746,33 +752,49 @@ def _tabelle(h, r):
         summe = pos["summe_gewicht"]
         ok = abs(summe - 100.0) < 0.05
         st.markdown('<div class="pb-karte-t">Portfolio-Aufteilung</div>', unsafe_allow_html=True)
+        with st.container(key="pb_reihe_basis"):
+            st.selectbox("Rendite-Vorschlag aus", list(P.BASEN), format_func=P.BASEN.get, key="pb_rendite_basis",
+                         help="Grundlage der automatisch vorgeschlagenen Rendite je Wert: die Entwicklung der letzten "
+                              "12 Monate (so zeigt wikifolio die Jahresperformance) oder der längste vorhandene "
+                              "Zeitraum pro Jahr (ruhiger, für lange Laufzeiten). Werte jünger als ein Jahr: die "
+                              "Entwicklung der letzten 9/6/3 Monate, nicht hochgerechnet. Selbst eingetragene "
+                              "Renditen bleiben unverändert.")
         arten = [p.get("art", "sonstig") for p in e["positionen"]]
         # ohne eigene Angabe gilt die allgemeine Rendite - die steht dann auch in der Zelle (statt "None")
         renditen = [round(P.position_rendite(e, p), 2) for p in e["positionen"]]
+        basis = [("allgemein" if p.get("rendite") is None else p.get("rendite_quelle") or "–")
+                 for p in e["positionen"]]
         df = pd.DataFrame([{"Name": z["name"], "Art": P.ARTEN[a_], "Rendite % p. a.": rd, "Kurs €": z["kurs"],
                             "Gewicht %": round(z["gewicht"], 4),
                             "Betrag €": round(z["betrag"], 2), "Stück": round(z["stueck"], 4),
                             "Wert €": round(z["wert"], 2)} for z, a_, rd in zip(pos["zeilen"], arten, renditen)],
                           columns=list(SPALTEN))
+        df.insert(df.columns.get_loc("Rendite % p. a.") + 1, "Basis", basis)
         key = f"pb_tab_{st.session_state.get('pb_tab_ver', 0)}"
         # Handy: die Spalten zum Eintippen zuerst, "Wert" steht in der Positionstabelle darunter
-        reihenfolge = (["Name", "Gewicht %", "Betrag €", "Stück", "Rendite % p. a.", "Kurs €", "Art"]
-                       if _smartphone() else list(SPALTEN))
+        reihenfolge = (["Name", "Gewicht %", "Betrag €", "Stück", "Rendite % p. a.", "Basis", "Kurs €", "Art"]
+                       if _smartphone() else list(df.columns))
         auto = e["auto_ziel"] and e["zielvermoegen"] > 0
         st.data_editor(
             df, key=key, num_rows="dynamic", hide_index=True, width="stretch", column_order=reihenfolge,
             # automatische Verteilung: Prozente/Betrag/Stueck kommen aus dem Ziel, nicht von Hand
-            disabled=["Wert €"] + (["Gewicht %", "Betrag €", "Stück"] if auto else []),
+            disabled=["Wert €", "Basis"] + (["Gewicht %", "Betrag €", "Stück"] if auto else []),
             column_config={
                 "Name": st.column_config.TextColumn("Name", width=110 if _smartphone() else "medium",
                                                     required=True),
                 "Art": st.column_config.SelectboxColumn("Art", options=list(P.ARTEN.values()), width="small",
                                                         default=P.ARTEN["sonstig"]),
                 "Rendite % p. a.": st.column_config.NumberColumn(
-                    "Rendite % p. a.", min_value=-P.MAX_RENDITE, max_value=P.MAX_RENDITE, format="localized",
+                    "Rendite % p. a.", min_value=P.MIN_RENDITE, max_value=P.MAX_RENDITE, format="localized",
                     step=0.1, width="small",
-                    help="Erwartete Rendite dieses Werts (Vorschlag aus der bisherigen 5-J.-Rendite). Ohne eigene "
-                         "Angabe gilt die allgemeine Rendite oben; Zelle leeren = wieder die allgemeine."),
+                    help="Erwartete Rendite dieses Werts. Vorschlag aus den Daten der Watchlist (bzw. der "
+                         "Kurshistorie), Grundlage oben wählbar – die Spalte „Basis“ zeigt, woher die Zahl kommt. "
+                         "Eigene Eingabe bleibt stehen; Zelle leeren = die allgemeine Rendite oben."),
+                "Basis": st.column_config.TextColumn(
+                    "Basis", width="small",
+                    help="Woher die Rendite kommt: 1 J. = Entwicklung der letzten 12 Monate, x J. p. a. = pro Jahr "
+                         "über x Jahre, x M. = junger Wert: Entwicklung der letzten x Monate (nicht hochgerechnet), eigene = "
+                         "selbst eingetragen, allgemein = die allgemeine Rendite oben."),
                 "Kurs €": st.column_config.NumberColumn("Kurs €", min_value=0.0, format="localized", step=0.01,
                                                         width="small"),
                 "Gewicht %": st.column_config.NumberColumn("Gewicht %", min_value=0.0, max_value=100.0,
@@ -1039,12 +1061,14 @@ def render(h):
     kpi_platz = st.empty()
     kredit_spalte, ziel_spalte = _eingaben()
     e = _aus_widgets()
-    if any((p.get("rendite") is None and not p.get("allgemein")) or p["kurs"] <= 0 or p.get("art") == "sonstig"
-           for p in e["positionen"]):
-        # fehlende Rendite/Kurs/Art (Suche, eigene Zeilen, aeltere Staende) aus dem Katalog vorschlagen
-        pos, n = P.renditen_ergaenzen(e["positionen"], _katalog(h))
-        pos, m = _renditen_aus_historie(h, pos)
-        if n or m:
+    if any(P.rendite_automatisch(p) or p["kurs"] <= 0 or p.get("art") == "sonstig" for p in e["positionen"]):
+        # Rendite (automatische aktuell halten), fehlenden Kurs und Art aus Katalog/Ranglisten bzw. Kurshistorie
+        # Reihenfolge: Katalog/Ranglisten ab 1 Jahr -> eigene Kurshistorie -> erst dann kurze Zeitraeume
+        katalog, basis = _katalog(h), e["rendite_basis"]
+        pos, n = P.renditen_ergaenzen(e["positionen"], katalog, basis, kurz=False)
+        pos, m = _renditen_aus_historie(h, pos, basis)
+        pos, k = P.renditen_ergaenzen(pos, katalog, basis, kurz=True)
+        if n or m or k:
             st.session_state["pb_positionen"] = pos
             st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
             e = _aus_widgets()
