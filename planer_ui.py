@@ -85,6 +85,9 @@ def _gemerkt(name):
 EM = type("GemerkteEngine", (), {n: staticmethod(_gemerkt(n)) for n in MEMO_FUNKTIONEN})
 
 PFAD_SZENARIEN = "state/planer/szenarien.json"     # je Benutzer ueber nutzerdaten.pfad
+# Arbeitsstand: nur hierhin speichert die automatische Speicherung. Gespeicherte Varianten
+# (alle anderen Namen) aendern sich nur, wenn man sie ausdruecklich unter ihrem Namen speichert.
+AKTUELL = "Aktuelles Modell"
 PFAD_MUSTERDEPOT = "state/musterdepot.json"        # je Benutzer ueber nutzerdaten.pfad
 QUALITAET_DETAIL_TEILE = 32          # wie qualitaet_agent.DETAIL_TEILE
 HIST_CACHE_SEK = 6 * 3600
@@ -526,7 +529,8 @@ def _modell(h):
         _neu_zeichnen()
     if "planer_modell" not in st.session_state:
         daten, ok = _lade_gespeichert(h, mit_status=True)
-        eintrag = daten["szenarien"].get(daten.get("aktiv") or "Aktuelles Modell")
+        aktiv = daten.get("aktiv") or AKTUELL
+        eintrag = daten["szenarien"].get(aktiv)
         if not isinstance(eintrag, dict) or not isinstance(eintrag.get("modell"), dict):
             eintrag = None
         st.session_state["planer_modell"] = _migriere(eintrag["modell"]) if eintrag else _start_modell(h)
@@ -534,7 +538,10 @@ def _modell(h):
         # und schon das blosse Anschauen zaehlt als Aenderung (automatisches Speichern)
         _mm = st.session_state["planer_modell"]
         _mm.setdefault("kaufplan", {"betrag": float(_mm["rahmen"].get("startkapital") or 0.0), "bruch": False})
-        st.session_state["planer_name"] = (daten.get("aktiv") or "Aktuelles Modell") if eintrag else None
+        # weitergearbeitet wird immer im Arbeitsstand - auch wenn zuletzt eine Variante aktiv war
+        # (aeltere Staende): die Variante selbst bleibt so unveraendert
+        st.session_state["planer_name"] = AKTUELL if eintrag else None
+        st.session_state["planer_variante"] = aktiv if eintrag and aktiv != AKTUELL else None
         st.session_state["planer_konto"] = konto
         # Gespeicherter Stand nicht lesbar: NICHT automatisch speichern - sonst wuerde
         # das Startmodell den gespeicherten Stand ueberschreiben
@@ -545,8 +552,9 @@ def _modell(h):
 
 
 def _auto_speichern(m, h):
-    """Automatische Speicherung: jede Aenderung am Modell wird ins aktive
-    Szenario geschrieben (Standard "Aktuelles Modell") - im Ordner des Benutzers.
+    """Automatische Speicherung: jede Aenderung am Modell wird in den Arbeitsstand
+    ("Aktuelles Modell") geschrieben - im Ordner des Benutzers. Gespeicherte Varianten
+    werden dabei nie ueberschrieben.
     Lesen-Aendern-Schreiben (gh_aktualisiere), damit andere gespeicherte
     Szenarien erhalten bleiben (z. B. von einem anderen Geraet)."""
     neu = _hash(m)
@@ -555,7 +563,7 @@ def _auto_speichern(m, h):
         return st.session_state.get("planer_auto")
     if neu == st.session_state.get("planer_hash"):
         return st.session_state.get("planer_auto")
-    name = st.session_state.get("planer_name") or "Aktuelles Modell"
+    name = AKTUELL
     if st.session_state.get("planer_lesefehler"):
         st.session_state["planer_auto"] = ("lesefehler", name, None)
         return st.session_state["planer_auto"]
@@ -4448,32 +4456,49 @@ def _b_szenarien(m, R, historie, h):
 
 
 def _b_modelle(m, R, historie, h):
-    _abschnitt("Gespeicherte Modelle")
-    st.caption(f"Aktives Modell: „{st.session_state.get('planer_name') or 'Aktuelles Modell'}“ – Änderungen werden "
-               "automatisch darin gespeichert. Für eine Variante erst unter neuem Namen speichern, dann ändern.")
+    _abschnitt("Gespeicherte Varianten")
+    variante = st.session_state.get("planer_variante")
+    st.caption("Änderungen werden automatisch im Arbeitsstand „" + AKTUELL + "“ gespeichert"
+               + (f" (geladen aus der Variante „{variante}“)" if variante else "") + ". Gespeicherte Varianten "
+               "bleiben unverändert – sie ändern sich nur, wenn du sie hier ausdrücklich unter ihrem Namen "
+               "überschreibst.")
     daten, lesbar = _lade_gespeichert(h, mit_status=True)
     if not lesbar:
         st.error("Gespeicherte Modelle gerade nicht lesbar (GitHub-Speicher nicht erreichbar) – bitte später neu laden.")
-    vorhanden = list(daten["szenarien"])
+    vorhanden = [n for n in daten["szenarien"] if n != AKTUELL]
     c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
-    vorschlag = D.SZENARIO_NAMEN + [n for n in vorhanden if n not in D.SZENARIO_NAMEN]
-    aktuell = st.session_state.get("planer_name") or "Aktuelles Modell"
-    name = c1.selectbox("Name", vorschlag + ["Eigener Name …"],
-                        index=vorschlag.index(aktuell) if aktuell in vorschlag else 0, key=_k("sz_name"))
-    if name == "Eigener Name …":
-        name = c1.text_input("Eigener Name", key=_k("sz_eigen")).strip()
-    if c2.button("💾 Speichern", key=_k("sz_save"), width="stretch", disabled=not name):
+    vorschlag = [n for n in D.SZENARIO_NAMEN if n != AKTUELL and n not in vorhanden]
+    standard = f"Variante {datetime.date.today().strftime('%d.%m.%Y')}"
+    nr = 2
+    while standard in daten["szenarien"]:                     # Vorschlag nie ein vorhandener Name
+        standard = f"Variante {datetime.date.today().strftime('%d.%m.%Y')} ({nr})"
+        nr += 1
+    wahl = c1.selectbox("Speichern als", ["Neuer Name …"] + vorschlag + vorhanden, key=_k("sz_name"),
+                        help="Neuer Name = neue Variante. Ein vorhandener Name wird nur nach Bestätigung "
+                             "überschrieben.")
+    name = (c1.text_input("Name der Variante", value=standard, key=_k("sz_eigen")).strip()
+            if wahl == "Neuer Name …" else wahl)
+    ueberschreiben = name in daten["szenarien"]
+    if name == AKTUELL:
+        st.caption(f"„{AKTUELL}“ ist der Arbeitsstand und wird ohnehin automatisch gespeichert – bitte einen "
+                   "anderen Namen wählen.")
+    bestaetigt = True
+    if ueberschreiben and name != AKTUELL:
+        bestaetigt = st.checkbox(f"Gespeicherte Variante „{name}“ mit dem aktuellen Stand überschreiben",
+                                 key=_k("sz_ueber"))
+    if c2.button("💾 Speichern", key=_k("sz_save"), width="stretch",
+                 disabled=not name or name == AKTUELL or not bestaetigt):
         eintrag = {"modell": copy.deepcopy(m), "gespeichert": datetime.datetime.now().isoformat(timespec="minutes")}
 
         def _speichern(d):
             if not isinstance(d.get("szenarien"), dict):
                 d["szenarien"] = {}
+            if name in d["szenarien"] and not ueberschreiben:
+                return None                           # inzwischen (anderes Geraet) angelegt: nicht ueberschreiben
             d["szenarien"][name] = eintrag
-            d["aktiv"] = name
             return d
-        if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _speichern, f"planer: szenario {name} [skip ci]"):
-            st.session_state["planer_name"] = name
-            st.session_state["planer_hash"] = _hash(m)
+        if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _speichern, f"planer: variante {name} [skip ci]"):
+            st.session_state["planer_variante"] = name
             if h.get("chronik"):
                 try:
                     rr = m["rahmen"]
@@ -4482,38 +4507,50 @@ def _b_modelle(m, R, historie, h):
                                  f"{_de(rr['zielvermoegen'])} € · {len(E.aktive_assets(m))} Bausteine")
                 except Exception:
                     pass
-            st.success(f"„{name}“ gespeichert.")
+            st.success(f"Variante „{name}“ gespeichert.")
         else:
-            st.error("Speichern nicht möglich (GitHub-Speicher nicht verfügbar).")
+            st.error("Speichern nicht möglich (GitHub-Speicher nicht verfügbar oder Name inzwischen vergeben).")
     if vorhanden:
         c3, c4, c5 = st.columns([2, 1, 1], vertical_alignment="bottom")
-        laden = c3.selectbox("Gespeichertes Modell", vorhanden, key=_k("sz_laden"))
+        laden = c3.selectbox("Gespeicherte Variante", vorhanden, key=_k("sz_laden"),
+                             help="Laden übernimmt die Variante in den Arbeitsstand – die Variante selbst bleibt "
+                                  "unverändert.")
         if c4.button("Laden", key=_k("sz_load"), width="stretch"):
-            st.session_state["planer_modell"] = _migriere(daten["szenarien"][laden]["modell"])
-            st.session_state["planer_name"] = laden
-            _basis_neu()
+            st.session_state["planer_modell"] = _migriere(copy.deepcopy(daten["szenarien"][laden]["modell"]))
+            st.session_state["planer_name"] = AKTUELL
+            st.session_state["planer_variante"] = laden
+            st.session_state["planer_hash"] = None       # Arbeitsstand gleich mit der geladenen Variante speichern
+            st.session_state.pop("planer_basis", None)
             st.session_state.pop("planer_opt", None)
             _neu_zeichnen()
             st.rerun()
+        frage = st.session_state.get("planer_loeschfrage")
         if c5.button("Löschen", key=_k("sz_del"), width="stretch"):
-            def _loeschen(d):
-                sz = d.get("szenarien") if isinstance(d.get("szenarien"), dict) else {}
-                if laden not in sz:
-                    return None
-                sz.pop(laden, None)
-                d["szenarien"] = sz
-                if d.get("aktiv") == laden:
-                    d["aktiv"] = None
-                return d
-            if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _loeschen,
-                                  f"planer: szenario {laden} geloescht [skip ci]"):
-                if st.session_state.get("planer_name") == laden:
-                    st.session_state["planer_name"] = None      # naechste Aenderung -> "Aktuelles Modell"
-                    st.session_state["planer_hash"] = None
-                _neu_zeichnen()
+            st.session_state["planer_loeschfrage"] = laden
+            st.rerun()
+        if frage == laden:
+            st.warning(f"Variante „{laden}“ endgültig löschen?")
+            d1, d2 = st.columns(2)
+            if d1.button("Ja, löschen", key=_k("sz_del_ja"), type="primary", width="stretch"):
+                def _loeschen(d):
+                    sz = d.get("szenarien") if isinstance(d.get("szenarien"), dict) else {}
+                    if laden not in sz:
+                        return None
+                    sz.pop(laden, None)
+                    d["szenarien"] = sz
+                    return d
+                st.session_state.pop("planer_loeschfrage", None)
+                if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _loeschen,
+                                      f"planer: variante {laden} geloescht [skip ci]"):
+                    if st.session_state.get("planer_variante") == laden:
+                        st.session_state["planer_variante"] = None
+                    _neu_zeichnen()
+                    st.rerun()
+                else:
+                    st.error("Löschen nicht möglich (GitHub-Speicher nicht erreichbar).")
+            if d2.button("Abbrechen", key=_k("sz_del_nein"), width="stretch"):
+                st.session_state.pop("planer_loeschfrage", None)
                 st.rerun()
-            else:
-                st.error("Löschen nicht möglich (GitHub-Speicher nicht erreichbar).")
         zeilen = []
         for n, e in daten["szenarien"].items():
             try:
@@ -5436,7 +5473,7 @@ def _musterdepot_formular(h, erg, betrag, prefix):
                             "instrument_id": z["instrument_id"], "stueck": z["stueck"], "kaufkurs": z["kurs"],
                             "kaufwert": round(z["ist"], 2), "gewicht_soll": round(z["anteil"] * 100, 3),
                             "teil_von": z.get("teil_von")} for z in kaufbar],
-            "quelle": st.session_state.get("planer_name") or "Aktuelles Modell",
+            "quelle": st.session_state.get("planer_variante") or AKTUELL,
         }
         def _anlegen(d):
             if not isinstance(d.get("depots"), dict):
@@ -5557,8 +5594,8 @@ def render_musterdepot(h):
 def render(h):
     st.markdown(CSS + WZ_CSS, unsafe_allow_html=True)
     m = _modell(h)
-    name = st.session_state.get("planer_name")
-    st.markdown(f'<div class="abschnitt">💼 Portfolio-Planer{" · " + _esc(name) if name else ""}</div>',
+    name = st.session_state.get("planer_variante")
+    st.markdown(f'<div class="abschnitt">💼 Portfolio-Planer{" · aus Variante " + _esc(name) if name else ""}</div>',
                 unsafe_allow_html=True)
     st.caption(f"Planer-Version {PLANER_VERSION} · Rechenkern {getattr(E, 'ENGINE_VERSION', 'alt')}")
     _hinweis("Szenariorechnung / keine Prognose – alle Renditen sind Annahmen oder historische Ausgangswerte, "
@@ -5718,7 +5755,8 @@ def render(h):
     status = _auto_speichern(m, h)
     if status:
         art, sz_name, zeit = status
-        text = (f"✓ Automatisch gespeichert als „{sz_name}“ · {zeit} Uhr" if art == "ok" else
+        text = (f"✓ Automatisch gespeichert im Arbeitsstand „{sz_name}“ · {zeit} Uhr – gespeicherte Varianten bleiben "
+                "unverändert" if art == "ok" else
                 "⚠ Dein gespeichertes Modell war beim Öffnen nicht lesbar – damit es nicht überschrieben wird, "
                 "wird gerade nicht automatisch gespeichert. Bitte die Seite neu laden." if art == "lesefehler" else
                 "⚠ Automatische Speicherung nicht möglich (GitHub-Speicher nicht erreichbar) – "
