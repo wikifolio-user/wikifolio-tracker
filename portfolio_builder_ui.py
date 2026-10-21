@@ -8,7 +8,6 @@ import copy
 import datetime
 import html
 import json
-import logging
 
 import pandas as pd
 import streamlit as st
@@ -1126,11 +1125,8 @@ def render(h):
     _diagramme(r)
     _positionen_tabelle(r)
     _ergebnis(r)
-    try:
-        import scanner_ui
-        st.markdown(scanner_ui.CSS, unsafe_allow_html=True)
-        scanner_ui.render(h, e, lambda: _katalog(h))
-    except Exception as fehler:                 # der Scanner darf den Builder nie mitreissen
-        logging.exception("Investment-Scanner")
-        st.error(f"⚠️ Investment-Scanner: {fehler}")
+    if (h or {}).get("zum_scanner"):            # Scanner = eigene Ansicht unter Planung & Analyse
+        st.button("🤖 Investment-Scanner: Musterdepot für dieses Ziel", key="pb_zum_scanner", width="stretch",
+                  on_click=h["zum_scanner"], help="Bewertet Aktien, ETFs und wikifolios und stellt ein Musterdepot "
+                                                  "für Kapital, Sparrate, Laufzeit und Ziel von hier zusammen.")
     _speicherleiste(h, e)

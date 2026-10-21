@@ -2649,6 +2649,7 @@ ANSICHT_ABFINDUNG = "💶 Abfindungsrechner"
 ANSICHT_ZINS = "🧮 Zinseszinsrechner"
 ANSICHT_BENUTZER = "👥 Benutzer"      # nur fuer den Admin sichtbar
 ANSICHT_BUILDER = "🚀 Portfolio Builder 2.0"
+ANSICHT_SCANNER = "🤖 Investment-Scanner"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
@@ -2670,6 +2671,7 @@ ANSICHTEN = [
     ANSICHT_ZINS,
     ANSICHT_BENUTZER,
     ANSICHT_BUILDER,            # neu: hinten anhaengen, damit die Kachel-Keys der anderen gleich bleiben
+    ANSICHT_SCANNER,
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2688,6 +2690,7 @@ ANSICHT_KURZ = {
     ANSICHT_ZINS: "🧮 Zinsen",
     ANSICHT_BENUTZER: "👥 Benutzer",
     ANSICHT_BUILDER: "🚀 Builder 2.0",
+    ANSICHT_SCANNER: "🤖 Scanner",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2702,6 +2705,7 @@ NAV_NAMEN = {
     "📊 Szenario-Simulator (5 Jahre)": "📊 Szenario-Simulator",
     "💼 Portfolio-Planer": "💼 Portfolio-Planer",
     ANSICHT_BUILDER: "🚀 Portfolio Builder 2.0",
+    ANSICHT_SCANNER: "🤖 Investment-Scanner",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
@@ -2720,12 +2724,12 @@ NAV_ZEILEN = [
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
-                           "💼 Portfolio-Planer", "🏆 Watchlist Top 50"]),
+                           ANSICHT_SCANNER, "💼 Portfolio-Planer", "🏆 Watchlist Top 50"]),
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", ANSICHT_BUILDER, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
+LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
@@ -5030,10 +5034,27 @@ def render_dashboard():
             portfolio_builder_ui.render({"gh_read": gh_read, "gh_write": gh_write,
                                          "gh_aktualisiere": gh_aktualisiere, "nutzer": _nutzer(),
                                          "gh_read_taeglich": gh_read_taeglich, "suche_instrument": suche_instrument,
-                                         "get_live_kurs": get_live_kurs, "lade_historie": lade_rohhistorie})
+                                         "get_live_kurs": get_live_kurs, "lade_historie": lade_rohhistorie,
+                                         "zum_scanner": (lambda: _nav_waehle(ANSICHT_SCANNER))
+                                         if _sichtbar(ANSICHT_SCANNER) else None})
         except Exception as e:
             st.error(f"⚠️ Fehler im Portfolio Builder: {e}")
             notify_app_error("Tab-Portfolio-Builder", e)
+        lade_fertig()
+
+    # --- INVESTMENT-SCANNER: eigene Ansicht; Kapital, Sparrate, Laufzeit, Ziel kommen aus dem Builder
+    # (Rechenkern scanner.py, Oberflaeche scanner_ui.py)
+    if gewaehlte_ansicht == ANSICHT_SCANNER:
+        _zugang_pruefen(ANSICHT_SCANNER)
+        try:
+            import scanner_ui
+            scanner_ui.seite({"gh_read": gh_read, "gh_write": gh_write, "gh_aktualisiere": gh_aktualisiere,
+                              "nutzer": _nutzer(), "gh_read_taeglich": gh_read_taeglich,
+                              "zum_builder": (lambda: _nav_waehle(ANSICHT_BUILDER))
+                              if _sichtbar(ANSICHT_BUILDER) else None})
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Investment-Scanner: {e}")
+            notify_app_error("Tab-Investment-Scanner", e)
         lade_fertig()
 
 

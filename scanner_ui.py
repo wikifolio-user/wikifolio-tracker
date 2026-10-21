@@ -1,6 +1,6 @@
-"""Investment-Scanner im Portfolio Builder (Oberflaeche). Rechenkern: scanner.py.
+"""Investment-Scanner (eigene Ansicht unter Planung & Analyse). Rechenkern: scanner.py.
 
-Kapital, Sparrate, Kredit, Laufzeit und Zielvermoegen kommen aus den Builder-Eingaben; die Scanner-
+Kapital, Sparrate, Kredit, Laufzeit und Zielvermoegen kommen aus den gespeicherten Builder-Eingaben; die Scanner-
 Einstellungen (Risikoprofil, Aufteilung, Verlusttoleranz, Hoechstgewicht, Kosten, Inflation) werden mit
 ihnen gespeichert. Gerechnet wird nur auf Knopfdruck - das Ergebnis bleibt in der Sitzung stehen.
 """
@@ -161,7 +161,7 @@ def _kennung(c):
     return c.get("isin") or c.get("wkn") or c.get("ticker") or "–"
 
 
-def _musterdepot(erg, kapital):
+def _musterdepot(erg, kapital, zum_builder=None):
     d = erg["depot"]
     for hw in d["hinweise"]:
         st.info(hw)
@@ -184,13 +184,13 @@ def _musterdepot(erg, kapital):
     st.caption(f"{len(d['positionen'])} Positionen, jede höchstens {_pct(d.get('max_gewicht', 5))} · Erwartung vor "
                f"Kosten · „Beitrag“ = Gewicht × erwartete Rendite.")
     # als Callback: laeuft vor dem Neuaufbau, darf also auch "Automatisch aufs Ziel" umstellen
-    st.button("📥 Musterdepot in den Builder übernehmen", key="pb_scan_uebernehmen", type="primary",
-              width="stretch", on_click=_uebernehmen, args=(d,),
-              help="Ersetzt die Positionen oben durch das Musterdepot (Gewichte, erwartete Renditen aus der "
-                   "Prognose). „Automatisch aufs Ziel“ wird dabei ausgeschaltet.")
+    st.button("📥 Musterdepot in den Portfolio Builder übernehmen", key="pb_scan_uebernehmen", type="primary",
+              width="stretch", on_click=_uebernehmen, args=(d, zum_builder),
+              help="Ersetzt die Positionen im Portfolio Builder durch das Musterdepot (Gewichte, erwartete Renditen "
+                   "aus der Prognose) und öffnet ihn. „Automatisch aufs Ziel“ wird dabei ausgeschaltet.")
 
 
-def _uebernehmen(d):
+def _uebernehmen(d, danach=None):
     pos = []
     for p in d["positionen"]:
         pos.append({"name": p["name"], "kurs": p.get("kurs") or 0.0, "gewicht": round(p["gewicht"], 4),
@@ -205,6 +205,8 @@ def _uebernehmen(d):
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
     st.session_state["pb_meldung"] = (f"Musterdepot mit {len(pos)} Positionen übernommen – fehlende Kurse werden "
                                       "geholt, die Stückzahlen rechnen sich daraus.")
+    if danach:
+        danach()
 
 
 def _top_investments(erg):
@@ -247,7 +249,7 @@ def _prognose(erg, e):
                                                                              f"Schwankung {_pct(erg['sigma'])}"),
          ("Erwartetes Endvermögen", _eur(a["end"][50]), f"Median, netto · real {_eur(real)}"),
          ("Zielwahrscheinlichkeit", _pct(w * 100 if w is not None else None, 0),
-          f"Ziel {_eur(ziel)}" if ziel > 0 else "Zielvermögen oben eintragen"),
+          f"Ziel {_eur(ziel)}" if ziel > 0 else "Zielvermögen im Portfolio Builder eintragen"),
          ("Zielerreichungs-Score", "–" if score is None else f"{score}/100",
           "Wahrscheinlichkeit, abgewertet bei verletzter Verlusttoleranz"),
          ("Max. Rückgang (95 %)", _pct(-a["dd95"], 0), "eingehalten" if dd_ok else
@@ -405,14 +407,51 @@ def _daten_annahmen(erg):
                "vergangene Entwicklungen sind kein verlässlicher Indikator für die Zukunft.")
 
 
-def render(h, e, katalog_fn):
-    """Scanner-Karte im Builder. e = bereinigte Builder-Eingaben, katalog_fn() = Builder-Katalog."""
+def _parameter(e, zum_builder):
+    """Eckdaten aus dem Portfolio Builder (dort werden sie geaendert)."""
+    rate = e["einzahlung"] - e["entnahme"] - e["ausgaben"]
+    laufzeit = f"{e['laufzeit']} {'Jahre' if e['laufzeit_einheit'] == 'Jahre' else 'Monate'}"
+    werte = [("Startkapital", _eur(e["anfangskapital"] + e["sonstiges_kapital"])),
+             ("Sparrate / Monat", _eur(rate)), ("Laufzeit", laufzeit),
+             ("Zielvermögen", _eur(e["zielvermoegen"]) if e["zielvermoegen"] > 0 else "nicht gesetzt")]
+    if e["kredit_summe"] > 0:
+        werte.append(("Kredit", _eur(e["kredit_summe"])))
+    st.markdown('<div class="pb-scan-kpis">' + "".join(
+        f'<div class="k"><div class="l">{_esc(l)}</div><div class="w">{_esc(w)}</div></div>' for l, w in werte)
+        + "</div>", unsafe_allow_html=True)
+    if e["zielvermoegen"] <= 0:
+        st.info("Kein Zielvermögen gesetzt – ohne Ziel gibt es keine Zielwahrscheinlichkeit und keine Alternativen. "
+                "Das Ziel trägst du im Portfolio Builder ein.")
+    if zum_builder:
+        st.button("✏️ Eckdaten im Portfolio Builder ändern", key="pb_scan_zum_builder", width="stretch",
+                  on_click=zum_builder)
+
+
+def seite(h):
+    """Eigene Ansicht: laedt die gespeicherten Builder-Eingaben, Scanner-Einstellungen werden mit ihnen gespeichert."""
+    import portfolio_builder_ui as B
+    st.markdown(B.CSS, unsafe_allow_html=True)
+    st.markdown(CSS, unsafe_allow_html=True)
+    B._start(h)
+    e = B._aus_widgets()
+    st.markdown('<div class="pb-kopf"><div class="pb-titel">Investment-<span>Scanner</span></div>'
+                '<div class="pb-unter">Aktien · ETFs · wikifolios → Musterdepot für dein Ziel</div></div>',
+                unsafe_allow_html=True)
+    with st.container(border=True, key="pb_scan_eckdaten"):
+        st.markdown('<div class="pb-karte-t">Eckdaten aus dem Portfolio Builder</div>', unsafe_allow_html=True)
+        _parameter(e, (h or {}).get("zum_builder"))
+    render(h, e, lambda: B._katalog(h), (h or {}).get("zum_builder"))
+    art, _ = B._automatisch_speichern(h, e)
+    if art in ("lesefehler", "fehler"):
+        st.caption("⚠ Einstellungen gerade nicht gespeichert – wird bei der nächsten Änderung erneut versucht.")
+
+
+def render(h, e, katalog_fn, zum_builder=None):
+    """Scanner-Karte. e = bereinigte Builder-Eingaben, katalog_fn() = Builder-Katalog."""
     with st.container(border=True, key="pb_scanner"):
-        st.markdown('<div class="pb-karte-t">🤖 Investment-Scanner – Musterdepot für dein Ziel</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="pb-karte-t">Risikoprofil & Regeln</div>', unsafe_allow_html=True)
         st.caption("Durchsucht Aktien (mit Fundamentaldaten), ETFs und wikifolios aus den Daten der Watchlist, bewertet "
-                   "sie, stellt ein Musterdepot zusammen und simuliert dein Ziel mit Kapital, Sparrate und Laufzeit von "
-                   "oben.")
+                   "sie, stellt ein Musterdepot zusammen und simuliert dein Ziel mit den Eckdaten oben.")
         _einstellungen(e)
         sig = _signatur(e)
         erg = st.session_state.get("pb_scan_erg")
@@ -431,7 +470,7 @@ def render(h, e, katalog_fn):
         tabs = st.tabs(["📦 Musterdepot", "🏆 Top-Investments", "📈 Prognose", "⚠️ Risiken", "🧭 Plan",
                         "ℹ️ Daten"])
         with tabs[0]:
-            _musterdepot(erg, kapital)
+            _musterdepot(erg, kapital, zum_builder)
         with tabs[1]:
             _top_investments(erg)
         with tabs[2]:
