@@ -384,6 +384,28 @@ class Renditen(unittest.TestCase):
         self.assertIsNone(P.renditen_ergaenzen(geleert, katalog)[0][0].get("rendite"))
 
 
+class Beispiele(unittest.TestCase):
+    def test_alte_platzhalter_werden_echte_produkte(self):
+        alt = [{"name": "MSCI World ETF", "kurs": 100, "gewicht": 60, "art": "sonstig"},
+               {"name": "Bitcoin ETP", "kurs": 50, "gewicht": 10, "rendite": 6.0},
+               {"name": "Tagesgeld / Cash", "kurs": 1, "gewicht": 10},
+               {"name": "MSCI World ETF", "kurs": 80, "gewicht": 20, "wkn": "A0RPWH"}]  # schon echt
+        neu, n = P.beispiele_ersetzen(alt)
+        self.assertEqual(n, 3)
+        self.assertEqual((neu[0]["name"], neu[0]["wkn"], neu[0]["art"], neu[0]["gewicht"]),
+                         ("iShares Core MSCI World UCITS ETF (Acc)", "A0RPWH", "etf", 60))
+        self.assertTrue(neu[0]["beispiel"])
+        self.assertEqual((neu[1]["wkn"], neu[1]["instrument_id"]), ("A2T64E", "982480"))
+        self.assertNotIn("rendite", neu[1])                                          # alter Vorschlag weg
+        self.assertEqual((neu[2]["rendite"], neu[2]["rendite_quelle"]), (2.0, "Annahme Tagesgeld"))
+        self.assertEqual(neu[3]["name"], "MSCI World ETF")                           # unveraendert
+        self.assertEqual(P.beispiele_ersetzen(neu)[1], 0)                            # nur einmal
+        self.assertTrue(P.bereinigen(eingaben(positionen=neu))["positionen"][0]["beispiel"])
+
+    def test_standard_hat_echte_kennungen(self):
+        self.assertTrue(all(p.get("wkn") for p in P.standard()["positionen"][:3]))
+
+
 class Rebalancing(unittest.TestCase):
     def _e(self, pos, **kw):
         return eingaben(anfangskapital=10000, positionen=pos, **kw)

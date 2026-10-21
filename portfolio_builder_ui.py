@@ -306,6 +306,29 @@ def kurse_aktualisieren(h, nur_fehlende=False):
     return ok, fehlt
 
 
+def _beispielkurse(h, pos):
+    """Startbeispiel: Platzhalter-Kurs durch den aktuellen Kurs ersetzen (je Sitzung ein Versuch je Wert).
+    -> (pos, Anzahl)"""
+    if not any(p.get("beispiel") for p in pos):
+        return pos, 0
+    versucht = st.session_state.setdefault("pb_beispiel_versucht", set())
+    pos, n = copy.deepcopy(pos), 0
+    for p in pos:
+        if not p.get("beispiel") or p["name"] in versucht:
+            continue
+        versucht.add(p["name"])
+        iid = p.get("instrument_id")
+        if not iid:
+            t = _instrument(h, [p.get("wkn"), p.get("isin")])
+            iid = t and t.get("instrument_id")
+        kurs = _live_kurs(h, iid)
+        if kurs:
+            p["kurs"], p["instrument_id"] = round(kurs, 4), str(iid)
+            p.pop("beispiel", None)
+            n += 1
+    return pos, n
+
+
 def _renditen_aus_historie(h, pos, basis="1J"):
     """Werte, die weder im Katalog noch in den Ranglisten stehen: erwartete Rendite aus der eigenen
     Kurshistorie (ls-tc.de, wie im Depot). Je Sitzung nur einmal je Wert versucht. -> (pos, Anzahl)"""
@@ -367,6 +390,7 @@ def _in_widgets(e):
     st.session_state["pb_positionen"] = copy.deepcopy(e["positionen"])
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
     st.session_state["pb_add_ver"] = st.session_state.get("pb_add_ver", 0) + 1   # Vorschlaege neu
+    st.session_state.pop("pb_beispiel_versucht", None)       # neue Beispielwerte: Kurse wieder holen
 
 
 def _widgets_wiederherstellen():
@@ -1061,6 +1085,13 @@ def render(h):
     kpi_platz = st.empty()
     kredit_spalte, ziel_spalte = _eingaben()
     e = _aus_widgets()
+    # fruehere Platzhalter des Startbeispiels -> echte Produkte, deren Kurse live (einmal je Sitzung)
+    pos, n = P.beispiele_ersetzen(e["positionen"])
+    pos, m = _beispielkurse(h, pos)
+    if n or m:
+        st.session_state["pb_positionen"] = pos
+        st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+        e = _aus_widgets()
     if any(P.rendite_automatisch(p) or p["kurs"] <= 0 or p.get("art") == "sonstig" for p in e["positionen"]):
         # Rendite (automatische aktuell halten), fehlenden Kurs und Art aus Katalog/Ranglisten bzw. Kurshistorie
         # Reihenfolge: Katalog/Ranglisten ab 1 Jahr -> eigene Kurshistorie -> erst dann kurze Zeitraeume

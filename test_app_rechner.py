@@ -24,7 +24,7 @@ FUNKTIONEN = [
     "entnahme_rate_aus_state", "hochgerechnete_rendite_pa", "prognose_rate_rueckfall", "depot_kennzahlen",
     "berechne_reale_stueckzahl", "berechne_performance_kennzahlen", "perf_sortierwert",
     "realisierte_rendite_pa", "gesamt_perioden_berechnen", "haenge_live_punkt_an",
-    "_berlin_tage", "mc_einsatz", "simuliere_bandbreite",
+    "_berlin_tage", "mc_einsatz", "simuliere_bandbreite", "wikifolio_werte", "wikifolio_rangliste",
 ]
 
 
@@ -392,6 +392,24 @@ class QuellcodeRegeln(unittest.TestCase):
 
     def test_kein_fester_70_euro_text(self):                    # DEP-03
         self.assertNotIn("70€/Monat", self.src)
+
+
+class WikifolioListe(unittest.TestCase):
+    KAT = {"top": {"1J": [{"name": "Alpha", "wkn": "LS9AAA", "perf": 50.0}],
+                   "6M": [{"name": "Beta", "wkn": "LS9BBB", "perf": 80.0}]}}
+    LANG = {"top": {"1J": [["Alpha", "LS9AAA", 49.0, None], ["Gamma", "LS9CCC", 30.0, None]],
+                    "3J": [["Gamma", "LS9CCC", 120.0, None]], "6M": [["Beta", "LS9BBB", 80.0, None]]}}
+
+    def test_zusammenfuehren_und_rang(self):
+        w = A["wikifolio_werte"](self.KAT, self.LANG)
+        self.assertEqual(set(w), {"LS9AAA", "LS9BBB", "LS9CCC"})
+        self.assertEqual(w["LS9AAA"]["perf"]["1J"], 50.0)                 # Top 50 (aktueller) zuerst
+        self.assertEqual(w["LS9CCC"]["perf"], {"1J": 30.0, "3J": 120.0})
+        r = A["wikifolio_rangliste"](w, "1J")
+        self.assertEqual([(x["rang"], x["wkn"]) for x in r], [(1, "LS9AAA"), (2, "LS9CCC")])  # Beta ohne 1J
+        self.assertEqual([x["rang"] for x in A["wikifolio_rangliste"](w, "1J", "gamma")], [2])
+        self.assertEqual(len(A["wikifolio_rangliste"](w, "1J", n=1)), 1)
+        self.assertEqual(A["wikifolio_rangliste"]({}, "1J"), [])
 
 
 class SitzungEingaben(unittest.TestCase):
