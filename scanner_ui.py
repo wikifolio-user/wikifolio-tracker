@@ -226,7 +226,9 @@ def _ziel_zeile(erg):
               else "❌ Ziel mit diesem Depot kaum erreichbar")
     text = (f"{urteil}: Für {_eur(e['zielvermoegen'])} nötig ≈ {noetig} p. a. – dieses Depot erwartet ≈ "
             f"{_pct(erw, 1)} p. a. (Wahrscheinlichkeit {_de(w * 100)} %).")
-    if w < 0.2:
+    if w < 0.5 and erg.get("ziel_depot") and erg["ziel_depot"]["positionen"]:
+        text += " Ein Depot, das das Ziel rechnerisch erreicht, steht direkt darunter („🎯 Zielrendite-Musterdepot“)."
+    elif w < 0.2:
         text += (" Mehr Rendite heißt mehr Risiko – realistischer sind meist eine höhere Einzahlung, mehr Jahre "
                  "oder ein niedrigeres Ziel (siehe „📈 Prognose“ → Alternativen).")
     (st.success if w >= 0.5 else st.warning if w >= 0.2 else st.error)(text)
@@ -239,6 +241,8 @@ def _ziel_depot_anzeige(erg, kapital):
         return
     ben = (erg.get("benoetigt") or {}).get("rendite")
     st.markdown("#### 🎯 Zielrendite-Musterdepot")
+    st.caption("Durchsucht alle Werte der Top-500-Daten nach der bisherigen Rendite – unten folgt dein normales "
+               "Musterdepot mit deiner Aufteilung.")
     if zd["erreicht"]:
         st.warning(f"Rechnerisch erreichbar: Diese {len(zd['positionen'])} Werte hatten in der Vergangenheit zusammen "
                    f"≈ {_pct(zd['hist_rendite'], 1)} p. a. – nötig sind ≈ {_pct(ben, 1)} p. a. Das setzt voraus, dass "
@@ -266,6 +270,7 @@ def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
         if md[0] == "ok" and zum_muster:
             st.button("📦 Musterdepot ansehen", key="pb_scan_zum_muster", on_click=zum_muster)
     _ziel_zeile(erg)
+    _ziel_depot_anzeige(erg, kapital)                # erreicht das Ziel rechnerisch - gleich hier, nicht ganz unten
     d = erg["depot"]
     for hw in d["hinweise"]:
         st.info(hw)
@@ -292,7 +297,6 @@ def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
               width="stretch", on_click=_uebernehmen, args=(d, zum_builder),
               help="Ersetzt die Positionen im Portfolio Builder durch das Musterdepot (Gewichte, erwartete Renditen "
                    "aus der Prognose) und öffnet ihn. „Automatisch aufs Ziel“ wird dabei ausgeschaltet.")
-    _ziel_depot_anzeige(erg, kapital)
 
 
 def _uebernehmen(d, danach=None):
