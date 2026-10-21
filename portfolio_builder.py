@@ -38,6 +38,7 @@ STANDARD = {
     "kredit_rate": 0.0,             # EUR je Monat
     "einzahlung": 300.0,            # EUR je Monat
     "entnahme": 0.0,
+    "entnahme_art": "betrag",       # "betrag": Entnahme €/Monat | "stueck": Verkauf Stueck je Position und Monat
     "ausgaben": 0.0,
     "laufzeit": 10,
     "laufzeit_einheit": "Jahre",    # "Jahre" | "Monate"
@@ -101,6 +102,7 @@ def bereinigen(e):
     aus["laufzeit"] = min(max(int(_zahl(aus["laufzeit"], 1)), 1),
                           MAX_MONATE if aus["laufzeit_einheit"] == "Monate" else MAX_MONATE // 12)
     aus["nur_ganze_stuecke"] = bool(aus.get("nur_ganze_stuecke"))
+    aus["entnahme_art"] = "stueck" if aus.get("entnahme_art") == "stueck" else "betrag"
     pos = []
     for p in aus.get("positionen") or []:
         if not isinstance(p, dict):
@@ -126,6 +128,9 @@ def bereinigen(e):
         for k in ("wkn", "isin", "instrument_id"):          # Kennungen fuer den Kursabruf
             if p.get(k) not in (None, ""):
                 neu[k] = str(p[k]).strip()
+        verkauf = min(max(_zahl(p.get("verkauf_stueck")), 0.0), MAX_KAPITAL)
+        if verkauf > 0:                                       # Entnahme per Stueck: Verkauf je Monat
+            neu["verkauf_stueck"] = verkauf
         pos.append(neu)
     aus["positionen"] = pos
     return aus
@@ -511,6 +516,81 @@ def rendite_monat(e, rendite_pa=None):
     return (1.0 + r / 100.0) ** (1.0 / 12.0) - 1.0
 
 
+ENTNAHME_ARTEN = {"betrag": "€-Betrag", "stueck": "Stückzahlen"}
+
+
+def entnahmeplan(e):
+    """Verkaufsplan fuer die Entnahmen: je Monat, wie viele Stuecke jeder Position verkauft werden.
+    Kurse entwickeln sich mit der Rendite der Position; die Einzahlung kauft jeden Monat Stuecke nach Gewicht
+    dazu (wie ein Sparplan, Bruchstuecke erlaubt), danach wird verkauft.
+    - entnahme_art "stueck": je Position die eingetragene Stueckzahl pro Monat (verkauf_stueck), bis
+      der Bestand aufgebraucht ist; die Entnahme in EUR ergibt sich daraus (Stueck x Kurs des Monats)
+    - entnahme_art "betrag": die Entnahme EUR/Monat wird anteilig nach aktuellem Wert auf die Positionen
+      verteilt, die Stueckzahl je Monat ergibt sich daraus
+    -> {"monatlich": [EUR je Monat 1..n], "zeilen": [je Position: name, stueck_start, verkauf_monat (1. Monat),
+        erloes_monat (1. Monat), stueck_ende, leer_monat (None = reicht), erloes_gesamt], "fehlt": EUR nicht
+        gedeckt (nur "betrag")}"""
+    e = bereinigen(e)
+    n, pos = monate(e), positionen(e)
+    stueck_art = e["entnahme_art"] == "stueck"
+    ganz = e["nur_ganze_stuecke"]
+    kurs = [z["kurs"] for z in pos["zeilen"]]
+    faktor = [(1.0 + position_rendite(e, p) / 100.0) ** (1.0 / 12.0) for p in e["positionen"]]
+    rest = [z["stueck"] for z in pos["zeilen"]]
+    gewicht = [p["gewicht"] / 100.0 for p in e["positionen"]]
+    zeilen = [{"name": z["name"], "stueck_start": z["stueck"], "verkauf_monat": 0.0, "erloes_monat": 0.0,
+               "stueck_ende": z["stueck"], "leer_monat": None, "erloes_gesamt": 0.0} for z in pos["zeilen"]]
+    monatlich, fehlt = [], 0.0
+    for t in range(1, n + 1):
+        kurs = [k * f for k, f in zip(kurs, faktor)]
+        if e["einzahlung"] > 0:
+            rest = [r + (e["einzahlung"] * g / k if k > 0 else 0.0) for r, g, k in zip(rest, gewicht, kurs)]
+        if stueck_art:
+            wunsch = []
+            for p in e["positionen"]:
+                s = p.get("verkauf_stueck", 0.0)
+                wunsch.append(math.floor(s + EPS) if ganz else s)
+            verkauf = [min(w, r) for w, r in zip(wunsch, rest)]
+        else:
+            werte = [r * k for r, k in zip(rest, kurs)]
+            summe = sum(werte)
+            bedarf = e["entnahme"]
+            if summe <= EPS:
+                verkauf = [0.0] * len(rest)
+            else:
+                anteil = min(bedarf / summe, 1.0)
+                verkauf = [r * anteil for r in rest]
+            fehlt += max(bedarf - min(bedarf, summe), 0.0)
+        erloes = 0.0
+        for i, s in enumerate(verkauf):
+            if s <= EPS:
+                continue
+            rest[i] = max(rest[i] - s, 0.0)
+            betrag = s * kurs[i]
+            erloes += betrag
+            z = zeilen[i]
+            z["erloes_gesamt"] += betrag
+            if t == 1:
+                z["verkauf_monat"], z["erloes_monat"] = s, betrag
+            if rest[i] <= 1e-9 and z["leer_monat"] is None:
+                z["leer_monat"] = t
+        monatlich.append(erloes)
+    for z, r in zip(zeilen, rest):
+        z["stueck_ende"] = r
+    return {"monatlich": monatlich, "zeilen": zeilen, "fehlt": fehlt}
+
+
+def entnahmen(e):
+    """Entnahme EUR je Monat 1..n: fester Betrag oder (entnahme_art "stueck") aus dem Verkaufsplan."""
+    return _entnahmen(bereinigen(e))
+
+
+def _entnahmen(e):                       # e bereits bereinigt
+    if e["entnahme_art"] == "stueck":
+        return entnahmeplan(e)["monatlich"]
+    return [e["entnahme"]] * monate(e)
+
+
 def simulation(e, rendite_pa=None):
     """Monatliche Simulation. rendite_pa: Portfolio-Rendite vorgeben (sonst aus den Positionen).
     -> dict mit Verlauf (Monat 0..n) und Kennzahlen."""
@@ -527,13 +607,14 @@ def simulation(e, rendite_pa=None):
     rate_zu_klein = d > EPS and e["kredit_rate"] <= d * iz + EPS
     getilgt_monat = None
     erster_cashflow = None
+    ent = _entnahmen(e)
     for t in range(1, n + 1):
         zinsen = d * iz
         rate = min(e["kredit_rate"], d + zinsen) if d > EPS else 0.0
         d = max(d + zinsen - rate, 0.0)
         if d <= 0.005 and getilgt_monat is None and e["kredit_summe"] > 0:
             d, getilgt_monat = 0.0, t
-        cashflow = e["einzahlung"] - e["entnahme"] - e["ausgaben"] - rate
+        cashflow = e["einzahlung"] - ent[t - 1] - e["ausgaben"] - rate
         if erster_cashflow is None:
             erster_cashflow = cashflow
         ertrag = v * rm
@@ -542,7 +623,7 @@ def simulation(e, rendite_pa=None):
             summen["fehlbetrag"] += -v
             v = 0.0
         summen["einzahlung"] += e["einzahlung"]
-        summen["entnahme"] += e["entnahme"]
+        summen["entnahme"] += ent[t - 1]
         summen["ausgaben"] += e["ausgaben"]
         summen["kreditrate"] += rate
         summen["zinsen"] += zinsen

@@ -48,6 +48,66 @@ class Simulation(unittest.TestCase):
         self.assertTrue(all(z["portfolio"] >= 0 for z in r["verlauf"]))
 
 
+class Entnahmeplan(unittest.TestCase):
+    def _e(self, **kw):
+        pos = [{"name": "A", "kurs": 100.0, "gewicht": 50.0, "rendite": 0.0, "verkauf_stueck": 2},
+               {"name": "B", "kurs": 10.0, "gewicht": 50.0, "rendite": 12.0, "verkauf_stueck": 5}]
+        kw.setdefault("entnahme_art", "stueck")
+        return eingaben(anfangskapital=10000, laufzeit=12, laufzeit_einheit="Monate", positionen=pos, **kw)
+
+    def test_stueck_verkauf_ergibt_entnahme(self):
+        e = self._e()
+        plan = P.entnahmeplan(e)
+        fb = 1.12 ** (1 / 12)
+        # Monat t: 2 x 100 (A ohne Rendite) + 5 x 10 x fb^t (B waechst mit 12 % p. a.)
+        for t, betrag in enumerate(plan["monatlich"], 1):
+            self.assertAlmostEqual(betrag, 200 + 50 * fb ** t, places=9)
+        a, b = plan["zeilen"]
+        self.assertAlmostEqual(a["stueck_ende"], 50 - 24, places=9)
+        self.assertAlmostEqual(b["stueck_ende"], 500 - 60, places=9)
+        self.assertEqual(a["verkauf_monat"], 2)
+        self.assertIsNone(a["leer_monat"])
+        r = P.simulation(e)
+        self.assertAlmostEqual(r["summen"]["entnahme"], sum(plan["monatlich"]), places=6)
+        self.assertAlmostEqual(r["cashflow_monat"], -plan["monatlich"][0], places=9)
+
+    def test_bestand_aufgebraucht_und_ganze_stuecke(self):
+        e = self._e(nur_ganze_stuecke=True)
+        e["positionen"][0]["verkauf_stueck"] = 7.9                       # ganze Stuecke: 7 je Monat
+        a = P.entnahmeplan(e)["zeilen"][0]
+        self.assertEqual(a["verkauf_monat"], 7)
+        self.assertEqual(a["leer_monat"], 8)                              # 50 Stueck: 7 x 7 + 1 Rest
+        self.assertAlmostEqual(a["stueck_ende"], 0.0, places=9)
+        self.assertAlmostEqual(a["erloes_gesamt"], 50 * 100, places=9)
+
+    def test_betrag_anteilig_nach_wert(self):
+        e = self._e(entnahme_art="betrag", entnahme=300)
+        plan = P.entnahmeplan(e)
+        a, b = plan["zeilen"]
+        self.assertAlmostEqual(a["erloes_monat"] + b["erloes_monat"], 300, places=9)
+        wert_a, wert_b = 50 * 100, 500 * 10 * 1.12 ** (1 / 12)                # Werte im 1. Monat
+        self.assertAlmostEqual(a["erloes_monat"], 300 * wert_a / (wert_a + wert_b), places=9)
+        self.assertAlmostEqual(a["verkauf_monat"], a["erloes_monat"] / 100, places=9)
+        self.assertAlmostEqual(sum(plan["monatlich"]), 3600, places=6)
+        self.assertEqual(plan["fehlt"], 0.0)
+        self.assertEqual(P.simulation(e)["summen"]["entnahme"], 3600)   # Simulation wie bisher
+
+    def test_einzahlung_kauft_nach_gewicht(self):
+        e = self._e(einzahlung=1000)
+        a, b = P.entnahmeplan(e)["zeilen"]
+        self.assertAlmostEqual(a["stueck_ende"], 50 + 12 * 500 / 100 - 24, places=9)    # +5 je Monat, -2
+        fb = 1.12 ** (1 / 12)
+        gekauft = sum(500 / (10 * fb ** t) for t in range(1, 13))
+        self.assertAlmostEqual(b["stueck_ende"], 500 + gekauft - 60, places=9)
+
+    def test_ohne_verkauf_keine_entnahme(self):
+        e = self._e()
+        for p in e["positionen"]:
+            p.pop("verkauf_stueck")
+        self.assertEqual(sum(P.entnahmen(e)), 0.0)
+        self.assertNotIn("verkauf_stueck", P.bereinigen(e)["positionen"][0])
+
+
 class Kredit(unittest.TestCase):
     def test_annuitaet(self):
         # 10.000 EUR, 6 % p.a., 24 Monate: Rate nach Annuitaetenformel

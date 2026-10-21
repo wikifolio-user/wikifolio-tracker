@@ -21,7 +21,7 @@ except Exception:        # pragma: no cover - ohne nutzerdaten.py: gemeinsamer P
 
 PFAD = "state/portfolio_builder.json"
 FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa", "kredit_rate",
-          "einzahlung", "entnahme", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke",
+          "einzahlung", "entnahme", "entnahme_art", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke",
           "zielvermoegen", "auto_ziel", "rendite_basis",
           # Investment-Scanner (scanner_ui.py)
           "scan_profil", "scan_etf", "scan_aktie", "scan_wikifolio", "scan_cash", "scan_max_dd", "scan_max_gewicht",
@@ -499,7 +499,12 @@ def _eingaben():
                               help="Zusätzlich verfügbares Kapital, z. B. Bonus oder Erbe – wird mit angelegt.")
             c[2].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f",
                               key="pb_einzahlung")
-            c[3].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme")
+            stueck = st.session_state.get("pb_entnahme_art") == "stueck"
+            c[3].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme",
+                              disabled=stueck,
+                              help="Ergibt sich aus den Stückzahlen im Entnahmeplan (unten)." if stueck else
+                                   "Fester Betrag je Monat – im Entnahmeplan (unten) siehst du, wie viele Stücke dafür "
+                                   "je Position verkauft werden. Oder dort „Stückzahlen“ wählen.")
         with st.container(key="pb_reihe2"):
             c = st.columns(4, vertical_alignment="bottom")
             c[0].number_input("Ausgaben €/Monat", 0.0, P.MAX_MONATLICH, step=10.0, format="%.0f", key="pb_ausgaben",
@@ -1003,6 +1008,82 @@ def _positionen_tabelle(r):
                         unsafe_allow_html=True)
 
 
+def _entnahmeplan(r):
+    """Entnahme als fester Betrag oder ueber den Verkauf von Stuecken je Position und Monat."""
+    e, pos = r["eingaben"], r["positionen"]
+    with st.container(border=True, key="pb_entnahmeplan"):
+        st.markdown('<div class="pb-karte-t">Entnahmeplan</div>', unsafe_allow_html=True)
+        st.radio("Entnahme als", list(P.ENTNAHME_ARTEN), format_func=P.ENTNAHME_ARTEN.get, key="pb_entnahme_art",
+                 horizontal=True, help="€-Betrag: fester Betrag je Monat (oben), verkauft wird anteilig nach Wert. "
+                                       "Stückzahlen: je Position festlegen, wie viele Stücke pro Monat verkauft "
+                                       "werden – die Entnahme in € ergibt sich aus dem jeweiligen Kurs.")
+        stueck = e["entnahme_art"] == "stueck"
+        if not e["positionen"]:
+            st.caption("Noch keine Positionen.")
+            return
+        if stueck:
+            df = pd.DataFrame([{"Name": z["name"], "Bestand Stück": round(z["stueck"], 4),
+                                "Verkauf Stk./Monat": float(p.get("verkauf_stueck", 0.0))}
+                               for z, p in zip(pos["zeilen"], e["positionen"])])
+            key = f"pb_verkauf_{st.session_state.get('pb_tab_ver', 0)}"
+            st.data_editor(df, key=key, hide_index=True, width="stretch", disabled=["Name", "Bestand Stück"],
+                           column_order=["Name", "Verkauf Stk./Monat", "Bestand Stück"],   # Eingabe ohne Wischen
+                           column_config={
+                               "Name": st.column_config.TextColumn("Name", width=120 if _smartphone() else "medium"),
+                               "Bestand Stück": st.column_config.NumberColumn("Bestand Stück", format="localized"),
+                               "Verkauf Stk./Monat": st.column_config.NumberColumn(
+                                   "Verkauf Stk./Monat", min_value=0.0, format="localized",
+                                   step=1.0 if e["nur_ganze_stuecke"] else 0.0001,
+                                   help="So viele Stücke werden jeden Monat verkauft, bis der Bestand aufgebraucht "
+                                        "ist. 0 = diese Position nicht verkaufen.")})
+            geaendert = (st.session_state.get(key) or {}).get("edited_rows") or {}
+            if any("Verkauf Stk./Monat" in w for w in geaendert.values()):
+                neu = copy.deepcopy(e["positionen"])
+                for i, w in geaendert.items():
+                    if "Verkauf Stk./Monat" in w and 0 <= int(i) < len(neu):
+                        neu[int(i)]["verkauf_stueck"] = max(P._zahl(w["Verkauf Stk./Monat"]), 0.0)
+                st.session_state["pb_positionen"] = P.bereinigen({"positionen": neu})["positionen"]
+                st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
+                st.rerun()
+        elif e["entnahme"] <= 0:
+            st.caption("Keine Entnahme eingetragen – oben „Entnahme €/Monat“ ausfüllen oder hier „Stückzahlen“ "
+                       "wählen.")
+            return
+        plan = P.entnahmeplan(e)
+        if not any(plan["monatlich"]):
+            st.caption("Noch keine Verkäufe eingetragen – in der Spalte „Verkauf Stk./Monat“ je Position die "
+                       "Stückzahl pro Monat eintragen.")
+            return
+        heute = datetime.date.today().replace(day=1)
+        ganz = e["nur_ganze_stuecke"]
+        zeilen = []
+        for z in plan["zeilen"]:
+            if z["erloes_gesamt"] <= 0.005:
+                continue
+            leer = (_monat_plus(heute, z["leer_monat"]).strftime("%m/%Y") if z["leer_monat"] else "reicht")
+            dez = 0 if ganz else 2
+            zeilen.append(f'<tr><td>{_esc(z["name"])}</td><td>{_de(z["verkauf_monat"], dez)}</td>'
+                          f'<td>{eur(z["erloes_monat"], 2)}</td><td>{_de(z["stueck_ende"], dez)}</td>'
+                          f'<td>{_esc(leer)}</td><td>{eur(z["erloes_gesamt"])}</td></tr>')
+        erster, gesamt = plan["monatlich"][0], sum(plan["monatlich"])
+        zeilen.append(f'<tr class="summe"><td>Summe</td><td></td><td>{eur(erster, 2)}</td><td></td><td></td>'
+                      f'<td>{eur(gesamt)}</td></tr>')
+        st.markdown('<div class="pb-wrap" tabindex="0" role="region" aria-label="Entnahmeplan (seitlich scrollbar)">'
+                    '<table class="pb-tab"><thead><tr><th>Position</th><th>Verkauf Stk./Monat</th>'
+                    '<th>Erlös 1. Monat</th><th>Bestand am Ende</th><th>Aufgebraucht</th><th>Erlös gesamt</th>'
+                    '</tr></thead><tbody>' + "".join(zeilen) + "</tbody></table></div>", unsafe_allow_html=True)
+        text = (f"Entnahme im 1. Monat {eur(erster, 2)}, über die Laufzeit {eur(gesamt)} – der Betrag ändert sich "
+                "mit den Kursen (Rendite je Position)." if stueck else
+                "Verkauft wird jeden Monat anteilig nach dem aktuellen Wert der Positionen; die Stückzahl in der "
+                "Tabelle gilt für den 1. Monat.")
+        if not stueck and plan["fehlt"] > 0.005:
+            text += f" Die Positionen reichen nicht für alle Entnahmen (es fehlen {eur(plan['fehlt'])})."
+        if e["einzahlung"] > 0:
+            text += (f" Die Einzahlung ({eur(e['einzahlung'])}/Monat) kauft jeden Monat Stücke nach Gewicht dazu – "
+                     "„Bestand am Ende“ enthält diese Käufe.")
+        st.markdown(f'<div class="pb-hinweis" style="margin-top:8px">{_esc(text)}</div>', unsafe_allow_html=True)
+
+
 def _ergebnis(r):
     s, e = r["summen"], r["eingaben"]
     gewinn = s["rendite"]
@@ -1033,7 +1114,8 @@ def _ergebnis(r):
 <b>Anlagekapital</b> = Anfangskapital + sonstiges Kapital + Kredit = {eur(r['anlagekapital'])}.
 Der Kredit wird mit angelegt und als Schuld wieder abgezogen – er zählt nicht doppelt.<br>
 <b>Je Monat</b>: 1) Kreditzinsen = Restschuld × {pct(e['kredit_zins_pa'], 2)} / 12, gezahlt wird die Rate
-(zuletzt nur der Rest). 2) Netto-Cashflow = Einzahlung − Entnahme − Ausgaben − Kreditrate.
+(zuletzt nur der Rest). 2) Netto-Cashflow = Einzahlung − Entnahme − Ausgaben − Kreditrate. Bei „Entnahme als
+Stückzahlen“ ist die Entnahme der Erlös der verkauften Stücke (Kurs je Position mit ihrer Rendite fortgeschrieben).
 3) Portfolio = Portfolio × (1 + r) + Cashflow mit r = (1 + {pct(e['rendite_pa'], 2)})^(1/12) − 1.
 Unter 0 fällt das Portfolio nicht; fehlende Beträge werden als Fehlbetrag ausgewiesen.<br>
 <b>Nettoendvermögen</b> = Endwert − Restschuld. Szenariorechnung mit gleichbleibender Rendite – keine Prognose
@@ -1124,6 +1206,7 @@ def render(h):
         _kpis(r)
     _diagramme(r)
     _positionen_tabelle(r)
+    _entnahmeplan(r)
     _ergebnis(r)
     if (h or {}).get("zum_scanner"):            # Scanner = eigene Ansicht unter Planung & Analyse
         st.button("🤖 Investment-Scanner: Musterdepot für dieses Ziel", key="pb_zum_scanner", width="stretch",
