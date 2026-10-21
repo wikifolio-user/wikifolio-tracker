@@ -46,6 +46,9 @@ STANDARD = {
     "rendite_basis": "1J",          # Grundlage der Rendite-Vorschlaege (siehe BASEN)
     "auto_ziel": False,             # Gewichte automatisch so verteilen, dass das Ziel erreicht wird
     "nur_ganze_stuecke": False,
+    # Investment-Scanner (siehe scanner.EINSTELLUNGEN; geprueft in scanner.einstellungen_bereinigen)
+    "scan_profil": "mittel", "scan_etf": 50.0, "scan_aktie": 30.0, "scan_wikifolio": 15.0, "scan_cash": 5.0,
+    "scan_max_dd": 40.0, "scan_max_gewicht": 5.0, "scan_kosten": 0.3, "scan_inflation": 2.0, "scan_optimieren": True,
     # Startbeispiel mit echten Produkten (Kurs-IDs wie in config.BENCHMARKS); die Kurse sind nur
     # Platzhalter und werden beim ersten Oeffnen durch den aktuellen Kurs ersetzt ("beispiel")
     "positionen": [
@@ -92,6 +95,8 @@ def bereinigen(e):
     aus["zielvermoegen"] = min(max(_zahl(aus["zielvermoegen"]), 0.0), MAX_KAPITAL)
     aus["auto_ziel"] = bool(aus.get("auto_ziel"))
     aus["rendite_basis"] = aus.get("rendite_basis") if aus.get("rendite_basis") in BASEN else "1J"
+    import scanner                                            # spaeter Import: scanner nutzt diesen Kern
+    aus.update(scanner.einstellungen_bereinigen(aus))
     aus["laufzeit_einheit"] = "Monate" if aus.get("laufzeit_einheit") == "Monate" else "Jahre"
     aus["laufzeit"] = min(max(int(_zahl(aus["laufzeit"], 1)), 1),
                           MAX_MONATE if aus["laufzeit_einheit"] == "Monate" else MAX_MONATE // 12)
@@ -302,9 +307,10 @@ def entwicklung_aus_historie(punkte):
 
 
 def rendite_automatisch(p):
-    """Rendite der Position darf aus den Daten (neu) vorgeschlagen werden: nicht selbst eingetragen
-    und nicht bewusst auf die allgemeine gesetzt."""
-    return p.get("rendite_quelle") != "eigene" and not p.get("allgemein")
+    """Rendite der Position darf aus den Daten (neu) vorgeschlagen werden: nicht selbst eingetragen, nicht
+    aus dem Investment-Scanner uebernommen und nicht bewusst auf die allgemeine gesetzt."""
+    q = str(p.get("rendite_quelle") or "")
+    return q != "eigene" and not q.startswith("Scanner") and not p.get("allgemein")
 
 
 def renditen_ergaenzen(pos, katalog, basis="1J", kurz=True):
