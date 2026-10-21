@@ -155,13 +155,13 @@ def kandidaten_aktien(qualitaet_werte, alle_aktien, fx=None, isin_je_symbol=None
     return aus
 
 
-def kandidaten_katalog(katalog):
+def kandidaten_katalog(katalog, arten=("etf", "wikifolio")):
     """ETFs und wikifolios aus dem Katalog des Builders (Watchlist-Katalog + Ranglisten). Hebel-,
     Short- und Krypto-Produkte fallen heraus."""
     aus = []
     for w in katalog or []:
         art = w.get("art")
-        if art not in ("etf", "wikifolio") or _HEBEL.search(str(w.get("name") or "")):
+        if art not in arten or _HEBEL.search(str(w.get("name") or "")):
             continue
         perf = {z: _z(w.get(z)) for z, _ in ZEITRAEUME_PA if _z(w.get(z)) is not None}
         if not perf:
@@ -767,6 +767,24 @@ def kurs_fehlt(bewertet, min_score=55, je_klasse=25):
     return aus
 
 
+PLAUSIBEL = {"min_kurs": 1.0, "vola": (3.0, 120.0), "min_dd": -90.0, "max_rendite": 150.0}
+
+
+def plausibel(c, rendite=None):
+    """Datenfehler aussortieren (eingestellte wikifolios mit Kurs 0,006 EUR, Totalverluste, Sprungwerte durch
+    Splits, Vola 0 oder ueber 120 %, mehr als 150 % p. a.) - sonst 'erreicht' ein Depot das Ziel nur auf dem Papier
+    eines Datenfehlers."""
+    p = PLAUSIBEL
+    if not (c.get("kurs") or 0) >= p["min_kurs"]:
+        return False
+    v, dd = c.get("vola"), c.get("maxdd")
+    if v is not None and not (p["vola"][0] <= v <= p["vola"][1]):
+        return False
+    if dd is not None and dd < p["min_dd"]:
+        return False
+    return rendite is None or rendite <= p["max_rendite"]
+
+
 def ziel_depot(bewertet, benoetigt, max_gewicht=5.0, max_je_branche=3, tagesgeld=None):
     """'Zielrendite'-Depot: so zusammengestellt, dass es das Ziel RECHNERISCH erreicht - nach der vergangenen
     Rendite p. a. der Werte (nicht nach der vorsichtigen Prognose). Bewusst renditemaximierend und damit
@@ -777,16 +795,23 @@ def ziel_depot(bewertet, benoetigt, max_gewicht=5.0, max_je_branche=3, tagesgeld
     max_gewicht = max(float(max_gewicht), 0.5)
     n = int(math.ceil(100.0 / max_gewicht - 1e-9))
 
-    kand = []
+    kand, gesehen = [], set()
     for c in bewertet:
         r, j = hist_rendite(c)
-        if r is not None and j >= 1 and (c.get("kurs") or 0) > 0:
-            kand.append((r, j, c))
+        if r is None or j < 1 or not plausibel(c, r):
+            continue
+        schluessel = {k.upper() for k in (c.get("isin"), c.get("wkn")) if k} or {c["name"].lower()}
+        if schluessel & gesehen:
+            continue                                  # derselbe Wert aus zwei Quellen
+        gesehen |= schluessel
+        kand.append((r, j, c))
     ziel = benoetigt if benoetigt is not None else float("-inf")
     # Reihenfolge: erst Werte, die die noetige Rendite schon geschafft haben - mit langer Historie (mind. 3 J.)
     # vor kurzer, jeweils nach Score; erst danach (falls noetig) die renditestaerksten uebrigen
-    reihe = (sorted([k for k in kand if k[0] >= ziel and k[1] >= 3], key=lambda k: -(k[2].get("score") or 0))
-             + sorted([k for k in kand if k[0] >= ziel and k[1] < 3], key=lambda k: -(k[2].get("score") or 0))
+    def ruhig(k):                                     # Score, dann geringere Schwankung, dann laengere Historie
+        return (-(k[2].get("score") or 0), k[2].get("vola") or 999.0, -k[1])
+    reihe = (sorted([k for k in kand if k[0] >= ziel and k[1] >= 3], key=ruhig)
+             + sorted([k for k in kand if k[0] >= ziel and k[1] < 3], key=ruhig)
              + sorted([k for k in kand if k[0] < ziel], key=lambda k: -k[0]))
     gew, branchen = [], {}
     for r, j, c in reihe:
