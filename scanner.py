@@ -545,9 +545,11 @@ def verlauf_jaehrlich(sim, restschuld_je_monat=None):
 
 
 def optimieren(depot, e, ziel, max_dd, kosten=0.0, pfade=4000):
-    """Auf die Wahrscheinlichkeit des Anlageziels optimieren: der risikobehaftete Teil (Zusammensetzung
-    fest) wird in Stufen gegen Cash getauscht; gewaehlt wird die Stufe mit der hoechsten Zielwahrschein-
-    lichkeit, deren Drawdown (95-%-Quantil) die Verlusttoleranz einhaelt - sonst die vorsichtigste.
+    """Auf die Wahrscheinlichkeit des Anlageziels optimieren: der investierte Teil der gewaehlten Aufteilung
+    wird in Stufen (30-100 % davon) gegen Cash getauscht - nie mehr als die eigene Aufteilung. Gewaehlt wird
+    unter den Stufen, deren Drawdown (95-%-Quantil) die Verlusttoleranz einhaelt, die mit der hoechsten
+    Zielwahrscheinlichkeit; bei Gleichstand (z. B. Ziel ueberall 0 %) die mit dem hoeheren mittleren Endwert -
+    also eher die eigene Aufteilung als Cash. Haelt keine Stufe die Toleranz ein: die vorsichtigste.
     -> {"stufen": [...], "beste": anteil, "eingehalten": bool}"""
     stufen = []
     for anteil in (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0):
@@ -557,16 +559,16 @@ def optimieren(depot, e, ziel, max_dd, kosten=0.0, pfade=4000):
         a = auswerten(simulieren(mu, sig, start, cfs, kosten, pfade=pfade, seed=11), ziel, rest)
         stufen.append({"anteil": anteil, "investiert": 100.0 - d["cash"], "mu": mu, "sigma": sig, **a})
     erlaubt = [s for s in stufen if s["dd95"] <= max_dd]
-    beste = max(erlaubt, key=lambda s: ((s["wahrscheinlichkeit"] or 0.0), -s["anteil"])) if erlaubt else stufen[0]
+    beste = (max(erlaubt, key=lambda s: (round(s["wahrscheinlichkeit"] or 0.0, 3), s["end"][50])) if erlaubt
+             else stufen[0])
     return {"stufen": stufen, "beste": beste["anteil"], "eingehalten": bool(erlaubt)}
 
 
 def skalieren(depot, anteil):
-    """Risikobehafteten Teil auf 'anteil' (0..1) des Depots setzen, Rest Cash; Positionen behalten ihr
-    Verhaeltnis und bleiben unter dem Hoechstgewicht (was darueber laege, bleibt Cash)."""
-    summe = sum(p["gewicht"] for p in depot["positionen"]) or 1.0
+    """Investierten Teil auf 'anteil' (0..1) der gewaehlten Aufteilung setzen, Rest Cash (1.0 = genau die eigene
+    Aufteilung); Positionen behalten ihr Verhaeltnis und bleiben unter dem Hoechstgewicht."""
     grenze = depot.get("max_gewicht", 100.0)
-    pos = [dict(p, gewicht=min(p["gewicht"] / summe * anteil * 100.0, grenze)) for p in depot["positionen"]]
+    pos = [dict(p, gewicht=min(p["gewicht"] * anteil, grenze)) for p in depot["positionen"]]
     return dict(depot, positionen=pos, cash=max(100.0 - sum(p["gewicht"] for p in pos), 0.0))
 
 

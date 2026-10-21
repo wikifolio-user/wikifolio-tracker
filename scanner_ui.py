@@ -107,8 +107,9 @@ def _einstellungen(e):
         c[3].number_input("Inflation % p. a.", -5.0, 20.0, step=0.5, format="%.1f", key="pb_scan_inflation",
                           help="Nur für die Kaufkraft-Angabe (realer Wert am Ende).")
     st.toggle("Auf Zielwahrscheinlichkeit optimieren", key="pb_scan_optimieren",
-              help="Testet, wie viel des Depots investiert und wie viel Cash sein sollte: höchste Wahrscheinlichkeit, "
-                   "das Ziel zu erreichen, ohne die Verlusttoleranz zu überschreiten.")
+              help="Prüft, ob weniger investiert (mehr Cash) die Chance aufs Ziel erhöht oder nötig ist, um die "
+                   "Verlusttoleranz einzuhalten. Mehr als deine Aufteilung wird nie investiert; bringt Cash keinen "
+                   "Vorteil, bleibt es bei deiner Aufteilung. Das Musterdepot im Menü nutzt immer deine Aufteilung.")
 
 
 # ---------------------------------------------------------------- Rechnen
@@ -206,12 +207,33 @@ def _kennung(c):
     return c.get("isin") or c.get("wkn") or c.get("ticker") or "–"
 
 
+def _ziel_zeile(erg):
+    """Fuer das Ziel noetige Rendite gegen die erwartete Rendite dieses Depots - auf einen Blick."""
+    e, a = erg["eingaben"], erg["auswertung"]
+    if e["zielvermoegen"] <= 0:
+        return
+    ben = (erg.get("benoetigt") or {})
+    w = a.get("wahrscheinlichkeit") or 0.0
+    erw = erg["mu"] - e["scan_kosten"]
+    noetig = (f"über {_pct(ben['rendite'], 0)}" if ben and not ben.get("erreichbar", True)
+              else _pct(ben.get("rendite"), 1) if ben else "–")
+    urteil = ("✅ Ziel erreichbar" if w >= 0.5 else "⚠️ Ziel möglich, aber unsicher" if w >= 0.2
+              else "❌ Ziel mit diesem Depot kaum erreichbar")
+    text = (f"{urteil}: Für {_eur(e['zielvermoegen'])} nötig ≈ {noetig} p. a. – dieses Depot erwartet ≈ "
+            f"{_pct(erw, 1)} p. a. (Wahrscheinlichkeit {_de(w * 100)} %).")
+    if w < 0.2:
+        text += (" Mehr Rendite heißt mehr Risiko – realistischer sind meist eine höhere Einzahlung, mehr Jahre "
+                 "oder ein niedrigeres Ziel (siehe „📈 Prognose“ → Alternativen).")
+    (st.success if w >= 0.5 else st.warning if w >= 0.2 else st.error)(text)
+
+
 def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
     md = st.session_state.get("pb_scan_md")
     if md:
         {"ok": st.success, "warnung": st.warning, "fehler": st.error}[md[0]](md[1])
         if md[0] == "ok" and zum_muster:
             st.button("📦 Musterdepot ansehen", key="pb_scan_zum_muster", on_click=zum_muster)
+    _ziel_zeile(erg)
     d = erg["depot"]
     for hw in d["hinweise"]:
         st.info(hw)
@@ -400,7 +422,7 @@ def _prognose(erg, e):
                                                                              f"Schwankung {_pct(erg['sigma'])}"),
          ("Erwartetes Endvermögen", _eur(a["end"][50]), f"Median, netto · real {_eur(real)}"),
          ("Zielwahrscheinlichkeit", _pct(w * 100 if w is not None else None, 0),
-          f"Ziel {_eur(ziel)}" if ziel > 0 else "Zielvermögen im Portfolio Builder eintragen"),
+          f"Ziel {_eur(ziel)}" if ziel > 0 else "Zielvermögen oben eintragen"),
          ("Zielerreichungs-Score", "–" if score is None else f"{score}/100",
           "Wahrscheinlichkeit, abgewertet bei verletzter Verlusttoleranz"),
          ("Max. Rückgang (95 %)", _pct(-a["dd95"], 0), "eingehalten" if dd_ok else
