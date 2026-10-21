@@ -105,9 +105,11 @@ class Musterdepot(unittest.TestCase):
         d = S.musterdepot(self._bewertet(), {"etf": 50, "aktie": 30, "wikifolio": 15, "cash": 5}, 5, 0)
         voll = S.skalieren(d, 1.0)
         self.assertTrue(all(p["gewicht"] <= 5.0 + 1e-9 for p in voll["positionen"]))
+        investiert = sum(p["gewicht"] for p in d["positionen"])
+        self.assertAlmostEqual(sum(p["gewicht"] for p in voll["positionen"]), investiert, places=9)  # = eigene
         halb = S.skalieren(d, 0.5)
-        self.assertAlmostEqual(sum(p["gewicht"] for p in halb["positionen"]), 50.0, places=9)
-        self.assertAlmostEqual(halb["cash"], 50.0, places=9)
+        self.assertAlmostEqual(sum(p["gewicht"] for p in halb["positionen"]), investiert / 2, places=9)
+        self.assertAlmostEqual(halb["cash"], 100 - investiert / 2, places=9)
 
 
 class Simulation(unittest.TestCase):
@@ -149,6 +151,12 @@ class Simulation(unittest.TestCase):
         if o["eingehalten"]:
             self.assertLessEqual(beste["dd95"], 25)
         self.assertEqual(len(o["stufen"]), 8)
+
+    def test_unerreichbares_ziel_haelt_eigene_aufteilung(self):
+        d = Musterdepot()._bewertet()
+        depot = S.musterdepot(d, {"etf": 30, "aktie": 30, "wikifolio": 30, "cash": 10}, 5, 0)
+        o = S.optimieren(depot, eingaben(anfangskapital=160000, laufzeit=5), 1e9, max_dd=95, pfade=800)
+        self.assertEqual(o["beste"], 1.0)                                 # Ziel ueberall 0 %: kein Cash-Berg
 
     def test_alternativen_ohne_hoehere_rendite(self):
         e = eingaben(einzahlung=100)
