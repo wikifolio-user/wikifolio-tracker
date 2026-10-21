@@ -8,6 +8,7 @@ import copy
 import datetime
 import html
 import json
+import logging
 
 import pandas as pd
 import streamlit as st
@@ -22,7 +23,10 @@ except Exception:        # pragma: no cover - ohne nutzerdaten.py: gemeinsamer P
 PFAD = "state/portfolio_builder.json"
 FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa", "kredit_rate",
           "einzahlung", "entnahme", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke",
-          "zielvermoegen", "auto_ziel", "rendite_basis")
+          "zielvermoegen", "auto_ziel", "rendite_basis",
+          # Investment-Scanner (scanner_ui.py)
+          "scan_profil", "scan_etf", "scan_aktie", "scan_wikifolio", "scan_cash", "scan_max_dd", "scan_max_gewicht",
+          "scan_kosten", "scan_inflation", "scan_optimieren")
 # Tabellenspalten <-> Felder des Rechenkerns
 SPALTEN = {"Name": "name", "Art": "art", "Rendite % p. a.": "rendite", "Kurs €": "kurs", "Gewicht %": "gewicht",
            "Betrag €": "betrag", "Stück": "stueck",
@@ -1122,4 +1126,11 @@ def render(h):
     _diagramme(r)
     _positionen_tabelle(r)
     _ergebnis(r)
+    try:
+        import scanner_ui
+        st.markdown(scanner_ui.CSS, unsafe_allow_html=True)
+        scanner_ui.render(h, e, lambda: _katalog(h))
+    except Exception as fehler:                 # der Scanner darf den Builder nie mitreissen
+        logging.exception("Investment-Scanner")
+        st.error(f"⚠️ Investment-Scanner: {fehler}")
     _speicherleiste(h, e)
