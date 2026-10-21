@@ -955,7 +955,9 @@ st.markdown("""
     @media (pointer: coarse) { .modebar-container { display: none !important; } }
     [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button { height: auto !important; }
     /* Primaer-Knoepfe: primaryColor ist Weiss - Schrift dunkel, sonst Weiss auf Weiss */
-    [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p {
+    [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p,
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) p {
         color: #0A0B0D !important; }
     /* Touch-Geraete: Trefferflaechen mind. 44 px (Apple HIG) */
     @media (pointer: coarse) {
@@ -2650,6 +2652,7 @@ ANSICHT_ZINS = "🧮 Zinseszinsrechner"
 ANSICHT_BENUTZER = "👥 Benutzer"      # nur fuer den Admin sichtbar
 ANSICHT_BUILDER = "🚀 Portfolio Builder 2.0"
 ANSICHT_SCANNER = "🤖 Investment-Scanner"
+ANSICHT_SCANNER_PRO = "🔎 Investment Scanner Pro"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
@@ -2672,6 +2675,7 @@ ANSICHTEN = [
     ANSICHT_BENUTZER,
     ANSICHT_BUILDER,            # neu: hinten anhaengen, damit die Kachel-Keys der anderen gleich bleiben
     ANSICHT_SCANNER,
+    ANSICHT_SCANNER_PRO,
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2691,6 +2695,7 @@ ANSICHT_KURZ = {
     ANSICHT_BENUTZER: "👥 Benutzer",
     ANSICHT_BUILDER: "🚀 Builder 2.0",
     ANSICHT_SCANNER: "🤖 Scanner",
+    ANSICHT_SCANNER_PRO: "🔎 Scanner Pro",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2706,6 +2711,7 @@ NAV_NAMEN = {
     "💼 Portfolio-Planer": "💼 Portfolio-Planer",
     ANSICHT_BUILDER: "🚀 Portfolio Builder 2.0",
     ANSICHT_SCANNER: "🤖 Investment-Scanner",
+    ANSICHT_SCANNER_PRO: "🔎 Investment Scanner Pro",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
@@ -2724,12 +2730,12 @@ NAV_ZEILEN = [
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
-                           ANSICHT_SCANNER, "💼 Portfolio-Planer", "🏆 Watchlist Top 50"]),
+                           ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, "💼 Portfolio-Planer", "🏆 Watchlist Top 50"]),
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
+LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
@@ -5055,6 +5061,19 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Investment-Scanner: {e}")
             notify_app_error("Tab-Investment-Scanner", e)
+        lade_fertig()
+
+    # --- INVESTMENT SCANNER PRO: eigenstaendiges Board mit eigenen Eingaben (Kaufplan, Reserve,
+    # Sofortentnahme); keine gemeinsamen Eingaben mit dem Builder (investment_scanner_pro.py)
+    if gewaehlte_ansicht == ANSICHT_SCANNER_PRO:
+        _zugang_pruefen(ANSICHT_SCANNER_PRO)
+        try:
+            import investment_scanner_pro
+            investment_scanner_pro.seite({"gh_read_taeglich": gh_read_taeglich, "suche_instrument": suche_instrument,
+                                          "get_live_kurs": get_live_kurs})
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Investment Scanner Pro: {e}")
+            notify_app_error("Tab-Investment-Scanner-Pro", e)
         lade_fertig()
 
 
