@@ -56,7 +56,11 @@ EINSTELLUNGEN = {"scan_profil": "mittel", "scan_etf": 50.0, "scan_aktie": 30.0, 
                  "scan_inflation": 2.0, "scan_optimieren": True,
                  # Entnahme im Scanner: fester Betrag (Builder-Feld "entnahme") oder Verkauf von Stuecken
                  # je Musterdepot-Position ({kennung: Stueck pro Monat})
-                 "scan_entnahme_art": "betrag", "scan_verkauf": {}}
+                 "scan_entnahme_art": "betrag", "scan_verkauf": {},
+                 # eigene Eckdaten des Scanners (unabhaengig vom Builder); Kapital -1 = noch nie gesetzt
+                 # (beim ersten Oeffnen aus dem Builder vorbelegt)
+                 "scan_kapital": -1.0, "scan_einzahlung": 0.0, "scan_laufzeit": 10, "scan_ziel": 0.0,
+                 "scan_entnahme": 0.0}
 
 
 def einstellungen_bereinigen(e):
@@ -70,13 +74,17 @@ def einstellungen_bereinigen(e):
             aus[k] = bool(v)
         elif k == "scan_entnahme_art":
             aus[k] = "stueck" if v == "stueck" else "betrag"
+        elif k == "scan_laufzeit":
+            aus[k] = int(min(max(_z(v, std), 1), 50))
         elif k == "scan_verkauf":
             aus[k] = {str(n)[:60]: min(_z(x, 0.0), P.MAX_KAPITAL) for n, x in list((v or {}).items())[:300]
                       if _z(x, 0.0) > 0} if isinstance(v, dict) else {}
         else:
             v = _z(v, std)
             grenzen = {"scan_max_dd": (5.0, 95.0), "scan_max_gewicht": (1.0, 100.0), "scan_kosten": (0.0, 5.0),
-                       "scan_inflation": (-5.0, 20.0)}.get(k, (0.0, 100.0))
+                       "scan_inflation": (-5.0, 20.0), "scan_kapital": (-1.0, P.MAX_KAPITAL),
+                       "scan_einzahlung": (0.0, P.MAX_MONATLICH), "scan_ziel": (0.0, P.MAX_KAPITAL),
+                       "scan_entnahme": (0.0, P.MAX_MONATLICH)}.get(k, (0.0, 100.0))
             aus[k] = min(max(v, grenzen[0]), grenzen[1])
     return aus
 
@@ -408,6 +416,15 @@ def portfolio_kennzahlen(depot):
 
 
 # ---------------------------------------------------------------- Simulation
+def scanner_eingaben(e):
+    """Builder-Eingaben -> Eingaben fuer die Scanner-Rechnung mit den eigenen Eckdaten des Scanners
+    (Startkapital, Einzahlung, Laufzeit in Jahren, Ziel, Entnahme; ohne Kredit und Ausgaben)."""
+    e = P.bereinigen(e)
+    return dict(e, anfangskapital=max(e["scan_kapital"], 0.0), sonstiges_kapital=0.0, kredit_summe=0.0,
+                kredit_rate=0.0, ausgaben=0.0, einzahlung=e["scan_einzahlung"], entnahme=e["scan_entnahme"],
+                laufzeit=e["scan_laufzeit"], laufzeit_einheit="Jahre", zielvermoegen=e["scan_ziel"])
+
+
 def kennung(p):
     """Schluessel einer Depot-Position fuer gespeicherte Verkaufsmengen."""
     return str(p.get("isin") or p.get("wkn") or p.get("ticker") or p.get("name") or "")[:60]

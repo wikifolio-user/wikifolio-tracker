@@ -25,7 +25,8 @@ FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa
           "zielvermoegen", "auto_ziel", "rendite_basis",
           # Investment-Scanner (scanner_ui.py)
           "scan_profil", "scan_etf", "scan_aktie", "scan_wikifolio", "scan_cash", "scan_max_dd", "scan_max_gewicht",
-          "scan_kosten", "scan_inflation", "scan_optimieren", "scan_entnahme_art", "scan_verkauf")
+          "scan_kosten", "scan_inflation", "scan_optimieren", "scan_entnahme_art", "scan_verkauf",
+          "scan_kapital", "scan_einzahlung", "scan_laufzeit", "scan_ziel", "scan_entnahme")
 # Tabellenspalten <-> Felder des Rechenkerns
 SPALTEN = {"Name": "name", "Art": "art", "Rendite % p. a.": "rendite", "Kurs €": "kurs", "Gewicht %": "gewicht",
            "Betrag €": "betrag", "Stück": "stueck",

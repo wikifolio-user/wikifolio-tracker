@@ -180,6 +180,19 @@ class Entnahme(unittest.TestCase):
         self.assertEqual(b["scan_verkauf"], {"B": 3.0})
 
 
+class EigeneEckdaten(unittest.TestCase):
+    def test_scanner_rechnet_mit_eigenen_werten(self):
+        e = eingaben(anfangskapital=160000, einzahlung=0, laufzeit=5, zielvermoegen=1e6, kredit_summe=5000,
+                     scan_kapital=20000, scan_einzahlung=500, scan_laufzeit=12, scan_ziel=300000, scan_entnahme=100)
+        s = S.scanner_eingaben(e)
+        self.assertEqual((s["anfangskapital"], s["einzahlung"], s["entnahme"], s["kredit_summe"]), (20000, 500, 100, 0))
+        self.assertEqual((P.monate(s), s["zielvermoegen"]), (144, 300000))
+        start, cfs, rest = S.zahlungsplan(s)
+        self.assertEqual((start, len(cfs), cfs[0]), (20000, 144, 400))
+        self.assertEqual(e["anfangskapital"], 160000)                          # Builder-Werte unveraendert
+        self.assertEqual(S.einstellungen_bereinigen({})["scan_kapital"], -1.0)  # noch nie gesetzt
+
+
 class Risiken(unittest.TestCase):
     def test_stress_und_empfehlungen(self):
         depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 50.0, "wkn": "AAA", "score": 80},

@@ -418,39 +418,32 @@ def _daten_annahmen(erg):
                "vergangene Entwicklungen sind kein verlässlicher Indikator für die Zukunft.")
 
 
-def _parameter(e, zum_builder):
-    """Eckdaten aus dem Portfolio Builder (dort werden sie geaendert)."""
-    rate = e["einzahlung"] - e["ausgaben"]
-    laufzeit = f"{e['laufzeit']} {'Jahre' if e['laufzeit_einheit'] == 'Jahre' else 'Monate'}"
-    werte = [("Startkapital", _eur(e["anfangskapital"] + e["sonstiges_kapital"])),
-             ("Einzahlung / Monat" if not e["ausgaben"] else "Einzahlung − Ausgaben", _eur(rate)),
-             ("Laufzeit", laufzeit),
-             ("Zielvermögen", _eur(e["zielvermoegen"]) if e["zielvermoegen"] > 0 else "nicht gesetzt")]
-    if e["kredit_summe"] > 0:
-        werte.append(("Kredit", _eur(e["kredit_summe"])))
-    st.markdown('<div class="pb-scan-kpis">' + "".join(
-        f'<div class="k"><div class="l">{_esc(l)}</div><div class="w">{_esc(w)}</div></div>' for l, w in werte)
-        + "</div>", unsafe_allow_html=True)
-    if e["zielvermoegen"] <= 0:
-        st.info("Kein Zielvermögen gesetzt – ohne Ziel gibt es keine Zielwahrscheinlichkeit und keine Alternativen. "
-                "Das Ziel trägst du im Portfolio Builder ein.")
-    if zum_builder:
-        st.button("✏️ Eckdaten im Portfolio Builder ändern", key="pb_scan_zum_builder", width="stretch",
-                  on_click=zum_builder)
+def _eckdaten(e):
+    """Eigene Eckdaten des Scanners (unabhaengig vom Portfolio Builder)."""
+    handy = _smartphone()
+    c = (st.columns(2) + st.columns(2)) if handy else st.columns(4)
+    c[0].number_input("Startkapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_scan_kapital")
+    c[1].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_einzahlung")
+    c[2].number_input("Laufzeit (Jahre)", 1, 50, step=1, key="pb_scan_laufzeit")
+    c[3].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f", key="pb_scan_ziel",
+                      help="0 = kein Ziel (dann keine Zielwahrscheinlichkeit und keine Alternativen).")
+    st.caption("Diese Eckdaten gelten nur für den Scanner – der Portfolio Builder bleibt unverändert.")
+    if e["scan_ziel"] <= 0:
+        st.info("Kein Zielvermögen gesetzt – ohne Ziel gibt es keine Zielwahrscheinlichkeit und keine Alternativen.")
 
 
 def _entnahme_einstellungen(e):
     """Entnahme im Scanner: fester Betrag (dasselbe Feld wie im Builder) oder Stueckzahlen je Depot-Position."""
-    with st.container(border=True, key="pb_scan_entnahme"):
+    with st.container(border=True, key="pb_scan_entnahme_karte"):
         st.markdown('<div class="pb-karte-t">Entnahme</div>', unsafe_allow_html=True)
         st.radio("Entnahme als", list(P.ENTNAHME_ARTEN), format_func=P.ENTNAHME_ARTEN.get,
                  key="pb_scan_entnahme_art", horizontal=True,
                  help="€-Betrag: fester Betrag je Monat, verkauft wird anteilig nach Wert. Stückzahlen: je Position "
                       "des Musterdepots festlegen, wie viele Stücke pro Monat verkauft werden – die Entnahme in € "
                       "ergibt sich aus dem Kurs.")
-        if e["scan_entnahme_art"] == "betrag":
-            st.number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme",
-                            help="Gilt auch im Portfolio Builder (dasselbe Feld).")
+        if e["scan_entnahme_art"] == "betrag":  # eigener Betrag des Scanners
+            st.number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f",
+                            key="pb_scan_entnahme")
         else:
             st.caption("Die Stückzahlen je Position legst du nach dem Scannen im Reiter „💸 Entnahme“ fest.")
 
@@ -514,14 +507,19 @@ def seite(h):
     st.markdown(CSS, unsafe_allow_html=True)
     B._start(h)
     e = B._aus_widgets()
+    if e["scan_kapital"] < 0:                     # erstes Oeffnen: einmal mit den Builder-Werten vorbelegen
+        st.session_state.update(pb_scan_kapital=P.eigenkapital(e), pb_scan_einzahlung=e["einzahlung"],
+                                pb_scan_laufzeit=max(round(P.monate(e) / 12), 1),
+                                pb_scan_ziel=e["zielvermoegen"], pb_scan_entnahme=e["entnahme"])
+        e = B._aus_widgets()
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Investment-<span>Scanner</span></div>'
                 '<div class="pb-unter">Aktien · ETFs · wikifolios → Musterdepot für dein Ziel</div></div>',
                 unsafe_allow_html=True)
     with st.container(border=True, key="pb_scan_eckdaten"):
-        st.markdown('<div class="pb-karte-t">Eckdaten aus dem Portfolio Builder</div>', unsafe_allow_html=True)
-        _parameter(e, (h or {}).get("zum_builder"))
+        st.markdown('<div class="pb-karte-t">Eckdaten</div>', unsafe_allow_html=True)
+        _eckdaten(e)
     _entnahme_einstellungen(e)
-    render(h, e, lambda: B._katalog(h), (h or {}).get("zum_builder"))
+    render(h, S.scanner_eingaben(e), lambda: B._katalog(h), (h or {}).get("zum_builder"))
     art, _ = B._automatisch_speichern(h, e)
     if art in ("lesefehler", "fehler"):
         st.caption("⚠ Einstellungen gerade nicht gespeichert – wird bei der nächsten Änderung erneut versucht.")
