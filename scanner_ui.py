@@ -138,7 +138,7 @@ def _berechnen(h, e, katalog):
 
 def _signatur(e):
     felder = [k for k in e if k.startswith("scan_")] + ["anfangskapital", "sonstiges_kapital", "kredit_summe",
-                                                        "kredit_rate", "kredit_zins_pa", "einzahlung", "entnahme",
+                                                        "kredit_rate", "kredit_zins_pa", "einzahlung", "entnahme", "entnahme_art",
                                                         "ausgaben", "laufzeit", "laufzeit_einheit", "zielvermoegen"]
     return tuple((k, e.get(k)) for k in sorted(felder))
 
@@ -409,7 +409,8 @@ def _daten_annahmen(erg):
 
 def _parameter(e, zum_builder):
     """Eckdaten aus dem Portfolio Builder (dort werden sie geaendert)."""
-    rate = e["einzahlung"] - e["entnahme"] - e["ausgaben"]
+    ent = P.entnahmen(e)
+    rate = e["einzahlung"] - (ent[0] if ent else 0.0) - e["ausgaben"]
     laufzeit = f"{e['laufzeit']} {'Jahre' if e['laufzeit_einheit'] == 'Jahre' else 'Monate'}"
     werte = [("Startkapital", _eur(e["anfangskapital"] + e["sonstiges_kapital"])),
              ("Sparrate / Monat", _eur(rate)), ("Laufzeit", laufzeit),

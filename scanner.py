@@ -397,11 +397,11 @@ def zahlungsplan(e):
     (Einzahlung - Entnahme - Ausgaben - Kreditrate). -> (start, [cashflow je Monat], restschuld)"""
     e = P.bereinigen(e)
     iz, d, cfs = P.zins_monat(e), e["kredit_summe"], []
-    for _ in range(P.monate(e)):
+    for entnahme in P.entnahmen(e):                              # fester Betrag oder Verkauf von Stuecken
         zinsen = d * iz
         rate = min(e["kredit_rate"], d + zinsen) if d > 1e-9 else 0.0
         d = max(d + zinsen - rate, 0.0)
-        cfs.append(e["einzahlung"] - e["entnahme"] - e["ausgaben"] - rate)
+        cfs.append(e["einzahlung"] - entnahme - e["ausgaben"] - rate)
     return P.anlagekapital(e), cfs, d
 
 
