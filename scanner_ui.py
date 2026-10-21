@@ -136,7 +136,9 @@ def _berechnen(h, e, katalog):
     benoetigt = P.benoetigte_rendite(e) if ziel > 0 else None
     zd = None
     if benoetigt and (a["wahrscheinlichkeit"] or 0) < 0.5:     # Ziel mit dem normalen Depot unwahrscheinlich
-        zd = S.ziel_depot(bewertet, benoetigt["rendite"], e["scan_max_gewicht"])
+        # alle Werte der Top-500-/Watchlist-Daten (auch die ~16.000 Aktien ohne Fundamentaldaten)
+        alle = S.kandidaten_katalog(katalog, arten=("aktie", "etf", "wikifolio"))
+        zd = S.ziel_depot(bewertet + alle, benoetigt["rendite"], e["scan_max_gewicht"])
     return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand, "depot_profil": depot_profil,
             "kurse_nachgeladen": nachgeladen, "ziel_depot": zd,
             "anzahl": {k: sum(1 for c in bewertet if c["art"] == k) for k in ("aktie", "etf", "wikifolio")},

@@ -263,6 +263,10 @@ class ZielDepot(unittest.TestCase):
         mu, _ = S.portfolio_kennzahlen(d)
         self.assertAlmostEqual(mu, 45.0, places=6)                               # Prognose = Historie
         self.assertFalse(S.ziel_depot(b, 60.0, max_gewicht=34.0)["erreicht"])
+        kaputt = [c("Eingestellt", 0.80, kurs=0.006), dict(c("Sprung", 9.0), vola=30.0),
+                  dict(c("Wild", 0.60), vola=400.0)] + b
+        namen = [p["name"] for p in S.ziel_depot(kaputt, 44.0, max_gewicht=34.0)["positionen"]]
+        self.assertEqual(namen, ["A", "B", "C"])                                 # Datenfehler fallen heraus
 
 
 class Risiken(unittest.TestCase):
