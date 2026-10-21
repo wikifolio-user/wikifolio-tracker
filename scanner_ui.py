@@ -121,18 +121,19 @@ def _berechnen(h, e, katalog):
         opt = S.optimieren(depot, e, ziel, e["scan_max_dd"], e["scan_kosten"])
         depot = S.skalieren(depot, opt["beste"])
     mu, sigma = S.portfolio_kennzahlen(depot)
-    start, cfs, rest = S.zahlungsplan(e)
+    start, cfs, rest = S.zahlungsplan(e, depot)
     sim = S.simulieren(mu, sigma, start, cfs, e["scan_kosten"], pfade=10000)
     a = S.auswerten(sim, ziel, rest)
     alt = None
     if ziel > 0 and (a["wahrscheinlichkeit"] or 0) < 0.5:
-        alt = S.alternativen(mu, sigma, e, ziel, e["scan_kosten"])
+        alt = S.alternativen(mu, sigma, e, ziel, e["scan_kosten"], depot=depot)
     benoetigt = P.benoetigte_rendite(e) if ziel > 0 else None
     return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand,
             "anzahl": {k: sum(1 for c in bewertet if c["art"] == k) for k in ("aktie", "etf", "wikifolio")},
             "bewertet": bewertet, "aufteilung": auft, "depot": depot, "optimierung": opt, "mu": mu, "sigma": sigma,
             "auswertung": a, "verlauf": S.verlauf_jaehrlich(sim), "restschuld": rest, "start": start,
             "eingezahlt": start + sum(c for c in cfs if c > 0), "alternativen": alt, "benoetigt": benoetigt,
+            "entnommen": sum(S.entnahmen(e, depot)),
             "monate": len(cfs), "eingaben": dict(e)}
 
 
@@ -191,15 +192,22 @@ def _musterdepot(erg, kapital, zum_builder=None):
 
 
 def _uebernehmen(d, danach=None):
+    verkauf = st.session_state.get("pb_scan_verkauf") or {}
+    stueck = st.session_state.get("pb_scan_entnahme_art") == "stueck"
     pos = []
     for p in d["positionen"]:
         pos.append({"name": p["name"], "kurs": p.get("kurs") or 0.0, "gewicht": round(p["gewicht"], 4),
                     "art": p["art"], "wkn": p.get("wkn") or "", "isin": p.get("isin") or "",
                     "rendite": round(p["prognose"]["mu"], 2), "rendite_quelle": "Scanner-Prognose",
                     "rendite_basis": "1J"})
+        if stueck and verkauf.get(S.kennung(p)):
+            pos[-1]["verkauf_stueck"] = verkauf[S.kennung(p)]
     if d["cash"] > 0.01:
         pos.append({"name": P.TAGESGELD, "kurs": 1.0, "gewicht": round(d["cash"], 4), "art": "sonstig",
                     "rendite": S.ANNAHMEN["tagesgeld"], "rendite_quelle": "Annahme Tagesgeld"})
+        if stueck and verkauf.get(P.TAGESGELD):
+            pos[-1]["verkauf_stueck"] = verkauf[P.TAGESGELD]
+    st.session_state["pb_entnahme_art"] = "stueck" if stueck else "betrag"     # Entnahme wie im Scanner
     st.session_state["pb_positionen"] = P.bereinigen({"positionen": pos})["positionen"]
     st.session_state["pb_auto_ziel"] = False
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
@@ -409,11 +417,11 @@ def _daten_annahmen(erg):
 
 def _parameter(e, zum_builder):
     """Eckdaten aus dem Portfolio Builder (dort werden sie geaendert)."""
-    ent = P.entnahmen(e)
-    rate = e["einzahlung"] - (ent[0] if ent else 0.0) - e["ausgaben"]
+    rate = e["einzahlung"] - e["ausgaben"]
     laufzeit = f"{e['laufzeit']} {'Jahre' if e['laufzeit_einheit'] == 'Jahre' else 'Monate'}"
     werte = [("Startkapital", _eur(e["anfangskapital"] + e["sonstiges_kapital"])),
-             ("Sparrate / Monat", _eur(rate)), ("Laufzeit", laufzeit),
+             ("Einzahlung / Monat" if not e["ausgaben"] else "Einzahlung − Ausgaben", _eur(rate)),
+             ("Laufzeit", laufzeit),
              ("Zielvermögen", _eur(e["zielvermoegen"]) if e["zielvermoegen"] > 0 else "nicht gesetzt")]
     if e["kredit_summe"] > 0:
         werte.append(("Kredit", _eur(e["kredit_summe"])))
@@ -426,6 +434,74 @@ def _parameter(e, zum_builder):
     if zum_builder:
         st.button("✏️ Eckdaten im Portfolio Builder ändern", key="pb_scan_zum_builder", width="stretch",
                   on_click=zum_builder)
+
+
+def _entnahme_einstellungen(e):
+    """Entnahme im Scanner: fester Betrag (dasselbe Feld wie im Builder) oder Stueckzahlen je Depot-Position."""
+    with st.container(border=True, key="pb_scan_entnahme"):
+        st.markdown('<div class="pb-karte-t">Entnahme</div>', unsafe_allow_html=True)
+        st.radio("Entnahme als", list(P.ENTNAHME_ARTEN), format_func=P.ENTNAHME_ARTEN.get,
+                 key="pb_scan_entnahme_art", horizontal=True,
+                 help="€-Betrag: fester Betrag je Monat, verkauft wird anteilig nach Wert. Stückzahlen: je Position "
+                      "des Musterdepots festlegen, wie viele Stücke pro Monat verkauft werden – die Entnahme in € "
+                      "ergibt sich aus dem Kurs.")
+        if e["scan_entnahme_art"] == "betrag":
+            st.number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme",
+                            help="Gilt auch im Portfolio Builder (dasselbe Feld).")
+        else:
+            st.caption("Die Stückzahlen je Position legst du nach dem Scannen im Reiter „💸 Entnahme“ fest.")
+
+
+def _verkauf_geaendert(key, kennungen):
+    delta = (st.session_state.get(key) or {}).get("edited_rows") or {}
+    verkauf = dict(st.session_state.get("pb_scan_verkauf") or {})
+    for i, w in delta.items():
+        if "Verkauf Stk./Monat" in w and 0 <= int(i) < len(kennungen):
+            s = P._zahl(w["Verkauf Stk./Monat"])
+            if s > 0:
+                verkauf[kennungen[int(i)]] = s
+            else:
+                verkauf.pop(kennungen[int(i)], None)
+    st.session_state["pb_scan_verkauf"] = verkauf
+
+
+def _entnahme_reiter(erg, e):
+    """Verkaufsplan fuer das berechnete Musterdepot (live aus den aktuellen Verkaufsmengen)."""
+    from portfolio_builder_ui import plan_anzeigen
+    depot = erg["depot"]
+    stueck = e["scan_entnahme_art"] == "stueck"
+    if not stueck and e["entnahme"] <= 0:
+        st.caption("Keine Entnahme eingetragen – oben in „Entnahme“ einen Betrag eintragen oder „Stückzahlen“ "
+                   "wählen.")
+        return
+    e_plan = dict(e, anfangskapital=erg["eingaben"]["anfangskapital"],
+                  sonstiges_kapital=erg["eingaben"]["sonstiges_kapital"], kredit_summe=erg["eingaben"]["kredit_summe"])
+    if stueck:
+        pos = S.depot_positionen(depot, e["scan_verkauf"])
+        zeilen = P.positionen(dict(P.bereinigen(e_plan), positionen=P.bereinigen({"positionen": pos})["positionen"]))
+        kennungen = [S.kennung(p) for p in depot["positionen"]] + ([P.TAGESGELD] if len(pos) > len(depot["positionen"])
+                                                                   else [])
+        df = pd.DataFrame([{"Name": z["name"], "Verkauf Stk./Monat": float(p.get("verkauf_stueck", 0.0)),
+                            "Stück im Depot": round(z["stueck"], 4), "Kurs €": round(z["kurs"], 2)}
+                           for z, p in zip(zeilen["zeilen"], pos)])
+        key = f"pb_scan_verkauf_tab_{st.session_state.get('pb_scan_verkauf_ver', 0)}"
+        st.data_editor(df, key=key, hide_index=True, width="stretch", disabled=["Name", "Stück im Depot", "Kurs €"],
+                       on_change=_verkauf_geaendert, args=(key, kennungen),
+                       column_config={
+                           "Name": st.column_config.TextColumn("Name", width=120 if _smartphone() else "medium"),
+                           "Verkauf Stk./Monat": st.column_config.NumberColumn(
+                               "Verkauf Stk./Monat", min_value=0.0, format="localized",
+                               step=1.0 if e["nur_ganze_stuecke"] else 0.0001,
+                               help="So viele Stücke werden jeden Monat verkauft, bis der Bestand aufgebraucht ist."),
+                           "Stück im Depot": st.column_config.NumberColumn("Stück im Depot", format="localized"),
+                           "Kurs €": st.column_config.NumberColumn("Kurs €", format="localized")})
+        ohne = [z["name"] for z in zeilen["zeilen"] if z["kurs"] <= 0]
+        if ohne:
+            st.caption(f"Ohne Kurs (keine Stückzahl möglich): {', '.join(ohne[:4])}"
+                       + (" …" if len(ohne) > 4 else "") + ".")
+    plan_anzeigen(e, S.depot_entnahmeplan(depot, e_plan), stueck)
+    st.caption("Prognose, Zielwahrscheinlichkeit und Alternativen rechnen mit diesen Entnahmen (bei Stückzahlen: "
+               "Erlös zum erwarteten Kurs). Nach einer Änderung „Neu berechnen“.")
 
 
 def seite(h):
@@ -441,6 +517,7 @@ def seite(h):
     with st.container(border=True, key="pb_scan_eckdaten"):
         st.markdown('<div class="pb-karte-t">Eckdaten aus dem Portfolio Builder</div>', unsafe_allow_html=True)
         _parameter(e, (h or {}).get("zum_builder"))
+    _entnahme_einstellungen(e)
     render(h, e, lambda: B._katalog(h), (h or {}).get("zum_builder"))
     art, _ = B._automatisch_speichern(h, e)
     if art in ("lesefehler", "fehler"):
@@ -462,14 +539,15 @@ def render(h, e, katalog_fn, zum_builder=None):
             with st.spinner("Bewerte Aktien, ETFs und wikifolios und simuliere 10.000 Verläufe …"):
                 erg = _berechnen(h, e, katalog_fn())
             st.session_state["pb_scan_erg"], st.session_state["pb_scan_sig"] = erg, sig
+            st.session_state["pb_scan_verkauf_ver"] = st.session_state.get("pb_scan_verkauf_ver", 0) + 1
             veraltet = False
         if erg is None:
             return
         if veraltet:
             st.info("Eingaben geändert – „Neu berechnen“, damit das Ergebnis dazu passt.")
         kapital = erg["start"]
-        tabs = st.tabs(["📦 Musterdepot", "🏆 Top-Investments", "📈 Prognose", "⚠️ Risiken", "🧭 Plan",
-                        "ℹ️ Daten"])
+        tabs = st.tabs(["📦 Musterdepot", "🏆 Top-Investments", "📈 Prognose", "💸 Entnahme", "⚠️ Risiken",
+                        "🧭 Plan", "ℹ️ Daten"])
         with tabs[0]:
             _musterdepot(erg, kapital, zum_builder)
         with tabs[1]:
@@ -477,10 +555,12 @@ def render(h, e, katalog_fn, zum_builder=None):
         with tabs[2]:
             _prognose(erg, erg["eingaben"])
         with tabs[3]:
-            _risiken(erg, kapital)
+            _entnahme_reiter(erg, e)
         with tabs[4]:
-            _plan(erg, erg["eingaben"], e["positionen"])
+            _risiken(erg, kapital)
         with tabs[5]:
+            _plan(erg, erg["eingaben"], e["positionen"])
+        with tabs[6]:
             _daten_annahmen(erg)
 
 

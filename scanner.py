@@ -53,7 +53,10 @@ PROFILE = {
 # Einstellungen des Scanners im Builder (gespeichert mit den Builder-Eingaben)
 EINSTELLUNGEN = {"scan_profil": "mittel", "scan_etf": 50.0, "scan_aktie": 30.0, "scan_wikifolio": 15.0,
                  "scan_cash": 5.0, "scan_max_dd": 40.0, "scan_max_gewicht": 5.0, "scan_kosten": 0.3,
-                 "scan_inflation": 2.0, "scan_optimieren": True}
+                 "scan_inflation": 2.0, "scan_optimieren": True,
+                 # Entnahme im Scanner: fester Betrag (Builder-Feld "entnahme") oder Verkauf von Stuecken
+                 # je Musterdepot-Position ({kennung: Stueck pro Monat})
+                 "scan_entnahme_art": "betrag", "scan_verkauf": {}}
 
 
 def einstellungen_bereinigen(e):
@@ -65,6 +68,11 @@ def einstellungen_bereinigen(e):
             aus[k] = v if v in PROFILE or v == "eigene" else std
         elif k == "scan_optimieren":
             aus[k] = bool(v)
+        elif k == "scan_entnahme_art":
+            aus[k] = "stueck" if v == "stueck" else "betrag"
+        elif k == "scan_verkauf":
+            aus[k] = {str(n)[:60]: min(_z(x, 0.0), P.MAX_KAPITAL) for n, x in list((v or {}).items())[:300]
+                      if _z(x, 0.0) > 0} if isinstance(v, dict) else {}
         else:
             v = _z(v, std)
             grenzen = {"scan_max_dd": (5.0, 95.0), "scan_max_gewicht": (1.0, 100.0), "scan_kosten": (0.0, 5.0),
@@ -392,12 +400,54 @@ def portfolio_kennzahlen(depot):
 
 
 # ---------------------------------------------------------------- Simulation
-def zahlungsplan(e):
+def kennung(p):
+    """Schluessel einer Depot-Position fuer gespeicherte Verkaufsmengen."""
+    return str(p.get("isin") or p.get("wkn") or p.get("ticker") or p.get("name") or "")[:60]
+
+
+def depot_positionen(depot, verkauf=None):
+    """Musterdepot -> Positionen im Builder-Format (Kurs in EUR, Gewicht, erwartete Rendite aus der
+    Prognose, Verkauf Stueck/Monat aus verkauf {kennung: stueck}); der Cash-Teil als Tagesgeld (Kurs 1)."""
+    verkauf = verkauf or {}
+    pos = []
+    for p in depot["positionen"]:
+        q = {"name": p["name"], "kurs": p.get("kurs") or 0.0, "gewicht": p["gewicht"],
+             "art": p["art"] if p["art"] in P.ARTEN else "sonstig", "rendite": p["prognose"]["mu"],
+             "wkn": p.get("wkn") or "", "isin": p.get("isin") or ""}
+        if verkauf.get(kennung(p)):
+            q["verkauf_stueck"] = verkauf[kennung(p)]
+        pos.append(q)
+    if depot.get("cash", 0) > 0.01:
+        q = {"name": P.TAGESGELD, "kurs": 1.0, "gewicht": depot["cash"], "art": "sonstig",
+             "rendite": ANNAHMEN["tagesgeld"]}
+        if verkauf.get(P.TAGESGELD):
+            q["verkauf_stueck"] = verkauf[P.TAGESGELD]
+        pos.append(q)
+    return pos
+
+
+def depot_entnahmeplan(depot, e):
+    """Verkaufsplan (portfolio_builder.entnahmeplan) fuer das Musterdepot mit der Entnahme-Art des Scanners."""
+    e = P.bereinigen(e)
+    return P.entnahmeplan(dict(e, positionen=depot_positionen(depot, e["scan_verkauf"]),
+                               entnahme_art=e["scan_entnahme_art"]))
+
+
+def entnahmen(e, depot=None):
+    """Entnahme EUR je Monat im Scanner: fester Betrag oder Erloes der verkauften Stuecke des Depots."""
+    e = P.bereinigen(e)
+    if e["scan_entnahme_art"] == "stueck":
+        return depot_entnahmeplan(depot, e)["monatlich"] if depot else [0.0] * P.monate(e)
+    return [e["entnahme"]] * P.monate(e)
+
+
+def zahlungsplan(e, depot=None):
     """Monatliche Zahlungen ins/aus dem Depot und Restschuld am Ende - wie in der Builder-Simulation
-    (Einzahlung - Entnahme - Ausgaben - Kreditrate). -> (start, [cashflow je Monat], restschuld)"""
+    (Einzahlung - Entnahme - Ausgaben - Kreditrate). Entnahme: siehe entnahmen (depot fuer Stueckzahlen).
+    -> (start, [cashflow je Monat], restschuld)"""
     e = P.bereinigen(e)
     iz, d, cfs = P.zins_monat(e), e["kredit_summe"], []
-    for entnahme in P.entnahmen(e):                              # fester Betrag oder Verkauf von Stuecken
+    for entnahme in entnahmen(e, depot):
         zinsen = d * iz
         rate = min(e["kredit_rate"], d + zinsen) if d > 1e-9 else 0.0
         d = max(d + zinsen - rate, 0.0)
@@ -471,10 +521,10 @@ def optimieren(depot, e, ziel, max_dd, kosten=0.0, pfade=4000):
     fest) wird in Stufen gegen Cash getauscht; gewaehlt wird die Stufe mit der hoechsten Zielwahrschein-
     lichkeit, deren Drawdown (95-%-Quantil) die Verlusttoleranz einhaelt - sonst die vorsichtigste.
     -> {"stufen": [...], "beste": anteil, "eingehalten": bool}"""
-    start, cfs, rest = zahlungsplan(e)
     stufen = []
     for anteil in (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0):
         d = skalieren(depot, anteil)
+        start, cfs, rest = zahlungsplan(e, d)                      # Stueck-Entnahmen haengen am Depot
         mu, sig = portfolio_kennzahlen(d)
         a = auswerten(simulieren(mu, sig, start, cfs, kosten, pfade=pfade, seed=11), ziel, rest)
         stufen.append({"anteil": anteil, "investiert": 100.0 - d["cash"], "mu": mu, "sigma": sig, **a})
@@ -492,13 +542,13 @@ def skalieren(depot, anteil):
     return dict(depot, positionen=pos, cash=max(100.0 - sum(p["gewicht"] for p in pos), 0.0))
 
 
-def alternativen(mu, sigma, e, ziel, kosten=0.0, pfade=3000, schwelle=0.5):
+def alternativen(mu, sigma, e, ziel, kosten=0.0, pfade=3000, schwelle=0.5, depot=None):
     """Wenn das Ziel unrealistisch ist: noetige Sparrate bzw. Laufzeit fuer die Zielwahrscheinlichkeit
     'schwelle' und das mit dieser Wahrscheinlichkeit erreichbare Ziel. Keine hoeheren Renditeannahmen."""
     e = P.bereinigen(e)
 
     def wkt(e2):
-        start, cfs, rest = zahlungsplan(e2)
+        start, cfs, rest = zahlungsplan(e2, depot)
         return auswerten(simulieren(mu, sigma, start, cfs, kosten, pfade=pfade, seed=13), ziel, rest)
 
     basis = wkt(e)
