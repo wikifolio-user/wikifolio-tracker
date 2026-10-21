@@ -301,6 +301,24 @@ def _instrumente(h, depot):
                                                    _lies(h, "state/top50_wikifolios.json")))
 
 
+def _prognose_fuer(depot, e, erg):
+    """Zielprognose fuer genau dieses Musterdepot (Monte-Carlo wie im Scanner) - wird mit ihm gespeichert und in
+    der Musterdepot-Ansicht gezeigt. Keine Garantie: Modellwerte aus den Annahmen des Scanners."""
+    try:
+        mu, sigma = S.portfolio_kennzahlen(depot)
+        start, cfs, rest = S.zahlungsplan(e, depot)
+        a = S.auswerten(S.simulieren(mu, sigma, start, cfs, e["scan_kosten"], pfade=4000, seed=21),
+                        e["zielvermoegen"], rest)
+        ben = (erg.get("benoetigt") or {}).get("rendite") if e["zielvermoegen"] > 0 else None
+        return {"ziel": e["zielvermoegen"], "monate": len(cfs), "einzahlung": e["einzahlung"],
+                "entnahme": e["entnahme"], "erwartet": round(mu - e["scan_kosten"], 3), "schwankung": round(sigma, 2),
+                "benoetigt": None if ben is None else round(ben, 3),
+                "wahrscheinlichkeit": a["wahrscheinlichkeit"], "median": a["end"][50], "p10": a["end"][10],
+                "p90": a["end"][90]}
+    except Exception:
+        return None
+
+
 def _musterdepot_speichern(h, erg, e):
     """Nach jedem Scan: das Musterdepot mit genau den Prozentanteilen des gewaehlten Risikoprofils als NEUES
     Musterdepot ins Menue "📦 Musterdepot" schreiben (eigener Name je Scan, vorhandene bleiben unveraendert).
@@ -318,6 +336,7 @@ def _musterdepot_speichern(h, erg, e):
     if not eintrag["positionen"]:
         return ("warnung", "Kein Musterdepot angelegt – für keine Position gibt es einen Kurs in den Top-500-Daten.")
     titel = PROFIL_TITEL.get(e["scan_profil"], e["scan_profil"])
+    eintrag["prognose"] = _prognose_fuer(depot, e, erg)
     gespeichert = {}
 
     def _anlegen(d):

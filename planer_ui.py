@@ -5608,6 +5608,7 @@ def render_musterdepot(h):
         st.pills("Musterdepot", namen, default=daten.get("aktiv") if daten.get("aktiv") in namen else namen[0],
                  key="md_wahl") or namen[0])
     d = depots[wahl]
+    _musterdepot_loeschen_knopf(h, wahl)
     pos = d.get("positionen") or []
     with st.spinner("Lade Kurse …"):
         kurse = _parallel([(i, h["get_live_kurs"], (p["instrument_id"],)) for i, p in enumerate(pos)
@@ -5660,6 +5661,7 @@ def render_musterdepot(h):
                   f'{"+" if heute_diff >= 0 else "−"}{_de(abs(heute_diff), 2)} €</span>', "gegenüber Vortag"),
         ("Positionen", str(len(pos)), f"Kaufwert {_de(basis, 2)} €"),
     ])
+    _musterdepot_ziel(d, gesamt)
     for p, akt, akt_w in sorted(berechnet, key=lambda x: -x[2]):
         g = (akt / p["kaufkurs"] - 1) * 100 if akt and p["kaufkurs"] else None
         name = f'<b>{_esc(p["name"])}</b><br><span class="pt-sub">' + _esc(
@@ -5676,29 +5678,84 @@ def render_musterdepot(h):
     _tabelle(["Position", "Stück", "Kaufkurs", "Kurs", "Wert", "G/V", "Anteil"], zeilen)
     st.caption("Kurse von ls-tc.de, aktualisiert mit den übrigen Kursen der App; Werte ohne Kurs-ID mit dem "
                "Tagesschluss aus den Top-500-Daten.")
-    with st.expander("Musterdepot löschen", expanded=False):
-        sicher = st.checkbox(f"Ja, „{wahl}“ endgültig löschen", key="md_loeschen_ok")
-        if st.button("🗑️ Löschen", key="md_loeschen", disabled=not sicher, width="stretch"):
-            def _loeschen(d):
-                dep = d.get("depots") if isinstance(d.get("depots"), dict) else {}
-                if wahl not in dep:
-                    return None
-                dep.pop(wahl, None)
-                d["depots"] = dep
-                if d.get("aktiv") == wahl or d.get("aktiv") not in dep:
-                    d["aktiv"] = next(iter(dep), None)
-                return d
-            if _aendern_speichern(h, _pfad(h, PFAD_MUSTERDEPOT), _loeschen,
-                                  f"planer: musterdepot {wahl} geloescht [skip ci]"):
-                if h.get("chronik"):
-                    try:
-                        h["chronik"]("planer", f"🗑️ Musterdepot gelöscht: {wahl}")
-                    except Exception:
-                        pass
-                st.success("Gelöscht.")
-                st.rerun()
-            else:
-                st.error("Löschen nicht möglich – GitHub-Speicher nicht erreichbar.")
+
+
+def _musterdepot_ziel(d, gesamt):
+    """Ziel machbar? Prognose vom Anlegen (Investment-Scanner) + was ab heute noetig ist."""
+    pg = d.get("prognose")
+    if not isinstance(pg, dict) or not pg.get("ziel"):
+        return
+    import portfolio_builder as P
+    try:
+        start = datetime.date.fromisoformat(d["erstellt"])
+    except Exception:
+        start = datetime.date.today()
+    vergangen = (datetime.date.today().year - start.year) * 12 + datetime.date.today().month - start.month
+    rest = max(int(pg.get("monate") or 0) - vergangen, 1)
+    jetzt = P.benoetigte_rendite(P.bereinigen({
+        "anfangskapital": gesamt, "einzahlung": pg.get("einzahlung") or 0.0, "entnahme": pg.get("entnahme") or 0.0,
+        "laufzeit": rest, "laufzeit_einheit": "Monate", "zielvermoegen": pg["ziel"], "positionen": []}))
+    w = pg.get("wahrscheinlichkeit")
+    erwartet = pg.get("erwartet")
+    ben = jetzt["rendite"] if jetzt else pg.get("benoetigt")
+    ben_text = ("keine – schon gedeckt" if ben <= 0 else
+                f"≈ {_de(ben, 1)} % p. a." if not jetzt or jetzt.get("erreichbar", True)
+                else f"über {_de(ben, 0)} % p. a.")
+    if w is None or ben is None:
+        return
+    if w >= 0.5:
+        urteil, klasse = "✅ Ziel erreichbar", "pl-gut"
+    elif w >= 0.2:
+        urteil, klasse = "⚠️ Ziel möglich, aber unsicher", ""
+    else:
+        urteil, klasse = "❌ Ziel mit diesem Depot kaum erreichbar", "pl-schlecht"
+    jahre = rest / 12
+    _kacheln([
+        ("Ziel", f"{_de(pg['ziel'])} €", f"in {_de(jahre, 1)} Jahren"),
+        ("Nötige Rendite", ben_text, "ab heute, mit Einzahlungen/Entnahmen"),
+        ("Erwartete Rendite", f"≈ {_de(erwartet, 1)} % p. a." if erwartet is not None else "–",
+         f"Modell, Schwankung ≈ {_de(pg.get('schwankung') or 0, 0)} %"),
+        ("Wahrscheinlichkeit", f'<span class="{klasse}">{_de(w * 100, 0)} %</span>',
+         f"Median am Ende ≈ {_de(pg.get('median') or 0)} €"),
+    ], klein=True)
+    st.markdown(f'<div class="pl-hinweis"><b class="{klasse}">{urteil}</b> – Modellrechnung aus dem Investment-Scanner '
+                f'(10–90 %: {_de(pg.get("p10") or 0)} € bis {_de(pg.get("p90") or 0)} €). Keine Garantie, '
+                'keine Anlageempfehlung.</div>', unsafe_allow_html=True)
+
+
+def _musterdepot_loeschen_knopf(h, wahl):
+    """Gewaehltes Musterdepot einzeln loeschen - mit Rueckfrage."""
+    if st.session_state.get("md_loesch_frage") != wahl:
+        st.button(f"🗑️ „{wahl}“ löschen", key="md_loeschen_frage",
+                  on_click=lambda: st.session_state.update(md_loesch_frage=wahl))
+        return
+    st.warning(f"Musterdepot „{wahl}“ endgültig löschen? Die anderen bleiben erhalten.")
+    c1, c2 = st.columns(2)
+    if c1.button("Ja, löschen", key="md_loeschen", type="primary", width="stretch"):
+        def _loeschen(d):
+            dep = d.get("depots") if isinstance(d.get("depots"), dict) else {}
+            if wahl not in dep:
+                return None
+            dep.pop(wahl, None)
+            d["depots"] = dep
+            if d.get("aktiv") == wahl or d.get("aktiv") not in dep:
+                d["aktiv"] = next(iter(dep), None)
+            return d
+        st.session_state.pop("md_loesch_frage", None)
+        if _aendern_speichern(h, _pfad(h, PFAD_MUSTERDEPOT), _loeschen,
+                              f"planer: musterdepot {wahl} geloescht [skip ci]"):
+            if h.get("chronik"):
+                try:
+                    h["chronik"]("planer", f"🗑️ Musterdepot gelöscht: {wahl}")
+                except Exception:
+                    pass
+            st.session_state.pop("md_wahl", None)
+            st.rerun()
+        else:
+            st.error("Löschen nicht möglich – GitHub-Speicher nicht erreichbar.")
+    if c2.button("Abbrechen", key="md_loeschen_nein", width="stretch"):
+        st.session_state.pop("md_loesch_frage", None)
+        st.rerun()
 
 
 # ===========================================================================
