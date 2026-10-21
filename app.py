@@ -5134,6 +5134,7 @@ def render_dashboard():
         try:
             import planer_ui
             planer_ui.render_musterdepot({"gh_read": gh_read, "gh_write": gh_write, "get_live_kurs": get_live_kurs,
+                                          "gh_read_taeglich": gh_read_taeglich,
                                           "chronik": chronik_eintrag, "upfad": upfad, "nutzer": _nutzer(),
                                           "gh_aktualisiere": gh_aktualisiere})
         except Exception as e:

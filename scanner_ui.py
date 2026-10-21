@@ -117,7 +117,7 @@ def _berechnen(h, e, katalog):
     jahre = P.monate(e) / 12.0
     bewertet = S.bewerten(kand, jahre)
     auft = S.aufteilung(e)
-    depot = S.musterdepot(bewertet, auft, e["scan_max_gewicht"])
+    depot = S.musterdepot(bewertet, auft, e["scan_max_gewicht"], nur_mit_kurs=True)   # Stueckzahlen moeglich
     depot_profil = depot                           # genau die Prozentanteile des Risikoprofils (fuers Musterdepot)
     ziel = e["zielvermoegen"]
     opt = None
@@ -226,35 +226,45 @@ def _uebernehmen(d, danach=None):
         danach()
 
 
-def _instrumente(h, depot):
-    """{kennung: (instrument_id, kurs_eur)} ueber die Kursquelle - exakt ueber WKN/ISIN, sonst nur eindeutig
-    ueber den Namen. Kurs-IDs werden je Sitzung gemerkt."""
-    suche, hole = (h or {}).get("suche_instrument"), (h or {}).get("get_live_kurs")
-    if not (suche and hole):
+def _lies(h, pfad):
+    lies = (h or {}).get("gh_read_taeglich")
+    try:
+        return (lies(pfad, None) if lies else None) or {}
+    except Exception:
         return {}
-    import investment_scanner_pro_engine as PRO
-    ids = st.session_state.setdefault("pb_scan_iid", {})
+
+
+def top500_kursmap(h):
+    """{WKN/ISIN/Symbol (gross): Kurs in EUR} aus den Top-500-/Watchlist-Daten (Tagesschluss): grosser Katalog
+    (ETFs, wikifolios, Aktien der ls-tc-Listen) und Qualitaets-Daten (alle Aktien, in EUR umgerechnet)."""
     aus = {}
-    for p in depot["positionen"]:
-        k = S.kennung(p)
-        try:
-            if k not in ids:
-                t, _ = PRO.treffer_waehlen(p, suche(p.get("isin") or p.get("wkn") or p.get("name")) or [])
-                ids[k] = int(t["instrument_id"]) if t else None
-            if ids[k]:
-                akt, vor, _ = hole(ids[k])
-                kurs = akt or vor
-                if kurs and kurs > 0:
-                    aus[k] = (ids[k], float(kurs))
-        except Exception:
-            continue
+    for i in range(4):
+        d = _lies(h, f"state/planer/katalog_gross_{i}.json")
+        f = d.get("felder") or []
+        for z in d.get("zeilen") or []:
+            w = dict(zip(f, z))
+            if isinstance(w.get("kurs"), (int, float)) and w["kurs"] > 0:
+                for k in (w.get("kennung"), w.get("isin")):
+                    if k:
+                        aus.setdefault(str(k).upper(), float(w["kurs"]))
+    fx = {k: v[1] for k, v in (_lies(h, "state/top50_fx.json") or {}).items()
+          if isinstance(v, (list, tuple)) and len(v) > 1 and v[1]}
+    for c in S.kandidaten_aktien((_lies(h, "state/qualitaet.json").get("werte") or {}), {}, fx):
+        if c.get("kurs"):
+            aus.setdefault(c["ticker"].upper(), float(c["kurs"]))
     return aus
 
 
+def _instrumente(h, depot):
+    """Kurse aus den Top-500-Daten (Kurs der Kandidaten), Kurs-IDs aus den Top-500-Listen - ohne Live-Suche."""
+    return S.kurse_aus_top500(depot, S.top500_ids(_lies(h, "state/top50_ids.json"),
+                                                   _lies(h, "state/top50_wikifolios.json")))
+
+
 def _musterdepot_speichern(h, erg, e):
-    """Nach jedem Scan: das Musterdepot mit genau den Prozentanteilen des gewaehlten Risikoprofils als
-    "Investment Scanner Musterdepot" ins Menue "📦 Musterdepot" schreiben (ersetzt das vorige - die Entwicklung
-    zaehlt ab heute). -> Meldung (art, text)"""
+    """Nach jedem Scan: das Musterdepot mit genau den Prozentanteilen des gewaehlten Risikoprofils als NEUES
+    Musterdepot ins Menue "📦 Musterdepot" schreiben (eigener Name je Scan, vorhandene bleiben unveraendert).
+    Kurse aus den Top-500-Daten. -> Meldung (art, text)"""
     import planer_ui as PU
     depot = erg.get("depot_profil") or erg["depot"]
     if not depot["positionen"]:
@@ -262,22 +272,28 @@ def _musterdepot_speichern(h, erg, e):
     auft = erg["aufteilung"]
     profil = (f"{PROFIL_TITEL.get(e['scan_profil'], e['scan_profil'])}: "
               + " / ".join(f"{ART_TITEL[k]} {_de(auft[k])} %" for k in ("etf", "aktie", "wikifolio", "cash")))
-    eintrag, ohne = S.musterdepot_eintrag(depot, erg["start"], _instrumente(h, depot),
-                                          datetime.date.today().isoformat(), profil=profil)
+    heute = datetime.date.today()
+    eintrag, ohne = S.musterdepot_eintrag(depot, erg["start"], _instrumente(h, depot), heute.isoformat(),
+                                          profil=profil)
     if not eintrag["positionen"]:
-        return ("warnung", "Kein Musterdepot angelegt – für keine Position war ein Kurs von heute abrufbar.")
+        return ("warnung", "Kein Musterdepot angelegt – für keine Position gibt es einen Kurs in den Top-500-Daten.")
+    titel = PROFIL_TITEL.get(e["scan_profil"], e["scan_profil"])
+    gespeichert = {}
 
     def _anlegen(d):
         if not isinstance(d.get("depots"), dict):
             d["depots"] = {}
-        d["depots"][S.MUSTERDEPOT_NAME] = eintrag
-        d["aktiv"] = S.MUSTERDEPOT_NAME
+        name = S.musterdepot_name(d["depots"], titel, heute.strftime("%d.%m.%Y"))   # nie ueberschreiben
+        d["depots"][name] = dict(eintrag, name=name)
+        d["aktiv"] = name
+        gespeichert["name"] = name
         return d
     if not PU._aendern_speichern(h, PU._pfad(h, PU.PFAD_MUSTERDEPOT), _anlegen,
-                                 f"scanner: {S.MUSTERDEPOT_NAME} [skip ci]"):
+                                 "scanner: neues Musterdepot [skip ci]"):
         return ("fehler", "Musterdepot nicht gespeichert (Datenspeicher nicht erreichbar).")
-    text = (f"„{S.MUSTERDEPOT_NAME}“ angelegt ({profil}): {len(eintrag['positionen'])} Positionen in ganzen "
-            f"Stücken zum Kurs von heute, Cash {_eur(eintrag['cash'], 2)}.")
+    text = (f"Neues Musterdepot „{gespeichert.get('name')}“ angelegt ({profil}): {len(eintrag['positionen'])} "
+            f"Positionen in ganzen Stücken zum Kurs aus den Top-500-Daten, Cash {_eur(eintrag['cash'], 2)}. "
+            "Frühere Musterdepots bleiben erhalten.")
     if ohne:
         text += f" Ohne Kurs (bleibt Cash): {', '.join(ohne[:4])}" + (" …" if len(ohne) > 4 else "") + "."
     return ("ok", text)
@@ -536,36 +552,11 @@ def _e_plan(erg, e):
 
 
 def _fehlende_kurse(h, erg):
-    """Positionen des Musterdepots ohne Kurs: Kurs auf Knopfdruck ueber die Kursquelle holen (exakt ueber
-    WKN/ISIN, sonst nur eindeutig ueber den Namen) - ohne Kurs laesst sich keine Stueckzahl verkaufen."""
+    """Positionen ohne Kurs in den Top-500-Daten nennen - fuer sie ist keine Stueckzahl moeglich."""
     ohne = [p for p in erg["depot"]["positionen"] if not (p.get("kurs") or 0) > 0]
-    if not ohne:
-        return
-    st.caption(f"{len(ohne)} Position(en) ohne Kurs – dafür ist noch keine Stückzahl möglich: "
-               + ", ".join(p["name"] for p in ohne[:4]) + (" …" if len(ohne) > 4 else "") + ".")
-    suche, hole = (h or {}).get("suche_instrument"), (h or {}).get("get_live_kurs")
-    if not (suche and hole):
-        return
-    if st.button(f"📡 Fehlende Kurse holen ({len(ohne)})", key="pb_scan_kurse", width="stretch"):
-        import investment_scanner_pro_engine as PRO
-        gefunden = 0
-        with st.spinner("Hole Kurse …"):
-            for p in ohne[:40]:
-                try:
-                    begriff = p.get("isin") or p.get("wkn") or p.get("name")
-                    t, _ = PRO.treffer_waehlen(p, suche(begriff) or [])
-                    if not t:
-                        continue
-                    akt, vor, _ = hole(int(t["instrument_id"]))
-                    kurs = akt or vor
-                    if kurs and kurs > 0:
-                        p["kurs"] = float(kurs)
-                        gefunden += 1
-                except Exception:
-                    continue
-        st.session_state["pb_scan_verkauf_ver"] = st.session_state.get("pb_scan_verkauf_ver", 0) + 1
-        st.toast(f"{gefunden} von {len(ohne)} Kursen gefunden")
-        st.rerun()
+    if ohne:
+        st.caption(f"{len(ohne)} Position(en) ohne Kurs in den Top-500-Daten – dafür ist keine Stückzahl möglich: "
+                   + ", ".join(p["name"] for p in ohne[:4]) + (" …" if len(ohne) > 4 else "") + ".")
 
 
 def _verkauf_editor(erg, e):
