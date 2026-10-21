@@ -5610,7 +5610,23 @@ def render_musterdepot(h):
     d = depots[wahl]
     pos = d.get("positionen") or []
     with st.spinner("Lade Kurse …"):
-        kurse = _parallel([(i, h["get_live_kurs"], (p["instrument_id"],)) for i, p in enumerate(pos)])
+        kurse = _parallel([(i, h["get_live_kurs"], (p["instrument_id"],)) for i, p in enumerate(pos)
+                           if p.get("instrument_id")])
+    # ohne Kurs-ID (oder Abruf fehlgeschlagen): Tagesschluss aus den Top-500-/Watchlist-Daten
+    if h.get("gh_read_taeglich") and any(not (isinstance(kurse.get(i), (tuple, list)) and kurse[i] and kurse[i][0])
+                                         for i in range(len(pos))):
+        try:
+            import scanner_ui
+            top = scanner_ui.top500_kursmap(h)
+        except Exception:
+            top = {}
+        for i, p in enumerate(pos):
+            if isinstance(kurse.get(i), (tuple, list)) and kurse[i] and kurse[i][0]:
+                continue
+            k = next((top[x.upper()] for x in (p.get("isin"), p.get("wkn"), p.get("ticker")) if x and x.upper() in top),
+                     None)
+            if k:
+                kurse[i] = (k, None)
     zeilen, wert, kauf, heute_diff = [], 0.0, 0.0, 0.0
     berechnet = []
     for i, p in enumerate(pos):
@@ -5633,7 +5649,7 @@ def render_musterdepot(h):
     except Exception:
         seit = d.get("erstellt", "–")
     st.markdown(f'<div class="abschnitt">📦 {_esc(wahl)}</div>', unsafe_allow_html=True)
-    _hinweis(f"Musterdepot aus dem Portfolio-Planer („{d.get('quelle', '–')}“) · erstellt am {seit} · "
+    _hinweis(f"Musterdepot aus „{d.get('quelle', '–')}“ · erstellt am {seit} · "
              "Kaufkurse = Schlusskurse vom Erstellungstag · ohne Gebühren und Steuern")
     farbe = "pl-gut" if gv >= 0 else "pl-schlecht"
     _kacheln([
@@ -5658,7 +5674,8 @@ def render_musterdepot(h):
         zeilen.append(["<b>Cash</b><br><span class=\"pt-sub\">Reserve und Rest</span>", "–", "–", "–",
                        _de(cash, 2) + " €", "–", _de(cash / gesamt * 100 if gesamt else 0, 1) + " %"])
     _tabelle(["Position", "Stück", "Kaufkurs", "Kurs", "Wert", "G/V", "Anteil"], zeilen)
-    st.caption("Kurse von ls-tc.de, aktualisiert mit den übrigen Kursen der App.")
+    st.caption("Kurse von ls-tc.de, aktualisiert mit den übrigen Kursen der App; Werte ohne Kurs-ID mit dem "
+               "Tagesschluss aus den Top-500-Daten.")
     with st.expander("Musterdepot löschen", expanded=False):
         sicher = st.checkbox(f"Ja, „{wahl}“ endgültig löschen", key="md_loeschen_ok")
         if st.button("🗑️ Löschen", key="md_loeschen", disabled=not sicher, width="stretch"):

@@ -345,11 +345,12 @@ def _index_gruppe(name):
     return next((g for k, g in _INDEX_GRUPPEN if k in n), None)
 
 
-def musterdepot(bewertet, aufteilung, max_gewicht=5.0, min_score=55, max_je_branche=3):
+def musterdepot(bewertet, aufteilung, max_gewicht=5.0, min_score=55, max_je_branche=3, nur_mit_kurs=False):
     """Musterdepot: je Klasse die besten Werte mit genug Daten, gleich gewichtet, jede Position hoechstens
     max_gewicht %. Diversifikation: je Branche hoechstens max_je_branche Aktien, je Kernindex ein ETF,
     je Themen-Cluster (z. B. Tech: Halbleiter/IT/Nasdaq) hoechstens MAX_JE_CLUSTER ETFs.
     Was nicht verteilt werden kann (zu wenig geeignete Werte), geht ins Cash. Summe = 100 %.
+    nur_mit_kurs: nur Werte mit Kurs (Top-500-Daten) - sonst liesse sich keine Stueckzahl kaufen.
     -> {"positionen": [...], "cash": %, "hinweise": [...]}"""
     max_gewicht = max(float(max_gewicht), 0.5)
     pos, hinweise, cash = [], [], float(aufteilung.get("cash", 0.0))
@@ -363,6 +364,8 @@ def musterdepot(bewertet, aufteilung, max_gewicht=5.0, min_score=55, max_je_bran
             if len(gewaehlt) >= n_soll:
                 break
             if not c["ausreichend"] or c["score"] < min_score:
+                continue
+            if nur_mit_kurs and not (c.get("kurs") or 0) > 0:
                 continue
             if art == "aktie" and c["branche"]:
                 if branchen.get(c["branche"], 0) >= max_je_branche:
@@ -687,11 +690,11 @@ MUSTERDEPOT_NAME = "Investment Scanner Musterdepot"
 def musterdepot_eintrag(depot, kapital, kurse, heute, name=MUSTERDEPOT_NAME, profil=""):
     """Musterdepot im Format des Menues "📦 Musterdepot" (planer_ui.render_musterdepot): ganze Stuecke je
     Position zum Kurs von heute, alles Uebrige (Cash-Anteil, Rundung, Werte ohne Kurs) ist Cash.
-    kurse = {kennung(p): (instrument_id, kurs_eur)}. -> (eintrag, [Namen ohne Kurs])"""
+    kurse = {kennung(p): (instrument_id oder None, kurs_eur)}. -> (eintrag, [Namen ohne Kurs])"""
     pos, ohne = [], []
     for p in depot["positionen"]:
         iid, kurs = (kurse.get(kennung(p)) or (None, None))
-        if not iid or not kurs or kurs <= 0:
+        if not kurs or kurs <= 0:
             ohne.append(p["name"])
             continue
         stueck = math.floor(kapital * p["gewicht"] / 100.0 / kurs + 1e-9)
@@ -699,9 +702,64 @@ def musterdepot_eintrag(depot, kapital, kurse, heute, name=MUSTERDEPOT_NAME, pro
             ohne.append(p["name"])
             continue
         pos.append({"name": p["name"], "wkn": p.get("wkn") or "", "isin": p.get("isin") or "",
-                    "instrument_id": iid, "stueck": stueck, "kaufkurs": kurs, "kaufwert": round(stueck * kurs, 2),
+                    "ticker": p.get("ticker") or "", "instrument_id": iid, "stueck": stueck, "kaufkurs": kurs, "kaufwert": round(stueck * kurs, 2),
                     "gewicht_soll": round(p["gewicht"], 3), "teil_von": None})
     eintrag = {"name": name, "erstellt": heute, "kaufwert": float(kapital),
                "cash": round(float(kapital) - sum(z["kaufwert"] for z in pos), 2), "positionen": pos,
                "quelle": "Investment-Scanner" + (f" · {profil}" if profil else "")}
     return eintrag, ohne
+
+
+def top500_ids(id_cache, wikifolios):
+    """Kurs-IDs (ls-tc) aus den Daten der Top-500-Listen: state/top50_ids.json ({isin | "KAT:wkn": {id, wkn,
+    isin}}) und state/top50_wikifolios.json ({"liste": [[id, wkn, name, isin], ...]}).
+    -> {WKN/ISIN (gross): instrument_id}"""
+    aus = {}
+    for schluessel, v in (id_cache or {}).items():
+        if not isinstance(v, dict) or not v.get("id"):
+            continue
+        for k in (v.get("wkn"), v.get("isin"), str(schluessel).replace("KAT:", "")):
+            if k:
+                aus.setdefault(str(k).upper(), int(v["id"]))
+    for z in (wikifolios or {}).get("liste") or []:
+        if isinstance(z, (list, tuple)) and len(z) >= 2 and z[0]:
+            for k in (z[1], z[3] if len(z) > 3 else None):
+                if k:
+                    aus.setdefault(str(k).upper(), int(z[0]))
+    return aus
+
+
+def kurse_aus_top500(depot, ids):
+    """{kennung(p): (instrument_id oder None, kurs_eur)} - Kurs aus den Top-500-/Watchlist-Daten (p["kurs"],
+    Tagesschluss), Kurs-ID aus top500_ids (fuer die spaetere Kursaktualisierung im Musterdepot)."""
+    aus = {}
+    for p in depot["positionen"]:
+        kurs = p.get("kurs")
+        if not kurs or kurs <= 0:
+            continue
+        iid = p.get("instrument_id") or next((ids[k.upper()] for k in (p.get("isin"), p.get("wkn"))
+                                               if k and k.upper() in ids), None)
+        aus[kennung(p)] = (iid, float(kurs))
+    return aus
+
+
+def musterdepot_name(vorhanden, profil_titel, heute):
+    """Neuer, noch freier Name - vorhandene Musterdepots werden nie ueberschrieben."""
+    basis = f"Investment Scanner · {profil_titel} · {heute}"
+    name, nr = basis, 2
+    while name in vorhanden:
+        name, nr = f"{basis} ({nr})", nr + 1
+    return name
+
+
+def kurs_fehlt(bewertet, min_score=55, je_klasse=25):
+    """Kandidaten, die ins Musterdepot kommen koennten (genug Daten, Score >= min_score, je Klasse die besten
+    je_klasse), aber keinen Kurs in den Top-500-Daten haben - fuer sie wird der aktuelle Kurs nachgeladen."""
+    aus, n = [], {}
+    for c in bewertet:
+        if not c.get("ausreichend") or (c.get("score") or 0) < min_score:
+            continue
+        n[c["art"]] = n.get(c["art"], 0) + 1
+        if n[c["art"]] <= je_klasse and not (c.get("kurs") or 0) > 0:
+            aus.append(c)
+    return aus

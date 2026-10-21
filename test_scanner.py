@@ -92,6 +92,15 @@ class Musterdepot(unittest.TestCase):
         self.assertAlmostEqual(d["cash"], 5 + 0, places=9)                     # 15 % / 3 = 5 % je Wert
         self.assertTrue(d["hinweise"] == [] or all("Cash" in h or "ins Cash" in h for h in d["hinweise"]))
 
+    def test_nur_mit_kurs(self):
+        b = self._bewertet()
+        for c in b:
+            c["kurs"] = None if c["name"] == "ETF A MSCI World" else 10.0
+        d = S.musterdepot(b, {"etf": 50, "aktie": 30, "wikifolio": 15, "cash": 5}, 5, 0, nur_mit_kurs=True)
+        namen = [p["name"] for p in d["positionen"]]
+        self.assertNotIn("ETF A MSCI World", namen)
+        self.assertIn("ETF B MSCI World", namen)                                # naechster mit Kurs
+
     def test_skalieren_bleibt_unter_grenze(self):
         d = S.musterdepot(self._bewertet(), {"etf": 50, "aktie": 30, "wikifolio": 15, "cash": 5}, 5, 0)
         voll = S.skalieren(d, 1.0)
@@ -204,6 +213,32 @@ class MusterdepotEintrag(unittest.TestCase):
         self.assertEqual(ohne, ["C"])                                           # ohne Kurs -> Cash
         self.assertAlmostEqual(e["cash"], 10000 - 181 * 33 - 3 * 1000, places=6)
         self.assertEqual((e["name"], e["quelle"]), ("Investment Scanner Musterdepot", "Investment-Scanner · Hoch"))
+
+
+class Top500Kurse(unittest.TestCase):
+    def test_ids_kurse_und_namen(self):
+        ids = S.top500_ids({"US0378331005": {"id": 11, "wkn": "865985", "isin": "US0378331005"},
+                            "KAT:A0RPWH": {"id": 22, "wkn": "A0RPWH", "isin": "IE00B4L5Y983"}},
+                           {"liste": [[33, "LS9ABC", "Wiki", "DE000LS9ABC1"]]})
+        self.assertEqual((ids["865985"], ids["IE00B4L5Y983"], ids["LS9ABC"]), (11, 22, 33))
+        depot = {"positionen": [{"name": "Apple", "isin": "US0378331005", "wkn": "", "kurs": 200.0},
+                                {"name": "Wiki", "wkn": "LS9ABC", "isin": "", "kurs": 150.0},
+                                {"name": "Neu", "wkn": "XYZ123", "isin": "", "kurs": 10.0},
+                                {"name": "Ohne", "wkn": "QQQ111", "isin": "", "kurs": None}], "cash": 0}
+        k = S.kurse_aus_top500(depot, ids)
+        self.assertEqual((k["US0378331005"], k["LS9ABC"], k["XYZ123"]), ((11, 200.0), (33, 150.0), (None, 10.0)))
+        self.assertNotIn("QQQ111", k)                                          # ohne Kurs: kein Eintrag
+        self.assertEqual(S.musterdepot_name({}, "Hoch", "21.10.2026"), "Investment Scanner · Hoch · 21.10.2026")
+        self.assertEqual(S.musterdepot_name({"Investment Scanner · Hoch · 21.10.2026": {}}, "Hoch", "21.10.2026"),
+                         "Investment Scanner · Hoch · 21.10.2026 (2)")       # nie ueberschreiben
+
+
+class KursFehlt(unittest.TestCase):
+    def test_nur_moegliche_depotwerte_ohne_kurs(self):
+        b = [{"art": "etf", "name": f"E{i}", "ausreichend": True, "score": 90 - i, "kurs": None if i % 2 else 5.0}
+             for i in range(6)] + [{"art": "etf", "name": "Schwach", "ausreichend": True, "score": 20, "kurs": None},
+                                   {"art": "etf", "name": "Jung", "ausreichend": False, "score": 99, "kurs": None}]
+        self.assertEqual([c["name"] for c in S.kurs_fehlt(b, je_klasse=4)], ["E1", "E3"])
 
 
 class Risiken(unittest.TestCase):
