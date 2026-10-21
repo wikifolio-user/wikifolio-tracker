@@ -1,4 +1,5 @@
-"""Portfolio Builder: Investment-Scanner - Ziel eintragen, scannen, alle Reiter, uebernehmen (Laptop + Handy)."""
+"""Investment-Scanner (eigene Ansicht): Ziel im Builder eintragen, Scanner oeffnen (Laptop: Knopf im Builder,
+Handy: Menue-Kachel), scannen, alle Reiter, uebernehmen -> zurueck im Builder."""
 import sys, time
 import br
 from playwright.sync_api import sync_playwright
@@ -16,6 +17,13 @@ for w in ([int(a) for a in sys.argv[2:]] or [1440, 390]):
             page.locator(".st-key-nav_menue button", has_text="Portfolio Builder").first.click(); br.warte_ruhe(page, 60)
         page.get_by_label("Zielvermögen €", exact=True).fill("80000"); page.keyboard.press("Enter")
         page.wait_for_timeout(1200); br.warte_ruhe(page)
+        print(w, "Scanner-Karte im Builder:", page.locator(".st-key-pb_scanner").count())
+        if w == 1440:
+            page.locator(".st-key-pb_zum_scanner button").first.click(); br.warte_ruhe(page, 60)
+        else:
+            page.get_by_role("button", name="☰ Menü").click(); br.warte_ruhe(page)
+            page.locator(".st-key-nav_menue button", has_text="Investment-Scanner").first.click(); br.warte_ruhe(page, 60)
+        print(w, "Eckdaten:", page.locator(".st-key-pb_scan_eckdaten").first.inner_text().replace("\n", " | ")[:200])
         knopf = page.locator(".st-key-pb_scan_los button").first
         knopf.scroll_into_view_if_needed()
         t = time.time(); knopf.click(); page.wait_for_timeout(1500); br.warte_ruhe(page, 120)
@@ -34,6 +42,7 @@ for w in ([int(a) for a in sys.argv[2:]] or [1440, 390]):
         if w == 1440:
             karte.get_by_role("tab", name="📦 Musterdepot").click(); page.wait_for_timeout(800)
             page.locator(".st-key-pb_scan_uebernehmen button").first.click(); page.wait_for_timeout(3000); br.warte_ruhe(page, 120)
+            print(w, "Builder offen:", page.locator(".pb-titel").first.inner_text())
             z = zeilen(page)
             print(w, "nach Übernahme:", len(z), "Zeilen, z. B.", z[:3], z[-1:])
         b.close()
