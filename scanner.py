@@ -116,9 +116,15 @@ def _z(x, d=None):
 
 
 # ---------------------------------------------------------------- Kandidaten
-def kandidaten_aktien(qualitaet_werte, alle_aktien, fx=None):
+_WKN = re.compile(r"^(?=.*\d)[A-Z0-9]{6}$")
+
+
+def kandidaten_aktien(qualitaet_werte, alle_aktien, fx=None, isin_je_symbol=None):
     """Aktien mit Fundamentaldaten (Qualitaets-Score der Watchlist) + Kursentwicklung aus den
-    Index-Listen. alle_aktien = {symbol: {name, kennung, 1J, 3J, 5J, 10J}}, fx = {waehrung: je EUR}."""
+    Index-Listen. alle_aktien = {symbol: {name, kennung, 1J, 3J, 5J, 10J}}, fx = {waehrung: je EUR},
+    isin_je_symbol = {yahoo_symbol: isin} (Zuordnung der Watchlist). Kennung aus den ls-tc-Listen ist
+    die WKN - mit WKN/ISIN laesst sich der Kurs exakt abrufen."""
+    isin_je_symbol = isin_je_symbol or {}
     aus = []
     for s, q in (qualitaet_werte or {}).items():
         perf = alle_aktien.get(s) or {}
@@ -131,7 +137,9 @@ def kandidaten_aktien(qualitaet_werte, alle_aktien, fx=None):
                 kurs_eur = kurs / 100.0 / fx["GBP"]
             elif fx and fx.get(wae):
                 kurs_eur = kurs / fx[wae]
-        aus.append({"art": "aktie", "name": str(q.get("name") or s), "ticker": s, "wkn": "", "isin": "",
+        kennung = str(perf.get("kennung") or "").strip().upper()
+        aus.append({"art": "aktie", "name": str(q.get("name") or s), "ticker": s,
+                    "wkn": kennung if _WKN.match(kennung) else "", "isin": isin_je_symbol.get(s, ""),
                     "kennung": str(perf.get("kennung") or s),
                     "perf": {z: _z(perf.get(z)) for z, _ in ZEITRAEUME_PA if _z(perf.get(z)) is not None},
                     "vola": None, "maxdd": None, "jahre": None, "kurs": kurs_eur,

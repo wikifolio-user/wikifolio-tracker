@@ -58,7 +58,10 @@ def _daten(h, katalog):
     fx = {k: v[1] for k, v in (datei("state/top50_fx.json") or {}).items()
           if isinstance(v, (list, tuple)) and len(v) > 1 and v[1]}
     top = datei("state/top50.json")
-    kand = S.kandidaten_aktien(q.get("werte") or {}, alle, fx) + S.kandidaten_katalog(katalog)
+    # Yahoo-Symbol -> ISIN (Zuordnung des Watchlist-Agenten, {isin: symbol}; "" = nicht gefunden)
+    isin = {sym: i for i, sym in ((datei("state/top50_yahoo.json") or {}).get("isin") or {}).items()
+            if sym and isinstance(i, str) and len(i) == 12}
+    kand = S.kandidaten_aktien(q.get("werte") or {}, alle, fx, isin) + S.kandidaten_katalog(katalog)
     stand = {"Qualitäts-Score (Fundamentaldaten)": q.get("stand"), "Ranglisten / Performance": top.get("stand")}
     return kand, stand
 

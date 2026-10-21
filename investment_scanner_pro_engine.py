@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import math
+import re
 from collections import defaultdict
 
 
@@ -208,3 +209,38 @@ def entnahmeplan(plan, auszahlung, ganze_stuecke=True):
             'cash_danach': max(0.0, cash + summe - covered),
             'depotwert_danach': max(0.0, positive(plan.get('gesamt')) - covered),
             'verkaeufe': verkauft}
+
+
+_FORM = re.compile(r"\b(inc|corp|corporation|co|ltd|plc|ag|se|sa|nv|n\.v|asa|ab|oyj|spa|s\.p\.a|holding|holdings|"
+                   r"group|the|class [a-z]|cl [a-z]|registered|reg|shs|namens-aktien|aktie)\b\.?")
+
+
+def _namen_kern(name):
+    t = re.sub(r"[^a-z0-9 ]", " ", _FORM.sub(" ", str(name or "").lower()))
+    return " ".join(t.split())
+
+
+def treffer_waehlen(position, treffer):
+    """Passenden Treffer der Kurssuche bestimmen. -> (treffer, "exakt" | "name") oder (None, None).
+    Exakt: gleiche ISIN oder WKN. Ohne ISIN/WKN (z. B. Aktien, die nur ein Boersensymbol haben) nur ueber
+    den Namen, und nur, wenn genau ein Wertpapier (eine ISIN) der Kategorie Aktie denselben Namenskern hat."""
+    kennungen = {str(position.get(k) or "").strip().upper() for k in ("isin", "wkn")} - {""}
+    for t in treffer or []:
+        if not t.get("instrument_id"):
+            continue
+        if kennungen & {str(t.get("isin") or "").strip().upper(), str(t.get("wkn") or "").strip().upper()}:
+            return t, "exakt"
+    if kennungen:
+        return None, None
+    kern = _namen_kern(position.get("name"))
+    if not kern:
+        return None, None
+    passend = {}
+    for t in treffer or []:
+        if not t.get("instrument_id") or "aktie" not in str(t.get("kategorie") or "").lower():
+            continue
+        if _namen_kern(t.get("name")) == kern and t.get("isin"):
+            passend.setdefault(str(t["isin"]).upper(), t)
+    if len(passend) == 1:
+        return next(iter(passend.values())), "name"
+    return None, None

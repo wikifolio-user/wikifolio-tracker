@@ -37,6 +37,14 @@ class Kandidaten(unittest.TestCase):
         self.assertEqual(S.fundamental_rendite(a[0]["fund"]), 10.0)            # 5 % FCF + ½ × 10 %
         self.assertEqual(S.fundamental_rendite({"fcfy": 30, "g_ums": 80}), 13.0)  # begrenzt
 
+    def test_kennungen_fuer_kursabruf(self):
+        q = {"SAP.DE": {"name": "SAP"}, "AAPL": {"name": "Apple"}, "MSFT": {"name": "Microsoft"}}
+        alle = {"SAP.DE": {"kennung": "716460"}, "AAPL": {"kennung": "AAPL"}}
+        a = {c["ticker"]: c for c in S.kandidaten_aktien(q, alle, {}, {"AAPL": "US0378331005"})}
+        self.assertEqual((a["SAP.DE"]["wkn"], a["SAP.DE"]["isin"]), ("716460", ""))    # ls-tc-Liste: WKN
+        self.assertEqual((a["AAPL"]["wkn"], a["AAPL"]["isin"]), ("", "US0378331005"))  # Symbol ist keine WKN
+        self.assertEqual((a["MSFT"]["wkn"], a["MSFT"]["isin"]), ("", ""))
+
 
 class Prognose(unittest.TestCase):
     def test_schrumpfung_zur_erwartung(self):

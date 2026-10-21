@@ -85,6 +85,9 @@ def _gemerkt(name):
 EM = type("GemerkteEngine", (), {n: staticmethod(_gemerkt(n)) for n in MEMO_FUNKTIONEN})
 
 PFAD_SZENARIEN = "state/planer/szenarien.json"     # je Benutzer ueber nutzerdaten.pfad
+# Arbeitsstand: nur hierhin speichert die automatische Speicherung. Gespeicherte Varianten
+# (alle anderen Namen) aendern sich nur, wenn man sie ausdruecklich unter ihrem Namen speichert.
+AKTUELL = "Aktuelles Modell"
 PFAD_MUSTERDEPOT = "state/musterdepot.json"        # je Benutzer ueber nutzerdaten.pfad
 QUALITAET_DETAIL_TEILE = 32          # wie qualitaet_agent.DETAIL_TEILE
 HIST_CACHE_SEK = 6 * 3600
@@ -526,7 +529,8 @@ def _modell(h):
         _neu_zeichnen()
     if "planer_modell" not in st.session_state:
         daten, ok = _lade_gespeichert(h, mit_status=True)
-        eintrag = daten["szenarien"].get(daten.get("aktiv") or "Aktuelles Modell")
+        aktiv = daten.get("aktiv") or AKTUELL
+        eintrag = daten["szenarien"].get(aktiv)
         if not isinstance(eintrag, dict) or not isinstance(eintrag.get("modell"), dict):
             eintrag = None
         st.session_state["planer_modell"] = _migriere(eintrag["modell"]) if eintrag else _start_modell(h)
@@ -534,7 +538,10 @@ def _modell(h):
         # und schon das blosse Anschauen zaehlt als Aenderung (automatisches Speichern)
         _mm = st.session_state["planer_modell"]
         _mm.setdefault("kaufplan", {"betrag": float(_mm["rahmen"].get("startkapital") or 0.0), "bruch": False})
-        st.session_state["planer_name"] = (daten.get("aktiv") or "Aktuelles Modell") if eintrag else None
+        # weitergearbeitet wird immer im Arbeitsstand - auch wenn zuletzt eine Variante aktiv war
+        # (aeltere Staende): die Variante selbst bleibt so unveraendert
+        st.session_state["planer_name"] = AKTUELL if eintrag else None
+        st.session_state["planer_variante"] = aktiv if eintrag and aktiv != AKTUELL else None
         st.session_state["planer_konto"] = konto
         # Gespeicherter Stand nicht lesbar: NICHT automatisch speichern - sonst wuerde
         # das Startmodell den gespeicherten Stand ueberschreiben
@@ -545,8 +552,9 @@ def _modell(h):
 
 
 def _auto_speichern(m, h):
-    """Automatische Speicherung: jede Aenderung am Modell wird ins aktive
-    Szenario geschrieben (Standard "Aktuelles Modell") - im Ordner des Benutzers.
+    """Automatische Speicherung: jede Aenderung am Modell wird in den Arbeitsstand
+    ("Aktuelles Modell") geschrieben - im Ordner des Benutzers. Gespeicherte Varianten
+    werden dabei nie ueberschrieben.
     Lesen-Aendern-Schreiben (gh_aktualisiere), damit andere gespeicherte
     Szenarien erhalten bleiben (z. B. von einem anderen Geraet)."""
     neu = _hash(m)
@@ -555,7 +563,7 @@ def _auto_speichern(m, h):
         return st.session_state.get("planer_auto")
     if neu == st.session_state.get("planer_hash"):
         return st.session_state.get("planer_auto")
-    name = st.session_state.get("planer_name") or "Aktuelles Modell"
+    name = AKTUELL
     if st.session_state.get("planer_lesefehler"):
         st.session_state["planer_auto"] = ("lesefehler", name, None)
         return st.session_state["planer_auto"]
@@ -1161,7 +1169,9 @@ def _auto_hinweis(m):
         wann = "am Ende der Entnahme" if _ziel_in_entnahme(m) else "am Ende des Aufbaus"
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend so verteilt, dass das Zielvermögen "
                 f"von {_de(m['rahmen']['zielvermoegen'])} € {wann} erreicht wird (benötigt {_pct_ziel(_benoetigt(m))} p.a.) – "
-                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „🎯 Ziel & Rahmen“ (bzw. ⚙️ Planung → Phase 1).")
+                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „🎯 Ziel & Rahmen“ (bzw. ⚙️ Planung → Phase 1)."
+                + (f" Höchstens {_de(E.max_je_baustein(m))} % je Baustein." if E.max_je_baustein(m) < 100 else "")
+                + (" Passende Werte werden automatisch ergänzt." if m["rahmen"].get("auto_ergaenzen") else ""))
     elif modus == "manuell":
         st.info(f"Manuelle Rendite ist aktiv: Die Prozente werden laufend so verteilt, dass das Portfolio "
                 f"{_pct(_rendite_manuell(m))} p.a. erzielt – alle Werte (Aufbau, Entnahme, Kredite, Bilanz) "
@@ -1297,6 +1307,43 @@ def _rahmen(m, eingebettet=False):
             rahmen["rendite_manuell"] = float(c4b.number_input(
                 "Rendite p.a. (%)", -20.0, 200.0, float(rahmen.get("rendite_manuell") or 8.0), step=0.5,
                 key=_k("rendite_manuell"), help="Fester Wert statt der Automatik"))
+        if mo in ("ziel", "manuell"):
+            c4c, c4d = st.columns(2)
+            rahmen["max_je_baustein"] = float(c4c.number_input(
+                "Max. je Baustein (% vom Gesamtbetrag)", 1.0, 100.0, float(rahmen.get("max_je_baustein") or 100.0),
+                step=1.0, format="%.0f", key=_k("max_je_baustein"),
+                help="Kein einzelner Wert bekommt mehr als diesen Anteil vom Gesamtbetrag; der Rest wird auf die "
+                     "übrigen Bausteine verteilt (ist keiner mehr frei: in die Reserve). 100 = keine Grenze. "
+                     "Reserve/Cash ausgenommen."))
+            rahmen["auto_ergaenzen"] = c4d.toggle(
+                "Passende Werte automatisch ergänzen", value=bool(rahmen.get("auto_ergaenzen")),
+                key=_k("auto_ergaenzen"),
+                help="Reicht die benötigte Rendite mit deinen Bausteinen nicht oder haben sie unter dem Höchstgewicht "
+                     "nicht genug Platz, kommen automatisch die besten Werte aus „Alle Werte“ dazu – nach Score, "
+                     "erwarteter Rendite (Historie, zur Annahme gedämpft) und Risikoprofil; nur mit mind. 3 Jahren "
+                     "Historie, ohne Hebel/Short/Krypto. Keine Anlageempfehlung.")
+            if rahmen["auto_ergaenzen"]:
+                c4e, c4f = st.columns(2)
+                profile = list(E.AUTO_PROFILE)
+                rahmen["auto_profil"] = c4e.selectbox(
+                    "Risikoprofil der Ergänzungen", profile,
+                    index=profile.index(rahmen.get("auto_profil") or "ausgewogen"),
+                    format_func=lambda p: (f"{E.AUTO_PROFILE[p]['titel']} (Vola bis {E.AUTO_PROFILE[p]['max_vola']:.0f} %,"
+                                           f" Rückgang bis {abs(E.AUTO_PROFILE[p]['max_dd']):.0f} %)"),
+                    key=_k("auto_profil"))
+                rahmen["auto_max_neu"] = int(c4f.number_input(
+                    "Höchstens automatisch ergänzte Werte", 1, 40, int(rahmen.get("auto_max_neu") or 10),
+                    key=_k("auto_max_neu")))
+                auto_ids = [a for a in m["assets"] if a.get("auto_ergaenzt")]
+                if auto_ids:
+                    st.caption(f"Automatisch ergänzt ({len(auto_ids)}): " + ", ".join(a["name"] for a in auto_ids[:8])
+                               + (" …" if len(auto_ids) > 8 else ""))
+                    if st.button("Automatisch ergänzte Werte wieder entfernen", key=_k("auto_weg")):
+                        for a in auto_ids:
+                            _baustein_entfernen(m, a["id"])
+                        rahmen["auto_ergaenzen"] = False
+                        _neu_zeichnen()
+                        st.rerun()
         ziel_platz = None
         if float(rahmen.get("zielvermoegen") or 0) > 0 or mo == "manuell":
             ziel_platz = st.empty()          # wird nach den Entnahme-Eingaben gefuellt (aktuelle Werte)
@@ -2992,31 +3039,88 @@ def _katalog_gross(m, h):
             if _im_portfolio_gross(m, z):
                 doppelt.append(z["name"])
                 continue
-            kategorie = {"aktie": "single_stock", "wikifolio": "wikifolio"}.get(z["typ"]) or _etf_kategorie(z["name"])
-            jahre = 10 if z.get("r10") is not None else 5 if z.get("r5") is not None else 3 if z.get("r3") is not None else 1
-            kz = {"historical5Y": None if z.get("r5") is None else z["r5"] / 100,
-                  "historical3Y": None if z.get("r3") is None else z["r3"] / 100, "jahre": jahre}
-            vs = E.vorschlag_renditen(kz, D.KATEGORIEN[kategorie]["typ"])
-            wkn = z["kennung"] if _ist_wkn(z["kennung"]) else None
-            extra = {"emittent": "Lang & Schwarz" if z["typ"] == "wikifolio" else None,
-                     "subCategory": titel.get(z["kat"], z["kat"]),
-                     "historicalWinnerBias": bool(vs and vs["hist"] >= 0.20)}
-            if not wkn:
-                extra["yahoo"] = z["kennung"]          # Yahoo-Symbol (Kurssuche dann ueber den Namen)
-            nutzen = vorschlag and vs is not None
-            aid = _baustein_neu(
-                m, z["name"], kategorie, wkn=wkn, isin=z.get("isin") or None, gewicht=gew,
-                rendite=vs["base"] * 100 if nutzen else None, extra=extra, auto=True,
-                notiz=(D.VORSCHLAG["text"] + f" Historisch {vs['quelle']}: {_pct(vs['hist'])} p.a.") if nutzen else None)
-            if nutzen:
-                for sz in ("bear", "base", "bull"):
-                    E.setze_annahme(m, aid, sz, vs[sz], notiz="Vorschlag aus dem Katalog – keine Prognose")
+            _gross_hinzufuegen(m, z, titel, gew, vorschlag)
         st.session_state["planer_gk_wahl"] = {}
         if doppelt:
             st.session_state["planer_meldung"] = ("warnung", "Schon im Portfolio, nicht doppelt angelegt: "
                                                + ", ".join(doppelt), [])
         _neu_zeichnen()
         st.rerun()
+
+
+def _gross_hinzufuegen(m, z, titel, gew=0.0, vorschlag=True, extra_mehr=None):
+    """Einen Wert aus dem grossen Katalog als Baustein anlegen (Base/Bear/Bull-Vorschlag als Annahme). -> id"""
+    kategorie = {"aktie": "single_stock", "wikifolio": "wikifolio"}.get(z["typ"]) or _etf_kategorie(z["name"])
+    jahre = 10 if z.get("r10") is not None else 5 if z.get("r5") is not None else 3 if z.get("r3") is not None else 1
+    kz = {"historical5Y": None if z.get("r5") is None else z["r5"] / 100,
+          "historical3Y": None if z.get("r3") is None else z["r3"] / 100, "jahre": jahre}
+    vs = E.vorschlag_renditen(kz, D.KATEGORIEN[kategorie]["typ"])
+    wkn = z["kennung"] if _ist_wkn(z["kennung"]) else None
+    extra = {"emittent": "Lang & Schwarz" if z["typ"] == "wikifolio" else None,
+             "subCategory": titel.get(z["kat"], z["kat"]),
+             "historicalWinnerBias": bool(vs and vs["hist"] >= 0.20)}
+    if not wkn:
+        extra["yahoo"] = z["kennung"]          # Yahoo-Symbol (Kurssuche dann ueber den Namen)
+    extra.update(extra_mehr or {})
+    nutzen = vorschlag and vs is not None
+    aid = _baustein_neu(
+        m, z["name"], kategorie, wkn=wkn, isin=z.get("isin") or None, gewicht=gew,
+        rendite=vs["base"] * 100 if nutzen else None, extra=extra, auto=True,
+        notiz=(D.VORSCHLAG["text"] + f" Historisch {vs['quelle']}: {_pct(vs['hist'])} p.a.") if nutzen else None)
+    if nutzen:
+        for sz in ("bear", "base", "bull"):
+            E.setze_annahme(m, aid, sz, vs[sz], notiz="Vorschlag aus dem Katalog – keine Prognose")
+    return aid
+
+
+def _auto_ergaenzen(m, h):
+    """Vollautomatisch passende Werte ergaenzen (Schalter unter Ziel & Rahmen): reicht die benoetigte Rendite
+    mit den vorhandenen Bausteinen nicht oder haben sie unter dem Hoechstgewicht je Baustein nicht genug Platz,
+    kommen die besten Werte des grossen Katalogs dazu - nach Score, erwarteter Rendite und Risikoprofil.
+    Hoechstens rahmen["auto_max_neu"] automatisch ergaenzte Bausteine. -> Namen der neuen Bausteine"""
+    rahmen = m["rahmen"]
+    modus = _auto_modus(m)
+    if not rahmen.get("auto_ergaenzen") or modus not in ("ziel", "manuell"):
+        return []
+    erg = st.session_state.get("planer_autogew") or {}
+    aktiv = E.aktive_assets(m)
+    cash = sum(float(a.get("targetWeight") or 0) for a in aktiv if E._typ(a) == "cash")
+    frei = [a for a in aktiv if E._typ(a) != "cash" and not a.get("fixiert")]
+    if erg.get("fehler") and frei:              # Fehler mit vorhandenen Bausteinen (z. B. kein Ziel): nichts tun
+        return []
+    grenze = E.max_je_baustein(m)
+    fehlt_platz = max(int(math.ceil((100.0 - cash - 1e-6) / grenze)) - len(frei), 0) if grenze < 100 else 0
+    zu_wenig = erg.get("erreichbar") is False or not frei
+    if not fehlt_platz and not zu_wenig:
+        return []
+    schon = sum(1 for a in m["assets"] if a.get("auto_ergaenzt"))
+    rest = int(rahmen.get("auto_max_neu") or 10) - schon
+    if rest <= 0:
+        return []
+    # nicht in jedem Durchlauf erneut suchen, wenn sich nichts geaendert hat (keine Kandidaten mehr o. Ae.)
+    marke = (len(m["assets"]), rahmen.get("auto_profil"), grenze, round(float(rahmen.get("zielvermoegen") or 0)),
+             rahmen.get("rendite_manuell"), modus)
+    if st.session_state.get("planer_auto_marke") == marke:
+        return []
+    st.session_state["planer_auto_marke"] = marke
+    profil = rahmen.get("auto_profil") or "ausgewogen"
+    c = _bw_basis(h, E.AUTO_PROFILE.get(profil, E.AUTO_PROFILE["ausgewogen"])["strategie"])
+    if not c["basis"]:
+        return []
+    soll = _rendite_manuell(m) if modus == "manuell" else erg.get("benoetigt")
+    vorhanden = [x for a in m["assets"] for x in (a.get("ticker"), a.get("isin"), a.get("yahoo"))]
+    anzahl = min(rest, max(fehlt_platz, 3 if zu_wenig else 0))
+    kand = E.auto_kandidaten(c["basis"], profil, soll, anzahl, vorhanden,
+                             score_fn=lambda z: (_bw_score(c, z) or {}).get("score"))
+    namen = []
+    for z in kand:
+        _gross_hinzufuegen(m, z, c["titel"], 0.0, True,
+                           {"auto_ergaenzt": True,
+                            "notes": f"Automatisch ergänzt ({E.AUTO_PROFILE[profil]['titel']}): Score "
+                                     f"{z['score'] if z['score'] is not None else '–'}, erwartet "
+                                     f"{_pct(z['erwartet'])} p.a. – keine Anlageempfehlung."})
+        namen.append(z["name"])
+    return namen
 
 
 def _katalog(m, h):
@@ -4448,32 +4552,49 @@ def _b_szenarien(m, R, historie, h):
 
 
 def _b_modelle(m, R, historie, h):
-    _abschnitt("Gespeicherte Modelle")
-    st.caption(f"Aktives Modell: „{st.session_state.get('planer_name') or 'Aktuelles Modell'}“ – Änderungen werden "
-               "automatisch darin gespeichert. Für eine Variante erst unter neuem Namen speichern, dann ändern.")
+    _abschnitt("Gespeicherte Varianten")
+    variante = st.session_state.get("planer_variante")
+    st.caption("Änderungen werden automatisch im Arbeitsstand „" + AKTUELL + "“ gespeichert"
+               + (f" (geladen aus der Variante „{variante}“)" if variante else "") + ". Gespeicherte Varianten "
+               "bleiben unverändert – sie ändern sich nur, wenn du sie hier ausdrücklich unter ihrem Namen "
+               "überschreibst.")
     daten, lesbar = _lade_gespeichert(h, mit_status=True)
     if not lesbar:
         st.error("Gespeicherte Modelle gerade nicht lesbar (GitHub-Speicher nicht erreichbar) – bitte später neu laden.")
-    vorhanden = list(daten["szenarien"])
+    vorhanden = [n for n in daten["szenarien"] if n != AKTUELL]
     c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
-    vorschlag = D.SZENARIO_NAMEN + [n for n in vorhanden if n not in D.SZENARIO_NAMEN]
-    aktuell = st.session_state.get("planer_name") or "Aktuelles Modell"
-    name = c1.selectbox("Name", vorschlag + ["Eigener Name …"],
-                        index=vorschlag.index(aktuell) if aktuell in vorschlag else 0, key=_k("sz_name"))
-    if name == "Eigener Name …":
-        name = c1.text_input("Eigener Name", key=_k("sz_eigen")).strip()
-    if c2.button("💾 Speichern", key=_k("sz_save"), width="stretch", disabled=not name):
+    vorschlag = [n for n in D.SZENARIO_NAMEN if n != AKTUELL and n not in vorhanden]
+    standard = f"Variante {datetime.date.today().strftime('%d.%m.%Y')}"
+    nr = 2
+    while standard in daten["szenarien"]:                     # Vorschlag nie ein vorhandener Name
+        standard = f"Variante {datetime.date.today().strftime('%d.%m.%Y')} ({nr})"
+        nr += 1
+    wahl = c1.selectbox("Speichern als", ["Neuer Name …"] + vorschlag + vorhanden, key=_k("sz_name"),
+                        help="Neuer Name = neue Variante. Ein vorhandener Name wird nur nach Bestätigung "
+                             "überschrieben.")
+    name = (c1.text_input("Name der Variante", value=standard, key=_k("sz_eigen")).strip()
+            if wahl == "Neuer Name …" else wahl)
+    ueberschreiben = name in daten["szenarien"]
+    if name == AKTUELL:
+        st.caption(f"„{AKTUELL}“ ist der Arbeitsstand und wird ohnehin automatisch gespeichert – bitte einen "
+                   "anderen Namen wählen.")
+    bestaetigt = True
+    if ueberschreiben and name != AKTUELL:
+        bestaetigt = st.checkbox(f"Gespeicherte Variante „{name}“ mit dem aktuellen Stand überschreiben",
+                                 key=_k("sz_ueber"))
+    if c2.button("💾 Speichern", key=_k("sz_save"), width="stretch",
+                 disabled=not name or name == AKTUELL or not bestaetigt):
         eintrag = {"modell": copy.deepcopy(m), "gespeichert": datetime.datetime.now().isoformat(timespec="minutes")}
 
         def _speichern(d):
             if not isinstance(d.get("szenarien"), dict):
                 d["szenarien"] = {}
+            if name in d["szenarien"] and not ueberschreiben:
+                return None                           # inzwischen (anderes Geraet) angelegt: nicht ueberschreiben
             d["szenarien"][name] = eintrag
-            d["aktiv"] = name
             return d
-        if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _speichern, f"planer: szenario {name} [skip ci]"):
-            st.session_state["planer_name"] = name
-            st.session_state["planer_hash"] = _hash(m)
+        if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _speichern, f"planer: variante {name} [skip ci]"):
+            st.session_state["planer_variante"] = name
             if h.get("chronik"):
                 try:
                     rr = m["rahmen"]
@@ -4482,38 +4603,50 @@ def _b_modelle(m, R, historie, h):
                                  f"{_de(rr['zielvermoegen'])} € · {len(E.aktive_assets(m))} Bausteine")
                 except Exception:
                     pass
-            st.success(f"„{name}“ gespeichert.")
+            st.success(f"Variante „{name}“ gespeichert.")
         else:
-            st.error("Speichern nicht möglich (GitHub-Speicher nicht verfügbar).")
+            st.error("Speichern nicht möglich (GitHub-Speicher nicht verfügbar oder Name inzwischen vergeben).")
     if vorhanden:
         c3, c4, c5 = st.columns([2, 1, 1], vertical_alignment="bottom")
-        laden = c3.selectbox("Gespeichertes Modell", vorhanden, key=_k("sz_laden"))
+        laden = c3.selectbox("Gespeicherte Variante", vorhanden, key=_k("sz_laden"),
+                             help="Laden übernimmt die Variante in den Arbeitsstand – die Variante selbst bleibt "
+                                  "unverändert.")
         if c4.button("Laden", key=_k("sz_load"), width="stretch"):
-            st.session_state["planer_modell"] = _migriere(daten["szenarien"][laden]["modell"])
-            st.session_state["planer_name"] = laden
-            _basis_neu()
+            st.session_state["planer_modell"] = _migriere(copy.deepcopy(daten["szenarien"][laden]["modell"]))
+            st.session_state["planer_name"] = AKTUELL
+            st.session_state["planer_variante"] = laden
+            st.session_state["planer_hash"] = None       # Arbeitsstand gleich mit der geladenen Variante speichern
+            st.session_state.pop("planer_basis", None)
             st.session_state.pop("planer_opt", None)
             _neu_zeichnen()
             st.rerun()
+        frage = st.session_state.get("planer_loeschfrage")
         if c5.button("Löschen", key=_k("sz_del"), width="stretch"):
-            def _loeschen(d):
-                sz = d.get("szenarien") if isinstance(d.get("szenarien"), dict) else {}
-                if laden not in sz:
-                    return None
-                sz.pop(laden, None)
-                d["szenarien"] = sz
-                if d.get("aktiv") == laden:
-                    d["aktiv"] = None
-                return d
-            if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _loeschen,
-                                  f"planer: szenario {laden} geloescht [skip ci]"):
-                if st.session_state.get("planer_name") == laden:
-                    st.session_state["planer_name"] = None      # naechste Aenderung -> "Aktuelles Modell"
-                    st.session_state["planer_hash"] = None
-                _neu_zeichnen()
+            st.session_state["planer_loeschfrage"] = laden
+            st.rerun()
+        if frage == laden:
+            st.warning(f"Variante „{laden}“ endgültig löschen?")
+            d1, d2 = st.columns(2)
+            if d1.button("Ja, löschen", key=_k("sz_del_ja"), type="primary", width="stretch"):
+                def _loeschen(d):
+                    sz = d.get("szenarien") if isinstance(d.get("szenarien"), dict) else {}
+                    if laden not in sz:
+                        return None
+                    sz.pop(laden, None)
+                    d["szenarien"] = sz
+                    return d
+                st.session_state.pop("planer_loeschfrage", None)
+                if _aendern_speichern(h, _pfad(h, PFAD_SZENARIEN), _loeschen,
+                                      f"planer: variante {laden} geloescht [skip ci]"):
+                    if st.session_state.get("planer_variante") == laden:
+                        st.session_state["planer_variante"] = None
+                    _neu_zeichnen()
+                    st.rerun()
+                else:
+                    st.error("Löschen nicht möglich (GitHub-Speicher nicht erreichbar).")
+            if d2.button("Abbrechen", key=_k("sz_del_nein"), width="stretch"):
+                st.session_state.pop("planer_loeschfrage", None)
                 st.rerun()
-            else:
-                st.error("Löschen nicht möglich (GitHub-Speicher nicht erreichbar).")
         zeilen = []
         for n, e in daten["szenarien"].items():
             try:
@@ -5436,7 +5569,7 @@ def _musterdepot_formular(h, erg, betrag, prefix):
                             "instrument_id": z["instrument_id"], "stueck": z["stueck"], "kaufkurs": z["kurs"],
                             "kaufwert": round(z["ist"], 2), "gewicht_soll": round(z["anteil"] * 100, 3),
                             "teil_von": z.get("teil_von")} for z in kaufbar],
-            "quelle": st.session_state.get("planer_name") or "Aktuelles Modell",
+            "quelle": st.session_state.get("planer_variante") or AKTUELL,
         }
         def _anlegen(d):
             if not isinstance(d.get("depots"), dict):
@@ -5557,8 +5690,8 @@ def render_musterdepot(h):
 def render(h):
     st.markdown(CSS + WZ_CSS, unsafe_allow_html=True)
     m = _modell(h)
-    name = st.session_state.get("planer_name")
-    st.markdown(f'<div class="abschnitt">💼 Portfolio-Planer{" · " + _esc(name) if name else ""}</div>',
+    name = st.session_state.get("planer_variante")
+    st.markdown(f'<div class="abschnitt">💼 Portfolio-Planer{" · aus Variante " + _esc(name) if name else ""}</div>',
                 unsafe_allow_html=True)
     st.caption(f"Planer-Version {PLANER_VERSION} · Rechenkern {getattr(E, 'ENGINE_VERSION', 'alt')}")
     _hinweis("Szenariorechnung / keine Prognose – alle Renditen sind Annahmen oder historische Ausgangswerte, "
@@ -5620,6 +5753,11 @@ def render(h):
     R = _rechne(m, historie, korb_score)
     if _auto_gewichtung(m, R):
         R = _rechne(m, historie, korb_score)
+    neu = _auto_ergaenzen(m, h)
+    if neu:                                  # neue Bausteine: Historie/Annahmen laden, dann neu verteilen
+        st.session_state["planer_meldung"] = ("ok", f"Automatisch ergänzt ({len(neu)}): " + ", ".join(neu), [])
+        _neu_zeichnen()
+        st.rerun()
     if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
         R = _rechne(m, historie, korb_score)
     if _ziel_feinabgleich(m, R):
@@ -5718,7 +5856,8 @@ def render(h):
     status = _auto_speichern(m, h)
     if status:
         art, sz_name, zeit = status
-        text = (f"✓ Automatisch gespeichert als „{sz_name}“ · {zeit} Uhr" if art == "ok" else
+        text = (f"✓ Automatisch gespeichert im Arbeitsstand „{sz_name}“ · {zeit} Uhr – gespeicherte Varianten bleiben "
+                "unverändert" if art == "ok" else
                 "⚠ Dein gespeichertes Modell war beim Öffnen nicht lesbar – damit es nicht überschrieben wird, "
                 "wird gerade nicht automatisch gespeichert. Bitte die Seite neu laden." if art == "lesefehler" else
                 "⚠ Automatische Speicherung nicht möglich (GitHub-Speicher nicht erreichbar) – "
