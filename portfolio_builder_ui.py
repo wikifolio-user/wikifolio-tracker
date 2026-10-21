@@ -67,6 +67,7 @@ CSS = """
              white-space:nowrap; }
 .pb-tab th:first-child, .pb-tab td:first-child { text-align:left; white-space:normal; }
 .pb-tab tr.summe td { font-weight:800; border-bottom:none; }
+.pb-bew { white-space:nowrap; } .pb-bew-leer { color:var(--label,#AAB1BE); }
 .pb-tab i { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:7px; }
 .pb-wrap { overflow-x:auto; }
 @media (max-width: 480px) { .pb-tab .kurs { display:none; } }
@@ -978,22 +979,75 @@ def _monat_plus(d, n):
     return datetime.date(d.year + m // 12, m % 12 + 1, 1)
 
 
-def _positionen_tabelle(r):
+URTEIL = {"attraktiv": ("🟢", "attraktiv"), "eingeschraenkt": ("🟡", "mit Einschr."),
+          "unattraktiv": ("🔴", "eher nicht")}
+
+
+def _bewertungen(h, positionen):
+    """Score 0-100 (relativ zur eigenen Anlageklasse) + Urteil je Position - dieselbe Bewertung wie im Katalog
+    „Alle Werte“ / den Top-500-Daten (bewertung.py, analyse.py). Nur fuer Werte aus den Watchlist-Daten
+    (Treffer ueber WKN/ISIN). -> {index: (score, urteil, datenqualitaet)}"""
+    if not (h or {}).get("gh_read_taeglich"):
+        return {}
+    schluessel = tuple((p.get("wkn") or "", p.get("isin") or "", p.get("art") or "") for p in positionen)
+    gemerkt = st.session_state.get("pb_bewertungen")
+    if gemerkt and gemerkt[0] == schluessel:
+        return gemerkt[1]
+    try:
+        import analyse as AN
+        import planer_ui as PU
+        c = PU._bw_basis(h, "Ausgewogen")
+    except Exception:
+        return {}
+    if not c.get("basis") or not c.get("modell"):
+        return {}
+    nach = {}
+    for z in c["basis"]:
+        for k in (z.get("kennung"), z.get("isin")):
+            if k:
+                nach.setdefault(str(k).upper(), z)
+    aus = {}
+    for i, p in enumerate(positionen):
+        z = next((nach[k.upper()] for k in (p.get("wkn"), p.get("isin")) if k and k.upper() in nach), None)
+        if z is None:
+            continue
+        try:
+            b = PU._bw_score(c, z)
+            an = AN.analysiere(z, b, c["ctx"]) if b else None
+        except Exception:
+            continue
+        if b:
+            aus[i] = (b.get("score"), (an or {}).get("urteil"), b.get("datenqualitaet"))
+    st.session_state["pb_bewertungen"] = (schluessel, aus)
+    return aus
+
+
+def _bewertung_html(bw):
+    if not bw or bw[0] is None:
+        return '<span class="pb-bew-leer">–</span>'
+    farbe, text = URTEIL.get(bw[1], ("", ""))
+    return (f'<span class="pb-bew" title="Score {bw[0]}/100 relativ zur Anlageklasse · {text} · Datenlage '
+            f'{bw[2] or "–"}">{farbe} <b>{bw[0]}</b></span>')
+
+
+def _positionen_tabelle(r, h=None):
     pos = r["positionen"]
+    bew = _bewertungen(h, r["eingaben"]["positionen"])
     zeilen = []
     for i, z in enumerate(pos["zeilen"]):
         stueck = _de(z["stueck"], 0 if r["eingaben"]["nur_ganze_stuecke"] or z["stueck"] >= 1000 else 2)
         zeilen.append(f'<tr><td><i style="background:{FARBEN[i % len(FARBEN)]}"></i>{_esc(z["name"])}</td>'
+                      f'<td>{_bewertung_html(bew.get(i))}</td>'
                       f'<td>{pct(z["anteil"])}</td><td>{stueck}</td><td class="kurs">{eur(z["kurs"], 2)}</td>'
                       f'<td>{eur(z["wert"])}</td></tr>')
     if pos["cash"] > 0.005:
-        zeilen.append(f'<tr><td><i style="background:#3F4652"></i>Cash (nicht investiert)</td>'
+        zeilen.append(f'<tr><td><i style="background:#3F4652"></i>Cash (nicht investiert)</td><td></td>'
                       f'<td>{pct(pos["cash"] / pos["kapital"] * 100 if pos["kapital"] else 0)}</td>'
                       f'<td>–</td><td class="kurs">–</td><td>{eur(pos["cash"])}</td></tr>')
     summe_wert = pos["investiert"] + pos["cash"]
     summe_anteil = summe_wert / pos["kapital"] * 100 if pos["kapital"] else 0.0
     ueber = summe_anteil > 100.05                 # Gewichte > 100 %: mehr verplant als Kapital da ist
-    zeilen.append(f'<tr class="summe"><td>Summe</td><td{" style=color:#F5B942" if ueber else ""}>{pct(summe_anteil)}'
+    zeilen.append(f'<tr class="summe"><td>Summe</td><td></td><td{" style=color:#F5B942" if ueber else ""}>{pct(summe_anteil)}'
                   f'</td><td></td><td class="kurs"></td><td>{eur(summe_wert)}</td></tr>')
     anteile = P.anteile_nach_art(r["eingaben"])
     namen = dict(P.ARTEN, cash="Cash")
@@ -1001,9 +1055,16 @@ def _positionen_tabelle(r):
     with st.container(border=True):
         st.markdown('<div class="pb-karte-t">Positionen</div>'
                     '<div class="pb-wrap" tabindex="0" role="region" aria-label="Positionen (seitlich scrollbar)">'
-                    '<table class="pb-tab"><thead><tr><th>Position</th><th>Anteil</th><th>Stück</th><th class="kurs">Kurs</th>'
+                    '<table class="pb-tab"><thead><tr><th>Position</th><th title="Score 0–100 relativ zur Anlageklasse '
+                    '(wie im Katalog „Alle Werte“): 🟢 attraktiv · 🟡 mit Einschränkungen · 🔴 eher nicht">'
+                    'Bewertung</th><th>Anteil</th><th>Stück</th><th class="kurs">Kurs</th>'
                     '<th>Wert</th></tr></thead><tbody>' + "".join(zeilen) + "</tbody></table></div>",
                     unsafe_allow_html=True)
+        if bew:
+            st.markdown('<div class="pb-hinweis" style="margin-top:8px">Bewertung: Score 0–100 relativ zur eigenen '
+                        'Anlageklasse – dieselbe Bewertung wie im Katalog „Alle Werte“ (Watchlist/Top-500-Daten). '
+                        '🟢 attraktiv · 🟡 mit Einschränkungen · 🔴 eher nicht · – nicht in den Daten.</div>',
+                        unsafe_allow_html=True)
         if nach_art:
             st.markdown(f'<div class="pb-hinweis" style="margin-top:8px">Nach Art: {_esc(nach_art)}</div>',
                         unsafe_allow_html=True)
@@ -1210,7 +1271,7 @@ def render(h):
     with kpi_platz.container():
         _kpis(r)
     _diagramme(r)
-    _positionen_tabelle(r)
+    _positionen_tabelle(r, h)
     _entnahmeplan(r)
     _ergebnis(r)
     if (h or {}).get("zum_scanner"):            # Scanner = eigene Ansicht unter Planung & Analyse
