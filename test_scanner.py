@@ -249,6 +249,22 @@ class KursFehlt(unittest.TestCase):
         self.assertEqual([c["name"] for c in S.kurs_fehlt(b, je_klasse=4)], ["E1", "E3"])
 
 
+class ZielDepot(unittest.TestCase):
+    def test_renditestaerkste_mit_kurs_ohne_cash(self):
+        def c(name, r5, kurs=10.0, art="etf", jahre_feld="5J"):
+            return {"art": art, "name": name, "perf": {jahre_feld: ((1 + r5) ** (5 if jahre_feld == "5J" else 1) - 1) * 100},
+                    "kurs": kurs, "vola": 30.0, "branche": "", "prognose": {"mu": 7.0, "sigma": 30.0}}
+        b = [c("A", 0.50), c("B", 0.45), c("C", 0.40), c("D", 0.10), c("Ohne Kurs", 0.90, kurs=None)]
+        d = S.ziel_depot(b, 44.0, max_gewicht=34.0)
+        self.assertEqual([p["name"] for p in d["positionen"]], ["A", "B", "C"])     # 3 x 33,3 %
+        self.assertAlmostEqual(d["cash"], 0.0, places=9)
+        self.assertAlmostEqual(d["hist_rendite"], 45.0, places=6)
+        self.assertTrue(d["erreicht"])
+        mu, _ = S.portfolio_kennzahlen(d)
+        self.assertAlmostEqual(mu, 45.0, places=6)                               # Prognose = Historie
+        self.assertFalse(S.ziel_depot(b, 60.0, max_gewicht=34.0)["erreicht"])
+
+
 class Risiken(unittest.TestCase):
     def test_stress_und_empfehlungen(self):
         depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 50.0, "wkn": "AAA", "score": 80},

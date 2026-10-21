@@ -5714,7 +5714,8 @@ def _musterdepot_ziel(d, gesamt):
         ("Ziel", f"{_de(pg['ziel'])} €", f"in {_de(jahre, 1)} Jahren"),
         ("Nötige Rendite", ben_text, "ab heute, mit Einzahlungen/Entnahmen"),
         ("Erwartete Rendite", f"≈ {_de(erwartet, 1)} % p. a." if erwartet is not None else "–",
-         f"Modell, Schwankung ≈ {_de(pg.get('schwankung') or 0, 0)} %"),
+         ("bisherige Rendite – keine Prognose" if pg.get("basis") == "historisch" else "Modell")
+         + f", Schwankung ≈ {_de(pg.get('schwankung') or 0, 0)} %"),
         ("Wahrscheinlichkeit", f'<span class="{klasse}">{_de(w * 100, 0)} %</span>',
          f"Median am Ende ≈ {_de(pg.get('median') or 0)} €"),
     ], klein=True)
