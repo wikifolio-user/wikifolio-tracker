@@ -143,6 +143,35 @@ class Simulation(unittest.TestCase):
         self.assertIn("jahre_mehr", alt)
 
 
+class Entnahme(unittest.TestCase):
+    def _depot(self):
+        return {"positionen": [{"name": "A", "art": "etf", "gewicht": 60.0, "kurs": 50.0, "isin": "IE00A",
+                                "prognose": {"mu": 0.0}},
+                               {"name": "B", "art": "aktie", "gewicht": 30.0, "kurs": 0.0, "wkn": "BBB",
+                                "prognose": {"mu": 8.0}}], "cash": 10.0}
+
+    def test_stueckzahlen_im_zahlungsplan(self):
+        e = eingaben(laufzeit=12, laufzeit_einheit="Monate", einzahlung=100, scan_entnahme_art="stueck",
+                     scan_verkauf={"IE00A": 4, "BBB": 9, P.TAGESGELD: 0})
+        pos = S.depot_positionen(self._depot(), S.einstellungen_bereinigen(e)["scan_verkauf"])
+        self.assertEqual([p["name"] for p in pos], ["A", "B", P.TAGESGELD])
+        self.assertEqual(pos[0]["verkauf_stueck"], 4)
+        start, cfs, rest = S.zahlungsplan(e, self._depot())
+        # A: 120 Stueck (6.000 EUR / 50), 0 % Rendite -> jeden Monat 4 x 50 = 200 EUR; B ohne Kurs: nichts
+        self.assertEqual(start, 10000)
+        for c in cfs:
+            self.assertAlmostEqual(c, 100 - 200, places=9)
+        ohne_depot = S.zahlungsplan(e)[1]
+        self.assertEqual(ohne_depot, [100.0] * 12)
+
+    def test_betrag_und_bereinigen(self):
+        e = eingaben(laufzeit=12, laufzeit_einheit="Monate", entnahme=250)
+        self.assertEqual(S.zahlungsplan(e, self._depot())[1], [-250.0] * 12)
+        b = S.einstellungen_bereinigen({"scan_entnahme_art": "x", "scan_verkauf": {"A": -1, "B": "3"}})
+        self.assertEqual(b["scan_entnahme_art"], "betrag")
+        self.assertEqual(b["scan_verkauf"], {"B": 3.0})
+
+
 class Risiken(unittest.TestCase):
     def test_stress_und_empfehlungen(self):
         depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 50.0, "wkn": "AAA", "score": 80},

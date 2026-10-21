@@ -25,7 +25,7 @@ FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa
           "zielvermoegen", "auto_ziel", "rendite_basis",
           # Investment-Scanner (scanner_ui.py)
           "scan_profil", "scan_etf", "scan_aktie", "scan_wikifolio", "scan_cash", "scan_max_dd", "scan_max_gewicht",
-          "scan_kosten", "scan_inflation", "scan_optimieren")
+          "scan_kosten", "scan_inflation", "scan_optimieren", "scan_entnahme_art", "scan_verkauf")
 # Tabellenspalten <-> Felder des Rechenkerns
 SPALTEN = {"Name": "name", "Art": "art", "Rendite % p. a.": "rendite", "Kurs €": "kurs", "Gewicht %": "gewicht",
            "Betrag €": "betrag", "Stück": "stueck",
@@ -1049,39 +1049,43 @@ def _entnahmeplan(r):
             st.caption("Keine Entnahme eingetragen – oben „Entnahme €/Monat“ ausfüllen oder hier „Stückzahlen“ "
                        "wählen.")
             return
-        plan = P.entnahmeplan(e)
-        if not any(plan["monatlich"]):
-            st.caption("Noch keine Verkäufe eingetragen – in der Spalte „Verkauf Stk./Monat“ je Position die "
-                       "Stückzahl pro Monat eintragen.")
-            return
-        heute = datetime.date.today().replace(day=1)
-        ganz = e["nur_ganze_stuecke"]
-        zeilen = []
-        for z in plan["zeilen"]:
-            if z["erloes_gesamt"] <= 0.005:
-                continue
-            leer = (_monat_plus(heute, z["leer_monat"]).strftime("%m/%Y") if z["leer_monat"] else "reicht")
-            dez = 0 if ganz else 2
-            zeilen.append(f'<tr><td>{_esc(z["name"])}</td><td>{_de(z["verkauf_monat"], dez)}</td>'
-                          f'<td>{eur(z["erloes_monat"], 2)}</td><td>{_de(z["stueck_ende"], dez)}</td>'
-                          f'<td>{_esc(leer)}</td><td>{eur(z["erloes_gesamt"])}</td></tr>')
-        erster, gesamt = plan["monatlich"][0], sum(plan["monatlich"])
-        zeilen.append(f'<tr class="summe"><td>Summe</td><td></td><td>{eur(erster, 2)}</td><td></td><td></td>'
-                      f'<td>{eur(gesamt)}</td></tr>')
-        st.markdown('<div class="pb-wrap" tabindex="0" role="region" aria-label="Entnahmeplan (seitlich scrollbar)">'
-                    '<table class="pb-tab"><thead><tr><th>Position</th><th>Verkauf Stk./Monat</th>'
-                    '<th>Erlös 1. Monat</th><th>Bestand am Ende</th><th>Aufgebraucht</th><th>Erlös gesamt</th>'
-                    '</tr></thead><tbody>' + "".join(zeilen) + "</tbody></table></div>", unsafe_allow_html=True)
-        text = (f"Entnahme im 1. Monat {eur(erster, 2)}, über die Laufzeit {eur(gesamt)} – der Betrag ändert sich "
-                "mit den Kursen (Rendite je Position)." if stueck else
-                "Verkauft wird jeden Monat anteilig nach dem aktuellen Wert der Positionen; die Stückzahl in der "
-                "Tabelle gilt für den 1. Monat.")
-        if not stueck and plan["fehlt"] > 0.005:
-            text += f" Die Positionen reichen nicht für alle Entnahmen (es fehlen {eur(plan['fehlt'])})."
-        if e["einzahlung"] > 0:
-            text += (f" Die Einzahlung ({eur(e['einzahlung'])}/Monat) kauft jeden Monat Stücke nach Gewicht dazu – "
-                     "„Bestand am Ende“ enthält diese Käufe.")
-        st.markdown(f'<div class="pb-hinweis" style="margin-top:8px">{_esc(text)}</div>', unsafe_allow_html=True)
+        plan_anzeigen(e, P.entnahmeplan(e), stueck)
+
+
+def plan_anzeigen(e, plan, stueck):
+    """Verkaufsplan als Tabelle + Hinweis (auch vom Investment-Scanner genutzt)."""
+    if not any(plan["monatlich"]):
+        st.caption("Noch keine Verkäufe eingetragen – in der Spalte „Verkauf Stk./Monat“ je Position die "
+                   "Stückzahl pro Monat eintragen.")
+        return
+    heute = datetime.date.today().replace(day=1)
+    ganz = e["nur_ganze_stuecke"]
+    zeilen = []
+    for z in plan["zeilen"]:
+        if z["erloes_gesamt"] <= 0.005:
+            continue
+        leer = (_monat_plus(heute, z["leer_monat"]).strftime("%m/%Y") if z["leer_monat"] else "reicht")
+        dez = 0 if ganz else 2
+        zeilen.append(f'<tr><td>{_esc(z["name"])}</td><td>{_de(z["verkauf_monat"], dez)}</td>'
+                      f'<td>{eur(z["erloes_monat"], 2)}</td><td>{_de(z["stueck_ende"], dez)}</td>'
+                      f'<td>{_esc(leer)}</td><td>{eur(z["erloes_gesamt"])}</td></tr>')
+    erster, gesamt = plan["monatlich"][0], sum(plan["monatlich"])
+    zeilen.append(f'<tr class="summe"><td>Summe</td><td></td><td>{eur(erster, 2)}</td><td></td><td></td>'
+                  f'<td>{eur(gesamt)}</td></tr>')
+    st.markdown('<div class="pb-wrap" tabindex="0" role="region" aria-label="Entnahmeplan (seitlich scrollbar)">'
+                '<table class="pb-tab"><thead><tr><th>Position</th><th>Verkauf Stk./Monat</th>'
+                '<th>Erlös 1. Monat</th><th>Bestand am Ende</th><th>Aufgebraucht</th><th>Erlös gesamt</th>'
+                '</tr></thead><tbody>' + "".join(zeilen) + "</tbody></table></div>", unsafe_allow_html=True)
+    text = (f"Entnahme im 1. Monat {eur(erster, 2)}, über die Laufzeit {eur(gesamt)} – der Betrag ändert sich "
+            "mit den Kursen (Rendite je Position)." if stueck else
+            "Verkauft wird jeden Monat anteilig nach dem aktuellen Wert der Positionen; die Stückzahl in der "
+            "Tabelle gilt für den 1. Monat.")
+    if not stueck and plan["fehlt"] > 0.005:
+        text += f" Die Positionen reichen nicht für alle Entnahmen (es fehlen {eur(plan['fehlt'])})."
+    if e["einzahlung"] > 0:
+        text += (f" Die Einzahlung ({eur(e['einzahlung'])}/Monat) kauft jeden Monat Stücke nach Gewicht dazu – "
+                 "„Bestand am Ende“ enthält diese Käufe.")
+    st.markdown(f'<div class="pb-hinweis" style="margin-top:8px">{_esc(text)}</div>', unsafe_allow_html=True)
 
 
 def _ergebnis(r):
