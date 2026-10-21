@@ -180,6 +180,32 @@ class Entnahme(unittest.TestCase):
         self.assertEqual(b["scan_verkauf"], {"B": 3.0})
 
 
+class EigeneEckdaten(unittest.TestCase):
+    def test_scanner_rechnet_mit_eigenen_werten(self):
+        e = eingaben(anfangskapital=160000, einzahlung=0, laufzeit=5, zielvermoegen=1e6, kredit_summe=5000,
+                     scan_kapital=20000, scan_einzahlung=500, scan_laufzeit=12, scan_ziel=300000, scan_entnahme=100)
+        s = S.scanner_eingaben(e)
+        self.assertEqual((s["anfangskapital"], s["einzahlung"], s["entnahme"], s["kredit_summe"]), (20000, 500, 100, 0))
+        self.assertEqual((P.monate(s), s["zielvermoegen"]), (144, 300000))
+        start, cfs, rest = S.zahlungsplan(s)
+        self.assertEqual((start, len(cfs), cfs[0]), (20000, 144, 400))
+        self.assertEqual(e["anfangskapital"], 160000)                          # Builder-Werte unveraendert
+        self.assertEqual(S.einstellungen_bereinigen({})["scan_kapital"], -1.0)  # noch nie gesetzt
+
+
+class MusterdepotEintrag(unittest.TestCase):
+    def test_ganze_stuecke_rest_cash(self):
+        depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 60.0, "isin": "IE00A"},
+                                {"name": "B", "art": "aktie", "gewicht": 30.0, "wkn": "BBB111"},
+                                {"name": "C", "art": "wikifolio", "gewicht": 10.0, "wkn": "LS9CCC"}], "cash": 0.0}
+        e, ohne = S.musterdepot_eintrag(depot, 10000, {"IE00A": (1, 33.0), "BBB111": (2, 1000.0)}, "2026-10-21",
+                                        profil="Hoch")
+        self.assertEqual([(p["name"], p["stueck"]) for p in e["positionen"]], [("A", 181), ("B", 3)])
+        self.assertEqual(ohne, ["C"])                                           # ohne Kurs -> Cash
+        self.assertAlmostEqual(e["cash"], 10000 - 181 * 33 - 3 * 1000, places=6)
+        self.assertEqual((e["name"], e["quelle"]), ("Investment Scanner Musterdepot", "Investment-Scanner · Hoch"))
+
+
 class Risiken(unittest.TestCase):
     def test_stress_und_empfehlungen(self):
         depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 50.0, "wkn": "AAA", "score": 80},

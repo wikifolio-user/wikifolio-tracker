@@ -118,6 +118,7 @@ def _berechnen(h, e, katalog):
     bewertet = S.bewerten(kand, jahre)
     auft = S.aufteilung(e)
     depot = S.musterdepot(bewertet, auft, e["scan_max_gewicht"])
+    depot_profil = depot                           # genau die Prozentanteile des Risikoprofils (fuers Musterdepot)
     ziel = e["zielvermoegen"]
     opt = None
     if e["scan_optimieren"] and depot["positionen"]:
@@ -131,7 +132,7 @@ def _berechnen(h, e, katalog):
     if ziel > 0 and (a["wahrscheinlichkeit"] or 0) < 0.5:
         alt = S.alternativen(mu, sigma, e, ziel, e["scan_kosten"], depot=depot)
     benoetigt = P.benoetigte_rendite(e) if ziel > 0 else None
-    return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand,
+    return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand, "depot_profil": depot_profil,
             "anzahl": {k: sum(1 for c in bewertet if c["art"] == k) for k in ("aktie", "etf", "wikifolio")},
             "bewertet": bewertet, "aufteilung": auft, "depot": depot, "optimierung": opt, "mu": mu, "sigma": sigma,
             "auswertung": a, "verlauf": S.verlauf_jaehrlich(sim), "restschuld": rest, "start": start,
@@ -165,7 +166,12 @@ def _kennung(c):
     return c.get("isin") or c.get("wkn") or c.get("ticker") or "–"
 
 
-def _musterdepot(erg, kapital, zum_builder=None):
+def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
+    md = st.session_state.get("pb_scan_md")
+    if md:
+        {"ok": st.success, "warnung": st.warning, "fehler": st.error}[md[0]](md[1])
+        if md[0] == "ok" and zum_muster:
+            st.button("📦 Musterdepot ansehen", key="pb_scan_zum_muster", on_click=zum_muster)
     d = erg["depot"]
     for hw in d["hinweise"]:
         st.info(hw)
@@ -218,6 +224,63 @@ def _uebernehmen(d, danach=None):
                                       "geholt, die Stückzahlen rechnen sich daraus.")
     if danach:
         danach()
+
+
+def _instrumente(h, depot):
+    """{kennung: (instrument_id, kurs_eur)} ueber die Kursquelle - exakt ueber WKN/ISIN, sonst nur eindeutig
+    ueber den Namen. Kurs-IDs werden je Sitzung gemerkt."""
+    suche, hole = (h or {}).get("suche_instrument"), (h or {}).get("get_live_kurs")
+    if not (suche and hole):
+        return {}
+    import investment_scanner_pro_engine as PRO
+    ids = st.session_state.setdefault("pb_scan_iid", {})
+    aus = {}
+    for p in depot["positionen"]:
+        k = S.kennung(p)
+        try:
+            if k not in ids:
+                t, _ = PRO.treffer_waehlen(p, suche(p.get("isin") or p.get("wkn") or p.get("name")) or [])
+                ids[k] = int(t["instrument_id"]) if t else None
+            if ids[k]:
+                akt, vor, _ = hole(ids[k])
+                kurs = akt or vor
+                if kurs and kurs > 0:
+                    aus[k] = (ids[k], float(kurs))
+        except Exception:
+            continue
+    return aus
+
+
+def _musterdepot_speichern(h, erg, e):
+    """Nach jedem Scan: das Musterdepot mit genau den Prozentanteilen des gewaehlten Risikoprofils als
+    "Investment Scanner Musterdepot" ins Menue "📦 Musterdepot" schreiben (ersetzt das vorige - die Entwicklung
+    zaehlt ab heute). -> Meldung (art, text)"""
+    import planer_ui as PU
+    depot = erg.get("depot_profil") or erg["depot"]
+    if not depot["positionen"]:
+        return ("warnung", "Kein Musterdepot angelegt – das Depot ist leer.")
+    auft = erg["aufteilung"]
+    profil = (f"{PROFIL_TITEL.get(e['scan_profil'], e['scan_profil'])}: "
+              + " / ".join(f"{ART_TITEL[k]} {_de(auft[k])} %" for k in ("etf", "aktie", "wikifolio", "cash")))
+    eintrag, ohne = S.musterdepot_eintrag(depot, erg["start"], _instrumente(h, depot),
+                                          datetime.date.today().isoformat(), profil=profil)
+    if not eintrag["positionen"]:
+        return ("warnung", "Kein Musterdepot angelegt – für keine Position war ein Kurs von heute abrufbar.")
+
+    def _anlegen(d):
+        if not isinstance(d.get("depots"), dict):
+            d["depots"] = {}
+        d["depots"][S.MUSTERDEPOT_NAME] = eintrag
+        d["aktiv"] = S.MUSTERDEPOT_NAME
+        return d
+    if not PU._aendern_speichern(h, PU._pfad(h, PU.PFAD_MUSTERDEPOT), _anlegen,
+                                 f"scanner: {S.MUSTERDEPOT_NAME} [skip ci]"):
+        return ("fehler", "Musterdepot nicht gespeichert (Datenspeicher nicht erreichbar).")
+    text = (f"„{S.MUSTERDEPOT_NAME}“ angelegt ({profil}): {len(eintrag['positionen'])} Positionen in ganzen "
+            f"Stücken zum Kurs von heute, Cash {_eur(eintrag['cash'], 2)}.")
+    if ohne:
+        text += f" Ohne Kurs (bleibt Cash): {', '.join(ohne[:4])}" + (" …" if len(ohne) > 4 else "") + "."
+    return ("ok", text)
 
 
 def _top_investments(erg):
@@ -418,41 +481,40 @@ def _daten_annahmen(erg):
                "vergangene Entwicklungen sind kein verlässlicher Indikator für die Zukunft.")
 
 
-def _parameter(e, zum_builder):
-    """Eckdaten aus dem Portfolio Builder (dort werden sie geaendert)."""
-    rate = e["einzahlung"] - e["ausgaben"]
-    laufzeit = f"{e['laufzeit']} {'Jahre' if e['laufzeit_einheit'] == 'Jahre' else 'Monate'}"
-    werte = [("Startkapital", _eur(e["anfangskapital"] + e["sonstiges_kapital"])),
-             ("Einzahlung / Monat" if not e["ausgaben"] else "Einzahlung − Ausgaben", _eur(rate)),
-             ("Laufzeit", laufzeit),
-             ("Zielvermögen", _eur(e["zielvermoegen"]) if e["zielvermoegen"] > 0 else "nicht gesetzt")]
-    if e["kredit_summe"] > 0:
-        werte.append(("Kredit", _eur(e["kredit_summe"])))
-    st.markdown('<div class="pb-scan-kpis">' + "".join(
-        f'<div class="k"><div class="l">{_esc(l)}</div><div class="w">{_esc(w)}</div></div>' for l, w in werte)
-        + "</div>", unsafe_allow_html=True)
-    if e["zielvermoegen"] <= 0:
-        st.info("Kein Zielvermögen gesetzt – ohne Ziel gibt es keine Zielwahrscheinlichkeit und keine Alternativen. "
-                "Das Ziel trägst du im Portfolio Builder ein.")
-    if zum_builder:
-        st.button("✏️ Eckdaten im Portfolio Builder ändern", key="pb_scan_zum_builder", width="stretch",
-                  on_click=zum_builder)
+def _eckdaten(e):
+    """Eigene Eckdaten des Scanners (unabhaengig vom Portfolio Builder)."""
+    handy = _smartphone()
+    c = (st.columns(2) + st.columns(2)) if handy else st.columns(4)
+    c[0].number_input("Startkapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_scan_kapital")
+    c[1].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_einzahlung")
+    c[2].number_input("Laufzeit (Jahre)", 1, 50, step=1, key="pb_scan_laufzeit")
+    c[3].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f", key="pb_scan_ziel",
+                      help="0 = kein Ziel (dann keine Zielwahrscheinlichkeit und keine Alternativen).")
+    st.caption("Diese Eckdaten gelten nur für den Scanner – der Portfolio Builder bleibt unverändert.")
+    if e["scan_ziel"] <= 0:
+        st.info("Kein Zielvermögen gesetzt – ohne Ziel gibt es keine Zielwahrscheinlichkeit und keine Alternativen.")
 
 
-def _entnahme_einstellungen(e):
-    """Entnahme im Scanner: fester Betrag (dasselbe Feld wie im Builder) oder Stueckzahlen je Depot-Position."""
-    with st.container(border=True, key="pb_scan_entnahme"):
+def _entnahme_einstellungen(e, h=None):
+    """Entnahme im Scanner: fester Betrag oder Stueckzahlen je Position des Musterdepots (Eingabe direkt hier)."""
+    with st.container(border=True, key="pb_scan_entnahme_karte"):
         st.markdown('<div class="pb-karte-t">Entnahme</div>', unsafe_allow_html=True)
         st.radio("Entnahme als", list(P.ENTNAHME_ARTEN), format_func=P.ENTNAHME_ARTEN.get,
                  key="pb_scan_entnahme_art", horizontal=True,
                  help="€-Betrag: fester Betrag je Monat, verkauft wird anteilig nach Wert. Stückzahlen: je Position "
                       "des Musterdepots festlegen, wie viele Stücke pro Monat verkauft werden – die Entnahme in € "
                       "ergibt sich aus dem Kurs.")
-        if e["scan_entnahme_art"] == "betrag":
-            st.number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme",
-                            help="Gilt auch im Portfolio Builder (dasselbe Feld).")
+        if e["scan_entnahme_art"] == "betrag":  # eigener Betrag des Scanners
+            st.number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f",
+                            key="pb_scan_entnahme")
         else:
-            st.caption("Die Stückzahlen je Position legst du nach dem Scannen im Reiter „💸 Entnahme“ fest.")
+            erg = st.session_state.get("pb_scan_erg")
+            if erg is None or not erg["depot"]["positionen"]:
+                st.info("Erst unten „🔍 Scannen & Musterdepot berechnen“ – danach trägst du hier je Position ein, "
+                        "wie viele Stücke pro Monat verkauft werden.")
+            else:
+                _fehlende_kurse(h, erg)
+                _verkauf_editor(erg, S.scanner_eingaben(e))
 
 
 def _verkauf_geaendert(key, kennungen):
@@ -468,41 +530,82 @@ def _verkauf_geaendert(key, kennungen):
     st.session_state["pb_scan_verkauf"] = verkauf
 
 
+def _e_plan(erg, e):
+    return dict(e, anfangskapital=erg["eingaben"]["anfangskapital"],
+                sonstiges_kapital=erg["eingaben"]["sonstiges_kapital"], kredit_summe=erg["eingaben"]["kredit_summe"])
+
+
+def _fehlende_kurse(h, erg):
+    """Positionen des Musterdepots ohne Kurs: Kurs auf Knopfdruck ueber die Kursquelle holen (exakt ueber
+    WKN/ISIN, sonst nur eindeutig ueber den Namen) - ohne Kurs laesst sich keine Stueckzahl verkaufen."""
+    ohne = [p for p in erg["depot"]["positionen"] if not (p.get("kurs") or 0) > 0]
+    if not ohne:
+        return
+    st.caption(f"{len(ohne)} Position(en) ohne Kurs – dafür ist noch keine Stückzahl möglich: "
+               + ", ".join(p["name"] for p in ohne[:4]) + (" …" if len(ohne) > 4 else "") + ".")
+    suche, hole = (h or {}).get("suche_instrument"), (h or {}).get("get_live_kurs")
+    if not (suche and hole):
+        return
+    if st.button(f"📡 Fehlende Kurse holen ({len(ohne)})", key="pb_scan_kurse", width="stretch"):
+        import investment_scanner_pro_engine as PRO
+        gefunden = 0
+        with st.spinner("Hole Kurse …"):
+            for p in ohne[:40]:
+                try:
+                    begriff = p.get("isin") or p.get("wkn") or p.get("name")
+                    t, _ = PRO.treffer_waehlen(p, suche(begriff) or [])
+                    if not t:
+                        continue
+                    akt, vor, _ = hole(int(t["instrument_id"]))
+                    kurs = akt or vor
+                    if kurs and kurs > 0:
+                        p["kurs"] = float(kurs)
+                        gefunden += 1
+                except Exception:
+                    continue
+        st.session_state["pb_scan_verkauf_ver"] = st.session_state.get("pb_scan_verkauf_ver", 0) + 1
+        st.toast(f"{gefunden} von {len(ohne)} Kursen gefunden")
+        st.rerun()
+
+
+def _verkauf_editor(erg, e):
+    """Verkaufsmengen je Position des Musterdepots eintragen."""
+    depot, e_plan = erg["depot"], _e_plan(erg, e)
+    pos = S.depot_positionen(depot, e["scan_verkauf"])
+    zeilen = P.positionen(dict(P.bereinigen(e_plan), positionen=P.bereinigen({"positionen": pos})["positionen"]))
+    kennungen = [S.kennung(p) for p in depot["positionen"]] + ([P.TAGESGELD] if len(pos) > len(depot["positionen"])
+                                                               else [])
+    df = pd.DataFrame([{"Name": z["name"], "Verkauf Stk./Monat": float(p.get("verkauf_stueck", 0.0)),
+                        "Stück im Depot": round(z["stueck"], 4), "Kurs €": round(z["kurs"], 2)}
+                       for z, p in zip(zeilen["zeilen"], pos)])
+    key = f"pb_scan_verkauf_tab_{st.session_state.get('pb_scan_verkauf_ver', 0)}"
+    st.data_editor(df, key=key, hide_index=True, width="stretch", disabled=["Name", "Stück im Depot", "Kurs €"],
+                   on_change=_verkauf_geaendert, args=(key, kennungen),
+                   column_config={
+                       "Name": st.column_config.TextColumn("Name", width=120 if _smartphone() else "medium"),
+                       "Verkauf Stk./Monat": st.column_config.NumberColumn(
+                           "Verkauf Stk./Monat", min_value=0.0, format="localized",
+                           step=1.0 if e["nur_ganze_stuecke"] else 0.0001,
+                           help="So viele Stücke werden jeden Monat verkauft, bis der Bestand aufgebraucht ist."),
+                       "Stück im Depot": st.column_config.NumberColumn("Stück im Depot", format="localized"),
+                       "Kurs €": st.column_config.NumberColumn("Kurs €", format="localized")})
+    from portfolio_builder_ui import plan_anzeigen
+    plan_anzeigen(e, S.depot_entnahmeplan(depot, e_plan), True)
+
+
 def _entnahme_reiter(erg, e):
     """Verkaufsplan fuer das berechnete Musterdepot (live aus den aktuellen Verkaufsmengen)."""
     from portfolio_builder_ui import plan_anzeigen
-    depot = erg["depot"]
     stueck = e["scan_entnahme_art"] == "stueck"
-    if not stueck and e["entnahme"] <= 0:
+    if stueck:
+        st.caption("Die Stückzahlen je Position trägst du oben in der Karte „Entnahme“ ein – dort steht auch der "
+                   "Verkaufsplan.")
+        return
+    if e["entnahme"] <= 0:
         st.caption("Keine Entnahme eingetragen – oben in „Entnahme“ einen Betrag eintragen oder „Stückzahlen“ "
                    "wählen.")
         return
-    e_plan = dict(e, anfangskapital=erg["eingaben"]["anfangskapital"],
-                  sonstiges_kapital=erg["eingaben"]["sonstiges_kapital"], kredit_summe=erg["eingaben"]["kredit_summe"])
-    if stueck:
-        pos = S.depot_positionen(depot, e["scan_verkauf"])
-        zeilen = P.positionen(dict(P.bereinigen(e_plan), positionen=P.bereinigen({"positionen": pos})["positionen"]))
-        kennungen = [S.kennung(p) for p in depot["positionen"]] + ([P.TAGESGELD] if len(pos) > len(depot["positionen"])
-                                                                   else [])
-        df = pd.DataFrame([{"Name": z["name"], "Verkauf Stk./Monat": float(p.get("verkauf_stueck", 0.0)),
-                            "Stück im Depot": round(z["stueck"], 4), "Kurs €": round(z["kurs"], 2)}
-                           for z, p in zip(zeilen["zeilen"], pos)])
-        key = f"pb_scan_verkauf_tab_{st.session_state.get('pb_scan_verkauf_ver', 0)}"
-        st.data_editor(df, key=key, hide_index=True, width="stretch", disabled=["Name", "Stück im Depot", "Kurs €"],
-                       on_change=_verkauf_geaendert, args=(key, kennungen),
-                       column_config={
-                           "Name": st.column_config.TextColumn("Name", width=120 if _smartphone() else "medium"),
-                           "Verkauf Stk./Monat": st.column_config.NumberColumn(
-                               "Verkauf Stk./Monat", min_value=0.0, format="localized",
-                               step=1.0 if e["nur_ganze_stuecke"] else 0.0001,
-                               help="So viele Stücke werden jeden Monat verkauft, bis der Bestand aufgebraucht ist."),
-                           "Stück im Depot": st.column_config.NumberColumn("Stück im Depot", format="localized"),
-                           "Kurs €": st.column_config.NumberColumn("Kurs €", format="localized")})
-        ohne = [z["name"] for z in zeilen["zeilen"] if z["kurs"] <= 0]
-        if ohne:
-            st.caption(f"Ohne Kurs (keine Stückzahl möglich): {', '.join(ohne[:4])}"
-                       + (" …" if len(ohne) > 4 else "") + ".")
-    plan_anzeigen(e, S.depot_entnahmeplan(depot, e_plan), stueck)
+    plan_anzeigen(e, S.depot_entnahmeplan(erg["depot"], _e_plan(erg, e)), False)
     st.caption("Prognose, Zielwahrscheinlichkeit und Alternativen rechnen mit diesen Entnahmen (bei Stückzahlen: "
                "Erlös zum erwarteten Kurs). Nach einer Änderung „Neu berechnen“.")
 
@@ -514,14 +617,19 @@ def seite(h):
     st.markdown(CSS, unsafe_allow_html=True)
     B._start(h)
     e = B._aus_widgets()
+    if e["scan_kapital"] < 0:                     # erstes Oeffnen: einmal mit den Builder-Werten vorbelegen
+        st.session_state.update(pb_scan_kapital=P.eigenkapital(e), pb_scan_einzahlung=e["einzahlung"],
+                                pb_scan_laufzeit=max(round(P.monate(e) / 12), 1),
+                                pb_scan_ziel=e["zielvermoegen"], pb_scan_entnahme=e["entnahme"])
+        e = B._aus_widgets()
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Investment-<span>Scanner</span></div>'
                 '<div class="pb-unter">Aktien · ETFs · wikifolios → Musterdepot für dein Ziel</div></div>',
                 unsafe_allow_html=True)
     with st.container(border=True, key="pb_scan_eckdaten"):
-        st.markdown('<div class="pb-karte-t">Eckdaten aus dem Portfolio Builder</div>', unsafe_allow_html=True)
-        _parameter(e, (h or {}).get("zum_builder"))
-    _entnahme_einstellungen(e)
-    render(h, e, lambda: B._katalog(h), (h or {}).get("zum_builder"))
+        st.markdown('<div class="pb-karte-t">Eckdaten</div>', unsafe_allow_html=True)
+        _eckdaten(e)
+    _entnahme_einstellungen(e, h)
+    render(h, S.scanner_eingaben(e), lambda: B._katalog(h), (h or {}).get("zum_builder"))
     art, _ = B._automatisch_speichern(h, e)
     if art in ("lesefehler", "fehler"):
         st.caption("⚠ Einstellungen gerade nicht gespeichert – wird bei der nächsten Änderung erneut versucht.")
@@ -542,7 +650,10 @@ def render(h, e, katalog_fn, zum_builder=None):
             with st.spinner("Bewerte Aktien, ETFs und wikifolios und simuliere 10.000 Verläufe …"):
                 erg = _berechnen(h, e, katalog_fn())
             st.session_state["pb_scan_erg"], st.session_state["pb_scan_sig"] = erg, sig
+            with st.spinner("Lege das Investment Scanner Musterdepot an (Kurse von heute) …"):
+                st.session_state["pb_scan_md"] = _musterdepot_speichern(h, erg, e)
             st.session_state["pb_scan_verkauf_ver"] = st.session_state.get("pb_scan_verkauf_ver", 0) + 1
+            st.rerun()                                # Entnahme-Karte oben zeigt das neue Depot
             veraltet = False
         if erg is None:
             return
@@ -552,7 +663,7 @@ def render(h, e, katalog_fn, zum_builder=None):
         tabs = st.tabs(["📦 Musterdepot", "🏆 Top-Investments", "📈 Prognose", "💸 Entnahme", "⚠️ Risiken",
                         "🧭 Plan", "ℹ️ Daten"])
         with tabs[0]:
-            _musterdepot(erg, kapital, zum_builder)
+            _musterdepot(erg, kapital, zum_builder, (h or {}).get("zum_muster"))
         with tabs[1]:
             _top_investments(erg)
         with tabs[2]:

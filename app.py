@@ -5056,6 +5056,8 @@ def render_dashboard():
             import scanner_ui
             scanner_ui.seite({"gh_read": gh_read, "gh_write": gh_write, "gh_aktualisiere": gh_aktualisiere,
                               "nutzer": _nutzer(), "gh_read_taeglich": gh_read_taeglich,
+                              "suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs,
+                              "chronik": chronik_eintrag, "zum_muster": lambda: _nav_waehle(ANSICHT_MUSTER),
                               "zum_builder": (lambda: _nav_waehle(ANSICHT_BUILDER))
                               if _sichtbar(ANSICHT_BUILDER) else None})
         except Exception as e:

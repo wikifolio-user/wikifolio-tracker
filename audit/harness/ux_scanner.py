@@ -23,7 +23,12 @@ for w in ([int(a) for a in sys.argv[2:]] or [1440, 390]):
         else:
             page.get_by_role("button", name="☰ Menü").click(); br.warte_ruhe(page)
             page.locator(".st-key-nav_menue button", has_text="Investment-Scanner").first.click(); br.warte_ruhe(page, 60)
-        print(w, "Eckdaten:", page.locator(".st-key-pb_scan_eckdaten").first.inner_text().replace("\n", " | ")[:200])
+        eck = page.locator(".st-key-pb_scan_eckdaten").first
+        print(w, "Eckdaten (vorbelegt):", [eck.get_by_role("spinbutton", name=n).input_value() for n in
+                                          ("Startkapital €", "Einzahlung €/Monat", "Laufzeit (Jahre)", "Zielvermögen €")])
+        if w == 1440:
+            eck.get_by_role("spinbutton", name="Startkapital €").fill("25000"); page.keyboard.press("Enter")
+            page.wait_for_timeout(1500); br.warte_ruhe(page)
         knopf = page.locator(".st-key-pb_scan_los button").first
         knopf.scroll_into_view_if_needed()
         t = time.time(); knopf.click(); page.wait_for_timeout(1500); br.warte_ruhe(page, 120)
@@ -42,7 +47,8 @@ for w in ([int(a) for a in sys.argv[2:]] or [1440, 390]):
         if w == 1440:
             karte.get_by_role("tab", name="📦 Musterdepot").click(); page.wait_for_timeout(800)
             page.locator(".st-key-pb_scan_uebernehmen button").first.click(); page.wait_for_timeout(3000); br.warte_ruhe(page, 120)
-            print(w, "Builder offen:", page.locator(".pb-titel").first.inner_text())
+            print(w, "Builder offen:", page.locator(".pb-titel").first.inner_text(),
+                  "| Builder-Anfangskapital:", page.get_by_role("spinbutton", name="Anfangskapital €").input_value())
             z = zeilen(page)
             print(w, "nach Übernahme:", len(z), "Zeilen, z. B.", z[:3], z[-1:])
         b.close()
