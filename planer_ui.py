@@ -1169,7 +1169,9 @@ def _auto_hinweis(m):
         wann = "am Ende der Entnahme" if _ziel_in_entnahme(m) else "am Ende des Aufbaus"
         st.info(f"Automatische Gewichtung ist aktiv: Die Prozente werden laufend so verteilt, dass das Zielvermögen "
                 f"von {_de(m['rahmen']['zielvermoegen'])} € {wann} erreicht wird (benötigt {_pct_ziel(_benoetigt(m))} p.a.) – "
-                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „🎯 Ziel & Rahmen“ (bzw. ⚙️ Planung → Phase 1).")
+                "eigene Gewichte und Vorschläge werden überschrieben. Ausschalten unter „🎯 Ziel & Rahmen“ (bzw. ⚙️ Planung → Phase 1)."
+                + (f" Höchstens {_de(E.max_je_baustein(m))} % je Baustein." if E.max_je_baustein(m) < 100 else "")
+                + (" Passende Werte werden automatisch ergänzt." if m["rahmen"].get("auto_ergaenzen") else ""))
     elif modus == "manuell":
         st.info(f"Manuelle Rendite ist aktiv: Die Prozente werden laufend so verteilt, dass das Portfolio "
                 f"{_pct(_rendite_manuell(m))} p.a. erzielt – alle Werte (Aufbau, Entnahme, Kredite, Bilanz) "
@@ -1305,6 +1307,43 @@ def _rahmen(m, eingebettet=False):
             rahmen["rendite_manuell"] = float(c4b.number_input(
                 "Rendite p.a. (%)", -20.0, 200.0, float(rahmen.get("rendite_manuell") or 8.0), step=0.5,
                 key=_k("rendite_manuell"), help="Fester Wert statt der Automatik"))
+        if mo in ("ziel", "manuell"):
+            c4c, c4d = st.columns(2)
+            rahmen["max_je_baustein"] = float(c4c.number_input(
+                "Max. je Baustein (% vom Gesamtbetrag)", 1.0, 100.0, float(rahmen.get("max_je_baustein") or 100.0),
+                step=1.0, format="%.0f", key=_k("max_je_baustein"),
+                help="Kein einzelner Wert bekommt mehr als diesen Anteil vom Gesamtbetrag; der Rest wird auf die "
+                     "übrigen Bausteine verteilt (ist keiner mehr frei: in die Reserve). 100 = keine Grenze. "
+                     "Reserve/Cash ausgenommen."))
+            rahmen["auto_ergaenzen"] = c4d.toggle(
+                "Passende Werte automatisch ergänzen", value=bool(rahmen.get("auto_ergaenzen")),
+                key=_k("auto_ergaenzen"),
+                help="Reicht die benötigte Rendite mit deinen Bausteinen nicht oder haben sie unter dem Höchstgewicht "
+                     "nicht genug Platz, kommen automatisch die besten Werte aus „Alle Werte“ dazu – nach Score, "
+                     "erwarteter Rendite (Historie, zur Annahme gedämpft) und Risikoprofil; nur mit mind. 3 Jahren "
+                     "Historie, ohne Hebel/Short/Krypto. Keine Anlageempfehlung.")
+            if rahmen["auto_ergaenzen"]:
+                c4e, c4f = st.columns(2)
+                profile = list(E.AUTO_PROFILE)
+                rahmen["auto_profil"] = c4e.selectbox(
+                    "Risikoprofil der Ergänzungen", profile,
+                    index=profile.index(rahmen.get("auto_profil") or "ausgewogen"),
+                    format_func=lambda p: (f"{E.AUTO_PROFILE[p]['titel']} (Vola bis {E.AUTO_PROFILE[p]['max_vola']:.0f} %,"
+                                           f" Rückgang bis {abs(E.AUTO_PROFILE[p]['max_dd']):.0f} %)"),
+                    key=_k("auto_profil"))
+                rahmen["auto_max_neu"] = int(c4f.number_input(
+                    "Höchstens automatisch ergänzte Werte", 1, 40, int(rahmen.get("auto_max_neu") or 10),
+                    key=_k("auto_max_neu")))
+                auto_ids = [a for a in m["assets"] if a.get("auto_ergaenzt")]
+                if auto_ids:
+                    st.caption(f"Automatisch ergänzt ({len(auto_ids)}): " + ", ".join(a["name"] for a in auto_ids[:8])
+                               + (" …" if len(auto_ids) > 8 else ""))
+                    if st.button("Automatisch ergänzte Werte wieder entfernen", key=_k("auto_weg")):
+                        for a in auto_ids:
+                            _baustein_entfernen(m, a["id"])
+                        rahmen["auto_ergaenzen"] = False
+                        _neu_zeichnen()
+                        st.rerun()
         ziel_platz = None
         if float(rahmen.get("zielvermoegen") or 0) > 0 or mo == "manuell":
             ziel_platz = st.empty()          # wird nach den Entnahme-Eingaben gefuellt (aktuelle Werte)
@@ -3000,31 +3039,88 @@ def _katalog_gross(m, h):
             if _im_portfolio_gross(m, z):
                 doppelt.append(z["name"])
                 continue
-            kategorie = {"aktie": "single_stock", "wikifolio": "wikifolio"}.get(z["typ"]) or _etf_kategorie(z["name"])
-            jahre = 10 if z.get("r10") is not None else 5 if z.get("r5") is not None else 3 if z.get("r3") is not None else 1
-            kz = {"historical5Y": None if z.get("r5") is None else z["r5"] / 100,
-                  "historical3Y": None if z.get("r3") is None else z["r3"] / 100, "jahre": jahre}
-            vs = E.vorschlag_renditen(kz, D.KATEGORIEN[kategorie]["typ"])
-            wkn = z["kennung"] if _ist_wkn(z["kennung"]) else None
-            extra = {"emittent": "Lang & Schwarz" if z["typ"] == "wikifolio" else None,
-                     "subCategory": titel.get(z["kat"], z["kat"]),
-                     "historicalWinnerBias": bool(vs and vs["hist"] >= 0.20)}
-            if not wkn:
-                extra["yahoo"] = z["kennung"]          # Yahoo-Symbol (Kurssuche dann ueber den Namen)
-            nutzen = vorschlag and vs is not None
-            aid = _baustein_neu(
-                m, z["name"], kategorie, wkn=wkn, isin=z.get("isin") or None, gewicht=gew,
-                rendite=vs["base"] * 100 if nutzen else None, extra=extra, auto=True,
-                notiz=(D.VORSCHLAG["text"] + f" Historisch {vs['quelle']}: {_pct(vs['hist'])} p.a.") if nutzen else None)
-            if nutzen:
-                for sz in ("bear", "base", "bull"):
-                    E.setze_annahme(m, aid, sz, vs[sz], notiz="Vorschlag aus dem Katalog – keine Prognose")
+            _gross_hinzufuegen(m, z, titel, gew, vorschlag)
         st.session_state["planer_gk_wahl"] = {}
         if doppelt:
             st.session_state["planer_meldung"] = ("warnung", "Schon im Portfolio, nicht doppelt angelegt: "
                                                + ", ".join(doppelt), [])
         _neu_zeichnen()
         st.rerun()
+
+
+def _gross_hinzufuegen(m, z, titel, gew=0.0, vorschlag=True, extra_mehr=None):
+    """Einen Wert aus dem grossen Katalog als Baustein anlegen (Base/Bear/Bull-Vorschlag als Annahme). -> id"""
+    kategorie = {"aktie": "single_stock", "wikifolio": "wikifolio"}.get(z["typ"]) or _etf_kategorie(z["name"])
+    jahre = 10 if z.get("r10") is not None else 5 if z.get("r5") is not None else 3 if z.get("r3") is not None else 1
+    kz = {"historical5Y": None if z.get("r5") is None else z["r5"] / 100,
+          "historical3Y": None if z.get("r3") is None else z["r3"] / 100, "jahre": jahre}
+    vs = E.vorschlag_renditen(kz, D.KATEGORIEN[kategorie]["typ"])
+    wkn = z["kennung"] if _ist_wkn(z["kennung"]) else None
+    extra = {"emittent": "Lang & Schwarz" if z["typ"] == "wikifolio" else None,
+             "subCategory": titel.get(z["kat"], z["kat"]),
+             "historicalWinnerBias": bool(vs and vs["hist"] >= 0.20)}
+    if not wkn:
+        extra["yahoo"] = z["kennung"]          # Yahoo-Symbol (Kurssuche dann ueber den Namen)
+    extra.update(extra_mehr or {})
+    nutzen = vorschlag and vs is not None
+    aid = _baustein_neu(
+        m, z["name"], kategorie, wkn=wkn, isin=z.get("isin") or None, gewicht=gew,
+        rendite=vs["base"] * 100 if nutzen else None, extra=extra, auto=True,
+        notiz=(D.VORSCHLAG["text"] + f" Historisch {vs['quelle']}: {_pct(vs['hist'])} p.a.") if nutzen else None)
+    if nutzen:
+        for sz in ("bear", "base", "bull"):
+            E.setze_annahme(m, aid, sz, vs[sz], notiz="Vorschlag aus dem Katalog – keine Prognose")
+    return aid
+
+
+def _auto_ergaenzen(m, h):
+    """Vollautomatisch passende Werte ergaenzen (Schalter unter Ziel & Rahmen): reicht die benoetigte Rendite
+    mit den vorhandenen Bausteinen nicht oder haben sie unter dem Hoechstgewicht je Baustein nicht genug Platz,
+    kommen die besten Werte des grossen Katalogs dazu - nach Score, erwarteter Rendite und Risikoprofil.
+    Hoechstens rahmen["auto_max_neu"] automatisch ergaenzte Bausteine. -> Namen der neuen Bausteine"""
+    rahmen = m["rahmen"]
+    modus = _auto_modus(m)
+    if not rahmen.get("auto_ergaenzen") or modus not in ("ziel", "manuell"):
+        return []
+    erg = st.session_state.get("planer_autogew") or {}
+    aktiv = E.aktive_assets(m)
+    cash = sum(float(a.get("targetWeight") or 0) for a in aktiv if E._typ(a) == "cash")
+    frei = [a for a in aktiv if E._typ(a) != "cash" and not a.get("fixiert")]
+    if erg.get("fehler") and frei:              # Fehler mit vorhandenen Bausteinen (z. B. kein Ziel): nichts tun
+        return []
+    grenze = E.max_je_baustein(m)
+    fehlt_platz = max(int(math.ceil((100.0 - cash - 1e-6) / grenze)) - len(frei), 0) if grenze < 100 else 0
+    zu_wenig = erg.get("erreichbar") is False or not frei
+    if not fehlt_platz and not zu_wenig:
+        return []
+    schon = sum(1 for a in m["assets"] if a.get("auto_ergaenzt"))
+    rest = int(rahmen.get("auto_max_neu") or 10) - schon
+    if rest <= 0:
+        return []
+    # nicht in jedem Durchlauf erneut suchen, wenn sich nichts geaendert hat (keine Kandidaten mehr o. Ae.)
+    marke = (len(m["assets"]), rahmen.get("auto_profil"), grenze, round(float(rahmen.get("zielvermoegen") or 0)),
+             rahmen.get("rendite_manuell"), modus)
+    if st.session_state.get("planer_auto_marke") == marke:
+        return []
+    st.session_state["planer_auto_marke"] = marke
+    profil = rahmen.get("auto_profil") or "ausgewogen"
+    c = _bw_basis(h, E.AUTO_PROFILE.get(profil, E.AUTO_PROFILE["ausgewogen"])["strategie"])
+    if not c["basis"]:
+        return []
+    soll = _rendite_manuell(m) if modus == "manuell" else erg.get("benoetigt")
+    vorhanden = [x for a in m["assets"] for x in (a.get("ticker"), a.get("isin"), a.get("yahoo"))]
+    anzahl = min(rest, max(fehlt_platz, 3 if zu_wenig else 0))
+    kand = E.auto_kandidaten(c["basis"], profil, soll, anzahl, vorhanden,
+                             score_fn=lambda z: (_bw_score(c, z) or {}).get("score"))
+    namen = []
+    for z in kand:
+        _gross_hinzufuegen(m, z, c["titel"], 0.0, True,
+                           {"auto_ergaenzt": True,
+                            "notes": f"Automatisch ergänzt ({E.AUTO_PROFILE[profil]['titel']}): Score "
+                                     f"{z['score'] if z['score'] is not None else '–'}, erwartet "
+                                     f"{_pct(z['erwartet'])} p.a. – keine Anlageempfehlung."})
+        namen.append(z["name"])
+    return namen
 
 
 def _katalog(m, h):
@@ -5657,6 +5753,11 @@ def render(h):
     R = _rechne(m, historie, korb_score)
     if _auto_gewichtung(m, R):
         R = _rechne(m, historie, korb_score)
+    neu = _auto_ergaenzen(m, h)
+    if neu:                                  # neue Bausteine: Historie/Annahmen laden, dann neu verteilen
+        st.session_state["planer_meldung"] = ("ok", f"Automatisch ergänzt ({len(neu)}): " + ", ".join(neu), [])
+        _neu_zeichnen()
+        st.rerun()
     if (m.get("kaufplan") or {}).get("runden") and _auf_stuecke(m, hist_assets, hist_korb)[0]:
         R = _rechne(m, historie, korb_score)
     if _ziel_feinabgleich(m, R):

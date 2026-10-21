@@ -1797,3 +1797,46 @@ class MemoEngine(unittest.TestCase):
             self.assertEqual(len(speicher), U.MEMO_MAX)
         finally:
             U._memo_speicher = alt
+
+
+class HoechstgewichtUndErgaenzen(unittest.TestCase):
+    def test_hoechstgewicht_je_baustein(self):
+        import copy
+        m = copy.deepcopy(D.seed_modell())
+        m["rahmen"]["max_je_baustein"] = 10
+        ids = [a["id"] for a in E.aktive_assets(m)]
+        g = {i: 5.0 for i in ids}
+        g[ids[0]] = 55.0
+        aus = E.regeln_anwenden(m, g)
+        typ = {a["id"]: E._typ(a) for a in m["assets"]}
+        self.assertAlmostEqual(sum(aus.values()), 100.0, places=6)
+        self.assertTrue(all(v <= 10.0 + 1e-6 for i, v in aus.items() if typ[i] != "cash"))
+        m["rahmen"]["max_je_baustein"] = 100
+        self.assertGreater(E.regeln_anwenden(m, g)[ids[0]], 10.0)        # 100 = keine Grenze
+
+    def test_ohne_platz_geht_der_rest_in_die_reserve(self):
+        m = {"rahmen": {"max_je_baustein": 20, "regeln": {"aktiv": False}},
+             "assets": [{"id": "a", "category": "global_equity"}, {"id": "b", "category": "global_equity"},
+                        {"id": "c", "category": "cash"}]}
+        aus = E.einzel_grenze_anwenden(m, {"a": 70.0, "b": 20.0, "c": 10.0})
+        self.assertEqual((aus["a"], aus["b"]), (20.0, 20.0))
+        self.assertAlmostEqual(aus["c"], 60.0)
+
+    def test_kandidaten_profil_rendite_score(self):
+        def z(name, typ, r5, vola, dd, kat="etf", kennung=None):
+            return {"typ": typ, "kat": kat, "name": name, "kennung": kennung or name[:6].upper(), "isin": "",
+                    "5J": ((1 + r5) ** 5 - 1) * 100, "3J": None, "vola": vola, "maxdd": dd, "jahre": 6}
+        zeilen = [z("Ruhig ETF", "etf", 0.06, 12, -20), z("Wachstum ETF", "etf", 0.15, 25, -40),
+                  z("Wild Aktie", "aktie", 0.30, 42, -65, "nasdaq"), z("NVIDIA 3x Daily", "etf", 0.9, 40, -60),
+                  z("Jung", "etf", 0.4, 20, -20)]
+        zeilen[-1]["jahre"] = 2
+        defensiv = [k["name"] for k in E.auto_kandidaten(zeilen, "defensiv", anzahl=5)]
+        self.assertEqual(defensiv, ["Ruhig ETF"])                         # Vola/Rueckgang begrenzt
+        offensiv = [k["name"] for k in E.auto_kandidaten(zeilen, "offensiv", 0.10, 5,
+                                                         score_fn=lambda r: 50)]
+        self.assertEqual(offensiv[:2], ["Wild Aktie", "Wachstum ETF"])    # erst die mit genug Rendite
+        self.assertNotIn("NVIDIA 3x Daily", offensiv)                     # kein Hebel
+        self.assertNotIn("Jung", offensiv)                                # unter 3 Jahren Historie
+        self.assertEqual(E.auto_kandidaten(zeilen, "offensiv", ausschliessen=["WILD A"]) and
+                         [k["name"] for k in E.auto_kandidaten(zeilen, "offensiv", ausschliessen=["WILD A"])
+                          if k["name"] == "Wild Aktie"], [])

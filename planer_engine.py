@@ -17,6 +17,7 @@ Bausteine:
   Optimizer           optimiere (eigener Simplex-LP-Loeser, siehe _simplex)
 """
 import math
+import re
 
 ENGINE_VERSION = "16.10.2026 · 01:00"     # muss zu planer_ui.PLANER_VERSION passen
 
@@ -124,7 +125,63 @@ def _ist_wiki(a):
     return a.get("category") == "wikifolio" or _typ(a) == "wikifolio"
 
 
+def max_je_baustein(modell):
+    """Hoechstgewicht je Baustein in % des Gesamtportfolios (rahmen["max_je_baustein"]; 100 = aus).
+    Gilt fuer alle Bausteine ausser der Reserve (Cash)."""
+    try:
+        v = float((modell.get("rahmen") or {}).get("max_je_baustein") or 100.0)
+    except (TypeError, ValueError):
+        return 100.0
+    return min(max(v, 0.5), 100.0)
+
+
+def einzel_grenze_anwenden(modell, g):
+    """Kein Baustein (ausser Cash) ueber max_je_baustein: der Ueberschuss geht anteilig an die
+    uebrigen freien Bausteine mit Spielraum (nicht fixiert, kein Cash); ist keiner mehr frei, in die
+    Reserve (Cash). Fixierte Bausteine bleiben, wie sie sind. -> Gewichte in % (Summe unveraendert)"""
+    grenze = max_je_baustein(modell)
+    if grenze >= 100.0 - 1e-9 or not g:
+        return g
+    assets = {a["id"]: a for a in modell["assets"]}
+    g = dict(g)
+    cash = [i for i in g if _typ(assets[i]) == "cash"]
+    for _ in range(100):
+        ueber = {i: v - grenze for i, v in g.items() if i not in cash and not assets[i].get("fixiert")
+                 and v > grenze + 1e-9}
+        if not ueber:
+            break
+        menge = sum(ueber.values())
+        for i in ueber:
+            g[i] = grenze
+        frei = [i for i, v in g.items() if i not in cash and not assets[i].get("fixiert") and v < grenze - 1e-9]
+        if not frei:
+            if cash:                                        # kein Baustein mehr frei: in die Reserve
+                for i in cash:
+                    g[i] += menge / len(cash)
+            break
+        # anteilig nach Gewicht (bei lauter 0 % gleich); was dabei ueber die Grenze geht, verteilt die naechste Runde
+        basis = {i: g[i] for i in frei if g[i] > 1e-9} or {i: 1.0 for i in frei}
+        sb = sum(basis.values())
+        for i, b_ in basis.items():
+            g[i] += menge * b_ / sb
+    return g
+
+
 def regeln_anwenden(modell, g):
+    """Klassen-Grenzen (_klassen_regeln) und Hoechstgewicht je Baustein (einzel_grenze_anwenden)
+    abwechselnd, bis beides passt (hoechstens einige Runden)."""
+    g = _klassen_regeln(modell, g)
+    if max_je_baustein(modell) >= 100.0 - 1e-9 or not g:
+        return g
+    for _ in range(6):
+        neu = _klassen_regeln(modell, einzel_grenze_anwenden(modell, g))
+        if all(abs(neu.get(i, 0.0) - g.get(i, 0.0)) < 1e-7 for i in set(g) | set(neu)):
+            break
+        g = neu
+    return einzel_grenze_anwenden(modell, g)
+
+
+def _klassen_regeln(modell, g):
     """Gewichte (in %, aktive Bausteine) in die Grenzen je Anlageklasse bringen
     (Wikifolios, ETFs, Aktien, Hebel, Krypto, Reserve - je min/max %).
     Zu viel in einer Klasse geht anteilig an Klassen mit Spielraum, zu wenig wird
@@ -2312,3 +2369,83 @@ def gewichtung_fuer_cagr(modell, renditen_netto, ziel_cagr, rebalancing=None):
         if hi - lo < 1e-7:
             break
     return dict(erg, rendite=c, erreichbar=True, min=c_lo, max=c_hi)
+
+
+# ===========================================================================
+# Automatisch ergaenzen: passende Werte aus dem grossen Katalog
+# ===========================================================================
+# Risikoprofil -> Bewertungs-Strategie, Hoechstschwankung (Vola p.a. %), groesster erlaubter Rueckgang (%)
+AUTO_PROFILE = {
+    "defensiv": {"titel": "Defensiv", "strategie": "Sicherheit", "max_vola": 20.0, "max_dd": -35.0,
+                 "typen": ("etf", "aktie")},
+    "ausgewogen": {"titel": "Ausgewogen", "strategie": "Ausgewogen", "max_vola": 30.0, "max_dd": -50.0,
+                   "typen": ("etf", "aktie", "wikifolio")},
+    "offensiv": {"titel": "Offensiv", "strategie": "Wachstum", "max_vola": 45.0, "max_dd": -70.0,
+                 "typen": ("etf", "aktie", "wikifolio")},
+}
+_AUTO_HEBEL = re.compile(r"(\b[2-9]x\b|\bx[2-9]\b|leverag|short|\bbear\b|\bbull\b|daily|ultra|hebel|inverse|"
+                         r"turbo|knock|faktor|bitcoin|crypto|krypto|ethereum)", re.I)
+
+
+def _auto_pa(gesamt, jahre):
+    if gesamt is None or gesamt <= -100:
+        return None
+    return (1.0 + gesamt / 100.0) ** (1.0 / jahre) - 1.0
+
+
+def auto_kandidaten(zeilen, profil, mindest_rendite=None, anzahl=5, ausschliessen=(), score_fn=None,
+                    max_je_kategorie=3):
+    """Beste Werte fuer das Portfolio: nur mit mind. 3 Jahren Historie, ohne Hebel/Short/Krypto, innerhalb
+    der Schwankungs- und Rueckgangsgrenze des Risikoprofils. Rangfolge: halb Score (0-100, score_fn),
+    halb erwartete Rendite (Vorschlag aus der Historie, zur Annahme gedaempft - vorschlag_renditen).
+    Mit mindest_rendite (Anteil, z. B. 0.12) zuerst Werte, die mindestens so viel erwarten lassen.
+    zeilen: grosser Katalog (typ, kat, name, kennung, isin, 1J, 3J, 5J, 10J, vola, maxdd, jahre);
+    ausschliessen: Kennungen/ISINs schon im Portfolio. -> [dict(zeile, erwartet, score, rang_wert)]"""
+    p = AUTO_PROFILE.get(profil) or AUTO_PROFILE["ausgewogen"]
+    weg = {str(x).upper() for x in ausschliessen if x}
+    kand = []
+    for z in zeilen or []:
+        if z.get("typ") not in p["typen"] or _AUTO_HEBEL.search(str(z.get("name") or "")):
+            continue
+        if {str(z.get("kennung") or "").upper(), str(z.get("isin") or "").upper()} & weg:
+            continue
+        r5, r3 = _auto_pa(z.get("5J"), 5), _auto_pa(z.get("3J"), 3)
+        jahre = z.get("jahre") or (5 if r5 is not None else 3 if r3 is not None else 0)
+        if (r5 is None and r3 is None) or (jahre or 0) < 3:
+            continue
+        vola, dd = z.get("vola"), z.get("maxdd")
+        if vola is None or vola > p["max_vola"] or (dd is not None and dd < p["max_dd"]):
+            continue
+        typ = "wikifolio" if z["typ"] == "wikifolio" else "aktie" if z["typ"] == "aktie" else "index"
+        vs = vorschlag_renditen({"historical5Y": r5, "historical3Y": r3, "jahre": min(jahre, 10)}, typ)
+        if not vs:
+            continue
+        score = None
+        if score_fn:
+            try:
+                score = score_fn(z)
+            except Exception:
+                score = None
+        kand.append(dict(z, erwartet=vs["base"], score=score, _vs=vs))
+    if not kand:
+        return []
+    # Rang: halb Score, halb erwartete Rendite (jeweils als Perzentil, damit beides gleich zaehlt)
+    def perz(werte):
+        s = sorted(werte)
+        n = len(s)
+        return lambda v: (sum(1 for x in s if x <= v) / n) if n else 0.0
+    p_r = perz([k["erwartet"] for k in kand])
+    p_s = perz([k["score"] for k in kand if k["score"] is not None])
+    for k in kand:
+        k["rang_wert"] = 0.5 * p_r(k["erwartet"]) + 0.5 * (p_s(k["score"]) if k["score"] is not None else 0.25)
+    kand.sort(key=lambda k: (-(1 if mindest_rendite is not None and k["erwartet"] >= mindest_rendite else 0),
+                             -k["rang_wert"], str(k.get("name"))))
+    aus, je_kat = [], {}
+    for k in kand:
+        if je_kat.get(k.get("kat"), 0) >= max_je_kategorie:
+            continue                                  # Streuung: nicht alles aus derselben Liste
+        je_kat[k.get("kat")] = je_kat.get(k.get("kat"), 0) + 1
+        aus.append(k)
+        if len(aus) >= anzahl:
+            break
+    return aus
