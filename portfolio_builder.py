@@ -46,13 +46,22 @@ STANDARD = {
     "rendite_basis": "1J",          # Grundlage der Rendite-Vorschlaege (siehe BASEN)
     "auto_ziel": False,             # Gewichte automatisch so verteilen, dass das Ziel erreicht wird
     "nur_ganze_stuecke": False,
+    # Startbeispiel mit echten Produkten (Kurs-IDs wie in config.BENCHMARKS); die Kurse sind nur
+    # Platzhalter und werden beim ersten Oeffnen durch den aktuellen Kurs ersetzt ("beispiel")
     "positionen": [
-        {"name": "MSCI World ETF", "kurs": 100.0, "gewicht": 60.0, "art": "etf"},
-        {"name": "Emerging Markets ETF", "kurs": 30.0, "gewicht": 20.0, "art": "etf"},
-        {"name": "Bitcoin ETP", "kurs": 50.0, "gewicht": 10.0, "art": "krypto"},
+        {"name": "iShares Core MSCI World UCITS ETF (Acc)", "kurs": 100.0, "gewicht": 60.0, "art": "etf",
+         "wkn": "A0RPWH", "isin": "IE00B4L5Y983", "instrument_id": "44039", "beispiel": True},
+        {"name": "iShares Core MSCI EM IMI UCITS ETF (Acc)", "kurs": 30.0, "gewicht": 20.0, "art": "etf",
+         "wkn": "A111X9", "isin": "IE00BKM4GZ66", "beispiel": True},
+        {"name": "21Shares Bitcoin ETP", "kurs": 50.0, "gewicht": 10.0, "art": "krypto",
+         "wkn": "A2T64E", "isin": "CH0454664001", "instrument_id": "982480", "beispiel": True},
         {"name": "Tagesgeld / Cash", "kurs": 1.0, "gewicht": 10.0, "art": "sonstig"},
     ],
 }
+# fruehere Platzhalter ohne Kennung (gespeicherte Staende) -> dieselben echten Produkte
+_ALTE_BEISPIELE = {"MSCI World ETF": 0, "Emerging Markets ETF": 1, "Bitcoin ETP": 2}
+TAGESGELD = "Tagesgeld / Cash"
+TAGESGELD_ZINS = 2.0            # % p. a. - Annahme fuer das Beispiel, frei aenderbar
 
 
 def standard():
@@ -107,12 +116,36 @@ def bereinigen(e):
                 neu["rendite_basis"] = p["rendite_basis"]
         elif p.get("allgemein"):                              # bewusst geleert: allgemeine Rendite
             neu["allgemein"] = True
+        if p.get("beispiel"):                                 # Startbeispiel: Kurs noch Platzhalter
+            neu["beispiel"] = True
         for k in ("wkn", "isin", "instrument_id"):          # Kennungen fuer den Kursabruf
             if p.get(k) not in (None, ""):
                 neu[k] = str(p[k]).strip()
         pos.append(neu)
     aus["positionen"] = pos
     return aus
+
+
+def beispiele_ersetzen(pos):
+    """Fruehere Platzhalter des Startbeispiels ("MSCI World ETF" usw. ohne WKN, mit erfundenem Kurs)
+    durch die echten Produkte ersetzen - Gewicht bleibt, der Kurs wird danach live geholt. Tagesgeld
+    ohne eigene Angabe bekommt die Zins-Annahme statt der allgemeinen Rendite.
+    -> (neue Positionen, Anzahl ersetzt)"""
+    pos, n = copy.deepcopy(pos), 0
+    for p in pos:
+        i = _ALTE_BEISPIELE.get(p.get("name"))
+        if i is not None and not (p.get("wkn") or p.get("isin") or p.get("instrument_id")):
+            echt = STANDARD["positionen"][i]
+            p.update({k: echt[k] for k in ("name", "art", "wkn", "isin", "instrument_id") if k in echt},
+                     beispiel=True)
+            if p.get("rendite_quelle") != "eigene":
+                p.pop("rendite", None)
+                p.pop("rendite_quelle", None)
+            n += 1
+        if p.get("name") == TAGESGELD and p.get("rendite") is None and not p.get("allgemein"):
+            p["rendite"], p["rendite_quelle"] = TAGESGELD_ZINS, "Annahme Tagesgeld"
+            n += 1
+    return pos, n
 
 
 def rest_gewicht(pos):

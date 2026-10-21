@@ -1185,6 +1185,38 @@ def vz_zahl(wert, nachkomma=2):
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def wikifolio_werte(kat, lang):
+    """Alle wikifolios der Ranglisten (Top 50 je Zeitraum + Top-500-Langliste) zu einer Tabelle:
+    -> {wkn: {"name", "wkn", "perf": {zeitraum: Entwicklung %}}}. Ein Zeitraum fehlt, wenn der Wert
+    dort nicht unter den Top 500 ist."""
+    werte = {}
+
+    def dazu(name, wkn, zr, perf):
+        if not wkn or not isinstance(perf, (int, float)):
+            return
+        w = werte.setdefault(wkn, {"name": str(name or wkn), "wkn": wkn, "perf": {}})
+        w["perf"].setdefault(zr, float(perf))
+
+    for zr, liste in ((kat or {}).get("top") or {}).items():
+        for e in liste or []:
+            dazu(e.get("name"), e.get("wkn"), zr, e.get("perf"))
+    for zr, liste in ((lang or {}).get("top") or {}).items():
+        for r in liste or []:
+            if len(r) >= 3:
+                dazu(r[0], r[1], zr, r[2])
+    return werte
+
+
+def wikifolio_rangliste(werte, zeitraum, begriff="", n=500):
+    """Rangliste nach einem Zeitraum (die besten n), danach optional nach Name/WKN gefiltert -
+    der Rang bleibt der in der vollen Liste."""
+    liste = sorted((w for w in werte.values() if w["perf"].get(zeitraum) is not None),
+                   key=lambda w: (-w["perf"][zeitraum], w["name"].lower()))[:n]
+    liste = [dict(w, rang=i) for i, w in enumerate(liste, 1)]
+    b = str(begriff or "").strip().lower()
+    return [w for w in liste if b in (w["name"] + " " + w["wkn"]).lower()] if b else liste
+
+
 def _h(text):
     """HTML-Escaping fuer Nutzer-/Fremdtexte in unsafe_allow_html-Bausteinen (Audit SEC-04)."""
     return html.escape("" if text is None else str(text), quote=True)
@@ -4846,12 +4878,102 @@ def render_dashboard():
                    "die Namensspalte bleibt stehen.")
         _ue_html(abschnitte)
 
+    WK_SEITE = 25                                       # Raenge je Seite der wikifolio-Liste
+    WK_SPALTEN = ["1M", "3M", "6M", "1J", "2J", "3J", "5J"]
+
+    def _wk_seite(nr):
+        st.session_state["wk_seite"] = nr
+
+    def _render_wikifolios():
+        """Uebergreifende Liste aller wikifolios der Ranglisten (Top 50 + Top 500 je Zeitraum):
+        alle Zeitraeume nebeneinander, sortiert nach einem, seitenweise mit Suche."""
+        daten = gh_read_taeglich("state/top50.json", None) or {}
+        kat = (daten.get("kategorien") or {}).get("wikifolios")
+        if not kat:
+            st.info("Noch keine wikifolio-Ranglisten vorhanden – sie entstehen beim nächsten Lauf des "
+                    "Watchlist-Agenten (täglich 07:30 Uhr).")
+            return
+        lang = gh_read_taeglich("state/top50_lang_wikifolios.json", None) or {}
+        werte = wikifolio_werte(kat, lang)
+        titel = {k: t for k, t in (daten.get("zeitraeume") or []) if k in WK_SPALTEN}
+        spalten = [k for k in WK_SPALTEN if k in titel]
+        zr_titel = [titel[k] for k in spalten]
+        zr_wahl = st.pills("Sortiert nach", zr_titel, default="1 Jahr" if "1 Jahr" in zr_titel else zr_titel[0],
+                           key="wk_zeitraum") or zr_titel[0]
+        zr = spalten[zr_titel.index(zr_wahl)]
+        laenge = _listen_laenge("wk")
+        begriff = st.text_input("In der Liste suchen", key="wk_such", placeholder="Name oder WKN …")
+        liste = wikifolio_rangliste(werte, zr, begriff, n=laenge)
+        signatur = (zr, laenge, begriff)
+        if st.session_state.get("wk_signatur") != signatur:
+            st.session_state["wk_signatur"], st.session_state["wk_seite"] = signatur, 1
+        try:
+            stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
+        except Exception:
+            stand = daten.get("stand", "–")
+        st.caption(f"Stand {stand} · {len(werte)} wikifolios in den Ranglisten · {kat.get('aktiv', '–')} aktiv "
+                   f"· sortiert nach {zr_wahl}" + (f" · {len(liste)} Treffer" if begriff else ""))
+        if not liste:
+            st.info(f"„{begriff}“ ist nicht unter den Top {laenge} für {zr_wahl}." if begriff else
+                    "Für diesen Zeitraum liegen keine Werte vor.")
+            return
+        seiten = max((len(liste) + WK_SEITE - 1) // WK_SEITE, 1)
+        nr = min(max(int(st.session_state.get("wk_seite", 1)), 1), seiten)
+        teil = liste[(nr - 1) * WK_SEITE:nr * WK_SEITE]
+
+        def _pct(v, stark):
+            if v is None:
+                return '<td class="pt-num">–</td>'
+            return (f'<td class="pt-num {"pt-stark " if stark else ""}{"pt-up" if v >= 0 else "pt-down"}">'
+                    f'{vz_zahl(v, 1)} %</td>')
+
+        # sortierte Spalte direkt hinter den Namen (auf dem Handy sonst erst nach Wischen sichtbar)
+        spalten = [zr] + [k for k in spalten if k != zr]
+        zeilen = "".join(
+            f'<tr class="{"pt-zebra" if w["rang"] % 2 == 0 else ""}"><td class="pt-num pt-seit">{w["rang"]}</td>'
+            f'<td class="pt-wert"><span class="pt-name">{_h(w["name"])}</span>'
+            f'<span class="pt-sub">{_h(w["wkn"])}</span></td>'
+            + "".join(_pct(w["perf"].get(k), k == zr) for k in spalten) + "</tr>"
+            for w in teil)
+        kopf = "".join(f'<th class="pt-num">{"▼ " if k == zr else ""}{_h(titel[k])}</th>' for k in spalten)
+        st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                    '<table class="pt pt-kompakt"><thead><tr><th class="pt-num">#</th><th class="pt-wert">'
+                    f'wikifolio</th>{kopf}</tr></thead><tbody>{zeilen}</tbody></table></div>',
+                    unsafe_allow_html=True)
+        if seiten > 1:
+            # Rangbereich direkt waehlbar statt langem Scrollen - unter der Tabelle
+            n1, n2, n3 = st.columns([0.5, 2, 0.5], vertical_alignment="bottom")
+            n1.button("◀", key="wk_zur", on_click=_wk_seite, args=(nr - 1,), disabled=nr <= 1, width="stretch",
+                      help="Vorherige Seite")
+
+            def bereich(i):
+                t = liste[(i - 1) * WK_SEITE:i * WK_SEITE]
+                return f"Rang {t[0]['rang']}–{t[-1]['rang']}  ({i}/{seiten})"
+
+            wahl = n2.selectbox("Seite", list(range(1, seiten + 1)), index=nr - 1, format_func=bereich,
+                                key=f"wk_bereich_{nr}", label_visibility="collapsed")
+            if wahl != nr:
+                st.session_state["wk_seite"] = wahl
+                st.rerun()
+            n3.button("▶", key="wk_vor", on_click=_wk_seite, args=(nr + 1,), disabled=nr >= seiten,
+                      width="stretch", help="Nächste Seite")
+        st.caption("– = in diesem Zeitraum nicht unter den Top 500 (oder noch keine so lange Historie). "
+                   "Werte übernehmen: im Portfolio Builder unter „Wert hinzufügen → Wikifolios → Top-Listen“. "
+                   "Vergangene Entwicklung ist keine Prognose.")
+
     @st.fragment
     def _render_top50():
         _zugang_pruefen("🏆 Watchlist Top 50")
-        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🧭 Qualität × Kurs", "📈 Performance",
+        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🧭 Qualität × Kurs", "📈 Performance", "🧩 Wikifolios",
                                  "🗂️ Gesamtübersicht"],
                        default="⭐ Qualitäts-Score", key="top50_art") or "⭐ Qualitäts-Score"
+        if art == "🧩 Wikifolios":
+            try:
+                _render_wikifolios()
+            except Exception as e:
+                st.error(f"⚠️ Fehler in diesem Tab: {e}")
+                notify_app_error("Tab-Wikifolios", e)
+            return
         if art == "🧭 Qualität × Kurs":
             try:
                 _render_qualitaet_kurs()
