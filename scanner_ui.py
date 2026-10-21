@@ -222,12 +222,20 @@ def _ziel_zeile(erg):
     erw = erg["mu"] - e["scan_kosten"]
     noetig = (f"über {_pct(ben['rendite'], 0)}" if ben and not ben.get("erreichbar", True)
               else _pct(ben.get("rendite"), 1) if ben else "–")
+    zd = erg.get("ziel_depot")
+    if w < 0.5 and zd and zd["positionen"] and zd["erreicht"]:
+        # Ziel ist erreichbar - mit dem Zielrendite-Depot; das Depot mit der eigenen Aufteilung reicht nicht
+        st.success(f"✅ Ziel rechnerisch erreichbar: Für {_eur(e['zielvermoegen'])} sind ≈ {noetig} p. a. nötig – das "
+                   f"🎯 Zielrendite-Musterdepot direkt darunter hatte bisher ≈ {_pct(zd['hist_rendite'], 1)} p. a. "
+                   f"Mit deiner eigenen Aufteilung (Depot weiter unten) wären nur ≈ {_pct(erw, 1)} p. a. zu erwarten "
+                   f"(Wahrscheinlichkeit {_de(w * 100)} %).")
+        return
     urteil = ("✅ Ziel erreichbar" if w >= 0.5 else "⚠️ Ziel möglich, aber unsicher" if w >= 0.2
-              else "❌ Ziel mit diesem Depot kaum erreichbar")
+              else "❌ Ziel mit deiner Aufteilung kaum erreichbar")
     text = (f"{urteil}: Für {_eur(e['zielvermoegen'])} nötig ≈ {noetig} p. a. – dieses Depot erwartet ≈ "
             f"{_pct(erw, 1)} p. a. (Wahrscheinlichkeit {_de(w * 100)} %).")
-    if w < 0.5 and erg.get("ziel_depot") and erg["ziel_depot"]["positionen"]:
-        text += " Ein Depot, das das Ziel rechnerisch erreicht, steht direkt darunter („🎯 Zielrendite-Musterdepot“)."
+    if w < 0.5 and zd and zd["positionen"]:
+        text += (f" Selbst das renditestärkste Depot (darunter) hatte bisher nur ≈ {_pct(zd['hist_rendite'], 1)} p. a.")
     elif w < 0.2:
         text += (" Mehr Rendite heißt mehr Risiko – realistischer sind meist eine höhere Einzahlung, mehr Jahre "
                  "oder ein niedrigeres Ziel (siehe „📈 Prognose“ → Alternativen).")
@@ -244,10 +252,10 @@ def _ziel_depot_anzeige(erg, kapital):
     st.caption("Durchsucht alle Werte der Top-500-Daten nach der bisherigen Rendite – unten folgt dein normales "
                "Musterdepot mit deiner Aufteilung.")
     if zd["erreicht"]:
-        st.warning(f"Rechnerisch erreichbar: Diese {len(zd['positionen'])} Werte hatten in der Vergangenheit zusammen "
-                   f"≈ {_pct(zd['hist_rendite'], 1)} p. a. – nötig sind ≈ {_pct(ben, 1)} p. a. Das setzt voraus, dass "
-                   "sich die außergewöhnlichen Renditen der Vergangenheit wiederholen – sehr riskant, große Verluste "
-                   "möglich, keine Anlageempfehlung.")
+        st.success(f"✅ Ziel erreichbar mit diesem Depot: Diese {len(zd['positionen'])} Werte hatten in der Vergangenheit "
+                   f"zusammen ≈ {_pct(zd['hist_rendite'], 1)} p. a. – nötig sind ≈ {_pct(ben, 1)} p. a.")
+        st.caption("⚠️ Gilt, wenn sich die außergewöhnlichen Renditen der Vergangenheit wiederholen – sehr riskant, "
+                   "große Verluste möglich, keine Anlageempfehlung.")
     else:
         st.error(f"Selbst die renditestärksten Werte mit Kurs hatten zusammen nur ≈ {_pct(zd['hist_rendite'], 1)} p. a. "
                  f"– nötig wären ≈ {_pct(ben, 1)} p. a. Das ist das renditestärkste mögliche Depot.")

@@ -18,7 +18,7 @@ with sync_playwright() as p:
         br.warte_ruhe(page)
     page.locator(".st-key-pb_scan_los button").first.click(); page.wait_for_timeout(2000); br.warte_ruhe(page, 180)
     t = br.text(page)
-    print("Ziel:", [z[:220] for z in t.splitlines() if "nötig" in z][:1])
+    print("Ziel:", [z[:260] for z in t.splitlines() if "nötig" in z][:2])
     zeile = [z for z in t.splitlines() if z.startswith("Cash / Tagesgeld")]
     print("Cash-Zeile:", zeile[:1])
     print("Zielrendite:", [z[:200] for z in t.splitlines() if "Rechnerisch erreichbar" in z or "renditestärksten" in z
