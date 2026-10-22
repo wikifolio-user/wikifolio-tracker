@@ -20,20 +20,16 @@ ANSATZ_HINT = {"auto": "Innerhalb Risikolimit", "defensiv": "Stabilität im Foku
 
 CSS = """
 <style>
-.is2-kopf { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin:4px 0 6px; }
-.is2-ueber { color:#9AA0A6; font-size:.72rem; letter-spacing:1.4px; text-transform:uppercase; }
-.is2-titel { font-size:1.6rem; font-weight:800; }
 .is2-chip { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.72rem; font-weight:700;
   letter-spacing:.6px; background:#193c38; color:#9af1d4; }
 .is2-chip.warn { background:#423523; color:#f4c67b; }
-.is2-nr { color:#52d9b3; font-weight:800; font-size:.8rem; letter-spacing:1px; }
+.pb-karte-t .is2-nr { color:#52d9b3; margin-right:6px; }
 .is2-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:8px 0; }
 .is2-k .k { border:1px solid #262B33; border-radius:12px; padding:10px 12px; background:#0F1115; }
 .is2-k .l { color:#9AA0A6; font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; }
 .is2-k .w { font-size:1.2rem; font-weight:800; margin-top:2px; }
 .is2-k .s { color:#9AA0A6; font-size:.74rem; }
-.is2-szen { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:6px 0; }
-.is2-szen .c { border:1px solid #262B33; border-radius:12px; padding:12px; background:#0F1115; }
+.is2-szen .c { min-height:150px; border:1px solid #262B33; border-radius:12px; padding:12px; background:#0F1115; }
 .is2-szen .c.sel { border-color:#52d9b3; box-shadow:0 0 12px rgba(82,217,179,.25); }
 .is2-szen .c.off { opacity:.55; }
 .is2-szen .t { color:#9AA0A6; font-size:.7rem; text-transform:uppercase; letter-spacing:.6px; }
@@ -48,7 +44,8 @@ table.is2 .r { text-align:right; white-space:nowrap; }
 table.is2 .m { color:#9AA0A6; font-size:.74rem; }
 .is2-wrap { overflow-x:auto; }
 .is2-wrap table.is2 { min-width:620px; }
-table.is2 td:first-child { min-width:150px; }
+table.is2 td.nm { min-width:160px; }
+table.is2 .nr { width:36px; }
 .is2-score { display:inline-block; min-width:42px; text-align:center; padding:2px 6px; border-radius:8px;
   background:#193c38; color:#9af1d4; font-weight:700; }
 .is2-score.na { background:#2a2f37; color:#9AA0A6; }
@@ -57,7 +54,12 @@ table.is2 td:first-child { min-width:150px; }
 .is2-bar > div { height:100%; }
 .is2-leg { display:inline-flex; align-items:center; gap:5px; margin:2px 10px 2px 0; font-size:.8rem; }
 .is2-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
-@media (max-width: 640px) { .is2-k, .is2-szen { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+@media (max-width: 640px) { .is2-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+/* Auswahlfelder in den Eingabezeilen beschriften wie die Zahlenfelder daneben (app-weit sind es Ueberschriften) */
+.st-key-is2_seite [data-testid="stSelectbox"] label, .st-key-is2_seite [data-testid="stSelectbox"] label p {
+  font-family:inherit !important; font-size:.875rem !important; font-weight:400 !important; letter-spacing:normal !important;
+  text-transform:none !important; text-shadow:none !important; color:inherit !important; }
+.st-key-is2_seite [data-testid="stSelectbox"] label { margin:0 0 4px 0 !important; }
 </style>
 """
 
@@ -79,11 +81,12 @@ def _esc(t):
 
 
 def _spalten(n):
+    """n Felder nebeneinander, unten buendig (Handy: 2 je Zeile)."""
     if not B._smartphone():
-        return st.columns(n)
+        return st.columns(n, vertical_alignment="bottom")
     slots = []
     while len(slots) < n:
-        slots += st.columns(2)
+        slots += st.columns(2, vertical_alignment="bottom")
     return slots[:n]
 
 
@@ -188,221 +191,197 @@ def _kurse_laden(h, orders):
     return ok, fehlt
 
 
+# ---------------------------------------------------------------- Bausteine
+def _karte_titel(titel, nr=None):
+    st.markdown(f'<div class="pb-karte-t">{f"<span class=is2-nr>{nr}</span>" if nr else ""}{_esc(titel)}</div>',
+                unsafe_allow_html=True)
+
+
+def _tabelle(kopf, zeilen, rechts=(), breit=True):
+    """kopf = [(titel, klasse)], zeilen = [[html je Spalte]]; klasse "r" rechtsbuendig, "nm" Namensspalte."""
+    th = "".join(f'<th class="{k}">{_esc(t)}</th>' for t, k in kopf)
+    tr = "".join("<tr>" + "".join(f'<td class="{k}">{z}</td>' for (_, k), z in zip(kopf, zeile)) + "</tr>"
+                 for zeile in zeilen)
+    st.markdown(f'<div class="{"is2-wrap" if breit else ""}"><table class="is2"><thead><tr>{th}</tr></thead>'
+                f'<tbody>{tr}</tbody></table></div>', unsafe_allow_html=True)
+
+
+def _kpis(paare):
+    st.markdown('<div class="is2-k">' + "".join(
+        f'<div class="k"><div class="l">{l}</div><div class="w">{w}</div>' + (f'<div class="s">{u}</div>' if u else "")
+        + "</div>" for l, w, u in paare) + "</div>", unsafe_allow_html=True)
+
+
+def _score_chip(v):
+    return (f'<span class="is2-score">{_de(v, 1)}</span>' if v is not None
+            else '<span class="is2-score na">n/v</span>')
+
+
 # ---------------------------------------------------------------- Eingaben
 def _eingaben():
-    st.markdown('<span class="is2-nr">01</span> **Kapital & Anlageziel**', unsafe_allow_html=True)
+    _karte_titel("Kapital & Anlageziel", "01")
     c = _spalten(4)
     c[0].number_input("Neues Anfangskapital €", 0.0, 1e9, step=100.0, format="%.0f", key=P + "capital")
-    c[1].number_input("Zielwert des gesamten Depots €", 0.0, 1e10, step=500.0, format="%.0f", key=P + "goal")
+    c[1].number_input("Zielwert Gesamtdepot €", 0.0, 1e10, step=500.0, format="%.0f", key=P + "goal")
     c[2].number_input("Anlagezeit (Jahre)", 1, 50, step=1, key=P + "years")
     c[3].number_input("Sparrate / Monat €", 0.0, 1e7, step=25.0, format="%.0f", key=P + "monthly")
-    c = _spalten(2)
-    c[0].number_input("Nachkaufreserve %", 0.0, 95.0, step=1.0, format="%.0f", key=P + "reserve",
-                      help="Vom verbleibenden neuen Kapital nach sofortigen Entnahmen.")
-    c[1].number_input("Max. Wertpapiergewicht %", 1.0, 100.0, step=1.0, format="%.0f", key=P + "capmax",
-                      help="Obergrenze je Position im gesamten Depot (Neukäufe).")
-    st.caption("Nachkaufreserve: vom verbleibenden neuen Kapital nach sofortigen Entnahmen · Max. Wertpapiergewicht: "
-               "Obergrenze je Position im gesamten Depot (Neukäufe).")
-    st.segmented_control("Maximale Risikostufe für Auto-Auswahl", list(E.PROFILES),
-                         format_func=lambda k: E.PROFILES[k]["name"], key=P + "risk")
-    st.segmented_control("Portfolioansatz", list(ANSATZ), format_func=ANSATZ.get, key=P + "ansatz")
-    st.caption(" · ".join(f"**{ANSATZ[k]}**: {ANSATZ_HINT[k]}" for k in ANSATZ))
-    with st.expander("Weitere Modellannahmen"):
+    c = _spalten(4)
+    c[0].number_input("Nachkaufreserve %", 0.0, 95.0, step=1.0, format="%.0f", key=P + "reserve")
+    c[1].number_input("Max. Wertpapiergewicht %", 1.0, 100.0, step=1.0, format="%.0f", key=P + "capmax")
+    c[2].selectbox("Max. Risikostufe (Auto)", list(E.PROFILES), key=P + "risk",
+                   format_func=lambda k: E.PROFILES[k]["name"])
+    c[3].selectbox("Portfolioansatz", list(ANSATZ), key=P + "ansatz", format_func=ANSATZ.get)
+    with st.expander("Weitere Modellannahmen & Erklärungen"):
         c = _spalten(4)
         c[0].number_input("Orderkosten €", 0.0, 100.0, step=0.5, format="%.2f", key=P + "fee")
         for spalte, k, t in zip(c[1:], ("defensiv", "ausgewogen", "wachstum"),
-                                ("Defensiv / Jahr %", "Ausgew. / Jahr %", "Wachstum / Jahr %")):
+                                ("Defensiv % p. a.", "Ausgewogen % p. a.", "Wachstum % p. a.")):
             spalte.number_input(t, -20.0, 40.0, step=0.5, format="%.1f", key=P + "rate_" + k)
-        st.caption("Die Renditen sind Szenarioannahmen, keine Prognosen. Steuern, Inflation, laufende Produktkosten "
-                   "und Kursschwankungen werden nicht simuliert.")
+        st.markdown(
+            "- **Nachkaufreserve**: Anteil des neuen Kapitals (nach Sofortentnahmen), der nicht investiert wird.\n"
+            "- **Max. Wertpapiergewicht**: Obergrenze je Position im gesamten Depot (Neukäufe).\n"
+            "- **Max. Risikostufe**: Die automatische Auswahl nimmt höchstens diese Strategie.\n"
+            "- **Portfolioansatz**: " + " · ".join(f"{ANSATZ[k]} – {ANSATZ_HINT[k]}" for k in ANSATZ) + ".\n"
+            "- **Renditen** sind Szenarioannahmen, keine Prognosen. Steuern, Inflation, laufende Produktkosten und "
+            "Kursschwankungen werden nicht simuliert.")
 
 
 def _anlageklassen(katalog):
-    st.markdown('<span class="is2-nr">02</span> **Anlageklassen**', unsafe_allow_html=True)
-    st.caption("Wähle, welche Instrumenttypen der Scanner für neue Käufe berücksichtigen darf.")
+    _karte_titel("Anlageklassen & Auswahl", "02")
     vorhanden = [t for t in E.TYPES if any(a["type"] == t for a in katalog)]
     if st.session_state.get(P + "typen") is None:
         st.session_state[P + "typen"] = list(vorhanden)
     st.session_state[P + "typen"] = [t for t in st.session_state[P + "typen"] if t in vorhanden]
-    st.pills("Anlageklassen", vorhanden, selection_mode="multi", key=P + "typen", label_visibility="collapsed",
+    c1, c2, c3 = st.columns([2, 1, 1], vertical_alignment="bottom") if not B._smartphone() else (
+        st.container(), *st.columns(2, vertical_alignment="bottom"))
+    c1.pills("Anlageklassen für neue Käufe", vorhanden, selection_mode="multi", key=P + "typen",
              format_func=lambda t: f"{t} ({sum(1 for a in katalog if a['type'] == t):,})".replace(",", "."))
-    if len(vorhanden) < len(E.TYPES):
-        st.caption("Anleihen, Gold, Fonds und Geldmarkt sind in den Top-500-Daten nicht enthalten – per Wertpapier-CSV "
-                   "(Abschnitt 03) ergänzbar. Fehlende Klassen werden in den Strategien anteilig umverteilt.")
-    c = _spalten(2)
-    c[0].segmented_control("Scan-Limit je Anlageklasse (nach Investment-Score)", list(TOP_N), key=P + "top")
-    c[1].selectbox("Sortierung der Top-Werte", ["score", "rank"], key=P + "rangmodus",
-                   format_func={"score": "Kombinierter Investment-Score",
-                                "rank": "Quellenrang (12-Monats-Rendite)"}.get)
-    st.caption("Ohne ausreichende Kennzahlen kein Score; solche Werte erscheinen bei Score-Sortierung am Ende nach "
-               "Quellenrang.")
+    c2.selectbox("Scan-Limit je Klasse", list(TOP_N), key=P + "top")
+    c3.selectbox("Sortierung", ["score", "rank"], key=P + "rangmodus",
+                 format_func={"score": "Investment-Score", "rank": "Quellenrang"}.get)
+    st.caption("Anleihen, Gold, Fonds und Geldmarkt sind in den Top-500-Daten nicht enthalten – per Wertpapier-CSV "
+               "ergänzbar; fehlende Klassen werden anteilig umverteilt. Werte ohne ausreichende Kennzahlen haben keinen "
+               "Score und folgen nach Quellenrang (12-Monats-Rendite).")
 
 
-def _daten(h, katalog, stand):
-    st.markdown('<span class="is2-nr">03</span> **Daten & Gesamtdepot**', unsafe_allow_html=True)
+def _daten(katalog, stand):
+    _karte_titel("Daten & Gesamtdepot", "03")
     n_live = len(st.session_state.get(P + "live") or {})
-    st.caption(f"Universum: {len(katalog):,} Wertpapiere aus den Top-500-/Watchlist-Daten (Kurse Tagesschluss, Stand "
-               f"{stand or 'unbekannt'}){f' · {n_live} aktuelle Kurse von ls-tc.de' if n_live else ''}. Kennzahlen: "
-               "12-Monats-Rendite, Schwankung und Drawdown für alle Werte; 3-Monats-Rendite für Aktien; Qualitäts-Score und "
-               "KGV für Aktien aus dem Qualitäts-Agenten. Unbekannte Preise werden nie geschätzt.".replace(",", "."))
-    c = _spalten(2)
-    with c[0]:
-        f = st.file_uploader("Wertpapier-CSV importieren", type=["csv"], key=P + "f_kat")
-        if f is not None and st.session_state.get(P + "f_kat_name") != f.name + str(f.size):
-            liste, fehler = E.katalog_aus_csv(f.getvalue().decode("utf-8", "replace"))
-            st.session_state[P + "csv_katalog"] = liste
-            st.session_state[P + "f_kat_name"] = f.name + str(f.size)
-            st.session_state[P + "meldung"] = (f"{len(liste)} Wertpapiere aus CSV übernommen (ungeprüft)"
-                                               + (f" · {len(fehler)} Zeilen übersprungen" if fehler else ""))
-        st.download_button("CSV-Vorlage", E.CSV_VORLAGE_WERTPAPIERE, "wertpapiere_vorlage.csv", "text/csv",
-                           key=P + "dl_v1")
-    with c[1]:
-        f = st.file_uploader("Depot-CSV importieren", type=["csv"], key=P + "f_dep")
-        if f is not None and st.session_state.get(P + "f_dep_name") != f.name + str(f.size):
-            liste, fehler = E.depot_aus_csv(f.getvalue().decode("utf-8", "replace"))
-            st.session_state[P + "depot"] = liste
-            st.session_state[P + "f_dep_name"] = f.name + str(f.size)
-            st.session_state[P + "meldung"] = (f"{len(liste)} Depotpositionen übernommen"
-                                               + (f" · {len(fehler)} Zeilen übersprungen" if fehler else ""))
-        st.download_button("Depot-Vorlage", E.CSV_VORLAGE_DEPOT, "depot_vorlage.csv", "text/csv", key=P + "dl_v2")
+    st.caption(f"{len(katalog):,} Wertpapiere aus den Top-500-/Watchlist-Daten · Tagesschluss vom {stand or '–'}"
+               .replace(",", ".") + (f" · {n_live} aktuelle Kurse von ls-tc.de" if n_live else "")
+               + " · unbekannte Preise werden nie geschätzt")
+    # Handy: die beiden Upload-Felder untereinander (nebeneinander zu eng)
+    c = [st.container(), st.container()] if B._smartphone() else st.columns(2)
+    for spalte, art, titel, vorlage, datei in (
+            (c[0], "kat", "Wertpapier-CSV importieren", E.CSV_VORLAGE_WERTPAPIERE, "wertpapiere_vorlage.csv"),
+            (c[1], "dep", "Depot-CSV importieren", E.CSV_VORLAGE_DEPOT, "depot_vorlage.csv")):
+        with spalte:
+            f = st.file_uploader(titel, type=["csv"], key=P + "f_" + art)
+            if f is not None and st.session_state.get(P + "f_" + art + "_name") != f.name + str(f.size):
+                text = f.getvalue().decode("utf-8", "replace")
+                liste, fehler = (E.katalog_aus_csv if art == "kat" else E.depot_aus_csv)(text)
+                st.session_state[P + ("csv_katalog" if art == "kat" else "depot")] = liste
+                st.session_state[P + "f_" + art + "_name"] = f.name + str(f.size)
+                st.session_state[P + "meldung"] = (
+                    f"{len(liste)} {'Wertpapiere (ungeprüft)' if art == 'kat' else 'Depotpositionen'} übernommen"
+                    + (f" · {len(fehler)} Zeilen übersprungen" if fehler else ""))
+            st.download_button("CSV-Vorlage", vorlage, datei, "text/csv", key=P + "dl_" + art)
     m = st.session_state.pop(P + "meldung", None)
     if m:
         st.success(m)
     depot = st.session_state.get(P + "depot") or []
-    st.markdown(f"**Vorhandenes Depot ({len(depot)} Positionen)**")
+    d1, d2 = ((st.container(), st.container()) if B._smartphone()
+              else st.columns([4, 1], vertical_alignment="center"))
     if depot:
-        st.caption(" · ".join(f"{_esc(d['name'])} {_de(d['shares'], 4).rstrip('0').rstrip(',')} Stk."
-                              for d in depot[:6]) + (f" · + {len(depot) - 6} weitere" if len(depot) > 6 else ""))
-        st.button("Depot leeren", key=P + "depot_weg", on_click=lambda: st.session_state.pop(P + "depot", None))
+        d1.caption(f"**Vorhandenes Depot ({len(depot)} Positionen):** " + " · ".join(
+            f"{_esc(d['name'])} {_de(d['shares'], 4).rstrip('0').rstrip(',')} Stk." for d in depot[:6])
+            + (f" · + {len(depot) - 6} weitere" if len(depot) > 6 else ""))
+        d2.button("Depot leeren", key=P + "depot_weg", width="stretch",
+                  on_click=lambda: st.session_state.pop(P + "depot", None))
     else:
-        st.caption("Noch keine Positionen importiert.")
+        d1.caption("**Vorhandenes Depot:** noch keine Positionen importiert.")
 
 
 def _entnahme():
-    st.markdown('<span class="is2-nr">04</span> **Geld entnehmen**', unsafe_allow_html=True)
-    st.caption("Sofortige Auszahlungen und regelmäßige Entnahmen fließen in die Depot- und Zielrechnung ein. Es werden "
-               "keine echten Verkäufe ausgeführt.")
+    _karte_titel("Geld entnehmen", "04")
     c = _spalten(4)
-    c[0].number_input("Einmalige Auszahlung · sofort €", 0.0, 1e9, step=100.0, format="%.0f", key=P + "take_now")
-    c[1].number_input("Regelmäßige Auszahlung pro Monat €", 0.0, 1e7, step=50.0, format="%.0f", key=P + "take_monthly")
+    c[0].number_input("Auszahlung sofort €", 0.0, 1e9, step=100.0, format="%.0f", key=P + "take_now")
+    c[1].number_input("Auszahlung je Monat €", 0.0, 1e7, step=50.0, format="%.0f", key=P + "take_monthly")
     c[2].number_input("Ab Monat", 1, 600, step=1, key=P + "take_start")
     c[3].number_input("Bis Monat (0 = Ende)", 0, 600, step=1, key=P + "take_end")
     st.caption("Sofortentnahme zuerst aus neuem Geld, darüber hinaus aus modellierten Verkäufen vorhandener "
-               "Wertpapiere. Regelmäßige Entnahmen mindern die Modell-Endwerte und können das Depot aufbrauchen. "
-               "Keine Steuer- und Verkaufsspread-Berechnung.")
+               "Wertpapiere. Monatsentnahmen mindern die Endwerte und können das Depot aufbrauchen. Keine echten "
+               "Verkäufe, keine Steuer- und Spread-Berechnung.")
 
 
 # ---------------------------------------------------------------- Ergebnis
-def _kennzahlen(erg):
+def _ergebnis(erg):
+    _karte_titel("Ergebnis")
     m = erg["plans"][erg["active"]]
     r = m["neededRate"]
-    st.markdown('<div class="is2-k">' + "".join(
-        f'<div class="k"><div class="l">{l}</div><div class="w">{w}</div><div class="s">{s}</div></div>' for l, w, s in (
-            ("Depotwert zu Beginn", _eur(m["deposit"]), "Nach sofortiger Entnahme und Gebühren"),
-            ("Für Neukäufe vorgesehen", _eur(m["investBudget"]), "Nach Abzug der Reserve"),
-            ("Nachkaufreserve", _eur(m["reserve"]), "Zusätzlich ggf. Stückzahl-Rest"),
-            ("Erforderliche Modellrendite", "> 300 %" if r is None else _pct(r * 100), "p. a. zum Ziel (geschätzt)")))
-        + "</div>", unsafe_allow_html=True)
+    _kpis((("Depotwert zu Beginn", _eur(m["deposit"]), "nach Sofortentnahme und Gebühren"),
+           ("Für Neukäufe", _eur(m["investBudget"]), "nach Abzug der Reserve"),
+           ("Nachkaufreserve", _eur(m["reserve"]), "zzgl. Stückzahl-Rest"),
+           ("Nötige Modellrendite", "> 300 %" if r is None else _pct(r * 100), "p. a. zum Ziel")))
     inp, p = erg["inp"], erg["active"]
     erreicht = m["projection"] >= inp["goal"]
-    text = (f"{E.PROFILES[p]['name']}: {_eur(m['projection'])} in {inp['years']} Jahren bei angenommener Rendite von "
-            f"{_pct(m['rate'] * 100)} p. a. · {'rechnerischer Überschuss' if erreicht else 'rechnerische Lücke'} "
-            f"{_eur(abs(m['projection'] - inp['goal']))}."
-            + (" Auto-Auswahl bleibt innerhalb der Risikogrenze." if st.session_state.get(P + "ansatz") == "auto" else ""))
+    text = (f"{E.PROFILES[p]['name']}: {_eur(m['projection'])} in {inp['years']} Jahren bei {_pct(m['rate'] * 100)} "
+            f"p. a. · {'Überschuss' if erreicht else 'Lücke'} {_eur(abs(m['projection'] - inp['goal']))}"
+            + (" · Auto-Auswahl innerhalb der Risikogrenze" if st.session_state.get(P + "ansatz") == "auto" else ""))
     if inp["goal"] <= 0:
         st.info("Kein Zielwert eingetragen – " + text)
     elif erreicht:
-        st.success("◉ Zielwert wird im ausgewählten Modell erreicht – " + text)
+        st.success("◉ Zielwert wird erreicht – " + text)
     else:
-        st.warning("⚠ Zielwert wird im ausgewählten Modell verfehlt – " + text)
+        st.warning("⚠ Zielwert wird verfehlt – " + text)
 
 
 def _strategien(erg):
-    st.markdown("#### Anlagevermögen im Vergleich · 3 alternative Depotstrategien")
-    st.caption("Illustrative Renditepfade, nicht garantiert. Die Endwerte gelten für das gesamte Depot inkl. vorhandener "
-               "Positionen, zusätzlicher Sparraten und verbleibender Liquidität. Keine Kursprognose.")
+    _karte_titel("3 alternative Depotstrategien")
     inp, reihe = erg["inp"], list(E.PROFILES)
-    karten = []
-    for k in reihe:
+    spalten = st.columns(3) if not B._smartphone() else [st.container() for _ in reihe]
+    for spalte, k in zip(spalten, reihe):
         x = erg["plans"][k]
         g = x["projection"] - inp["goal"]
         ueber = reihe.index(k) > reihe.index(inp["riskCeiling"])
-        karten.append(
-            f'<div class="c {"sel" if k == erg["active"] else ""} {"off" if ueber else ""}">'
-            f'<div class="t">{"✧ Auto-Vorschlag" if k == erg["auto"] else "Szenario"}</div>'
-            f'<div class="n">{E.PROFILES[k]["name"]}</div><div class="v">{_eur(x["projection"])}</div>'
-            f'<div class="t">Modellrendite {_pct(x["rate"] * 100)} p. a.</div>'
-            f'<div class="{"is2-pos" if g >= 0 else "is2-neg"}">{"+" if g >= 0 else "−"} {_eur(abs(g))} '
-            f'{"über" if g >= 0 else "unter"} Ziel{" · über Risikolimit" if ueber else ""}</div></div>')
-    st.markdown('<div class="is2-szen">' + "".join(karten) + "</div>", unsafe_allow_html=True)
-    c = _spalten(3)
-    for spalte, k in zip(c, reihe):
-        spalte.button(f"{E.PROFILES[k]['name']} wählen", key=P + "wahl_" + k, width="stretch",
+        with spalte:
+            st.markdown(
+                f'<div class="is2-szen"><div class="c {"sel" if k == erg["active"] else ""} {"off" if ueber else ""}">'
+                f'<div class="t">{"✧ Auto-Vorschlag" if k == erg["auto"] else "Szenario"}</div>'
+                f'<div class="n">{E.PROFILES[k]["name"]}</div><div class="v">{_eur(x["projection"])}</div>'
+                f'<div class="t">Modellrendite {_pct(x["rate"] * 100)} p. a.</div>'
+                f'<div class="{"is2-pos" if g >= 0 else "is2-neg"}">{"+" if g >= 0 else "−"} {_eur(abs(g))} '
+                f'{"über" if g >= 0 else "unter"} Ziel{" · über Risikolimit" if ueber else ""}</div></div></div>',
+                unsafe_allow_html=True)
+            st.button("✓ Gewählt" if k == erg["active"] else "Wählen", key=P + "wahl_" + k, width="stretch",
                       type="primary" if k == erg["active"] else "secondary",
                       on_click=lambda k=k: st.session_state.update({P + "ansatz": k}))
-
-
-def _scores(erg, typen):
-    st.markdown("#### Transparente Wertpapier-Auswahl · Kombinierter Investment-Score / 100")
-    st.caption(" · ".join(f"{k} {v} %" for k, v in E.SCORE_WEIGHTS.items()))
-    verf = erg["available"]
-    bewertbar = [a for a in verf if a.get("combinedScore") is not None]
-    geeignet = [a for a in verf if a["type"] in typen]
-    st.caption(f"{len(bewertbar)} von {len(verf)} Werten bewertbar · {len(geeignet)} in aktivierten Anlageklassen · "
-               f"Rangmodus: {'kombinierter Score' if st.session_state.get(P + 'rangmodus') == 'score' else 'Quellenrang'}")
-    gezeigt = geeignet[:12]
-    if not gezeigt:
-        st.info("Keine Werte für die gewählten Anlageklassen.")
-        return
-    zeilen = "".join(
-        f'<tr><td class="m">{a["scannerRank"]}</td><td><b>{_esc(a["name"])}</b><div class="m">{_esc(a["type"])} · '
-        f'{_esc(a.get("isin") or a["id"])}</div></td><td class="r"><span class="is2-score {"" if a["combinedScore"] is not None else "na"}">'
-        f'{_de(a["combinedScore"], 1) if a["combinedScore"] is not None else "n/v"}</span></td>'
-        f'<td class="r">{_pct(a["score"]["coverage"])}</td></tr>' for a in gezeigt)
-    st.markdown(f'<div class="is2-wrap"><table class="is2"><thead><tr><th>#</th><th>Wertpapier</th><th class="r">Score</th>'
-                f'<th class="r">Daten</th></tr></thead><tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
-    wahl = st.selectbox("Teilbewertungen ansehen", range(len(gezeigt)), key=P + "score_fokus",
-                        format_func=lambda i: f"#{gezeigt[i]['scannerRank']} {gezeigt[i]['name']}")
-    a = gezeigt[wahl if wahl is not None and wahl < len(gezeigt) else 0]
-    reihen = []
-    for k, v in a["score"]["details"].items():
-        breite = 0 if v is None else max(0.0, min(100.0, v))
-        reihen.append(f'<tr><td>{k} <span class="m">({E.SCORE_WEIGHTS[k]} %)</span></td><td style="width:50%">'
-                      f'<div class="is2-bar"><div style="width:{breite}%;background:#52d9b3"></div></div></td>'
-                      f'<td class="r">{"keine Daten" if v is None else _de(v, 0)}</td></tr>')
-    st.markdown(f'<table class="is2"><tbody>{"".join(reihen)}</tbody></table>', unsafe_allow_html=True)
-    st.caption("Modellheuristik, keine Renditeprognose, Anlageberatung oder Qualitätszertifizierung. Fehlende Faktoren "
-               "werden nicht als null oder neutral geschätzt, sie senken die Datenabdeckung; erst ab 60 % Abdeckung der "
-               "Marktfaktoren und vorhandener Risikokennzahl gibt es einen Score.")
+    st.caption("Illustrative Renditepfade, nicht garantiert – Endwerte für das gesamte Depot inkl. vorhandener "
+               "Positionen, Sparraten, Entnahmen und Liquidität.")
 
 
 def _kaufplan(h, erg):
     m, inp = erg["plans"][erg["active"]], erg["inp"]
-    st.markdown(f"#### Modellbasierte Ordervorschläge · Kaufplan {E.PROFILES[erg['active']]['name']}")
-    st.caption(f"{len(m['orders'])} Kaufpositionen · Käufe {_eur(m['investedNew'])} · freies Kapital danach "
-               f"{_eur(m['cash'])} ({_pct(m['cash'] / m['deposit'] * 100 if m['deposit'] else 0)} des Gesamtdepots) · "
-               f"geschätzte Ordergebühren {_eur(m['fees'], 2)}")
+    _karte_titel(f"Kaufplan · {E.PROFILES[erg['active']]['name']}")
+    _kpis((("Kaufpositionen", str(len(m["orders"])), ""), ("Käufe", _eur(m["investedNew"]), ""),
+           ("Freies Kapital danach", _eur(m["cash"]),
+            f"{_pct(m['cash'] / m['deposit'] * 100 if m['deposit'] else 0)} des Gesamtdepots"),
+           ("Ordergebühren", _eur(m["fees"], 2), "geschätzt")))
     if m["orders"]:
-        zeilen = "".join(
-            f'<tr><td><b>{_esc(o["name"])}</b><div class="m">Scanner #{o["scannerRank"]} · {_esc(o.get("isin") or o["id"])}'
-            f' · Kursstand {_esc(o.get("asOf") or "unbekannt")} · {_esc(o["type"])}</div></td>'
-            f'<td class="r"><span class="is2-score {"" if o.get("combinedScore") is not None else "na"}">'
-            f'{_de(o["combinedScore"], 1) if o.get("combinedScore") is not None else "n/v"}</span></td>'
-            f'<td class="r">{_eur(o["price"], 2)}</td><td class="r"><b>{o["shares"]}</b></td>'
-            f'<td class="r">{_eur(o["amount"], 2)}</td><td class="r">{_pct(o["amount"] / max(inp["capital"], 1) * 100)}</td>'
-            f'<td class="r">{_pct(o["amount"] / max(m["deposit"], 1) * 100)}</td></tr>' for o in m["orders"])
-        st.markdown('<div class="is2-wrap"><table class="is2"><thead><tr><th>Instrument</th><th class="r">Score</th>'
-                    '<th class="r">Preis</th><th class="r">Stück</th><th class="r">Kaufsumme</th>'
-                    '<th class="r">% Neukapital</th><th class="r">% Gesamtdepot</th></tr></thead>'
-                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+        _tabelle([("Instrument", "nm"), ("Score", "r"), ("Preis", "r"), ("Stück", "r"), ("Kaufsumme", "r"),
+                  ("% Neukapital", "r"), ("% Gesamtdepot", "r")],
+                 [[f'<b>{_esc(o["name"])}</b><div class="m">{_esc(o["type"])} · {_esc(o.get("isin") or o["id"])} · '
+                   f'Kurs {_esc(o.get("asOf") or "unbekannt")}</div>', _score_chip(o.get("combinedScore")),
+                   _eur(o["price"], 2), f'<b>{o["shares"]}</b>', _eur(o["amount"], 2),
+                   _pct(o["amount"] / max(inp["capital"], 1) * 100), _pct(o["amount"] / max(m["deposit"], 1) * 100)]
+                  for o in m["orders"]])
     else:
         st.info("Keine kaufbaren Positionen im gewählten Universum oder kein freies Kapital.")
     c = _spalten(2)
-    if c[0].button("↻ Aktuelle Kurse für den Kaufplan laden (ls-tc.de)", key=P + "live_btn", width="stretch",
+    if c[0].button("↻ Aktuelle Kurse laden (ls-tc.de)", key=P + "live_btn", width="stretch",
                    disabled=not m["orders"]):
         with st.spinner("Lade aktuelle EUR-Kurse …"):
-            ok, fehlt = _kurse_laden(h, m["orders"])
-        st.session_state[P + "meldung_kurse"] = (ok, fehlt)
+            st.session_state[P + "meldung_kurse"] = _kurse_laden(h, m["orders"])
         st.rerun()
     c[1].download_button("↓ Kaufplan als CSV", E.kaufplan_csv(erg), "kaufplan.csv", "text/csv", key=P + "dl_kp",
                          width="stretch", disabled=not m["orders"])
@@ -415,107 +394,117 @@ def _kaufplan(h, erg):
 
 def _entnahmen(erg):
     wd, raw = erg["wd"], erg["raw"]
-    st.markdown("#### Auszahlungs- und Liquiditätsplan · Entnahmen & notwendige Verkäufe")
+    _karte_titel("Entnahmen & notwendige Verkäufe")
     if not raw["takeNow"] and not raw["takeMonthly"]:
-        st.caption("Keine Entnahme geplant.")
-    st.markdown('<div class="is2-k">' + "".join(
-        f'<div class="k"><div class="l">{l}</div><div class="w">{w}</div></div>' for l, w in (
-            ("Sofort ausgezahlt (Plan)", _eur(wd["paid"])), ("Monatlich vorgesehen", _eur(raw["takeMonthly"])),
-            ("Ungedeckte Auszahlung", _eur(wd["gap"])), ("Verkaufsgebühren", _eur(wd["fees"], 2))))
-        + "</div>", unsafe_allow_html=True)
+        st.caption("Keine Entnahme geplant – Beträge oben unter „04 · Geld entnehmen“.")
+        return
+    _kpis((("Sofort ausgezahlt", _eur(wd["paid"]), "Plan"), ("Je Monat vorgesehen", _eur(raw["takeMonthly"]), ""),
+           ("Ungedeckt", _eur(wd["gap"]), "sofort"), ("Verkaufsgebühren", _eur(wd["fees"], 2), "")))
     if wd["sales"]:
-        zeilen = "".join(f'<tr><td>{_esc(v["name"])}</td><td class="r">{_eur(v["price"], 2)}</td>'
-                         f'<td class="r">{v["shares"]}</td><td class="r">{_eur(v["gross"], 2)}</td>'
-                         f'<td class="r">{_eur(v["net"], 2)}</td></tr>' for v in wd["sales"])
-        st.markdown('<div class="is2-wrap"><table class="is2"><thead><tr><th>Verkaufsvorschlag · sofort</th>'
-                    '<th class="r">Kurs</th><th class="r">Stück</th><th class="r">Brutto</th><th class="r">Netto*</th>'
-                    f'</tr></thead><tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
-    else:
-        st.caption("Keine Verkäufe benötigt.")
-    st.caption("*Netto abzüglich angenommener Ordergebühr, vor Steuern, Spread und Slippage. Tatsächliche Auszahlung erst "
-               "nach realem Verkauf über den Broker. Zukünftige Verkaufsmengen sind wegen unsicherer Kurse nicht planbar.")
+        _tabelle([("Verkaufsvorschlag · sofort", "nm"), ("Kurs", "r"), ("Stück", "r"), ("Brutto", "r"),
+                  ("Netto*", "r")],
+                 [[_esc(v["name"]), _eur(v["price"], 2), str(v["shares"]), _eur(v["gross"], 2), _eur(v["net"], 2)]
+                  for v in wd["sales"]])
+        st.caption("*Netto abzüglich Ordergebühr, vor Steuern, Spread und Slippage. Tatsächliche Auszahlung erst nach "
+                   "realem Verkauf über den Broker.")
     if raw["takeMonthly"]:
-        zeilen = "".join(
-            f'<tr><td>{E.PROFILES[k]["name"]}</td><td class="r">{_eur(m["flow"]["paid"])}</td>'
-            f'<td class="r">{_eur(m["flow"]["shortfall"])}</td>'
-            f'<td class="r">{m["flow"]["firstShortfall"] or "–"}</td><td class="r">{_eur(m["projection"])}</td></tr>'
-            for k, m in erg["plans"].items())
-        st.markdown('<div class="is2-wrap"><table class="is2"><thead><tr><th>Strategievergleich nach Entnahmen</th>'
-                    '<th class="r">Ausgezahlt</th><th class="r">Nicht gedeckt</th><th class="r">Lücke ab Monat</th>'
-                    f'<th class="r">Endwert</th></tr></thead><tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+        _tabelle([("Strategie nach Entnahmen", "nm"), ("Ausgezahlt", "r"), ("Nicht gedeckt", "r"),
+                  ("Lücke ab Monat", "r"), ("Endwert", "r")],
+                 [[E.PROFILES[k]["name"], _eur(m["flow"]["paid"]), _eur(m["flow"]["shortfall"]),
+                   str(m["flow"]["firstShortfall"] or "–"), _eur(m["projection"])] for k, m in erg["plans"].items()],
+                 breit=False)
     st.download_button("↓ Entnahmeplan als CSV", E.entnahmeplan_csv(erg), "entnahmeplan.csv", "text/csv",
-                       key=P + "dl_ep", disabled=not (raw["takeNow"] or raw["takeMonthly"]))
+                       key=P + "dl_ep")
 
 
 def _mix(erg):
     m = erg["plans"][erg["active"]]
-    st.markdown("#### Gesamtdepot nach Kauf · Gewichtung & Liquidität")
     gesamt = m["existingValue"] + m["investedNew"] + m["cash"]
+    _karte_titel("Gesamtdepot nach Kauf · Soll-Ist-Mix")
     teile = [(t, m["actualCat"][t]) for t in E.TYPES if m["actualCat"][t] > 0.005] + [("Liquidität", m["cash"])]
-    st.caption(f"Depotwert nach Orders: {_eur(gesamt)}")
     st.markdown('<div class="is2-mix">' + "".join(
         f'<div title="{t}" style="width:{v / gesamt * 100 if gesamt else 0}%;background:{E.COLORS[t]}"></div>'
         for t, v in teile) + "</div>" + "".join(
         f'<span class="is2-leg"><span class="is2-dot" style="background:{E.COLORS[t]}"></span>{t} '
-        f'{_pct(v / gesamt * 100 if gesamt else 0)}</span>' for t, v in teile), unsafe_allow_html=True)
-    reihen = "".join(
-        f'<tr><td>{t}</td><td class="r">{_pct(m["ratios"][t] * 100)}</td><td style="width:45%"><div class="is2-bar">'
-        f'<div style="width:{min(100, m["actualCat"][t] / max(gesamt, 1) * 100)}%;background:{E.COLORS[t]}"></div></div>'
-        f'</td><td class="r">{_pct(m["actualCat"][t] / max(gesamt, 1) * 100)}</td></tr>'
-        for t in E.TYPES if m["ratios"][t] > 0 or m["actualCat"][t] > 0)
-    st.markdown('<table class="is2"><thead><tr><th>Soll-Ist-Mix</th><th class="r">Soll (Strategie)</th><th></th>'
-                f'<th class="r">Ist (Gesamtdepot)</th></tr></thead><tbody>{reihen}</tbody></table>', unsafe_allow_html=True)
+        f'{_pct(v / gesamt * 100 if gesamt else 0)}</span>' for t, v in teile)
+        + f'<span class="is2-leg" style="color:#9AA0A6">· Depotwert nach Orders {_eur(gesamt)}</span>',
+        unsafe_allow_html=True)
+    _tabelle([("Anlageklasse", "nm"), ("Soll", "r"), ("Ist", "r"), ("", "")],
+             [[t, _pct(m["ratios"][t] * 100), _pct(m["actualCat"][t] / max(gesamt, 1) * 100),
+               f'<div class="is2-bar"><div style="width:{min(100, m["actualCat"][t] / max(gesamt, 1) * 100)}%;'
+               f'background:{E.COLORS[t]}"></div></div>']
+              for t in E.TYPES if m["ratios"][t] > 0 or m["actualCat"][t] > 0], breit=False)
+
+
+def _scores(erg, typen):
+    _karte_titel("Investment-Score · transparente Auswahl")
+    verf = erg["available"]
+    geeignet = [a for a in verf if a["type"] in typen]
+    st.caption(f"{sum(1 for a in verf if a.get('combinedScore') is not None)} von {len(verf)} Werten bewertbar · "
+               + " · ".join(f"{k} {v} %" for k, v in E.SCORE_WEIGHTS.items()))
+    gezeigt = geeignet[:12]
+    if not gezeigt:
+        st.info("Keine Werte für die gewählten Anlageklassen.")
+        return
+    _tabelle([("#", "nr m"), ("Wertpapier", "nm"), ("Score", "r"), ("Daten", "r")],
+             [[str(a["scannerRank"]), f'<b>{_esc(a["name"])}</b><div class="m">{_esc(a["type"])} · '
+               f'{_esc(a.get("isin") or a["id"])}</div>', _score_chip(a["combinedScore"]), _pct(a["score"]["coverage"])]
+              for a in gezeigt], breit=False)
+    wahl = st.selectbox("Teilbewertungen", range(len(gezeigt)), key=P + "score_fokus",
+                        format_func=lambda i: f"#{gezeigt[i]['scannerRank']} {gezeigt[i]['name']}")
+    a = gezeigt[wahl if wahl is not None and wahl < len(gezeigt) else 0]
+    _tabelle([("Faktor", "nm"), ("Wert", "r"), ("", "")],
+             [[f'{k} <span class="m">({E.SCORE_WEIGHTS[k]} %)</span>', "keine Daten" if v is None else _de(v, 0),
+               f'<div class="is2-bar"><div style="width:{0 if v is None else max(0.0, min(100.0, v))}%;'
+               f'background:#52d9b3"></div></div>'] for k, v in a["score"]["details"].items()], breit=False)
+    st.caption("Modellheuristik, keine Renditeprognose oder Anlageberatung. Fehlende Faktoren werden nicht geschätzt, "
+               "sie senken die Datenabdeckung; Score erst ab 60 % Abdeckung und vorhandener Risikokennzahl.")
 
 
 def _hinweise():
-    with st.expander("Nachvollziehbarkeit · Auswahlverfahren & Hinweise"):
+    with st.expander("ℹ️ Nachvollziehbarkeit · Auswahlverfahren & Hinweise"):
         st.markdown(
             "- **Universum:** Top-500-/Watchlist-Daten der App (Aktien, ETFs, wikifolios) mit Tagesschlusskurs in EUR; "
-            "eigene Werte per Wertpapier-CSV. Quellenrang = Rang nach 12-Monats-Rendite.\n"
-            "- **Score:** Momentum (12-Monats-Rendite), Risiko (Schwankung, maximaler Rückgang), Qualität und KGV "
-            "(nur Aktien mit Daten des Qualitäts-Agenten). Kosten (TER), Handelsvolumen und Spread liegen in den Daten "
-            "nicht vor – sie senken die Datenabdeckung, ETFs und wikifolios haben daher meist keinen Score und werden "
-            "nach Quellenrang berücksichtigt.\n"
-            "- **Kaufplan:** je Anlageklasse die bis zu vier besten Werte, Budget nach Soll-Anteil der Strategie abzüglich "
-            "vorhandenem Bestand, ganze Stücke, Ordergebühr je Kauf, Höchstgewicht je Wertpapier im Gesamtdepot.\n"
-            "- **Strategien:** feste Renditeannahmen (Szenario), monatliche Sparrate und Entnahmen; Auto wählt die "
+            "Hebelprodukte und Datenfehler ausgefiltert; eigene Werte per Wertpapier-CSV. Quellenrang = Rang nach "
+            "12-Monats-Rendite.\n"
+            "- **Score:** Momentum (12- und 3-Monats-Rendite), Risiko (Schwankung, maximaler Rückgang), Qualität und KGV "
+            "(Aktien mit Daten des Qualitäts-Agenten). Kosten (TER), Handelsvolumen und Spread liegen nicht vor – ETFs "
+            "und wikifolios haben daher meist keinen Score und werden nach Quellenrang berücksichtigt.\n"
+            "- **Kaufplan:** je Anlageklasse die bis zu vier besten Werte, Budget nach Soll-Anteil der Strategie "
+            "abzüglich vorhandenem Bestand, ganze Stücke, Ordergebühr je Kauf, Höchstgewicht je Wertpapier.\n"
+            "- **Strategien:** feste Renditeannahmen (Szenario) mit Sparrate und Entnahmen; Auto wählt die "
             "vorsichtigste Strategie innerhalb der Risikogrenze, die das Ziel erreicht.\n\n"
-            "Wichtig: Rechen- und Vergleichswerkzeug, keine individuelle Anlageberatung oder automatische Order. Kurse "
-            "sind nicht zwingend Realtime. Wikifolio-Produkte sind Zertifikate mit Emittentenrisiko, nicht ETFs. "
-            "Finanzprodukte können im Wert fallen; Zielerreichung und Renditeannahmen sind nicht garantiert.")
+            "Rechen- und Vergleichswerkzeug, keine Anlageberatung oder automatische Order. Kurse sind nicht zwingend "
+            "Realtime. Wikifolio-Produkte sind Zertifikate mit Emittentenrisiko. Zielerreichung und Renditeannahmen "
+            "sind nicht garantiert.")
 
 
 # ---------------------------------------------------------------- Seite
 def seite(h):
+    with st.container(key="is2_seite"):
+        _seite(h)
+
+
+def _seite(h):
     null = bool((h or {}).get("null"))
     _start(null)
     st.markdown(B.CSS, unsafe_allow_html=True)
     st.markdown(CSS, unsafe_allow_html=True)
     katalog, stand = _katalog(h)
     live = bool(st.session_state.get(P + "live"))
-    chip = ("● AKTUELLE KURSE TEILWEISE GELADEN" if live else
-            "● TOP-500-DATEN (TAGESSCHLUSS)" if katalog else "● KEINE KURSE GELADEN")
-    k1, k2 = st.columns([4, 1], vertical_alignment="bottom")
-    k1.markdown(f'<div class="is2-kopf"><div><div class="is2-ueber">Portfolio Intelligenz / Planung</div>'
-                f'<div class="is2-titel">Investment Scanner 2.0</div></div>'
-                f'<span class="is2-chip {"" if katalog else "warn"}">{chip}</span></div>', unsafe_allow_html=True)
-    k2.button("Zurücksetzen", key=P + "reset", width="stretch", on_click=_zuruecksetzen, args=(null,))
-    st.caption("Anlageziel definieren, echte EUR-Börsenkurse nutzen, vorhandenes Depot berücksichtigen und Kauf-, "
-               "Reserve- sowie Entnahmepläne vergleichen. Keine Orderausführung oder echte Auszahlung.")
-    with st.container(border=True):
-        _eingaben()
-    with st.container(border=True):
-        _anlageklassen(katalog)
-    with st.container(border=True):
-        _daten(h, katalog, stand)
-    with st.container(border=True):
-        _entnahme()
+    chip = ("● aktuelle Kurse teilweise geladen" if live else
+            "● Top-500-Daten · Tagesschluss" if katalog else "● keine Kurse geladen")
+    st.markdown('<div class="pb-kopf"><div class="pb-titel">Investment Scanner <span>2.0</span></div>'
+                '<div class="pb-unter">Anlageziel · echte EUR-Kurse · Kauf-, Reserve- und Entnahmeplan</div></div>',
+                unsafe_allow_html=True)
+    k1, k2 = st.columns([3, 2] if B._smartphone() else [4, 1], vertical_alignment="center")
+    k1.markdown(f'<span class="is2-chip {"" if katalog else "warn"}">{chip.upper()}</span>', unsafe_allow_html=True)
+    k2.button("↺ Zurücksetzen", key=P + "reset", width="stretch", on_click=_zuruecksetzen, args=(null,))
+    for teil in (_eingaben, lambda: _anlageklassen(katalog), lambda: _daten(katalog, stand), _entnahme):
+        with st.container(border=True):
+            teil()
     s = st.session_state
     typen = set(s.get(P + "typen") or [])
-    roh = E.eingaben(capital=s[P + "capital"], goal=s[P + "goal"], years=s[P + "years"], monthly=s[P + "monthly"],
-                     reservePct=s[P + "reserve"], maxLinePct=s[P + "capmax"], fee=s[P + "fee"],
-                     riskCeiling=s.get(P + "risk") or "wachstum", takeNow=s[P + "take_now"],
-                     takeMonthly=s[P + "take_monthly"], takeStart=s[P + "take_start"], takeEnd=s[P + "take_end"])
     if not katalog:
         st.warning("Noch keine Kurse vorhanden – die Top-500-Daten sind gerade nicht lesbar. Bitte später erneut "
                    "öffnen oder eine Wertpapier-CSV importieren. Es werden keine Kurse erfunden.")
@@ -523,17 +512,15 @@ def seite(h):
     if not typen:
         st.info("Bitte mindestens eine Anlageklasse wählen.")
         return
+    roh = E.eingaben(capital=s[P + "capital"], goal=s[P + "goal"], years=s[P + "years"], monthly=s[P + "monthly"],
+                     reservePct=s[P + "reserve"], maxLinePct=s[P + "capmax"], fee=s[P + "fee"],
+                     riskCeiling=s.get(P + "risk") or "wachstum", takeNow=s[P + "take_now"],
+                     takeMonthly=s[P + "take_monthly"], takeStart=s[P + "take_start"], takeEnd=s[P + "take_end"])
     erg = E.berechnen(roh, katalog, s.get(P + "depot") or [], typen, s.get(P + "ansatz") or "auto",
                       s.get(P + "rangmodus") or "score", TOP_N.get(s.get(P + "top") or "Top 100", 100),
                       {k: s[P + "rate_" + k] for k in E.PROFILES})
-    _kennzahlen(erg)
-    _strategien(erg)
-    with st.container(border=True):
-        _scores(erg, typen)
-    with st.container(border=True):
-        _kaufplan(h, erg)
-    with st.container(border=True):
-        _entnahmen(erg)
-    with st.container(border=True):
-        _mix(erg)
+    for teil in (lambda: _ergebnis(erg), lambda: _strategien(erg), lambda: _kaufplan(h, erg),
+                 lambda: _entnahmen(erg), lambda: _mix(erg), lambda: _scores(erg, typen)):
+        with st.container(border=True):
+            teil()
     _hinweise()
