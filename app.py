@@ -952,6 +952,31 @@ st.markdown("""
         border-bottom: none !important; box-shadow: none !important; margin: 0 0 0 2px !important;
         padding-bottom: 0 !important; }
     .st-key-depot_kopf_rechts [data-testid="stWidgetLabel"] { display: none !important; }
+    /* Titel in der Kopfzeile senkrecht mittig (wie links), auch wenn der Block gestreckt wird */
+    .st-key-depot_kopf_links [data-testid="stMarkdownContainer"],
+    .st-key-depot_kopf_rechts [data-testid="stMarkdownContainer"] { display: flex; align-items: center; }
+    /* Depot | Kurse nebeneinander: die jeweils letzte Kachel fuellt die Spalte bis unten, beide Spalten
+       enden auf derselben Hoehe (die Fusszeile rutscht ans Kachelende) */
+    @media (min-width: 820px) {
+        .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
+        /* Spalte -> (Fragment-Huelle) -> letztes Element waechst bis zum Spaltenende */
+        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"],
+        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"]
+            > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] { height: 100%; }
+        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > :last-child,
+        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"]
+            > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] > :last-child {
+            flex: 1 1 auto; }
+        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child > [data-testid="stMarkdown"],
+        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child > [data-testid="stMarkdown"] > div,
+        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child [data-testid="stMarkdownContainer"] {
+            height: 100%; margin: 0 !important; }
+        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child :is(.hero, .quote) {
+            height: 100%; margin-top: 0 !important; margin-bottom: 0 !important; box-sizing: border-box;
+            display: flex; flex-direction: column; }
+        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child :is(.hero, .quote) .card-footnote {
+            margin-top: auto; }
+    }
     /* Depot | Kurse: nebeneinander erst ab 820 px, darunter untereinander */
     @media (max-width: 819px) {
         .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"],
@@ -960,6 +985,15 @@ st.markdown("""
         .st-key-depot_spalten [data-testid="stColumn"] {
             width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; }
         .st-key-depot_kopf_rechts { margin-top: 14px; }
+        /* Kopfzeile "Kurse | Auswahl" auch auf dem Handy in EINER Zeile (sonst ueberdeckt das
+           Dropdown den Titel) - Titel so schmal wie noetig, Auswahl nimmt den Rest */
+        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stHorizontalBlock"] {
+            flex-direction: row !important; flex-wrap: nowrap !important; gap: 0.6rem !important;
+            align-items: center !important; }
+        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stColumn"] {
+            min-width: 0 !important; width: auto !important; flex: 1 1 auto !important; }
+        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stColumn"]:first-child {
+            flex: 0 0 auto !important; }
     }
     /* Touch: Plotly-Werkzeugleiste (22-px-Symbole) ausblenden - Zoomen per Fingergeste geht weiter */
     @media (pointer: coarse) { .modebar-container { display: none !important; } }
