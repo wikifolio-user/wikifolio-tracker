@@ -280,6 +280,37 @@ def _tabelle_html(kopf, zeilen, rechts=(), text=(), breit=False):
                 f'</table></div>', unsafe_allow_html=True)
 
 
+DEPOT_KOPF = ["Wertpapier", "Gewicht", "Betrag", "Rendite p. a.", "Grundlage", "Beitrag", "Kategorie",
+              "ISIN / WKN / Ticker", "Begründung"]
+# feste Spaltenbreiten (% der Tabelle): beide Musterdepots stehen genau untereinander
+DEPOT_BREITEN = (16, 6, 8, 8, 8, 7, 7, 11, 29)
+DEPOT_MIN_PX = 1150                                   # schmaler: seitlich wischen, Name bleibt stehen
+
+
+def _depot_tabelle(zeilen):
+    """Musterdepot als Tabelle - gleiche Spalten fuer das Zielrendite- und das normale Musterdepot."""
+    def fett(t, z):
+        return f"<b>{t}</b>" if z["typ"] == "summe" else t
+
+    html_zeilen = []
+    for z in zeilen:
+        summe = z["typ"] == "summe"
+        html_zeilen.append([
+            f"<b>{_esc(z['name'])}</b>", fett(_pct(z["gewicht"]), z), fett(_eur(z["betrag"]), z),
+            "" if z["rendite"] is None else _pct(z["rendite"], 1, True), _esc(z["grundlage"]),
+            fett(_pct(z["beitrag"], 2, True), z), "" if summe else _esc(ART_TITEL.get(z["art"], z["art"])),
+            _esc(z["kennung"]), _esc(z["grund"])])
+    kopf = "".join(f'<col style="width:{b}%">' for b in DEPOT_BREITEN)
+    th = "".join(f'<th class="{"r" if 1 <= i <= 5 else "n" if i == 0 else ""}">{_esc(k)}</th>'
+                 for i, k in enumerate(DEPOT_KOPF))
+    tr = "".join("<tr" + (' class="summe"' if z["typ"] == "summe" else "") + ">" + "".join(
+        f'<td class="{"r" if 1 <= i <= 5 else "n" if i == 0 else "t" if i == 8 else ""}">{x}</td>'
+        for i, x in enumerate(zeile)) + "</tr>" for z, zeile in zip(zeilen, html_zeilen))
+    st.markdown(f'<div class="pb-scan-wrap"><table class="pb-scan depot" style="min-width:{DEPOT_MIN_PX}px">'
+                f'<colgroup>{kopf}</colgroup><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table></div>',
+                unsafe_allow_html=True)
+
+
 def _kennung(c):
     return c.get("isin") or c.get("wkn") or c.get("ticker") or "–"
 
@@ -320,9 +351,9 @@ def _ziel_depot_anzeige(erg, kapital):
     if not zd or not zd["positionen"]:
         return
     ben = (erg.get("benoetigt") or {}).get("rendite")
-    st.markdown("#### 🎯 Zielrendite-Musterdepot")
-    st.caption("Durchsucht alle Werte der Top-500-Daten nach der bisherigen Rendite – unten folgt dein normales "
-               "Musterdepot mit deiner Aufteilung.")
+    st.markdown("#### 🎯 1 · Zielrendite-Musterdepot")
+    st.caption("Ausgewählt nach der bisherigen Rendite aller Werte der Top-500-Daten, damit das Ziel rechnerisch "
+               "erreicht wird – „Rendite p. a.“ ist hier die bisherige Rendite, keine Prognose.")
     if zd["erreicht"]:
         st.success(f"✅ Ziel erreichbar mit diesem Depot: Diese {len(zd['positionen'])} Werte hatten in der Vergangenheit "
                    f"zusammen ≈ {_pct(zd['hist_rendite'], 1)} p. a. – nötig sind ≈ {_pct(ben, 1)} p. a.")
@@ -334,13 +365,7 @@ def _ziel_depot_anzeige(erg, kapital):
     md = st.session_state.get("pb_scan_md_ziel")
     if md:
         {"ok": st.success, "warnung": st.warning, "fehler": st.error}[md[0]](md[1])
-    zeilen = [[f"<b>{_esc(p['name'])}</b>", _pct(p["gewicht"]), _eur(kapital * p["gewicht"] / 100),
-               _pct(p["prognose"]["mu"], 1, True), f"{p.get('hist_jahre', '–')} J.", ART_TITEL[p["art"]],
-               _esc(_kennung(p))] for p in zd["positionen"]]
-    if zd["cash"] > 0.01:
-        zeilen.append(["<b>Cash</b>", _pct(zd["cash"]), _eur(kapital * zd["cash"] / 100), "", "", "Cash", "–"])
-    _tabelle_html(["Wertpapier", "Gewicht", "Betrag", "Rendite p. a. (bisher)", "Zeitraum", "Kategorie",
-                   "ISIN / WKN / Ticker"], zeilen, rechts=(1, 2, 3, 4), breit=True)
+    _depot_tabelle(S.depot_zeilen(zd, kapital, "historisch", ben))
 
 
 def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
@@ -350,33 +375,45 @@ def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
         if md[0] == "ok" and zum_muster:
             st.button("📦 Musterdepot ansehen", key="pb_scan_zum_muster", on_click=zum_muster)
     _ziel_zeile(erg)
+    zd = erg.get("ziel_depot")
+    zwei = bool(zd and zd["positionen"])
+    if zwei:
+        st.info("Es gibt **zwei getrennte Musterdepots**, beide unter „📦 Musterdepot“ gespeichert: "
+                "**1 · Zielrendite** – ausgewählt nach der bisherigen Rendite, damit das Ziel rechnerisch erreicht "
+                "wird (sehr riskant). **2 · Deine Aufteilung** – nach Score und vorsichtiger Prognose, mit deinen "
+                "Prozentanteilen. Beide Tabellen haben dieselben Spalten.")
     _ziel_depot_anzeige(erg, kapital)                # erreicht das Ziel rechnerisch - gleich hier, nicht ganz unten
     d = erg["depot"]
+    st.markdown(f"#### 📦 {'2 · ' if zwei else ''}Musterdepot mit deiner Aufteilung")
     for hw in d["hinweise"]:
         st.info(hw)
-    zeilen = []
-    for p in sorted(d["positionen"], key=lambda p: (list(S.KLASSEN).index(p["art"]), -p["score"])):
-        pr = p["prognose"]
-        grund = f"Score {p['score']}" + (f" · {', '.join(p['chancen'][:2])}" if p["chancen"] else "")
-        # wichtigste Spalten direkt hinter dem Namen (Handy: ohne Wischen sichtbar)
-        zeilen.append([f"<b>{_esc(p['name'])}</b>", _pct(p["gewicht"]), _eur(kapital * p["gewicht"] / 100),
-                       _pct(pr["mu"], 1, True), _pct(p["gewicht"] / 100 * pr["mu"], 2, True), ART_TITEL[p["art"]],
-                       _esc(_kennung(p)), _esc(grund)])
-    zeilen.append(["<b>Cash / Tagesgeld</b>", _pct(d["cash"]), _eur(kapital * d["cash"] / 100),
-                   _pct(S.ANNAHMEN["tagesgeld"], 1, True), _pct(d["cash"] / 100 * S.ANNAHMEN["tagesgeld"], 2, True),
-                   "Cash", "–", "Puffer, nicht verteilbarer Rest"])
-    summe = sum(p["gewicht"] for p in d["positionen"]) + d["cash"]
-    zeilen.append(["<b>Summe</b>", f"<b>{_pct(summe)}</b>", f"<b>{_eur(kapital * summe / 100)}</b>", "",
-                   f"<b>{_pct(erg['mu'], 2, True)}</b>", "", "", ""])
-    _tabelle_html(["Wertpapier", "Gewicht", "Betrag", "Erw. Rendite p. a.", "Beitrag", "Kategorie",
-                   "ISIN / WKN / Ticker", "Begründung"], zeilen, rechts=(1, 2, 3, 4), text=(7,), breit=True)
-    st.caption(f"{len(d['positionen'])} Positionen, jede höchstens {_pct(d.get('max_gewicht', 5))} · Erwartung vor "
-               f"Kosten · „Beitrag“ = Gewicht × erwartete Rendite.")
+    _depot_tabelle(S.depot_zeilen(d, kapital))
+    st.caption(f"{len(d['positionen'])} Positionen, jede höchstens {_pct(d.get('max_gewicht', 5))} · „Rendite p. a.“ "
+               f"= vorsichtige Prognose vor Kosten · „Beitrag“ = Gewicht × Rendite.")
+    _pdf_knopf(erg, kapital)
     # als Callback: laeuft vor dem Neuaufbau, darf also auch "Automatisch aufs Ziel" umstellen
     st.button("📥 Musterdepot in den Portfolio Builder übernehmen", key="pb_scan_uebernehmen", type="primary",
               width="stretch", on_click=_uebernehmen, args=(d, zum_builder),
               help="Ersetzt die Positionen im Portfolio Builder durch das Musterdepot (Gewichte, erwartete Renditen "
                    "aus der Prognose) und öffnet ihn. „Automatisch aufs Ziel“ wird dabei ausgeschaltet.")
+
+
+def _pdf_knopf(erg, kapital):
+    """PDF-Bericht ueber das Ergebnis - erst auf Knopfdruck erzeugt (dauert etwas)."""
+    import scanner_pdf
+    schluessel = erg["zeit"]
+    if st.button("📄 PDF-Bericht erstellen", key="pb_scan_pdf_knopf", width="stretch"):
+        e = erg["eingaben"]
+        try:
+            st.session_state["pb_scan_pdf"] = (schluessel, scanner_pdf.bericht(
+                erg, kapital, PROFIL_TITEL.get(e["scan_profil"], e["scan_profil"])))
+        except ImportError:
+            st.error("Für das PDF fehlt das Paket **reportlab** (requirements.txt).")
+    fertig = st.session_state.get("pb_scan_pdf")
+    if fertig and fertig[0] == schluessel:
+        st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
+                           file_name=f"Investment_Scanner_{datetime.date.today().isoformat()}.pdf",
+                           key="pb_scan_pdf_download", width="stretch", type="primary")
 
 
 def _uebernehmen(d, danach=None):
@@ -812,6 +849,10 @@ table.pb-scan td.t { white-space:normal; min-width:180px; max-width:280px; }
 table.pb-scan .n { position:sticky; left:0; background:#0A0B0D; z-index:1; max-width:220px; white-space:normal; }
 table.pb-scan .r { text-align:right; white-space:nowrap; }
 table.pb-scan .gr { color:#9AA0A6; font-weight:400; }
+table.pb-scan.depot { table-layout:fixed; }
+table.pb-scan.depot td, table.pb-scan.depot th { overflow:hidden; text-overflow:ellipsis; }
+table.pb-scan.depot td.t, table.pb-scan.depot td.n { white-space:normal; max-width:none; min-width:0; }
+table.pb-scan.depot tr.summe td { border-top:1px solid #3A3F47; }
 .pb-scan-kpis { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
 .pb-scan-kpis .k { border:1px solid #262B33; border-radius:10px; padding:10px 12px; background:#0F1115; }
 .pb-scan-kpis .l { color:#9AA0A6; font-size:.72rem; text-transform:uppercase; letter-spacing:.4px; }
