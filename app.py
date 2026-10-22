@@ -5113,7 +5113,7 @@ def render_dashboard():
         try:
             import investment_scanner_pro
             investment_scanner_pro.seite({"gh_read_taeglich": gh_read_taeglich, "suche_instrument": suche_instrument,
-                                          "get_live_kurs": get_live_kurs})
+                                          "get_live_kurs": get_live_kurs, "null": eigener_bereich()})
         except Exception as e:
             st.error(f"⚠️ Fehler im Investment Scanner Pro: {e}")
             notify_app_error("Tab-Investment-Scanner-Pro", e)

@@ -610,3 +610,16 @@ class Bereinigen(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NeuerBenutzer(unittest.TestCase):
+    def test_leer_ohne_vorbelegte_werte(self):
+        e = P.leer()
+        self.assertEqual(e["positionen"], [])
+        for k in ("anfangskapital", "einzahlung", "zielvermoegen", "rendite_pa", "kredit_zins_pa", "scan_etf",
+                  "scan_aktie", "scan_wikifolio", "scan_cash", "scan_kosten", "scan_inflation", "scan_kapital",
+                  "scan_ziel", "scan_einzahlung", "scan_entnahme"):
+            self.assertEqual(e[k], 0, k)
+        self.assertEqual(e["scan_profil"], "eigene")
+        self.assertEqual(P.bereinigen(e), e)                 # gespeichert und wieder geladen: bleibt leer
+        self.assertTrue(P.standard()["positionen"])          # Admin behaelt das Beispiel
