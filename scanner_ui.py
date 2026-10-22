@@ -7,7 +7,6 @@ ihnen gespeichert. Gerechnet wird nur auf Knopfdruck - das Ergebnis bleibt in de
 import datetime
 import html
 
-import pandas as pd
 import streamlit as st
 
 import portfolio_builder as P
@@ -327,22 +326,16 @@ def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
 
 
 def _uebernehmen(d, danach=None):
-    verkauf = st.session_state.get("pb_scan_verkauf") or {}
-    stueck = st.session_state.get("pb_scan_entnahme_art") == "stueck"
     pos = []
     for p in d["positionen"]:
         pos.append({"name": p["name"], "kurs": p.get("kurs") or 0.0, "gewicht": round(p["gewicht"], 4),
                     "art": p["art"], "wkn": p.get("wkn") or "", "isin": p.get("isin") or "",
                     "rendite": round(p["prognose"]["mu"], 2), "rendite_quelle": "Scanner-Prognose",
                     "rendite_basis": "1J"})
-        if stueck and verkauf.get(S.kennung(p)):
-            pos[-1]["verkauf_stueck"] = verkauf[S.kennung(p)]
     if d["cash"] > 0.01:
         pos.append({"name": P.TAGESGELD, "kurs": 1.0, "gewicht": round(d["cash"], 4), "art": "sonstig",
                     "rendite": S.ANNAHMEN["tagesgeld"], "rendite_quelle": "Annahme Tagesgeld"})
-        if stueck and verkauf.get(P.TAGESGELD):
-            pos[-1]["verkauf_stueck"] = verkauf[P.TAGESGELD]
-    st.session_state["pb_entnahme_art"] = "stueck" if stueck else "betrag"     # Entnahme wie im Scanner
+    st.session_state["pb_entnahme_art"] = "betrag"                               # Entnahme wie im Scanner
     st.session_state["pb_positionen"] = P.bereinigen({"positionen": pos})["positionen"]
     st.session_state["pb_auto_ziel"] = False
     st.session_state["pb_tab_ver"] = st.session_state.get("pb_tab_ver", 0) + 1
@@ -649,50 +642,17 @@ def _daten_annahmen(erg):
 def _eckdaten(e):
     """Eigene Eckdaten des Scanners (unabhaengig vom Portfolio Builder)."""
     handy = _smartphone()
-    c = (st.columns(2) + st.columns(2)) if handy else st.columns(4)
+    c = (st.columns(2) + st.columns(2) + st.columns(2)) if handy else st.columns(5)
     c[0].number_input("Startkapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_scan_kapital")
     c[1].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_einzahlung")
     c[2].number_input("Laufzeit (Jahre)", 1, 50, step=1, key="pb_scan_laufzeit")
     c[3].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f", key="pb_scan_ziel",
                       help="0 = kein Ziel (dann keine Zielwahrscheinlichkeit und keine Alternativen).")
-    st.caption("Diese Eckdaten gelten nur für den Scanner – der Portfolio Builder bleibt unverändert.")
+    c[4].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_entnahme")
+    st.caption("Diese Eckdaten gelten nur für den Scanner – der Portfolio Builder bleibt unverändert. Die Entnahme "
+               "ist ein fester Betrag je Monat, verkauft wird anteilig nach dem Wert der Positionen.")
     if e["scan_ziel"] <= 0:
         st.info("Kein Zielvermögen gesetzt – ohne Ziel gibt es keine Zielwahrscheinlichkeit und keine Alternativen.")
-
-
-def _entnahme_einstellungen(e, h=None):
-    """Entnahme im Scanner: fester Betrag oder Stueckzahlen je Position des Musterdepots (Eingabe direkt hier)."""
-    with st.container(border=True, key="pb_scan_entnahme_karte"):
-        st.markdown('<div class="pb-karte-t">Entnahme</div>', unsafe_allow_html=True)
-        st.radio("Entnahme als", list(P.ENTNAHME_ARTEN), format_func=P.ENTNAHME_ARTEN.get,
-                 key="pb_scan_entnahme_art", horizontal=True,
-                 help="€-Betrag: fester Betrag je Monat, verkauft wird anteilig nach Wert. Stückzahlen: je Position "
-                      "des Musterdepots festlegen, wie viele Stücke pro Monat verkauft werden – die Entnahme in € "
-                      "ergibt sich aus dem Kurs.")
-        if e["scan_entnahme_art"] == "betrag":  # eigener Betrag des Scanners
-            st.number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f",
-                            key="pb_scan_entnahme")
-        else:
-            erg = st.session_state.get("pb_scan_erg")
-            if erg is None or not erg["depot"]["positionen"]:
-                st.info("Erst unten „🔍 Scannen & Musterdepot berechnen“ – danach trägst du hier je Position ein, "
-                        "wie viele Stücke pro Monat verkauft werden.")
-            else:
-                _fehlende_kurse(h, erg)
-                _verkauf_editor(erg, S.scanner_eingaben(e))
-
-
-def _verkauf_geaendert(key, kennungen):
-    delta = (st.session_state.get(key) or {}).get("edited_rows") or {}
-    verkauf = dict(st.session_state.get("pb_scan_verkauf") or {})
-    for i, w in delta.items():
-        if "Verkauf Stk./Monat" in w and 0 <= int(i) < len(kennungen):
-            s = P._zahl(w["Verkauf Stk./Monat"])
-            if s > 0:
-                verkauf[kennungen[int(i)]] = s
-            else:
-                verkauf.pop(kennungen[int(i)], None)
-    st.session_state["pb_scan_verkauf"] = verkauf
 
 
 def _e_plan(erg, e):
@@ -700,54 +660,14 @@ def _e_plan(erg, e):
                 sonstiges_kapital=erg["eingaben"]["sonstiges_kapital"], kredit_summe=erg["eingaben"]["kredit_summe"])
 
 
-def _fehlende_kurse(h, erg):
-    """Positionen ohne Kurs in den Top-500-Daten nennen - fuer sie ist keine Stueckzahl moeglich."""
-    ohne = [p for p in erg["depot"]["positionen"] if not (p.get("kurs") or 0) > 0]
-    if ohne:
-        st.caption(f"{len(ohne)} Position(en) ohne Kurs in den Top-500-Daten – dafür ist keine Stückzahl möglich: "
-                   + ", ".join(p["name"] for p in ohne[:4]) + (" …" if len(ohne) > 4 else "") + ".")
-
-
-def _verkauf_editor(erg, e):
-    """Verkaufsmengen je Position des Musterdepots eintragen."""
-    depot, e_plan = erg["depot"], _e_plan(erg, e)
-    pos = S.depot_positionen(depot, e["scan_verkauf"])
-    zeilen = P.positionen(dict(P.bereinigen(e_plan), positionen=P.bereinigen({"positionen": pos})["positionen"]))
-    kennungen = [S.kennung(p) for p in depot["positionen"]] + ([P.TAGESGELD] if len(pos) > len(depot["positionen"])
-                                                               else [])
-    df = pd.DataFrame([{"Name": z["name"], "Verkauf Stk./Monat": float(p.get("verkauf_stueck", 0.0)),
-                        "Stück im Depot": round(z["stueck"], 4), "Kurs €": round(z["kurs"], 2)}
-                       for z, p in zip(zeilen["zeilen"], pos)])
-    key = f"pb_scan_verkauf_tab_{st.session_state.get('pb_scan_verkauf_ver', 0)}"
-    st.data_editor(df, key=key, hide_index=True, width="stretch", disabled=["Name", "Stück im Depot", "Kurs €"],
-                   on_change=_verkauf_geaendert, args=(key, kennungen),
-                   column_config={
-                       "Name": st.column_config.TextColumn("Name", width=120 if _smartphone() else "medium"),
-                       "Verkauf Stk./Monat": st.column_config.NumberColumn(
-                           "Verkauf Stk./Monat", min_value=0.0, format="localized",
-                           step=1.0 if e["nur_ganze_stuecke"] else 0.0001,
-                           help="So viele Stücke werden jeden Monat verkauft, bis der Bestand aufgebraucht ist."),
-                       "Stück im Depot": st.column_config.NumberColumn("Stück im Depot", format="localized"),
-                       "Kurs €": st.column_config.NumberColumn("Kurs €", format="localized")})
-    from portfolio_builder_ui import plan_anzeigen
-    plan_anzeigen(e, S.depot_entnahmeplan(depot, e_plan), True)
-
-
 def _entnahme_reiter(erg, e):
     """Verkaufsplan fuer das berechnete Musterdepot (live aus den aktuellen Verkaufsmengen)."""
     from portfolio_builder_ui import plan_anzeigen
-    stueck = e["scan_entnahme_art"] == "stueck"
-    if stueck:
-        st.caption("Die Stückzahlen je Position trägst du oben in der Karte „Entnahme“ ein – dort steht auch der "
-                   "Verkaufsplan.")
-        return
     if e["entnahme"] <= 0:
-        st.caption("Keine Entnahme eingetragen – oben in „Entnahme“ einen Betrag eintragen oder „Stückzahlen“ "
-                   "wählen.")
+        st.caption("Keine Entnahme eingetragen – oben in den Eckdaten bei „Entnahme €/Monat“ einen Betrag eintragen.")
         return
     plan_anzeigen(e, S.depot_entnahmeplan(erg["depot"], _e_plan(erg, e)), False)
-    st.caption("Prognose, Zielwahrscheinlichkeit und Alternativen rechnen mit diesen Entnahmen (bei Stückzahlen: "
-               "Erlös zum erwarteten Kurs). Nach einer Änderung „Neu berechnen“.")
+    st.caption("Prognose, Zielwahrscheinlichkeit und Alternativen rechnen mit diesen Entnahmen. Nach einer Änderung „Neu berechnen“.")
 
 
 def seite(h):
@@ -757,6 +677,9 @@ def seite(h):
     st.markdown(CSS, unsafe_allow_html=True)
     B._start(h)
     e = B._aus_widgets()
+    if e["scan_entnahme_art"] != "betrag":         # alte Einstellung "Stückzahlen" -> nur noch €-Betrag
+        st.session_state["pb_scan_entnahme_art"] = "betrag"
+        e = B._aus_widgets()
     if e["scan_kapital"] < 0:                     # erstes Oeffnen: einmal mit den Builder-Werten vorbelegen
         st.session_state.update(pb_scan_kapital=P.eigenkapital(e), pb_scan_einzahlung=e["einzahlung"],
                                 pb_scan_laufzeit=max(round(P.monate(e) / 12), 1),
@@ -768,7 +691,6 @@ def seite(h):
     with st.container(border=True, key="pb_scan_eckdaten"):
         st.markdown('<div class="pb-karte-t">Eckdaten</div>', unsafe_allow_html=True)
         _eckdaten(e)
-    _entnahme_einstellungen(e, h)
     render(h, S.scanner_eingaben(e), lambda: B._katalog(h), (h or {}).get("zum_builder"))
     art, _ = B._automatisch_speichern(h, e)
     if art in ("lesefehler", "fehler"):
@@ -797,8 +719,7 @@ def render(h, e, katalog_fn, zum_builder=None):
                     h, erg, e, zd, "Zielrendite",
                     f"Zielrendite: renditestärkste Werte nach vergangener Rendite (Ø {_pct(zd['hist_rendite'], 1)} p. a.)",
                     "historisch") if zd and zd["positionen"] else None
-            st.session_state["pb_scan_verkauf_ver"] = st.session_state.get("pb_scan_verkauf_ver", 0) + 1
-            st.rerun()                                # Entnahme-Karte oben zeigt das neue Depot
+            st.rerun()
             veraltet = False
         if erg is None:
             return
