@@ -2785,6 +2785,7 @@ ANSICHT_BENUTZER = "👥 Benutzer"      # nur fuer den Admin sichtbar
 ANSICHT_BUILDER = "🚀 Portfolio Builder 2.0"
 ANSICHT_SCANNER = "🤖 Investment-Scanner"
 ANSICHT_SCANNER_PRO = "🔎 Investment Scanner Pro"
+ANSICHT_SCANNER2 = "🧭 Investment Scanner 2.0"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
@@ -2808,6 +2809,7 @@ ANSICHTEN = [
     ANSICHT_BUILDER,            # neu: hinten anhaengen, damit die Kachel-Keys der anderen gleich bleiben
     ANSICHT_SCANNER,
     ANSICHT_SCANNER_PRO,
+    ANSICHT_SCANNER2,           # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2828,6 +2830,7 @@ ANSICHT_KURZ = {
     ANSICHT_BUILDER: "🚀 Builder 2.0",
     ANSICHT_SCANNER: "🤖 Scanner",
     ANSICHT_SCANNER_PRO: "🔎 Scanner Pro",
+    ANSICHT_SCANNER2: "🧭 Scanner 2.0",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2844,6 +2847,7 @@ NAV_NAMEN = {
     ANSICHT_BUILDER: "🚀 Portfolio Builder 2.0",
     ANSICHT_SCANNER: "🤖 Investment-Scanner",
     ANSICHT_SCANNER_PRO: "🔎 Investment Scanner Pro",
+    ANSICHT_SCANNER2: "🧭 Investment Scanner 2.0",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
@@ -2862,12 +2866,13 @@ NAV_ZEILEN = [
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
-                           ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, "💼 Portfolio-Planer", "🏆 Watchlist Top 50"]),
+                           ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "💼 Portfolio-Planer",
+                           "🏆 Watchlist Top 50"]),
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
+LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
@@ -5195,6 +5200,19 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Investment-Scanner: {e}")
             notify_app_error("Tab-Investment-Scanner", e)
+        lade_fertig()
+
+    # --- INVESTMENT SCANNER 2.0: Nachbau des HTML-Scanners (Echtdaten & Entnahmen) mit den Top-500-Daten
+    # (investment_scanner2.py / investment_scanner2_ui.py)
+    if gewaehlte_ansicht == ANSICHT_SCANNER2:
+        _zugang_pruefen(ANSICHT_SCANNER2)
+        try:
+            import investment_scanner2_ui
+            investment_scanner2_ui.seite({"gh_read_taeglich": gh_read_taeglich, "suche_instrument": suche_instrument,
+                                          "get_live_kurs": get_live_kurs, "null": eigener_bereich()})
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Investment Scanner 2.0: {e}")
+            notify_app_error("Tab-Investment-Scanner-2", e)
         lade_fertig()
 
     # --- INVESTMENT SCANNER PRO: eigenstaendiges Board mit eigenen Eingaben (Kaufplan, Reserve,
