@@ -699,10 +699,10 @@ def _eckdaten(e):
     c = (st.columns(2) + st.columns(2) + st.columns(2)) if handy else st.columns(5)
     c[0].number_input("Startkapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_scan_kapital")
     c[1].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_einzahlung")
-    c[2].number_input("Laufzeit (Jahre)", 1, 50, step=1, key="pb_scan_laufzeit")
-    c[3].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f", key="pb_scan_ziel",
+    c[2].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_entnahme")
+    c[3].number_input("Laufzeit (Jahre)", 1, 50, step=1, key="pb_scan_laufzeit")
+    c[4].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f", key="pb_scan_ziel",
                       help="0 = kein Ziel (dann keine Zielwahrscheinlichkeit und keine Alternativen).")
-    c[4].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_entnahme")
     st.caption("Diese Eckdaten gelten nur für den Scanner – der Portfolio Builder bleibt unverändert. Die Entnahme "
                "ist ein fester Betrag je Monat, verkauft wird anteilig nach dem Wert der Positionen.")
     if e["scan_ziel"] <= 0:
