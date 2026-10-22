@@ -959,6 +959,9 @@ st.markdown("""
     [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
     [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) p {
         color: #0A0B0D !important; }
+    /* Mehrfachauswahl: gewaehlte Werte (Tags) haben die Primaerfarbe Weiss als Hintergrund - Schrift dunkel */
+    [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * {
+        color: #0A0B0D !important; }
     /* Touch-Geraete: Trefferflaechen mind. 44 px (Apple HIG) */
     @media (pointer: coarse) {
         [data-testid="stButtonGroup"] button { min-height: 44px !important; }
