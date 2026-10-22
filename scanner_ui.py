@@ -110,6 +110,25 @@ def _einstellungen(e):
               help="Prüft, ob weniger investiert (mehr Cash) die Chance aufs Ziel erhöht oder nötig ist, um die "
                    "Verlusttoleranz einzuhalten. Mehr als deine Aufteilung wird nie investiert; bringt Cash keinen "
                    "Vorteil, bleibt es bei deiner Aufteilung. Das Musterdepot im Menü nutzt immer deine Aufteilung.")
+    # die ?-Symbole oeffnen nur bei Maus-Hover - auf Handy/Tablet sind sie nicht erreichbar
+    with st.expander("ℹ️ Was bedeuten die Einstellungen?"):
+        st.markdown(
+            "- **Risikobereitschaft** – Niedrig / Mittel / Hoch setzen Vorschläge für Aufteilung und Max. Verlust; "
+            "bei **Eigene** legst du alles selbst fest.\n"
+            "- **ETFs / Aktien / wikifolios / Cash %** – deine Aufteilung. Weicht die Summe von 100 % ab, wird "
+            "beim Berechnen umgerechnet.\n"
+            "- **Max. Verlust %** – höchster tolerierter zwischenzeitlicher Rückgang vom Höchststand. Geprüft wird, "
+            "dass er in 19 von 20 simulierten Verläufen (95 %) nicht überschritten wird – garantiert ist das nie.\n"
+            "- **Max. je Position %** – keine einzelne Aktie, kein ETF, kein wikifolio bekommt mehr Gewicht.\n"
+            "- **Kosten % p. a.** – laufende Kosten, Spreads, Ordergebühren; werden von der Rendite abgezogen.\n"
+            "- **Inflation % p. a.** – nur für die Kaufkraft-Angabe (realer Wert am Ende).\n"
+            "- **Auf Zielwahrscheinlichkeit optimieren** – der Scanner rechnet dein Depot mit 30 %, 40 % … 100 % "
+            "deiner Aufteilung investiert (Rest Cash) je 4.000-mal durch. Gewählt wird die Stufe mit der höchsten "
+            "Chance, dein Zielvermögen zu erreichen, deren Rückgang den Max. Verlust einhält; bei Gleichstand die "
+            "mit dem höheren mittleren Endwert. Mehr als deine Aufteilung wird nie investiert – bringt Cash keinen "
+            "Vorteil, bleibt es bei 100 %. Hält keine Stufe den Max. Verlust ein, wird die vorsichtigste genommen. "
+            "Ausgeschaltet wird genau deine Aufteilung gerechnet. Das gespeicherte Musterdepot nutzt immer deine "
+            "Aufteilung.")
 
 
 # ---------------------------------------------------------------- Rechnen
