@@ -2058,6 +2058,54 @@ def aendere_prognose_basis(aendern, message="update prognose-basis [skip ci]"):
     return bool(ok and erg.get("neu") is not None)
 
 
+# --- VERGLEICHSWERTE (Vermoegensaufbau, Performance seit 2026/2021) je Benutzer ---
+PFAD_VERGLEICHSWERTE = "state/vergleichswerte.json"
+VERGLEICH_FARBEN = ["#2196F3", "#E91E63", "#FF9800", "#9C27B0", "#00BCD4", "#FFEB3B", "#795548", "#F44336",
+                    "#3F51B5", "#FF5722", "#D4E157", "#26A69A", "#AB47BC", "#FFA726", "#29B6F6", "#EC407A"]
+
+
+def _vergleich_start():
+    """Startliste ohne gespeicherten Stand: Admin / ohne Login die bisherigen config.BENCHMARKS,
+    neu angelegte Benutzer nichts (sie waehlen selbst aus der Top-500-Liste oder per Suche)."""
+    if eigener_bereich():
+        return []
+    aus = []
+    for i, (label, iid) in enumerate((getattr(config, "BENCHMARKS", {}) or {}).items()):
+        m = re.search(r"\(([^)]*)\)\s*$", label)
+        aus.append({"id": f"bench-{i}", "name": label, "label": label, "wkn": m.group(1) if m else "",
+                    "instrument_id": int(iid)})
+    return aus
+
+
+def lade_vergleichswerte():
+    d = gh_read_cached(upfad(PFAD_VERGLEICHSWERTE), None)
+    if isinstance(d, dict) and isinstance(d.get("werte"), list):
+        return [e for e in d["werte"] if isinstance(e, dict) and e.get("instrument_id")]
+    return _vergleich_start()
+
+
+def aendere_vergleichswerte(aendern, message="update vergleichswerte [skip ci]"):
+    """aendern(liste) -> neue Liste | None. -> True nur, wenn wirklich gespeichert wurde."""
+    erg = {}
+
+    def _a(d):
+        alt = (d["werte"] if isinstance(d, dict) and isinstance(d.get("werte"), list) else _vergleich_start())
+        erg["neu"] = aendern(copy.deepcopy(alt))
+        return None if erg["neu"] is None else {"werte": erg["neu"]}
+
+    ok, _ = gh_aktualisiere(upfad(PFAD_VERGLEICHSWERTE), _a, default=None, message=message)
+    return bool(ok and erg.get("neu") is not None)
+
+
+def vergleich_label(e):
+    """Anzeigename eines Vergleichswerts - bei den bisherigen Werten der config-Schluessel (Farben bleiben)."""
+    return e.get("label") or (f"{e.get('name', 'Wert')} ({e['wkn']})" if e.get("wkn") else e.get("name", "Wert"))
+
+
+def vergleich_farbe(label, i=0):
+    return config.BENCHMARK_COLORS.get(label) or VERGLEICH_FARBEN[i % len(VERGLEICH_FARBEN)]
+
+
 def top500_prognose_optionen():
     """Werte der Top-500-Daten mit Kurs-ID fuer die Prognose-Basis - je Sitzung und Tag gemerkt."""
     heute = datetime.date.today().isoformat()
@@ -2729,7 +2777,7 @@ AKTUALISIERUNG_ENDE = 23            # letzte Aktualisierung am Tag
 NAV_PRUEF_SEK = 15 * 60             # offene Seite prueft alle 15 Min., ob ein Termin faellig ist
 
 ANSICHT_DEPOT = "🏠 Depot"
-ANSICHT_EINST = "⚙️ Einstellungen"
+ANSICHT_EINST = "⚙️ Einstellungen"   # interner Schluessel (Freigaben je Benutzer) - angezeigt: "Depot verwalten"
 ANSICHT_MUSTER = "📦 Musterdepot"    # aus dem Portfolio-Planer erstellt - Button nur, wenn eines existiert
 ANSICHT_ABFINDUNG = "💶 Abfindungsrechner"
 ANSICHT_ZINS = "🧮 Zinseszinsrechner"
@@ -2763,7 +2811,7 @@ ANSICHTEN = [
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
-    ANSICHT_EINST: "⚙️ Einstellungen",
+    ANSICHT_EINST: "🛠️ Depot verwalten",
     "📈 Vermögens- & Substanzaufbau": "📈 Vermögen",
     "🔍 Seit 01.01.2026": "🔍 Seit 2026",
     "🔎 Seit 01.01.2021": "🔎 Seit 2021",
@@ -2784,7 +2832,7 @@ ANSICHT_KURZ = {
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
     ANSICHT_DEPOT: "🏠 Test-Depot",
-    ANSICHT_EINST: "⚙️ Einstellungen",
+    ANSICHT_EINST: "🛠️ Depot verwalten",
     "📝 Trader-Log (Trades & Kommentare)": "📝 Chronik",
     "📈 Vermögens- & Substanzaufbau": "📈 Vermögensaufbau",
     "🔍 Seit 01.01.2026": "🔍 Performance > 2026",
@@ -2810,7 +2858,7 @@ NAV_TITEL = {
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
 NAV_ZEILEN = [
-    ("Depot", [ANSICHT_DEPOT, ANSICHT_EINST, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_MUSTER]),
+    ("Depot", [ANSICHT_DEPOT, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
@@ -5395,7 +5443,7 @@ def render_dashboard():
         Fortschrittsbalken mit Prozentangabe. Gibt (series_dict, startdaten_dict)
         zurueck. Die Anzeige wird am Ende restlos entfernt."""
         series, startdaten = {}, {}
-        items = list(config.BENCHMARKS.items())
+        items = [(vergleich_label(e), str(e["instrument_id"])) for e in lade_vergleichswerte()]
         gesamt = len(items)
         for i, (label, inst_id) in enumerate(items):
             melde("benchmarks", i / gesamt if gesamt else 1.0,
@@ -6355,7 +6403,7 @@ def render_dashboard():
             '<div class="hero-label">Mein Depot</div>'
             '<div class="price-line"><span class="hero-val">Noch kein eigenes Depot</span></div>'
             '<div class="card-footnote">Lege deine erste Position an – sie wird für deine nächste '
-            'Anmeldung gespeichert. Sparrate und Entnahme findest du unter ⚙️ Einstellungen.</div>'
+            'Anmeldung gespeichert. Sparrate und Entnahme findest du unter 🛠️ Depot verwalten.</div>'
             '</div>', unsafe_allow_html=True)
         with st.expander("➕ Erste Position anlegen", expanded=True):
             positions_anlage_formular("leer")
@@ -6451,7 +6499,9 @@ def render_dashboard():
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
-    st.markdown('<div class="abschnitt">⚙️ Einstellungen</div>', unsafe_allow_html=True)
+    st.markdown('<div class="abschnitt">🛠️ Depot verwalten</div>', unsafe_allow_html=True)
+    st.caption("Positionen anlegen und ändern, Sparrate und Entnahme, Beobachtungsliste und System-Status "
+               "deines Depots.")
 
     with st.expander("🛠️ Sparrate und Entnahme anpassen", expanded=False):
         # Felder bewusst untereinander (keine Spalten) - auf dem Smartphone
@@ -6919,9 +6969,116 @@ def render_dashboard():
     # Bewusst KEIN @st.fragment: die Funktion schreibt in einen ausserhalb
     # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
     # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
+    def _vergleichswerte_verwalten(offen=False):
+        """Eigene Vergleichswerte (Vermoegensaufbau, Performance seit 2026/2021): aus der Top-500-Liste oder per
+        Suche hinzufuegen, wieder entfernen - je Benutzer gespeichert."""
+        liste = lade_vergleichswerte()
+        with st.expander(f"⭐ Vergleichswerte verwalten ({len(liste)})", expanded=offen):
+            st.caption("Deine Vergleichswerte – gespeichert und in allen Vergleichs-Charts verwendet. Aus der "
+                       f"Top-500-Liste übernehmen oder einen beliebigen Wert suchen. Höchstens "
+                       f"{PROG_BASIS.MAX_EINTRAEGE} Werte.")
+            optionen = [w for w in top500_prognose_optionen() if not PROG_BASIS.enthalten(liste, w)]
+
+            def _hinzu(w):
+                if not w.get("instrument_id"):                     # Kurs-ID fehlt: exakte Suche ueber WKN/ISIN
+                    import investment_scanner_pro_engine as PRO
+                    t, art = PRO.treffer_waehlen(w, suche_instrument(w.get("isin") or w.get("wkn") or w["name"]) or [])
+                    w["instrument_id"] = int(t["instrument_id"]) if t and art == "exakt" else None
+                if not w.get("instrument_id"):
+                    st.error(f"Für „{w['name']}“ wurde keine Kursquelle gefunden – nicht hinzugefügt.")
+                elif aendere_vergleichswerte(lambda l: PROG_BASIS.hinzufuegen(l, PROG_BASIS.eintrag(w, time.time())),
+                                             "vergleichswert hinzugefuegt [skip ci]"):
+                    for k in ("vgl_wahl", "vgl_such", "vgl_treffer"):
+                        st.session_state.pop(k, None)
+                    st.rerun()
+                else:
+                    st.error("Nicht gespeichert – schon in der Liste, Liste voll oder Speicher gerade nicht "
+                             "erreichbar.")
+
+            c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+            wahl = c1.selectbox(
+                f"Aus der Top-500-Liste ({len(optionen)} Werte)", range(len(optionen)), index=None,
+                format_func=lambda i: " · ".join(x for x in (optionen[i]["name"], PROG_BASIS.ARTEN[optionen[i]["art"]],
+                                                             optionen[i]["wkn"] or optionen[i]["isin"]) if x),
+                placeholder="Name, WKN oder ISIN eintippen …", key="vgl_wahl")
+            if c2.button("➕ Hinzufügen", key="vgl_add", disabled=wahl is None, type="primary", width="stretch"):
+                _hinzu(dict(optionen[wahl]))
+            begriff = st.text_input("Oder eigenen Wert suchen (Name, WKN oder ISIN)", key="vgl_such",
+                                    placeholder="z. B. Siemens, 723610, LS9…").strip()
+            if len(begriff) >= 2:
+                treffer = [t for t in (suche_instrument(begriff) or [])[:12] if t.get("instrument_id")]
+                if not treffer:
+                    st.caption("Keine Treffer – andere Schreibweise oder WKN/ISIN versuchen.")
+                else:
+                    t1, t2 = st.columns([4, 1], vertical_alignment="bottom")
+                    t = t1.selectbox("Treffer", treffer, key="vgl_treffer", format_func=lambda t: " · ".join(
+                        x for x in (t.get("name"), t.get("wkn") or t.get("isin"), t.get("kategorie")) if x))
+                    if t2.button("➕ Hinzufügen", key="vgl_add_such", type="primary", width="stretch"):
+                        _hinzu({"name": t.get("name") or begriff, "wkn": t.get("wkn") or "",
+                                "isin": t.get("isin") or "", "instrument_id": int(t["instrument_id"])})
+            for e in liste:
+                z1, z2 = st.columns([5, 1], vertical_alignment="center")
+                z1.markdown(f"**{_h(vergleich_label(e))}**")
+                if z2.button("🗑️ Entfernen", key=f"vgl_weg_{e.get('id')}", width="stretch"):
+                    if aendere_vergleichswerte(lambda l, _id=e.get("id"): PROG_BASIS.entfernen(l, _id),
+                                               "vergleichswert entfernt [skip ci]"):
+                        st.rerun()
+                    else:
+                        st.error("Entfernen fehlgeschlagen (Speicher gerade nicht erreichbar).")
+
+    def _render_vergleich_eigen():
+        """Vermoegensaufbau fuer Benutzer ohne Hauptposition: eigene Vergleichswerte, symbolisch angelegt ab
+        einem waehlbaren Datum."""
+        with tab_wealth:
+            werte = lade_vergleichswerte()
+            _vergleichswerte_verwalten(offen=not werte)
+            if not werte:
+                st.info("📈 Noch keine Vergleichswerte – oben aus der Top-500-Liste übernehmen oder einen Wert "
+                        "suchen. Sie werden gespeichert und lassen sich jederzeit wieder entfernen.")
+                return
+            KAPITAL = 10000.0
+            c1, _ = st.columns([1, 2])
+            ab = c1.date_input("Vergleich ab", value=heute_date - datetime.timedelta(days=365),
+                               max_value=heute_date - datetime.timedelta(days=7), key="vgl_ab", format="DD.MM.YYYY")
+            idx = pd.bdate_range(pd.Timestamp(ab), pd.Timestamp(heute_date))
+            series, startdaten = lade_benchmarks_mit_fortschritt(idx, ab, KAPITAL)
+            if not series:
+                st.warning("Für die gewählten Werte liegen gerade keine Kursdaten vor – bitte später mit 🔄 erneut laden.")
+                return
+            liste = []
+            for label, s_ in series.items():
+                g = s_.dropna()
+                if g.empty or g.iloc[0] <= 0:
+                    continue
+                start_ = startdaten.get(label)
+                start_ = start_.date() if hasattr(start_, "date") else ab
+                gesamt, monatlich, jaehrlich, diff = berechne_performance_kennzahlen(g.iloc[0], g.iloc[-1], start_,
+                                                                                      heute_date)
+                liste.append({"Wert": label, "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich,
+                              "_euro": diff, "_q": pct_ueber_tage(g, 91), "_h": pct_ueber_tage(g, 182),
+                              "_n": pct_ueber_tage(g, 273), "_z": pct_ueber_tage(g, 365), "_gelistet_seit": start_})
+            st.caption(f"📅 Symbolisch {fmt(KAPITAL, 0)} je Wert, angelegt am {ab.strftime('%d.%m.%Y')} "
+                       "(spätere Auflage: ab dem ersten Kurs) · Ø/Jahr erst ab 1 Jahr, Ø/Mon. ab 30 Tagen")
+            liste.sort(key=perf_sortierwert, reverse=True)
+            _fokus = kennzahl_umschalter("fokus_vgl_eigen", liste)
+            st.markdown(performance_tabelle_html(liste, fokus=_fokus), unsafe_allow_html=True)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=idx, y=[KAPITAL] * len(idx), name="Startkapital",
+                                     line=dict(color="#71717A", width=1.5, dash="dash")))
+            for i, (label, s_) in enumerate(series.items()):
+                fig.add_trace(go.Scatter(x=idx, y=s_, name=label, line=dict(color=vergleich_farbe(label, i), width=2)))
+            fig.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40),
+                              height=450, showlegend=True, legend=dict(orientation="h", y=-0.15),
+                              xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
+                              yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"),
+                                         ticksuffix=" €"),
+                              hovermode="x unified")
+            st.plotly_chart(fig, width="stretch", key="chart_vgl_eigen")
+
     def _render_wealth():
         try:
             with tab_wealth:
+                _vergleichswerte_verwalten()
                 if not is_live_history:
                     st.warning("⚠️ ls-tc.de liefert gerade keine Kurshistorie – der Vermögensverlauf "
                                "kann nicht gezeichnet werden. Bitte später mit 🔄 erneut laden.")
@@ -7011,7 +7168,7 @@ def render_dashboard():
                 for label, s in benchmark_series.items():
                     if label not in ausgewaehlte_benchmarks:
                         continue
-                    farbe = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
+                    farbe = vergleich_farbe(label, list(benchmark_series).index(label))
                     fig_wealth.add_trace(go.Scatter(
                         x=df_chart.index, y=s, name=label,
                         line=dict(color=farbe, width=1.5, dash="dashdot"),
@@ -7034,13 +7191,12 @@ def render_dashboard():
     if gewaehlte_ansicht == "📈 Vermögens- & Substanzaufbau":
         melde("ansicht", 0.3, "Baue Vermögensaufbau auf …")
         if eigen:
-            # Der Chart rechnet mit Startkapital und Kaufdatum der Hauptposition (Admin)
-            with tab_wealth:
-                st.info("📈 Der Vermögensaufbau-Chart bezieht sich auf das Depot mit Startkapital "
-                        "(Hauptposition). "
-                        + ("Deine eigenen Positionen siehst du im 🏠 Depot und in der 🔮 Zukunfts-Prognose."
-                           if alle_positionen or haupt_aktiv else
-                           "Noch kein eigenes Depot – lege deine erste Position im 🏠 Depot an."))
+            # ohne Hauptposition (Startkapital/Kaufdatum des Admins): Vergleich der eigenen Vergleichswerte
+            try:
+                _render_vergleich_eigen()
+            except Exception as e:
+                st.error(f"⚠️ Fehler in diesem Tab: {e}")
+                notify_app_error("Tab-Vermoegensaufbau-eigen", e)
         else:
             _render_wealth()
         lade_fertig()
@@ -7051,6 +7207,7 @@ def render_dashboard():
     def _render_ytd():
         try:
             with tab_ytd:
+                _vergleichswerte_verwalten()
                 if not is_live_history:
                     st.warning("⚠️ ls-tc.de liefert gerade keine Kurshistorie – die Linie des Zertifikats "
                                "fehlt. Bitte später mit 🔄 erneut laden.")
@@ -7087,7 +7244,7 @@ def render_dashboard():
                 for i, (label, s) in enumerate(benchmark_series_v2.items()):
                     if label not in ausgewaehlte_v2:
                         continue
-                    farbe_v2 = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
+                    farbe_v2 = vergleich_farbe(label, list(benchmark_series_v2).index(label))
                     fig_v2.add_trace(go.Scatter(
                         x=eigene_reihe_v2.index, y=s, name=label,
                         line=dict(color=farbe_v2, width=1.5, dash="dashdot"),
@@ -7168,6 +7325,7 @@ def render_dashboard():
     def _render_2021():
         try:
             with tab_2021:
+                _vergleichswerte_verwalten()
                 v3_start = pd.Timestamp(config.VERGLEICH3_START_DATUM)
                 v3_kapital = config.VERGLEICH3_STARTKAPITAL
                 master_index_v3 = pd.bdate_range(start=v3_start, end=pd.Timestamp(heute_date))
@@ -7220,7 +7378,7 @@ def render_dashboard():
                 for i, (label, s) in enumerate(benchmark_series_v3.items()):
                     if label not in ausgewaehlte_v3:
                         continue
-                    farbe_v3 = config.BENCHMARK_COLORS.get(label, "#9E9E9E")
+                    farbe_v3 = vergleich_farbe(label, list(benchmark_series_v3).index(label))
                     fig_v3.add_trace(go.Scatter(
                         x=master_index_v3, y=s, name=label,
                         line=dict(color=farbe_v3, width=1.5, dash="dashdot"),

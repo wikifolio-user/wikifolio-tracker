@@ -120,7 +120,8 @@ class TestDiscordFehler(Basis):
         self.lauf(98.0)                                   # -2 % <= -1 % Schwelle
         self.assertEqual(len(self.titel("SCHWELLE")), 1)
         self.assertFalse(self.store.dateien.get(ALARM, {}).get("unter_schwelle"))
-        self.assertEqual(self.chronik_schluessel(), [])  # keine Chronik ohne Zustellung
+        # die Chronik bekommt das Ereignis auch ohne Discord (Webhook kaputt) - genau einmal
+        self.assertEqual(self.chronik_schluessel(), ["schwelle-LS9VFS-20261009"])
         self.discord_ok = True
         self.lauf(97.9)
         self.assertEqual(len(self.titel("SCHWELLE")), 2)  # Retry im naechsten Lauf
@@ -152,6 +153,25 @@ class TestDiscordFehler(Basis):
         self.assertIn("ath-LS9VFS-102.00", self.chronik_schluessel())
         self.lauf(101.9, vor=101.5)
         self.assertEqual(len(self.titel("Allzeithoch")), 2)
+
+
+class TestWebhook(unittest.TestCase):
+    def test_bereinigen_und_pruefen(self):
+        self.assertEqual(D.webhook_bereinigen(f'  "{WEBHOOK}"\n'), WEBHOOK)
+        self.assertEqual(D.webhook_bereinigen(f"'{WEBHOOK}'"), WEBHOOK)
+        self.assertIsNone(D.webhook_problem(WEBHOOK))
+        self.assertIsNone(D.webhook_problem("https://discordapp.com/api/webhooks/1/abc-DEF_9"))
+        for falsch in ("discord.com/api/webhooks/1/abc", "DISCORD_WEBHOOK_URL=https://x", "1/abc"):
+            p = D.webhook_problem(falsch)
+            self.assertIn("https://", p)
+            self.assertNotIn("abc", p)                    # nie Teile der URL (Token) im Text
+        self.assertIn("Format", D.webhook_problem("https://example.com/hook"))
+
+    def test_kein_versand_mit_ungueltiger_url(self):
+        with mock.patch.object(D, "DISCORD_WEBHOOK_URL", "discord.com/api/webhooks/1/abc"), \
+                mock.patch.object(D.requests, "post") as post:
+            self.assertFalse(D.send_discord(msg="x"))
+            post.assert_not_called()
 
 
 class TestSendDiscord(unittest.TestCase):
