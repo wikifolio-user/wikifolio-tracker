@@ -16,18 +16,18 @@ with sync_playwright() as p:
     oeffne(page, "Scanner 2.0"); page.wait_for_timeout(1500)
     t = br.text(page)
     print("Felder:", {l: page.get_by_label(l, exact=True).first.input_value() for l in
-                      ("Neues Anfangskapital €", "Zielwert des gesamten Depots €", "Nachkaufreserve %")})
+                      ("Neues Anfangskapital €", "Zielwert Gesamtdepot €", "Nachkaufreserve %")})
     if NUTZER != "admin":
-        for l, v in (("Neues Anfangskapital €", "20000"), ("Zielwert des gesamten Depots €", "30000")):
+        for l, v in (("Neues Anfangskapital €", "20000"), ("Zielwert Gesamtdepot €", "30000")):
             page.get_by_label(l, exact=True).fill(v); page.keyboard.press("Enter"); page.wait_for_timeout(900); br.warte_ruhe(page)
         t = br.text(page)
     print("Ziel:", [z[:160] for z in t.splitlines() if "Zielwert wird" in z][:1])
     print("Kaufpositionen:", [z for z in t.splitlines() if "Kaufpositionen" in z][:1])
     page.locator(".st-key-is2_wahl_defensiv button").first.click(); page.wait_for_timeout(1200); br.warte_ruhe(page)
-    print("nach Defensiv:", [z[:120] for z in br.text(page).splitlines() if "Kaufplan Defensiv" in z][:1])
-    page.get_by_label("Einmalige Auszahlung · sofort €", exact=True).fill("1000"); page.keyboard.press("Enter")
+    print("nach Defensiv:", [z[:120] for z in br.text(page).splitlines() if "Kaufplan · Defensiv" in z][:1])
+    page.get_by_label("Auszahlung sofort €", exact=True).fill("1000"); page.keyboard.press("Enter")
     page.wait_for_timeout(1000); br.warte_ruhe(page)
-    page.get_by_label("Regelmäßige Auszahlung pro Monat €", exact=True).fill("100"); page.keyboard.press("Enter")
+    page.get_by_label("Auszahlung je Monat €", exact=True).fill("100"); page.keyboard.press("Enter")
     page.wait_for_timeout(1000); br.warte_ruhe(page)
     print("Entnahmen:", [z for z in br.text(page).splitlines() if "Strategievergleich nach Entnahmen" in z or "Sofort ausgezahlt" in z][:2])
     page.locator('[data-testid="stFileUploader"]').nth(1).locator("input[type=file]").set_input_files(

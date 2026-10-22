@@ -411,6 +411,17 @@ class WikifolioListe(unittest.TestCase):
         self.assertEqual(len(A["wikifolio_rangliste"](w, "1J", n=1)), 1)
         self.assertEqual(A["wikifolio_rangliste"]({}, "1J"), [])
 
+    def test_pdf(self):
+        import wikifolio_pdf
+        w = A["wikifolio_werte"](self.KAT, self.LANG)
+        r = A["wikifolio_rangliste"](w, "1J")
+        pdf = wikifolio_pdf.bericht(r, ["1J", "6M", "3J"], {"1J": "1 Jahr", "6M": "6 Monate", "3J": "3 Jahre"},
+                                    "1J", "Stand heute · Top 500")
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertEqual(wikifolio_pdf._pct(-3.25), "-3,2 %")
+        self.assertEqual(wikifolio_pdf._pct(281216.7), "+281.216,7 %")
+        self.assertEqual(wikifolio_pdf._pct(None), "-")
+
 
 class SitzungEingaben(unittest.TestCase):
     """Prognose-/Szenario-Eingaben ueberstehen einen Ansichtswechsel (Streamlit verwirft
