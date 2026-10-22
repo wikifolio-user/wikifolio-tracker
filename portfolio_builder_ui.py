@@ -420,7 +420,7 @@ def _start(h):
     konto = str((h or {}).get("nutzer") or "")
     if st.session_state.get("pb_konto") != konto or "pb_daten" not in st.session_state:
         gespeichert, ok = _laden(h)
-        e = P.bereinigen(gespeichert) if gespeichert else P.standard()
+        e = P.bereinigen(gespeichert) if gespeichert else _grundstand(h)
         _in_widgets(e)
         st.session_state["pb_konto"] = konto
         st.session_state["pb_lesefehler"] = not ok
@@ -428,8 +428,14 @@ def _start(h):
     _widgets_wiederherstellen()
 
 
-def _standard_laden():
-    _in_widgets(P.standard())
+def _grundstand(h):
+    """Neu angelegte Benutzer starten leer (nichts vorbelegt), Admin / ohne Login mit dem Beispiel."""
+    eigen = bool(N is not None and N.ist_eigener_bereich((h or {}).get("nutzer")))
+    return P.leer() if eigen else P.standard()
+
+
+def _standard_laden(h=None):
+    _in_widgets(_grundstand(h))
 
 
 def _einheit_wechseln():
@@ -1221,7 +1227,7 @@ def _speicherleiste(h, e):
         st.warning("Alle Eingaben und Positionen auf die Standardwerte zurücksetzen? Das wird sofort gespeichert.")
         c1, c2 = st.columns(2)
         c1.button("Ja, zurücksetzen", key="pb_standard_ja", type="primary", width="stretch",
-                  on_click=lambda: (_standard_laden(), st.session_state.update(pb_reset_frage=False)))
+                  on_click=lambda: (_standard_laden(h), st.session_state.update(pb_reset_frage=False)))
         c2.button("Abbrechen", key="pb_standard_nein", width="stretch",
                   on_click=lambda: st.session_state.update(pb_reset_frage=False))
 

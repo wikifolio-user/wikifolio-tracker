@@ -75,6 +75,18 @@ def standard():
     return copy.deepcopy(STANDARD)
 
 
+def leer():
+    """Startstand fuer neu angelegte Benutzer: nichts vorbelegt - keine Positionen, keine Betraege, keine
+    Renditeannahmen; der Benutzer waehlt seine Werte selbst (z. B. aus der Top-500-Liste). Felder mit
+    Untergrenze stehen auf ihrem neutralen Wert (Laufzeit 1, Regeln ohne Einschraenkung)."""
+    e = standard()
+    e.update(anfangskapital=0.0, einzahlung=0.0, kredit_zins_pa=0.0, rendite_pa=0.0, laufzeit=1, positionen=[],
+             scan_profil="eigene", scan_etf=0.0, scan_aktie=0.0, scan_wikifolio=0.0, scan_cash=0.0,
+             scan_max_dd=95.0, scan_max_gewicht=100.0, scan_kosten=0.0, scan_inflation=0.0,
+             scan_kapital=0.0, scan_laufzeit=1)
+    return e
+
+
 def _zahl(x, default=0.0):
     try:
         v = float(x)
