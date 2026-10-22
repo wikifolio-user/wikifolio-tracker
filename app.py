@@ -738,6 +738,11 @@ st.markdown("""
                      box-shadow: 1px 0 0 var(--line); }
     .pt.ue thead th.ue-fix { z-index: 3; background: #1C1F26; }
     .pt.ue tr.pt-zebra .ue-fix { background: #111216; }
+    /* wikifolio-Rangliste: Rang und Name bleiben beim Wischen beide links stehen */
+    .pt.wk .wk-rang { left: 0; width: 44px; min-width: 44px; max-width: 44px; box-sizing: border-box;
+                      box-shadow: none; }
+    .pt.wk .wk-name { left: 44px; width: auto; min-width: 150px; max-width: 220px; }
+    @media (max-width: 700px) { .pt.wk .wk-name { min-width: 128px; max-width: 150px; } }
     .q-balken { margin: 4px 0 14px; }
     .q-b-zeile {
         display: grid; grid-template-columns: minmax(0, 1fr) 96px 46px;
@@ -5077,16 +5082,18 @@ def render_dashboard():
         # sortierte Spalte direkt hinter den Namen (auf dem Handy sonst erst nach Wischen sichtbar)
         spalten = [zr] + [k for k in spalten if k != zr]
         zeilen = "".join(
-            f'<tr class="{"pt-zebra" if w["rang"] % 2 == 0 else ""}"><td class="pt-num pt-seit">{w["rang"]}</td>'
-            f'<td class="pt-wert"><span class="pt-name">{_h(w["name"])}</span>'
+            f'<tr class="{"pt-zebra" if w["rang"] % 2 == 0 else ""}">'
+            f'<td class="pt-num pt-seit ue-fix wk-rang">{w["rang"]}</td>'
+            f'<td class="pt-wert ue-fix wk-name"><span class="pt-name">{_h(w["name"])}</span>'
             f'<span class="pt-sub">{_h(w["wkn"])}</span></td>'
             + "".join(_pct(w["perf"].get(k), k == zr) for k in spalten) + "</tr>"
             for w in teil)
         kopf = "".join(f'<th class="pt-num">{"▼ " if k == zr else ""}{_h(titel[k])}</th>' for k in spalten)
-        st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
-                    '<table class="pt pt-kompakt"><thead><tr><th class="pt-num">#</th><th class="pt-wert">'
-                    f'wikifolio</th>{kopf}</tr></thead><tbody>{zeilen}</tbody></table></div>',
-                    unsafe_allow_html=True)
+        # wie die Gesamtuebersicht: seitlich wischbar (auch am iPhone), Rang und Name bleiben links stehen
+        st.markdown('<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                    '<table class="pt pt-kompakt ue wk"><thead><tr><th class="pt-num ue-fix wk-rang">#</th>'
+                    f'<th class="pt-wert ue-fix wk-name">wikifolio</th>{kopf}</tr></thead>'
+                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
         if seiten > 1:
             # Rangbereich direkt waehlbar statt langem Scrollen - unter der Tabelle
             n1, n2, n3 = st.columns([0.5, 2, 0.5], vertical_alignment="bottom")
@@ -5104,7 +5111,24 @@ def render_dashboard():
                 st.rerun()
             n3.button("▶", key="wk_vor", on_click=_wk_seite, args=(nr + 1,), disabled=nr >= seiten,
                       width="stretch", help="Nächste Seite")
-        st.caption("– = in diesem Zeitraum nicht unter den Top 500 (oder noch keine so lange Historie). "
+        # PDF erst auf Knopfdruck erzeugen: ganze Liste (alle Seiten), alle Zeitraeume
+        pdf_schluessel = f"wk_pdf|{stand}|{zr}|{laenge}|{begriff}"
+        if st.button("📄 PDF der ganzen Liste erstellen", key="wk_pdf_knopf", width="stretch"):
+            try:
+                import wikifolio_pdf
+                kopfzeile = (f"Stand {stand} · Top {laenge} sortiert nach {zr_wahl} · {len(liste)} wikifolios"
+                             + (f" · Suche „{begriff}“" if begriff else ""))
+                st.session_state["wk_pdf"] = (pdf_schluessel, wikifolio_pdf.bericht(liste, spalten, titel, zr,
+                                                                                     kopfzeile))
+            except ImportError:
+                st.error("Für das PDF fehlt das Paket **reportlab** (requirements.txt).")
+        fertig = st.session_state.get("wk_pdf")
+        if fertig and fertig[0] == pdf_schluessel:
+            st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
+                               file_name=f"wikifolio_Rangliste_{datetime.date.today().isoformat()}.pdf",
+                               key="wk_pdf_download", width="stretch", type="primary")
+        st.caption("Tabelle seitlich wischen für alle Zeiträume – Rang und Name bleiben stehen. "
+                   "– = in diesem Zeitraum nicht unter den Top 500 (oder noch keine so lange Historie). "
                    "Werte übernehmen: im Portfolio Builder unter „Wert hinzufügen → Wikifolios → Top-Listen“. "
                    "Vergangene Entwicklung ist keine Prognose.")
 
