@@ -754,6 +754,17 @@ st.markdown("""
         .pt.wk .pt-num { font-size: 0.76rem; }
     }
     @media (max-width: 700px) { .pt.wk .wk-name { min-width: 128px; max-width: 150px; } }
+    /* ETF-/wikifolio-Score: Begruendung als kurze Zeilen, Teilpunkte als Balken */
+    .pt.ks td.ks-grund, .pt.ks th.ks-grund { white-space: normal; min-width: 220px; max-width: 320px;
+                                              text-align: left; font-size: 0.78rem; line-height: 1.35; }
+    .ks-plus, .ks-minus { display: block; }
+    .ks-plus { color: #16C784; }
+    .ks-minus { color: #F5B942; }
+    .ks-bahn { width: 140px; height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px;
+               overflow: hidden; }
+    .ks-bahn > div { height: 100%; background: #16C784; border-radius: 4px; }
+    .pt.ks-mini td { white-space: normal; }
+    .pt.ks-mini td.pt-num { white-space: nowrap; }
     .q-balken { margin: 4px 0 14px; }
     .q-b-zeile {
         display: grid; grid-template-columns: minmax(0, 1fr) 96px 46px;
@@ -5143,12 +5154,207 @@ def render_dashboard():
                    "Werte übernehmen: im Portfolio Builder unter „Wert hinzufügen → Wikifolios → Top-Listen“. "
                    "Vergangene Entwicklung ist keine Prognose.")
 
+    KS_SEITE = 25
+
+    def _ks_de(x, dez=1):
+        return f"{x:,.{dez}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def _ks_seite(nr):
+        st.session_state["ks_seite"] = nr
+
+    def _ks_rangliste(art):
+        """ETF-/wikifolio-Score aus dem Top-500-Katalog - je Sitzung und Datenstand gemerkt."""
+        import klassen_score as KS
+        teile = [gh_read_taeglich(f"state/planer/katalog_gross_{i}.json", {}) or {} for i in range(4)]
+        stand = next((t.get("stand") for t in teile if t.get("stand")), "")
+        gemerkt = st.session_state.get(f"_ks_{art}")
+        if gemerkt and gemerkt[0] == stand:
+            return stand, gemerkt[1]
+        liste = KS.rangliste(teile, art)
+        st.session_state[f"_ks_{art}"] = (stand, liste)
+        return stand, liste
+
+    def _render_klassen_score():
+        """Eigene Bewertung fuer ETFs und wikifolios (klassen_score.py) - unabhaengig vom Aktien-Score."""
+        import klassen_score as KS
+        art_titel = {"ETFs": "etf", "wikifolios": "wikifolio"}
+        art_wahl = st.pills("Anlageklasse", list(art_titel), default="ETFs", key="ks_art") or "ETFs"
+        art = art_titel[art_wahl]
+        stand, alle = _ks_rangliste(art)
+        if not alle:
+            st.info("Noch keine Kursdaten für diese Anlageklasse – sie entstehen beim nächsten Lauf des "
+                    "Watchlist-Agenten (täglich 07:30 Uhr).")
+            return
+        kriterien = KS.KRITERIEN[art]
+        with st.expander("ℹ️ Wie wird bewertet?"):
+            st.markdown(
+                f"**{art_wahl} haben eine eigene Bewertung** – unabhängig vom Qualitäts-Score der Aktien "
+                "(der beruht auf Geschäftszahlen, die es hier nicht gibt). Bewertet wird die Kurshistorie aus "
+                "den Top-500-Daten. Jedes Kriterium gibt 0–100 Punkte, linear zwischen „schwach“ und „stark“; "
+                "der Score ist der gewichtete Durchschnitt.")
+            einheit = {"rendite": " % p. a.", "rr": "", "rdd": "", "dd": " %", "vola": " %", "historie": " J.",
+                       "bestaendig": " %"}
+            _ks_tabelle([("Kriterium", "l"), ("Gewicht", "r"), ("schwach (0 P.)", "r"), ("stark (100 P.)", "r")],
+                        [[_h(t), f"{g} %",
+                          ("−" if k == "dd" else "") + f"{_ks_de(sl, 1 if sl % 1 else 0)}{einheit[k]}",
+                          ("−" if k == "dd" else "") + f"{_ks_de(gu, 1 if gu % 1 else 0)}{einheit[k]}"]
+                         for k, t, g, sl, gu in kriterien])
+            erkl = {"etf": "- **Rendite je Risiko** = Rendite p. a. ÷ Schwankung p. a.\n"
+                           "- **Hebel-/Short-Produkte** werden auf höchstens 40 Punkte gedeckelt – sie eignen sich "
+                           "nur für kurzfristige Spekulation.\n"
+                           "- Nicht enthalten, weil in den Daten nicht vorhanden: laufende Kosten (TER), "
+                           "Tracking Difference, Fondsvolumen, Replikation.",
+                    "wikifolio": "- **Rendite je Rückgang** = Rendite p. a. ÷ maximaler Rückgang. Die gemessene "
+                                 "Schwankung ist bei wikifolios oft untypisch niedrig, der Rückgang zeigt das "
+                                 "Verlustrisiko ehrlicher.\n"
+                                 "- **Track Record:** lange Historie zählt stärker als bei ETFs – kurze Zeiträume "
+                                 "sind bei aktiven Strategien wenig aussagekräftig.\n"
+                                 "- Renditen über 60 % p. a. bringen keine Extrapunkte (Ausnahme, nicht "
+                                 "fortschreibbar).\n"
+                                 "- Nicht enthalten: Gebühren, investiertes Kapital, Handelsstil des Traders, "
+                                 "Emittentenrisiko."}[art]
+            st.markdown(
+                "- **Rendite p. a.** aus dem längsten vorhandenen Zeitraum (10, 5, 3 oder 1 Jahr).\n"
+                "- **Beständigkeit** = Anteil der Zeiträume (1/3/5/10 Jahre) mit Gewinn.\n" + erkl + "\n"
+                f"- **Einordnung:** ab {_ks_de(KS.GRENZE_PRIO, 0)} Punkten *Hohe Analysepriorität* (nur mit mindestens "
+                f"{_ks_de(KS.MIN_JAHRE[art], 0)} Jahren Historie, ohne Hebel), ab {_ks_de(KS.GRENZE_BEOBACHTEN, 0)} "
+                "*Beobachtungsliste*, darunter *Nicht weiterverfolgen*.\n"
+                "- Modellbewertung aus vergangenen Kursen – keine Prognose und keine Kaufempfehlung.")
+        ansichten = ["Gesamt-Rangliste"] + list(KS.KLASSEN.values())
+        e_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="ks_klasse") or ansichten[0]
+        laenge = _listen_laenge("ks")
+        begriff = st.text_input("In der Liste suchen", key="ks_such", placeholder="Name, WKN oder ISIN …")
+        liste = alle
+        if e_wahl != ansichten[0]:
+            kl = next(k for k, v in KS.KLASSEN.items() if v == e_wahl)
+            liste = [e for e in liste if e["bewertung"]["einordnung"] == kl]
+        liste = liste[:laenge]
+        b_ = str(begriff or "").strip().lower()
+        if b_:
+            liste = [e for e in liste if b_ in f'{e["name"]} {e["kennung"]} {e["isin"]}'.lower()]
+        signatur = (art, e_wahl, laenge, begriff)
+        if st.session_state.get("ks_signatur") != signatur:
+            st.session_state["ks_signatur"], st.session_state["ks_seite"] = signatur, 1
+        anz = {k: sum(1 for e in alle if e["bewertung"]["einordnung"] == k) for k in KS.KLASSEN}
+        try:
+            stand_txt = datetime.date.fromisoformat(str(stand)[:10]).strftime("%d.%m.%Y")
+        except Exception:
+            stand_txt = str(stand) or "–"
+        st.caption(f"Stand {stand_txt} · {len(alle)} {art_wahl} bewertet · Priorität {anz['prio']} · "
+                   f"Beobachten {anz['beobachten']} · Nicht weiterverfolgen {anz['nicht']}"
+                   + (f" · {len(liste)} Treffer" if b_ else ""))
+        if not liste:
+            st.info(f"„{begriff}“ ist nicht in dieser Auswahl." if b_ else "Keine Werte in dieser Auswahl.")
+            return
+        seiten = max((len(liste) + KS_SEITE - 1) // KS_SEITE, 1)
+        nr = min(max(int(st.session_state.get("ks_seite", 1)), 1), seiten)
+        teil = liste[(nr - 1) * KS_SEITE:nr * KS_SEITE]
+        risiko_titel = "Rendite je Risiko" if art == "etf" else "Rendite je Rückgang"
+        risiko_k = "rr" if art == "etf" else "rdd"
+
+        def zahl(v, dez=1, einheit="", vz=False, minus=False):
+            if v is None:
+                return '<td class="pt-num pt-leer">–</td>'
+            if minus:
+                return f'<td class="pt-num">−{_ks_de(v, 0)} %</td>'
+            txt = (vz_zahl(v, dez) if vz else _ks_de(v, dez)) + einheit
+            farbe = (" pt-up" if v >= 0 else " pt-down") if vz else ""
+            return f'<td class="pt-num{farbe}">{txt}</td>'
+
+        zeilen = []
+        for e in teil:
+            b = e["bewertung"]
+            k = b["kennzahlen"]
+            staerken, schwaechen = KS.staerken_schwaechen(b, art)
+            grund = "".join(f'<span class="ks-plus">+ {_h(x)}</span>' for x in staerken) + "".join(
+                f'<span class="ks-minus">– {_h(x)}</span>' for x in schwaechen)
+            zeilen.append(
+                f'<tr class="{"pt-zebra" if e["rang"] % 2 == 0 else ""}">'
+                f'<td class="pt-num pt-seit ue-fix wk-rang">{e["rang"]}</td>'
+                f'<td class="pt-wert ue-fix wk-name"><span class="pt-name">{_h(e["name"])}</span>'
+                f'<span class="pt-sub">{_h(e["kennung"] or e["isin"])}</span></td>'
+                f'<td class="pt-num"><span class="q-punkte {Q_KLASSE_CSS[b["einordnung"]]}">'
+                f'{_ks_de(b["score"], 0)}</span></td>'
+                + zahl(k["rendite"], 1, " %", vz=True) + zahl(k[risiko_k], 2)
+                + zahl(k["dd"], minus=True) + zahl(k["vola"], 0, " %")
+                + zahl(k["jahre"], 1, " J.")
+                + f'<td class="ks-grund">{grund or "–"}</td></tr>')
+        kopf = "".join(f'<th class="pt-num">{t}</th>' for t in
+                       ("Score", "Rendite p. a.", risiko_titel, "Max. Rückgang", "Schwankung", "Historie"))
+        st.markdown('<div class="q-legende">Score: <span class="q-prio">■</span> Hohe Analysepriorität · '
+                    '<span class="q-beob">■</span> Beobachtungsliste · <span class="q-nicht">■</span> '
+                    'Nicht weiterverfolgen</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                    '<table class="pt pt-kompakt ue wk ks"><thead><tr><th class="pt-num ue-fix wk-rang">#</th>'
+                    f'<th class="pt-wert ue-fix wk-name">{art_wahl[:-1] if art == "etf" else "wikifolio"}</th>'
+                    f'{kopf}<th class="ks-grund">Begründung</th></tr></thead>'
+                    f'<tbody>{"".join(zeilen)}</tbody></table></div>', unsafe_allow_html=True)
+        if seiten > 1:
+            n1, n2, n3 = st.columns([0.5, 2, 0.5], vertical_alignment="bottom")
+            n1.button("◀", key="ks_zur", on_click=_ks_seite, args=(nr - 1,), disabled=nr <= 1, width="stretch",
+                      help="Vorherige Seite")
+
+            def bereich(i):
+                t = liste[(i - 1) * KS_SEITE:i * KS_SEITE]
+                return f"Rang {t[0]['rang']}–{t[-1]['rang']}  ({i}/{seiten})"
+
+            wahl = n2.selectbox("Seite", list(range(1, seiten + 1)), index=nr - 1, format_func=bereich,
+                                key=f"ks_bereich_{nr}", label_visibility="collapsed")
+            if wahl != nr:
+                st.session_state["ks_seite"] = wahl
+                st.rerun()
+            n3.button("▶", key="ks_vor", on_click=_ks_seite, args=(nr + 1,), disabled=nr >= seiten,
+                      width="stretch", help="Nächste Seite")
+
+        # Teilpunkte eines Werts der aktuellen Seite
+        fokus = st.selectbox("Teilpunkte ansehen", range(len(teil)), key=f"ks_fokus_{art}_{nr}",
+                             format_func=lambda i: f"#{teil[i]['rang']} {teil[i]['name']}")
+        e = teil[fokus if fokus is not None and fokus < len(teil) else 0]
+        b = e["bewertung"]
+        _ks_tabelle([("Kriterium", "l"), ("Gewicht", "r"), ("Punkte", "r"), ("", "l")],
+                    [[_h(t), f"{g} %", "keine Daten" if b["teile"].get(k) is None else _ks_de(b["teile"][k], 0),
+                      f'<div class="ks-bahn"><div style="width:{b["teile"].get(k) or 0}%"></div></div>']
+                     for k, t, g, _, _ in kriterien])
+        if b["hinweise"]:
+            st.caption(" · ".join(b["hinweise"]))
+
+        pdf_schluessel = f"ks_pdf|{stand}|{signatur}"
+        if st.button("📄 PDF der ganzen Liste erstellen", key="ks_pdf_knopf", width="stretch"):
+            try:
+                import wikifolio_pdf
+                kopfzeile = (f"Stand {stand_txt} · {art_wahl} · {e_wahl} · Top {laenge} · {len(liste)} Werte"
+                             + (f" · Suche „{begriff}“" if b_ else ""))
+                st.session_state["ks_pdf"] = (pdf_schluessel, wikifolio_pdf.score_bericht(liste, art, kopfzeile))
+            except ImportError:
+                st.error("Für das PDF fehlt das Paket **reportlab** (requirements.txt).")
+        fertig = st.session_state.get("ks_pdf")
+        if fertig and fertig[0] == pdf_schluessel:
+            st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
+                               file_name=f"{art}_Score_{datetime.date.today().isoformat()}.pdf",
+                               key="ks_pdf_download", width="stretch", type="primary")
+        st.caption("Tabelle seitlich wischen für alle Kennzahlen – Rang und Name bleiben stehen. "
+                   "Vergangene Entwicklung ist keine Prognose.")
+
+    def _ks_tabelle(spalten, zeilen):
+        kopf = "".join(f'<th class="{"pt-num" if a == "r" else "pt-wert"}">{t}</th>' for t, a in spalten)
+        rumpf = "".join("<tr>" + "".join(f'<td class="{"pt-num" if a == "r" else ""}">{z}</td>'
+                                         for z, (_, a) in zip(r, spalten)) + "</tr>" for r in zeilen)
+        st.markdown(f'<div class="ue-wrap"><table class="pt pt-kompakt ks-mini"><thead><tr>{kopf}</tr></thead>'
+                    f'<tbody>{rumpf}</tbody></table></div>', unsafe_allow_html=True)
+
     @st.fragment
     def _render_top50():
         _zugang_pruefen("🏆 Watchlist Top 50")
-        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🧭 Qualität × Kurs", "📈 Performance", "🧩 Wikifolios",
-                                 "🗂️ Gesamtübersicht"],
+        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🏅 ETF- & wikifolio-Score", "🧭 Qualität × Kurs",
+                                 "📈 Performance", "🧩 Wikifolios", "🗂️ Gesamtübersicht"],
                        default="⭐ Qualitäts-Score", key="top50_art") or "⭐ Qualitäts-Score"
+        if art == "🏅 ETF- & wikifolio-Score":
+            try:
+                _render_klassen_score()
+            except Exception as e:
+                st.error(f"⚠️ Fehler in diesem Tab: {e}")
+                notify_app_error("Tab-Klassen-Score", e)
+            return
         if art == "🧩 Wikifolios":
             try:
                 _render_wikifolios()

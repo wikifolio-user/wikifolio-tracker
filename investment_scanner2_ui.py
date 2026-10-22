@@ -441,7 +441,9 @@ def _scores(erg, typen):
     verf = erg["available"]
     geeignet = [a for a in verf if a["type"] in typen]
     st.caption(f"{sum(1 for a in verf if a.get('combinedScore') is not None)} von {len(verf)} Werten bewertbar · "
-               + " · ".join(f"{k} {v} %" for k, v in E.SCORE_WEIGHTS.items()))
+               "Aktien: " + " · ".join(f"{k} {v} %" for k, v in E.SCORE_WEIGHTS.items())
+               + " · ETFs und wikifolios: eigene Kriterien aus der Kurshistorie (wie Watchlist → 🏅 ETF- & "
+               "wikifolio-Score)")
     gezeigt = geeignet[:12]
     if not gezeigt:
         st.info("Keine Werte für die gewählten Anlageklassen.")
@@ -454,7 +456,7 @@ def _scores(erg, typen):
                         format_func=lambda i: f"#{gezeigt[i]['scannerRank']} {gezeigt[i]['name']}")
     a = gezeigt[wahl if wahl is not None and wahl < len(gezeigt) else 0]
     _tabelle([("Faktor", "nm"), ("Wert", "r"), ("", "")],
-             [[f'{k} <span class="m">({E.SCORE_WEIGHTS[k]} %)</span>', "keine Daten" if v is None else _de(v, 0),
+             [[f'{k} <span class="m">({a["score"].get("weights", E.SCORE_WEIGHTS)[k]} %)</span>', "keine Daten" if v is None else _de(v, 0),
                f'<div class="is2-bar"><div style="width:{0 if v is None else max(0.0, min(100.0, v))}%;'
                f'background:#52d9b3"></div></div>'] for k, v in a["score"]["details"].items()], breit=False)
     st.caption("Modellheuristik, keine Renditeprognose oder Anlageberatung. Fehlende Faktoren werden nicht geschätzt, "
@@ -467,9 +469,12 @@ def _hinweise():
             "- **Universum:** Top-500-/Watchlist-Daten der App (Aktien, ETFs, wikifolios) mit Tagesschlusskurs in EUR; "
             "Hebelprodukte und Datenfehler ausgefiltert; eigene Werte per Wertpapier-CSV. Quellenrang = Rang nach "
             "12-Monats-Rendite.\n"
-            "- **Score:** Momentum (12- und 3-Monats-Rendite), Risiko (Schwankung, maximaler Rückgang), Qualität und KGV "
-            "(Aktien mit Daten des Qualitäts-Agenten). Kosten (TER), Handelsvolumen und Spread liegen nicht vor – ETFs "
-            "und wikifolios haben daher meist keinen Score und werden nach Quellenrang berücksichtigt.\n"
+            "- **Score Aktien:** Momentum (12- und 3-Monats-Rendite), Risiko (Schwankung, maximaler Rückgang), Qualität "
+            "und KGV (Daten des Qualitäts-Agenten).\n"
+            "- **Score ETFs und wikifolios:** eigene Kriterien aus der Kurshistorie, unabhängig von den Aktien – "
+            "Rendite p. a., Rendite je Risiko bzw. je Rückgang, maximaler Rückgang, Schwankung, Länge der Historie, "
+            "Beständigkeit (Gewichte unter „Teilbewertungen“). Eigene Werte aus der CSV ohne lange Historie werden "
+            "wie bisher allgemein bewertet.\n"
             "- **Kaufplan:** je Anlageklasse die bis zu vier besten Werte, Budget nach Soll-Anteil der Strategie "
             "abzüglich vorhandenem Bestand, ganze Stücke, Ordergebühr je Kauf, Höchstgewicht je Wertpapier.\n"
             "- **Strategien:** feste Renditeannahmen (Szenario) mit Sparrate und Entnahmen; Auto wählt die "
