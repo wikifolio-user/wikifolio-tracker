@@ -1046,8 +1046,10 @@ st.markdown("""
         [data-testid="stNumberInputField"], [data-testid="stTextInputRootElement"] input { min-height: 44px !important; }
         [data-testid="stTabs"] [role="tab"] { min-height: 44px !important; }
         /* "?"-Hilfe: sichtbar 16 px, Tippflaeche 44 px (360°-Pruefung) */
-        [data-testid="stTooltipIcon"] { position: relative; }
-        [data-testid="stTooltipIcon"]::before { content: ""; position: absolute; inset: -14px; }
+        /* nur die "?"-Knoepfe selbst - stTooltipIcon umhuellt auch Knoepfe mit Hinweistext (z. B. "Menue");
+           Flaeche waechst nach links/oben/unten, nicht ueber den rechten Bildschirmrand */
+        button[aria-label^="Help for"] { position: relative; }
+        button[aria-label^="Help for"]::before { content: ""; position: absolute; inset: -14px 0 -14px -28px; }
         [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 44px !important; }
     }
 </style>
