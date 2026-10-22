@@ -642,24 +642,17 @@ def _daten_annahmen(erg):
 def _eckdaten(e):
     """Eigene Eckdaten des Scanners (unabhaengig vom Portfolio Builder)."""
     handy = _smartphone()
-    c = (st.columns(2) + st.columns(2)) if handy else st.columns(4)
+    c = (st.columns(2) + st.columns(2) + st.columns(2)) if handy else st.columns(5)
     c[0].number_input("Startkapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_scan_kapital")
     c[1].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_einzahlung")
     c[2].number_input("Laufzeit (Jahre)", 1, 50, step=1, key="pb_scan_laufzeit")
     c[3].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f", key="pb_scan_ziel",
                       help="0 = kein Ziel (dann keine Zielwahrscheinlichkeit und keine Alternativen).")
-    st.caption("Diese Eckdaten gelten nur für den Scanner – der Portfolio Builder bleibt unverändert.")
+    c[4].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_entnahme")
+    st.caption("Diese Eckdaten gelten nur für den Scanner – der Portfolio Builder bleibt unverändert. Die Entnahme "
+               "ist ein fester Betrag je Monat, verkauft wird anteilig nach dem Wert der Positionen.")
     if e["scan_ziel"] <= 0:
         st.info("Kein Zielvermögen gesetzt – ohne Ziel gibt es keine Zielwahrscheinlichkeit und keine Alternativen.")
-
-
-def _entnahme_einstellungen(e, h=None):
-    """Entnahme im Scanner: fester Betrag je Monat, verkauft wird anteilig nach Wert (Stueckzahlen je Position
-    passen nicht zu einem automatisch zusammengestellten Depot mit vielen Werten)."""
-    with st.container(border=True, key="pb_scan_entnahme_karte"):
-        st.markdown('<div class="pb-karte-t">Entnahme</div>', unsafe_allow_html=True)
-        st.number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_scan_entnahme")
-        st.caption("Fester Betrag je Monat – verkauft wird anteilig nach dem Wert der Positionen.")
 
 
 def _e_plan(erg, e):
@@ -671,7 +664,7 @@ def _entnahme_reiter(erg, e):
     """Verkaufsplan fuer das berechnete Musterdepot (live aus den aktuellen Verkaufsmengen)."""
     from portfolio_builder_ui import plan_anzeigen
     if e["entnahme"] <= 0:
-        st.caption("Keine Entnahme eingetragen – oben in „Entnahme“ einen Betrag je Monat eintragen.")
+        st.caption("Keine Entnahme eingetragen – oben in den Eckdaten bei „Entnahme €/Monat“ einen Betrag eintragen.")
         return
     plan_anzeigen(e, S.depot_entnahmeplan(erg["depot"], _e_plan(erg, e)), False)
     st.caption("Prognose, Zielwahrscheinlichkeit und Alternativen rechnen mit diesen Entnahmen. Nach einer Änderung „Neu berechnen“.")
@@ -698,7 +691,6 @@ def seite(h):
     with st.container(border=True, key="pb_scan_eckdaten"):
         st.markdown('<div class="pb-karte-t">Eckdaten</div>', unsafe_allow_html=True)
         _eckdaten(e)
-    _entnahme_einstellungen(e, h)
     render(h, S.scanner_eingaben(e), lambda: B._katalog(h), (h or {}).get("zum_builder"))
     art, _ = B._automatisch_speichern(h, e)
     if art in ("lesefehler", "fehler"):
