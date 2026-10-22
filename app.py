@@ -17,6 +17,7 @@ import github_store
 import chronik
 import login
 import nutzerdaten
+import prognose_basis as PROG_BASIS
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1990,6 +1991,43 @@ def aendere_beobachtung(aendern, message="update beobachtung [skip ci]"):
     if ok:
         _chronik_listen_diff(alt, neu, "beobachtung", "Beobachtung", [("instrument_id", "ID", str)])
     return ok
+
+
+def lade_prognose_basis():
+    """Eigene Prognose-Basis (Zukunfts-Prognose); noch nie gespeichert -> die Werte der Beobachtungsliste."""
+    d = gh_read_cached(upfad(PROG_BASIS.PFAD), None)
+    if isinstance(d, dict) and isinstance(d.get("werte"), list):
+        return d["werte"]
+    return PROG_BASIS.start_aus_beobachtung(lade_beobachtung())
+
+
+def aendere_prognose_basis(aendern, message="update prognose-basis [skip ci]"):
+    """aendern(liste) -> neue Liste | None. -> True nur, wenn wirklich gespeichert wurde."""
+    erg = {}
+
+    def _a(d):
+        alt = (d["werte"] if isinstance(d, dict) and isinstance(d.get("werte"), list)
+               else PROG_BASIS.start_aus_beobachtung(lade_beobachtung()))
+        erg["neu"] = aendern(copy.deepcopy(alt))
+        return None if erg["neu"] is None else {"werte": erg["neu"]}
+
+    ok, _ = gh_aktualisiere(upfad(PROG_BASIS.PFAD), _a, default=None, message=message)
+    return bool(ok and erg.get("neu") is not None)
+
+
+def top500_prognose_optionen():
+    """Werte der Top-500-Daten mit Kurs-ID fuer die Prognose-Basis - je Sitzung und Tag gemerkt."""
+    heute = datetime.date.today().isoformat()
+    gemerkt = st.session_state.get("_prog_top500")
+    if gemerkt and gemerkt[0] == heute:
+        return gemerkt[1]
+    import scanner
+    teile = [gh_read_taeglich(f"state/planer/katalog_gross_{i}.json", {}) or {} for i in range(4)]
+    ids = scanner.top500_ids(gh_read_taeglich("state/top50_ids.json", {}) or {},
+                             gh_read_taeglich("state/top50_wikifolios.json", {}) or {})
+    werte = PROG_BASIS.top500_optionen(teile, ids)
+    st.session_state["_prog_top500"] = (heute, werte)
+    return werte
 
 
 def ist_wikifolio(wkn="", name=""):
@@ -5926,7 +5964,9 @@ def render_dashboard():
 
     beobachtung = [e for e in lade_beobachtung() if e.get("instrument_id")]
 
-    # ---------- PROGNOSE-BASIS FUER BEOBACHTUNGSWERTE ----------
+    # ---------- EIGENE PROGNOSE-BASIS (frueher: Beobachtungswerte) ----------
+    # Die Liste pflegt jeder Benutzer in der Zukunfts-Prognose selbst (aus der Top-500-Liste);
+    # ohne gespeicherte Liste gelten wie bisher die Werte der Beobachtungsliste.
     # Beobachtungswerte haben KEIN investiertes Kapital (reine Kursanzeige) -
     # trotzdem soll sich die Zukunfts-Prognose auch fuer sie nutzen lassen.
     # Basis: die eigene historische CAGR des Werts (aeltester verfuegbarer
@@ -5937,8 +5977,9 @@ def render_dashboard():
     # entsprechend gekennzeichnet.
     SYMBOLISCHES_PROGNOSE_KAPITAL = 10000.0
     prognose_beobachtung_optionen = []
-    _beob_gesamt = len(beobachtung)
-    for _beob_i, _eintrag in enumerate(beobachtung):
+    prognose_basis_liste = [e for e in lade_prognose_basis() if e.get("instrument_id")]
+    _beob_gesamt = len(prognose_basis_liste)
+    for _beob_i, _eintrag in enumerate(prognose_basis_liste):
         _beob_name = _eintrag.get("name") or _eintrag.get("wkn") or "Beobachtungswert"
         if _beob_gesamt:
             melde("beob_prognose", _beob_i / _beob_gesamt,
@@ -7258,13 +7299,59 @@ def render_dashboard():
     # Voraussetzung: NICHT in einen ausserhalb erzeugten Container
     # schreiben ("with tab_forecast:") - Streamlit verbietet das bei
     # Fragment-Reruns. Die Ansicht zeichnet daher direkt an ihrer Stelle.
+    def _prognose_basis_verwalten():
+        """Eigene Prognose-Basis: Werte aus der Top-500-Liste uebernehmen und wieder entfernen."""
+        liste = lade_prognose_basis()
+        with st.expander(f"⭐ Prognose-Basis verwalten ({len(liste)} eigene Werte)",
+                         expanded=not prognose_optionen):
+            st.caption("Werte aus der Top-500-Liste übernehmen – sie erscheinen in „Prognose Basis auswählen“ "
+                       "(symbolisch 10.000 €, angelegt ab heute). Deine Depot-Positionen sind immer dabei. "
+                       f"Höchstens {PROG_BASIS.MAX_EINTRAEGE} eigene Werte.")
+            optionen = [w for w in top500_prognose_optionen() if not PROG_BASIS.enthalten(liste, w)]
+
+            def _beschriftung(i):
+                w = optionen[i]
+                return " · ".join(x for x in (w["name"], PROG_BASIS.ARTEN[w["art"]], w["wkn"] or w["isin"]) if x)
+
+            c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+            wahl = c1.selectbox(f"Aus der Top-500-Liste ({len(optionen)} Werte)", range(len(optionen)), index=None,
+                                format_func=_beschriftung, placeholder="Name, WKN oder ISIN eintippen …",
+                                key="prog_basis_wahl")
+            if c2.button("➕ Hinzufügen", key="prog_basis_add", disabled=wahl is None, type="primary",
+                         width="stretch"):
+                w = dict(optionen[wahl])
+                if not w["instrument_id"]:              # Kurs-ID nicht in den Top-500-Daten: exakte Suche
+                    import investment_scanner_pro_engine as PRO
+                    t, art = PRO.treffer_waehlen(w, suche_instrument(w["isin"] or w["wkn"] or w["name"]) or [])
+                    w["instrument_id"] = int(t["instrument_id"]) if t and art == "exakt" else None
+                if not w["instrument_id"]:
+                    st.error(f"Für „{w['name']}“ wurde keine Kursquelle gefunden – nicht hinzugefügt.")
+                elif aendere_prognose_basis(
+                        lambda l: PROG_BASIS.hinzufuegen(l, PROG_BASIS.eintrag(w, time.time())),
+                        "prognose-basis hinzugefuegt [skip ci]"):
+                    st.session_state.pop("prog_basis_wahl", None)
+                    st.rerun()
+                else:
+                    st.error("Nicht gespeichert – schon in der Liste, Liste voll oder Speicher gerade nicht "
+                             "erreichbar.")
+            for e in liste:
+                z1, z2 = st.columns([5, 1], vertical_alignment="center")
+                z1.markdown(f"**{_h(e.get('name', ''))}** · {_h(e.get('wkn') or e.get('isin') or '')}")
+                if z2.button("🗑️ Entfernen", key=f"prog_basis_weg_{e.get('id')}", width="stretch"):
+                    if aendere_prognose_basis(lambda l, _id=e.get("id"): PROG_BASIS.entfernen(l, _id),
+                                              "prognose-basis entfernt [skip ci]"):
+                        st.rerun()
+                    else:
+                        st.error("Entfernen fehlgeschlagen (Speicher gerade nicht erreichbar).")
+
     @st.fragment
     def _render_forecast():
         _zugang_pruefen("🔮 Zukunfts-Prognose")
+        _prognose_basis_verwalten()
         if not prognose_optionen:
-            # normaler Benutzer ohne eigene Positionen/Beobachtungswerte
+            # normaler Benutzer ohne eigene Positionen/Prognose-Werte
             st.info("🔮 Noch kein eigenes Depot – lege im 🏠 Depot deine erste Position an "
-                    "(oder beobachte einen Wert), dann erscheint hier die Prognose.")
+                    "oder übernimm oben Werte aus der Top-500-Liste, dann erscheint hier die Prognose.")
             return
         try:
             # Ab der zweiten Position eine Auswahl anbieten - bei nur einer
@@ -7338,16 +7425,22 @@ def render_dashboard():
             elif sparrate_hinweis:
                 st.caption(sparrate_hinweis.strip())
 
+            # Die Prognose startet immer HEUTE mit dem heutigen Depotwert: Gewinn und Entnahmen
+            # zaehlen ab heute (der bisherige Gewinn steht darunter als Hinweis).
             forecast_data = [
-                {"Jahr": "Start", "Datum": opt_kaufdatum.strftime("%d.%m.%Y"), "Gesamter Gewinn": fmt_vz(0.0), "Depotwert": fmt(opt_startkapital, 2), "Kumulierte Entnahme": fmt(0.0, 2)},
-                {"Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Gesamter Gewinn": fmt_vz(opt_gewinn), "Depotwert": fmt(opt_aktueller_wert, 2), "Kumulierte Entnahme": fmt(opt_entnommen, 2)}
+                {"Jahr": "Start (heute)", "Datum": heute_date.strftime("%d.%m.%Y"), "Gewinn ab heute": fmt_vz(0.0),
+                 "Depotwert": fmt(opt_aktueller_wert, 2), "Kumulierte Entnahme": fmt(0.0, 2)}
             ]
+            if not opt.get("symbolisch"):
+                st.caption(f"Bisher seit Kauf ({opt_kaufdatum.strftime('%d.%m.%Y')}): Gewinn {fmt_vz(opt_gewinn)}"
+                           + (f", entnommen {fmt(opt_entnommen, 2)}" if opt_entnommen else "")
+                           + " – die Prognose unten rechnet ab heute.")
 
             # Fortschreibung mit ECHTEN Entnahmen (Audit A-12): jede Entnahme verlaesst das Depot
-            # und verzinst sich nicht weiter; Sparraten erhoehen den Einstand (DEP-01).
-            # Gesamter Gewinn = Depotwert + alles bisher Ausgezahlte - Einstand.
-            sim_w_prog, sim_e_prog = opt_aktueller_wert, opt_entnommen
-            sim_einstand = opt_einstand
+            # und verzinst sich nicht weiter; Sparraten erhoehen den Einsatz (DEP-01).
+            # Gewinn ab heute = Depotwert + ab heute Ausgezahltes - (heutiger Wert + Sparraten).
+            sim_w_prog, sim_e_prog = opt_aktueller_wert, 0.0
+            sim_einstand = opt_aktueller_wert
             milestone_added = opt_aktueller_wert >= 100000.0
 
             for m_idx in range(1, 121):
@@ -7362,7 +7455,7 @@ def render_dashboard():
                     forecast_data.append({
                         "Jahr": "100k",
                         "Datum": current_date.strftime("%d.%m.%Y"),
-                        "Gesamter Gewinn": fmt_vz(sim_w_prog + sim_e_prog - sim_einstand),
+                        "Gewinn ab heute": fmt_vz(sim_w_prog + sim_e_prog - sim_einstand),
                         "Depotwert": fmt(sim_w_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                     })
                     milestone_added = True
@@ -7371,7 +7464,7 @@ def render_dashboard():
                     forecast_data.append({
                         "Jahr": f"Jahr +{m_idx // 12}",
                         "Datum": current_date.strftime("%d.%m.%Y"),
-                        "Gesamter Gewinn": fmt_vz(sim_w_prog + sim_e_prog - sim_einstand),
+                        "Gewinn ab heute": fmt_vz(sim_w_prog + sim_e_prog - sim_einstand),
                         "Depotwert": fmt(sim_w_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
                     })
         
@@ -7379,7 +7472,7 @@ def render_dashboard():
 
             # Ohne Entnahme ist "Kumulierte Entnahme" durchgehend 0 und kostet
             # auf dem Smartphone nur seitliche Scrollbreite.
-            if not opt_entnahme and not opt_entnommen:
+            if not opt_entnahme:
                 df_forecast = df_forecast.drop(columns=["Kumulierte Entnahme"], errors="ignore")
 
             # Hoehe an die tatsaechliche Zeilenzahl anpassen: st.dataframe
