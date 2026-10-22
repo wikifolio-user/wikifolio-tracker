@@ -34,7 +34,32 @@ import chronik
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+def webhook_bereinigen(roh):
+    """Secret-Wert ohne Leerzeichen, Zeilenumbrueche und umschliessende Anfuehrungszeichen - beim Einfuegen
+    in GitHub -> Settings -> Secrets rutschen die leicht mit hinein (requests meldet dann InvalidSchema)."""
+    u = str(roh or "").strip()
+    while len(u) >= 2 and u[0] == u[-1] and u[0] in "\"'":
+        u = u[1:-1].strip()
+    return u
+
+
+_WEBHOOK_MUSTER = re.compile(r"^https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/(?:v\d+/)?webhooks/\d+/[\w-]+/?$")
+
+
+def webhook_problem(u):
+    """-> None wenn die Webhook-URL plausibel ist, sonst eine Beschreibung OHNE die URL selbst (Token!)."""
+    if not u:
+        return "DISCORD_WEBHOOK_URL ist nicht gesetzt"
+    if _WEBHOOK_MUSTER.match(u):
+        return None
+    if not u.lower().startswith(("http://", "https://")):
+        return (f"DISCORD_WEBHOOK_URL beginnt nicht mit https:// (Laenge {len(u)}) - im GitHub-Secret steht "
+                "vermutlich nicht die komplette Webhook-URL")
+    return ("DISCORD_WEBHOOK_URL hat nicht das Format https://discord.com/api/webhooks/<id>/<token> "
+            f"(Laenge {len(u)})")
+
+
+DISCORD_WEBHOOK_URL = webhook_bereinigen(os.environ.get("DISCORD_WEBHOOK_URL", ""))
 HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", "")  # optional, s. Setup-Hinweis
 GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "")  # von Actions automatisch gesetzt
 GITHUB_TOKEN = os.environ.get("GH_STATE_TOKEN", "")  # secrets.GITHUB_TOKEN
@@ -351,6 +376,11 @@ def send_discord(msg=None, embed=None):
     if not DISCORD_WEBHOOK_URL:
         logging.warning("Kein DISCORD_WEBHOOK_URL gesetzt, ueberspringe Versand.")
         return False
+    problem = webhook_problem(DISCORD_WEBHOOK_URL)
+    if problem:
+        logging.error(f"Discord-Versand nicht moeglich: {problem}. Secret unter GitHub -> Settings -> Secrets "
+                      "and variables -> Actions -> DISCORD_WEBHOOK_URL neu eintragen.")
+        return False
     payload = {"embeds": [embed]} if embed else {"content": msg}
     for versuch in (1, 2):
         try:
@@ -616,12 +646,13 @@ def check_high_watermark(now, inst, live_kurs, tageshoch):
             felder=felder,
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
-        if gemeldet:
-            chronik_eintrag(f"🏆 Neues Allzeithoch {inst['name']} ({inst['wkn']})",
-                            f"{kandidat:.3f} € · {anstieg_pct:+.2f} % über dem zuletzt gemeldeten Hoch "
-                            f"({zuletzt_gemeldet:.3f} €)".replace(".", ","),
-                            f"ath-{inst['wkn']}-{kandidat:.2f}", now)
-        else:
+        # Chronik unabhaengig von Discord: das Ereignis steht in der App auch dann, wenn der Versand
+        # scheitert (der Schluessel verhindert Doppel-Eintraege bei den Wiederholungen)
+        chronik_eintrag(f"🏆 Neues Allzeithoch {inst['name']} ({inst['wkn']})",
+                        f"{kandidat:.3f} € · {anstieg_pct:+.2f} % über dem zuletzt gemeldeten Hoch "
+                        f"({zuletzt_gemeldet:.3f} €)".replace(".", ","),
+                        f"ath-{inst['wkn']}-{kandidat:.2f}", now)
+        if not gemeldet:
             logging.error(f"{inst['wkn']}: Allzeithoch-Meldung NICHT zugestellt - "
                           f"wird beim naechsten Lauf erneut versucht.")
     else:
@@ -808,13 +839,13 @@ def verarbeite_instrument(inst, now):
             ],
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
+        chronik_eintrag(f"🚨 Schwelle unterschritten {inst['name']} ({inst['wkn']})",
+                        f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · Schwelle "
+                        f"{schwelle:+.1f} %".replace(".", ","),
+                        _alarm_schluessel("schwelle", inst["wkn"], now, alarme_heute + 1), now)
         if gesendet:
             state["unter_schwelle"] = True
             state["alarme_heute"] = alarme_heute + 1
-            chronik_eintrag(f"🚨 Schwelle unterschritten {inst['name']} ({inst['wkn']})",
-                            f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · Schwelle "
-                            f"{schwelle:+.1f} %".replace(".", ","),
-                            _alarm_schluessel("schwelle", inst["wkn"], now, alarme_heute + 1), now)
         else:
             logging.error(f"{kennung}: Schwellen-Alarm NICHT zugestellt - State bleibt, "
                           f"naechster Lauf versucht es erneut.")
@@ -829,12 +860,12 @@ def verarbeite_instrument(inst, now):
             ],
             fusszeile=f"{inst['name']} · {now.strftime('%d.%m.%Y %H:%M Uhr')}",
         ))
+        chronik_eintrag(f"✅ Entwarnung {inst['name']} ({inst['wkn']})",
+                        f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · wieder über "
+                        f"{entwarn_grenze:+.1f} %".replace(".", ","),
+                        _alarm_schluessel("entwarnung", inst["wkn"], now, max(alarme_heute, 1)), now)
         if gesendet:
             state["unter_schwelle"] = False
-            chronik_eintrag(f"✅ Entwarnung {inst['name']} ({inst['wkn']})",
-                            f"Kurs {akt:.3f} € · Tag {pct_change:+.2f} % · wieder über "
-                            f"{entwarn_grenze:+.1f} %".replace(".", ","),
-                            _alarm_schluessel("entwarnung", inst["wkn"], now, max(alarme_heute, 1)), now)
         else:
             logging.error(f"{kennung}: Entwarnung NICHT zugestellt - naechster Lauf versucht es erneut.")
 
