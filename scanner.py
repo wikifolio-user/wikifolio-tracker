@@ -340,7 +340,7 @@ def _chancen_risiken(c):
     f = c.get("fund") or {}
     if f:
         if _z(f.get("gesamt"), 0) >= 80:
-            ch.append(f"hohe Qualität (Score {int(f['gesamt'])})")
+            ch.append(f"hohe Qualität ({int(f['gesamt'])}/100)")
         if f.get("bew") in ("günstig", "fair"):
             ch.append(f"Bewertung {f['bew']}")
         elif f.get("bew"):
@@ -352,13 +352,13 @@ def _chancen_risiken(c):
         if _z(f.get("g_eps"), 0) >= 15:
             ch.append(f"Gewinnwachstum {f['g_eps']:.0f} % p. a.")
         if _z(f.get("nde"), 0) > 3:
-            ri.append(f"Verschuldung {f['nde']:.1f}× EBITDA")
+            ri.append(f"Verschuldung {_de1(f['nde'])}× EBITDA")
         if f.get("risiko") == "hoch":
             ri.append("Risikoeinstufung hoch")
     if c.get("hist") is not None and c.get("vola"):
         rr = c["hist"] / c["vola"]
         if rr >= 1:
-            ch.append(f"Rendite je Risiko {rr:.1f}")
+            ch.append(f"Rendite je Risiko {_de1(rr)}")
     if c.get("maxdd") is not None and abs(c["maxdd"]) >= 40:
         ri.append(f"Drawdown {-abs(c['maxdd']):.0f} %")
     if c.get("vola") and c["vola"] >= 35:
@@ -869,10 +869,66 @@ def ziel_depot(bewertet, benoetigt, max_gewicht=5.0, max_je_branche=3, tagesgeld
         p = copy.deepcopy(c)
         p["gewicht"] = w
         p["prognose"] = dict(p.get("prognose") or {}, mu=r, sigma=vola(c)[0])
-        p["hist_jahre"] = j
+        p["hist"], p["hist_jahre"] = r, j
         pos.append(p)
     cash = max(100.0 - w * len(pos), 0.0)
     hist = sum(w / 100.0 * r for r, _, _ in gew) + cash / 100.0 * ANNAHMEN["tagesgeld"]
     hinweise = [] if cash < 0.01 else [f"Nur {len(pos)} Werte mit Kurs und Historie – {cash:.1f} % bleiben Cash."]
     return {"positionen": pos, "cash": cash, "max_gewicht": max_gewicht, "hinweise": hinweise, "hist_rendite": hist,
             "erreicht": benoetigt is not None and hist >= benoetigt}
+
+
+# ---------------------------------------------------------------- Depot-Tabelle (Anzeige und PDF)
+def _de1(x, vorzeichen=False):
+    return (f"{x:+.1f}" if vorzeichen else f"{x:.1f}").replace(".", ",")
+
+
+def begruendung(p, basis="modell", benoetigt=None):
+    """Warum der Wert im Depot ist - fuer jede Position, aus den Daten abgeleitet (Score, Rendite, Chancen) und mit
+    dem wichtigsten Risiko. basis "historisch": Zielrendite-Depot (bisherige Rendite gegen die noetige)."""
+    teile = []
+    if p.get("score") is not None:
+        teile.append(f"Score {p['score']}")
+    r, j = hist_rendite(p) if p.get("perf") else (p.get("hist"), p.get("hist_jahre") or 0)
+    if basis == "historisch" and r is not None:
+        txt = f"bisher {_de1(r, True)} % p. a. über {j:.0f} J."
+        if benoetigt is not None:
+            txt += f" – {'über' if r >= benoetigt else 'unter'} den nötigen {_de1(benoetigt)} %"
+        teile.append(txt)
+    if p.get("chancen") is not None and p.get("risiken") is not None:
+        chancen, risiken = p["chancen"], p["risiken"]
+    else:
+        chancen, risiken = _chancen_risiken(dict(p, hist=r, hist_jahre=j))
+    teile += chancen[:2]
+    if basis != "historisch" and r is not None and not any("Rendite" in t for t in teile):
+        teile.append(f"bisher {_de1(r, True)} % p. a. ({j:.0f} J.)")
+    if not teile:
+        teile.append(f"Erwartung der Klasse {KLASSEN.get(p.get('art'), '')} (wenig Daten)")
+    if risiken:
+        teile.append("Risiko: " + risiken[0])
+    return " · ".join(teile)
+
+
+def depot_zeilen(depot, kapital, basis="modell", benoetigt=None):
+    """Einheitliche Zeilen fuer beide Musterdepots (Modell-Prognose oder bisherige Rendite):
+    -> [{name, art, gewicht, betrag, rendite, grundlage, beitrag, kennung, grund, typ}] inkl. Cash und Summe"""
+    zeilen = []
+    for p in sorted(depot["positionen"], key=lambda p: (list(KLASSEN).index(p["art"]), -(p.get("score") or 0))):
+        mu = p["prognose"]["mu"]
+        grundlage = (f"bisher, {p.get('hist_jahre') or 0:.0f} J." if basis == "historisch" else "Prognose")
+        zeilen.append({"typ": "wert", "name": p["name"], "art": p["art"], "gewicht": p["gewicht"],
+                       "betrag": kapital * p["gewicht"] / 100.0, "rendite": mu, "grundlage": grundlage,
+                       "beitrag": p["gewicht"] / 100.0 * mu,
+                       "kennung": p.get("isin") or p.get("wkn") or p.get("ticker") or "–",
+                       "grund": begruendung(p, basis, benoetigt)})
+    tg = ANNAHMEN["tagesgeld"]
+    if depot["cash"] > 0.01 or basis != "historisch":
+        zeilen.append({"typ": "cash", "name": "Cash / Tagesgeld", "art": "cash", "gewicht": depot["cash"],
+                       "betrag": kapital * depot["cash"] / 100.0, "rendite": tg, "grundlage": "Annahme",
+                       "beitrag": depot["cash"] / 100.0 * tg, "kennung": "–",
+                       "grund": "Puffer für Entnahmen und Schwankungen, nicht verteilbarer Rest"})
+    summe = sum(z["gewicht"] for z in zeilen)
+    zeilen.append({"typ": "summe", "name": "Summe", "art": "", "gewicht": summe, "betrag": kapital * summe / 100.0,
+                   "rendite": None, "grundlage": "", "beitrag": sum(z["beitrag"] for z in zeilen), "kennung": "",
+                   "grund": ""})
+    return zeilen

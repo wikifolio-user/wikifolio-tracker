@@ -305,6 +305,44 @@ class Favoriten(unittest.TestCase):
         self.assertEqual(S.einstellungen_bereinigen({"scan_favoriten": "x"})["scan_favoriten"], [])
 
 
+class DepotTabelle(unittest.TestCase):
+    def _erg(self):
+        kat = [dict(etf("iShares Core MSCI World", 60), kurs=90.0),
+               dict(etf("Vanguard FTSE All-World", 50, vola=14), kurs=110.0),
+               dict(etf("Xtrackers Nasdaq 100", 120, vola=22, dd=-35), kurs=40.0)]
+        b = S.bewerten(S.kandidaten_katalog(kat), 10)
+        d = S.musterdepot(b, {"etf": 90, "aktie": 0, "wikifolio": 0, "cash": 10}, 30.0, min_score=0)
+        zd = S.ziel_depot(b, 15.0, 50.0)
+        e = S.scanner_eingaben(eingaben(scan_kapital=10000, scan_ziel=20000, scan_laufzeit=10))
+        mu, sig = S.portfolio_kennzahlen(d)
+        start, cfs, rest = S.zahlungsplan(e, d)
+        a = S.auswerten(S.simulieren(mu, sig, start, cfs, pfade=500), 20000, rest)
+        return {"zeit": "22.10.2026, 09:00 Uhr", "eingaben": e, "auswertung": a, "aufteilung": S.aufteilung(e),
+                "start": start, "monate": len(cfs), "mu": mu, "depot": d, "ziel_depot": zd,
+                "benoetigt": {"rendite": 7.2}}
+
+    def test_jede_position_hat_begruendung_und_summe(self):
+        erg = self._erg()
+        for depot, basis in ((erg["depot"], "modell"), (erg["ziel_depot"], "historisch")):
+            z = S.depot_zeilen(depot, 10000, basis, 15.0)
+            self.assertTrue(all(x["grund"] for x in z if x["typ"] != "summe"))
+            self.assertAlmostEqual(z[-1]["gewicht"], 100.0, places=6)
+            self.assertAlmostEqual(z[-1]["betrag"], 10000.0, places=4)
+        zh = S.depot_zeilen(erg["ziel_depot"], 10000, "historisch", 15.0)
+        self.assertTrue(erg["ziel_depot"]["positionen"])
+        self.assertIn("bisher", zh[0]["grund"])
+        self.assertIn("den nötigen 15,0 %", zh[0]["grund"])
+        self.assertTrue(zh[0]["grundlage"].startswith("bisher"))
+
+    def test_begruendung_ohne_daten(self):
+        self.assertIn("Erwartung der Klasse", S.begruendung({"art": "etf", "perf": {}, "name": "X"}))
+
+    def test_pdf(self):
+        import scanner_pdf
+        pdf = scanner_pdf.bericht(self._erg(), 10000, "Mittel")
+        self.assertTrue(pdf.startswith(b"%PDF") and len(pdf) > 3000)
+
+
 class Risiken(unittest.TestCase):
     def test_stress_und_empfehlungen(self):
         depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 50.0, "wkn": "AAA", "score": 80},
