@@ -960,6 +960,15 @@ st.markdown("""
         .st-key-depot_spalten [data-testid="stColumn"] {
             width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; }
         .st-key-depot_kopf_rechts { margin-top: 14px; }
+        /* Kopfzeile "Kurse | Auswahl" auch auf dem Handy in EINER Zeile (sonst ueberdeckt das
+           Dropdown den Titel) - Titel so schmal wie noetig, Auswahl nimmt den Rest */
+        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stHorizontalBlock"] {
+            flex-direction: row !important; flex-wrap: nowrap !important; gap: 0.6rem !important;
+            align-items: center !important; }
+        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stColumn"] {
+            min-width: 0 !important; width: auto !important; flex: 1 1 auto !important; }
+        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stColumn"]:first-child {
+            flex: 0 0 auto !important; }
     }
     /* Touch: Plotly-Werkzeugleiste (22-px-Symbole) ausblenden - Zoomen per Fingergeste geht weiter */
     @media (pointer: coarse) { .modebar-container { display: none !important; } }
