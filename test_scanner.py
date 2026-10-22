@@ -269,6 +269,42 @@ class ZielDepot(unittest.TestCase):
         self.assertEqual(namen, ["A", "B", "C"])                                 # Datenfehler fallen heraus
 
 
+class Favoriten(unittest.TestCase):
+    def _kand(self):
+        q = {"AAA": {"name": "Alpha", "kurs": 100, "kwae": "EUR", "gesamt": 90}}
+        aktien = S.kandidaten_aktien(q, {"AAA": {"kennung": "A0AAAA", "5J": 61.051}}, {})
+        return aktien + S.kandidaten_katalog([etf("iShares Core MSCI World", 60), etf("Vanguard FTSE All-World", 50)])
+
+    def test_markieren_vorhandene_und_neue(self):
+        auswahl = [{"art": "aktie", "name": "Alpha AG", "wkn": "A0AAAA", "isin": "", "kurs": 100.0},
+                   {"art": "etf", "name": "Leverage Shares 3x Nvidia", "wkn": "LEV3XN", "isin": "", "kurs": 5.0},
+                   {"art": "wikifolio", "name": "Ohne Historie", "wkn": "", "isin": "DE000LS9AAA0", "kurs": 120.0}]
+        k = S.favoriten_markieren(self._kand(), auswahl)
+        fav = {c["name"]: c for c in k if c.get("favorit")}
+        self.assertEqual(set(fav), {"Alpha", "Leverage Shares 3x Nvidia", "Ohne Historie"})
+        self.assertIsNotNone(fav["Alpha"]["fund"])                 # Aktie mit Fundamentaldaten wiederverwendet
+        self.assertEqual(len(k), 5)                                # 3 Kandidaten + 2 neue Favoriten
+
+    def test_depot_nur_aus_favoriten_alle_gleich_gewichtet(self):
+        auswahl = [{"art": "aktie", "name": "Alpha", "wkn": "A0AAAA", "isin": "", "kurs": 100.0},
+                   {"art": "etf", "name": "Leverage Shares 3x Nvidia", "wkn": "LEV3XN", "isin": "", "kurs": 5.0,
+                    "1J": 80.0},
+                   {"art": "etf", "name": "Ohne Kurs", "wkn": "OHNEKS", "isin": "", "1J": 10.0}]
+        b = S.bewerten(S.favoriten_markieren(self._kand(), auswahl), 10)
+        fav = [c for c in b if c.get("favorit")]
+        d = S.musterdepot(fav, {"etf": 40, "aktie": 60, "wikifolio": 0, "cash": 0}, 50.0, nur_mit_kurs=True,
+                          frei=True)
+        g = {p["name"]: p["gewicht"] for p in d["positionen"]}
+        self.assertEqual(g, {"Leverage Shares 3x Nvidia": 40.0, "Alpha": 50.0})   # Grenze 50 %, kein Score-Filter
+        self.assertAlmostEqual(d["cash"], 10.0)
+        self.assertEqual([c["name"] for c in S.kurs_fehlt(fav, alle=True)], ["Ohne Kurs"])
+
+    def test_bereinigen(self):
+        b = S.einstellungen_bereinigen({"scan_profil": "favoriten", "scan_favoriten": ["A", "A", 3, "", "B"]})
+        self.assertEqual((b["scan_profil"], b["scan_favoriten"]), ("favoriten", ["A", "B"]))
+        self.assertEqual(S.einstellungen_bereinigen({"scan_favoriten": "x"})["scan_favoriten"], [])
+
+
 class Risiken(unittest.TestCase):
     def test_stress_und_empfehlungen(self):
         depot = {"positionen": [{"name": "A", "art": "etf", "gewicht": 50.0, "wkn": "AAA", "score": 80},

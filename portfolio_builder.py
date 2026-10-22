@@ -52,6 +52,7 @@ STANDARD = {
     "scan_max_dd": 40.0, "scan_max_gewicht": 5.0, "scan_kosten": 0.3, "scan_inflation": 2.0, "scan_optimieren": True,
     "scan_entnahme_art": "betrag", "scan_verkauf": {},
     "scan_kapital": -1.0, "scan_einzahlung": 0.0, "scan_laufzeit": 10, "scan_ziel": 0.0, "scan_entnahme": 0.0,
+    "scan_favoriten": [],
     # Startbeispiel mit echten Produkten (Kurs-IDs wie in config.BENCHMARKS); die Kurse sind nur
     # Platzhalter und werden beim ersten Oeffnen durch den aktuellen Kurs ersetzt ("beispiel")
     "positionen": [

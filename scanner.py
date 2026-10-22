@@ -60,7 +60,11 @@ EINSTELLUNGEN = {"scan_profil": "mittel", "scan_etf": 50.0, "scan_aktie": 30.0, 
                  # eigene Eckdaten des Scanners (unabhaengig vom Builder); Kapital -1 = noch nie gesetzt
                  # (beim ersten Oeffnen aus dem Builder vorbelegt)
                  "scan_kapital": -1.0, "scan_einzahlung": 0.0, "scan_laufzeit": 10, "scan_ziel": 0.0,
-                 "scan_entnahme": 0.0}
+                 "scan_entnahme": 0.0,
+                 # Profil "Favoriten": nur selbst ausgewaehlte Werte der Top-500-Liste (Kennungen, siehe kennung)
+                 "scan_favoriten": []}
+FAVORITEN = "favoriten"
+MAX_FAVORITEN = 200
 
 
 def einstellungen_bereinigen(e):
@@ -69,13 +73,16 @@ def einstellungen_bereinigen(e):
     for k, std in EINSTELLUNGEN.items():
         v = e.get(k, std)
         if k == "scan_profil":
-            aus[k] = v if v in PROFILE or v == "eigene" else std
+            aus[k] = v if v in PROFILE or v in ("eigene", FAVORITEN) else std
         elif k == "scan_optimieren":
             aus[k] = bool(v)
         elif k == "scan_entnahme_art":
             aus[k] = "stueck" if v == "stueck" else "betrag"
         elif k == "scan_laufzeit":
             aus[k] = int(min(max(_z(v, std), 1), 50))
+        elif k == "scan_favoriten":
+            liste = [str(x)[:60] for x in v if isinstance(x, str) and x.strip()] if isinstance(v, (list, tuple)) else []
+            aus[k] = list(dict.fromkeys(liste))[:MAX_FAVORITEN]
         elif k == "scan_verkauf":
             aus[k] = {str(n)[:60]: min(_z(x, 0.0), P.MAX_KAPITAL) for n, x in list((v or {}).items())[:300]
                       if _z(x, 0.0) > 0} if isinstance(v, dict) else {}
@@ -155,22 +162,46 @@ def kandidaten_aktien(qualitaet_werte, alle_aktien, fx=None, isin_je_symbol=None
     return aus
 
 
-def kandidaten_katalog(katalog, arten=("etf", "wikifolio")):
+def kandidaten_katalog(katalog, arten=("etf", "wikifolio"), alle=False):
     """ETFs und wikifolios aus dem Katalog des Builders (Watchlist-Katalog + Ranglisten). Hebel-,
-    Short- und Krypto-Produkte fallen heraus."""
+    Short- und Krypto-Produkte fallen heraus. alle: selbst ausgewaehlte Werte (Favoriten) - kein Hebel-Filter,
+    auch ohne Kursentwicklung (dann rechnet die Prognose mit der Erwartung der Klasse)."""
     aus = []
     for w in katalog or []:
         art = w.get("art")
-        if art not in arten or _HEBEL.search(str(w.get("name") or "")):
+        if art not in arten or (not alle and _HEBEL.search(str(w.get("name") or ""))):
             continue
         perf = {z: _z(w.get(z)) for z, _ in ZEITRAEUME_PA if _z(w.get(z)) is not None}
-        if not perf:
+        if not perf and not alle:
             continue
         aus.append({"art": art, "name": str(w["name"]), "ticker": "", "wkn": str(w.get("wkn") or ""),
                     "isin": str(w.get("isin") or ""), "kennung": str(w.get("wkn") or w.get("isin") or ""),
                     "perf": perf, "vola": _z(w.get("vola")), "maxdd": _z(w.get("maxdd")),
                     "jahre": _z(w.get("jahre")), "kurs": _z(w.get("kurs")), "branche": "", "fund": None})
     return aus
+
+
+def favoriten_markieren(kandidaten, auswahl):
+    """Favoriten (ausgewaehlte Katalog-Eintraege) unter den Kandidaten kennzeichnen ("favorit": True). Ein Favorit,
+    der schon Kandidat ist (gleiche ISIN/WKN, z. B. Aktie mit Fundamentaldaten), wird dort markiert, sonst aus dem
+    Katalog-Eintrag angelegt. Bewertet wird danach die ganze Liste - Scores bleiben mit allen Werten vergleichbar.
+    -> neue Kandidatenliste"""
+    def schluessel(c):
+        return {k.upper() for k in (c.get("isin"), c.get("wkn")) if k}
+
+    aus, offen = [dict(c) for c in kandidaten], list(auswahl or [])
+    je_kennung = {}
+    for c in aus:
+        for k in schluessel(c):
+            je_kennung.setdefault(k, c)
+    neu = []
+    for w in offen:
+        treffer = next((je_kennung[k] for k in schluessel(w) if k in je_kennung), None)
+        if treffer is not None and treffer["art"] == w.get("art"):
+            treffer["favorit"] = True
+        else:
+            neu += [dict(c, favorit=True) for c in kandidaten_katalog([w], ("aktie", "etf", "wikifolio"), alle=True)]
+    return aus + neu
 
 
 # ---------------------------------------------------------------- Kennzahlen je Wert
@@ -345,12 +376,14 @@ def _index_gruppe(name):
     return next((g for k, g in _INDEX_GRUPPEN if k in n), None)
 
 
-def musterdepot(bewertet, aufteilung, max_gewicht=5.0, min_score=55, max_je_branche=3, nur_mit_kurs=False):
+def musterdepot(bewertet, aufteilung, max_gewicht=5.0, min_score=55, max_je_branche=3, nur_mit_kurs=False,
+                frei=False):
     """Musterdepot: je Klasse die besten Werte mit genug Daten, gleich gewichtet, jede Position hoechstens
     max_gewicht %. Diversifikation: je Branche hoechstens max_je_branche Aktien, je Kernindex ein ETF,
     je Themen-Cluster (z. B. Tech: Halbleiter/IT/Nasdaq) hoechstens MAX_JE_CLUSTER ETFs.
     Was nicht verteilt werden kann (zu wenig geeignete Werte), geht ins Cash. Summe = 100 %.
     nur_mit_kurs: nur Werte mit Kurs (Top-500-Daten) - sonst liesse sich keine Stueckzahl kaufen.
+    frei: selbst ausgewaehlte Werte (Favoriten) - ohne Mindest-Score, Datenpruefung und Branchen-/Index-Grenzen.
     -> {"positionen": [...], "cash": %, "hinweise": [...]}"""
     max_gewicht = max(float(max_gewicht), 0.5)
     pos, hinweise, cash = [], [], float(aufteilung.get("cash", 0.0))
@@ -361,11 +394,14 @@ def musterdepot(bewertet, aufteilung, max_gewicht=5.0, min_score=55, max_je_bran
         n_soll = int(math.ceil(ziel / max_gewicht - 1e-9))
         gewaehlt, branchen, gruppen, cluster = [], {}, set(), {}
         for c in (c for c in bewertet if c["art"] == art):
-            if len(gewaehlt) >= n_soll:
+            if len(gewaehlt) >= n_soll and not frei:     # Favoriten: alle, gleich gewichtet
                 break
-            if not c["ausreichend"] or c["score"] < min_score:
+            if not frei and (not c["ausreichend"] or c["score"] < min_score):
                 continue
             if nur_mit_kurs and not (c.get("kurs") or 0) > 0:
+                continue
+            if frei:
+                gewaehlt.append(c)
                 continue
             if art == "aktie" and c["branche"]:
                 if branchen.get(c["branche"], 0) >= max_je_branche:
@@ -384,13 +420,14 @@ def musterdepot(bewertet, aufteilung, max_gewicht=5.0, min_score=55, max_je_bran
             if cl:
                 cluster[cl] = cluster.get(cl, 0) + 1
         if not gewaehlt:
-            hinweise.append(f"{KLASSEN[art]}: keine Werte mit ausreichenden Daten und Score ≥ {min_score} – "
+            hinweise.append(f"{KLASSEN[art]}: keine Favoriten mit Kurs – {ziel:.0f} % bleiben Cash." if frei else
+                            f"{KLASSEN[art]}: keine Werte mit ausreichenden Daten und Score ≥ {min_score} – "
                             f"{ziel:.0f} % bleiben Cash.")
             cash += ziel
             continue
         je = min(ziel / len(gewaehlt), max_gewicht)
         if len(gewaehlt) < n_soll:
-            hinweise.append(f"{KLASSEN[art]}: nur {len(gewaehlt)} geeignete Werte – bei höchstens "
+            hinweise.append(f"{KLASSEN[art]}: nur {len(gewaehlt)} {'Favoriten' if frei else 'geeignete Werte'} – bei höchstens "
                             f"{max_gewicht:.1f} % je Position {ziel - je * len(gewaehlt):.1f} % ins Cash.")
         cash += ziel - je * len(gewaehlt)
         pos += [dict(c, gewicht=je) for c in gewaehlt]
@@ -754,12 +791,13 @@ def musterdepot_name(vorhanden, profil_titel, heute):
     return name
 
 
-def kurs_fehlt(bewertet, min_score=55, je_klasse=25):
+def kurs_fehlt(bewertet, min_score=55, je_klasse=25, alle=False):
     """Kandidaten, die ins Musterdepot kommen koennten (genug Daten, Score >= min_score, je Klasse die besten
-    je_klasse), aber keinen Kurs in den Top-500-Daten haben - fuer sie wird der aktuelle Kurs nachgeladen."""
+    je_klasse), aber keinen Kurs in den Top-500-Daten haben - fuer sie wird der aktuelle Kurs nachgeladen.
+    alle: jeder Wert zaehlt (Favoriten), ohne Daten-/Score-Pruefung."""
     aus, n = [], {}
     for c in bewertet:
-        if not c.get("ausreichend") or (c.get("score") or 0) < min_score:
+        if not alle and (not c.get("ausreichend") or (c.get("score") or 0) < min_score):
             continue
         n[c["art"]] = n.get(c["art"], 0) + 1
         if n[c["art"]] <= je_klasse and not (c.get("kurs") or 0) > 0:

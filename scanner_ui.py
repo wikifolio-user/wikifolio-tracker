@@ -13,8 +13,10 @@ import portfolio_builder as P
 import scanner as S
 from portfolio_builder_ui import _smartphone
 
-PROFIL_TITEL = {"niedrig": "Niedrig", "mittel": "Mittel", "hoch": "Hoch", "eigene": "Eigene"}
+PROFIL_TITEL = {"niedrig": "Niedrig", "mittel": "Mittel", "hoch": "Hoch", "eigene": "Eigene",
+                S.FAVORITEN: "Favoriten"}
 ART_TITEL = {"etf": "ETF", "aktie": "Aktie", "wikifolio": "wikifolio", "cash": "Cash"}
+KLASSEN_KURZ = {"etf": "ETFs", "aktie": "Aktien", "wikifolio": "wikifolios"}
 
 
 def _de(x, dez=0):
@@ -74,12 +76,55 @@ def _profil_gewaehlt():
             st.session_state[f"pb_scan_{k}"] = S.PROFILE[p][k]
 
 
-def _einstellungen(e):
-    st.segmented_control("Risikobereitschaft", list(PROFIL_TITEL), format_func=PROFIL_TITEL.get,
+def _favoriten_katalog(katalog):
+    """{kennung: Katalog-Eintrag} - waehlbare Werte der Top-500-/Watchlist-Daten (Aktien, ETFs, wikifolios)."""
+    return {S.kennung(w): w for w in katalog if w.get("art") in ("aktie", "etf", "wikifolio")}
+
+
+def _favoriten(e, katalog_fn):
+    """Favoriten aus der Top-500-Liste auswaehlen; die Rechnung nutzt dann nur diese Werte."""
+    je = _favoriten_katalog(katalog_fn())
+    gewaehlt = [k for k in (st.session_state.get("pb_scan_favoriten") or []) if k in je]
+    if gewaehlt != st.session_state.get("pb_scan_favoriten"):
+        st.session_state["pb_scan_favoriten"] = gewaehlt      # nicht mehr in der Liste -> raus (sonst Fehler)
+
+    def beschriftung(k):
+        w = je[k]
+        return " · ".join(t for t in (w["name"], ART_TITEL.get(w["art"], w["art"]), w.get("wkn") or w.get("isin"),
+                                      _eur(w["kurs"], 2) if w.get("kurs") else "") if t)
+
+    st.multiselect(f"⭐ Favoriten aus der Top-500-Liste ({len(je)} Werte)", list(je), key="pb_scan_favoriten",
+                   format_func=beschriftung, max_selections=S.MAX_FAVORITEN,
+                   placeholder="Name, WKN oder ISIN eintippen …")
+    n = {a: sum(1 for k in gewaehlt if je[k]["art"] == a) for a in ("etf", "aktie", "wikifolio")}
+    if not gewaehlt:
+        st.info("Noch keine Favoriten – oben Aktien, ETFs oder wikifolios auswählen. Gerechnet wird dann nur mit "
+                "diesen Werten, nach Aufteilung, Max. Verlust und Max. je Position unten.")
+        return
+    teile = [f"{n[a]} {KLASSEN_KURZ[a]}" for a in ("aktie", "etf", "wikifolio")]
+    st.caption("Favoriten: " + " · ".join(teile) + ". Je Klasse gleich gewichtet, jede Position höchstens "
+               "„Max. je Position“ – der Rest der Klasse geht ins Cash.")
+    leer = [f"{KLASSEN_KURZ[a]} {_de(e[f'scan_{a}'])} %" for a in ("etf", "aktie", "wikifolio")
+            if e[f"scan_{a}"] > 0 and not n[a]]
+    ungenutzt = [KLASSEN_KURZ[a] for a in ("etf", "aktie", "wikifolio") if n[a] and e[f"scan_{a}"] <= 0]
+    if leer:
+        st.warning("Keine Favoriten für " + ", ".join(leer) + " – dieser Anteil bliebe Cash. Favoriten ergänzen "
+                   "oder die Aufteilung unten anpassen.")
+    if ungenutzt:
+        st.warning("Favoriten bei " + ", ".join(ungenutzt) + " werden nicht genutzt – die Aufteilung unten steht "
+                   "dort auf 0 %.")
+
+
+def _einstellungen(e, katalog_fn=None):
+    st.segmented_control("Risikobereitschaft", list(PROFIL_TITEL),
+                         format_func=lambda p: "⭐ Favoriten" if p == S.FAVORITEN else PROFIL_TITEL[p],
                          key="pb_scan_profil", on_change=_profil_gewaehlt,
                          help="Niedrig / Mittel / Hoch sind Vorschläge für die Aufteilung und die Verlusttoleranz. "
-                              "„Eigene“: alles selbst festlegen.")
-    eigene = e["scan_profil"] == "eigene"
+                              "„Eigene“: alles selbst festlegen. „Favoriten“: nur selbst ausgewählte Werte der "
+                              "Top-500-Liste, Aufteilung und Regeln wie bei „Eigene“.")
+    if e["scan_profil"] == S.FAVORITEN and katalog_fn:
+        _favoriten(e, katalog_fn)
+    eigene = e["scan_profil"] in ("eigene", S.FAVORITEN)
     handy = _smartphone()
     with st.container(key="pb_scan_reihe1"):
         # Handy: 2 je Zeile - bei 4 nebeneinander zerbrechen die Beschriftungen
@@ -113,7 +158,9 @@ def _einstellungen(e):
     with st.expander("ℹ️ Was bedeuten die Einstellungen?"):
         st.markdown(
             "- **Risikobereitschaft** – Niedrig / Mittel / Hoch setzen Vorschläge für Aufteilung und Max. Verlust; "
-            "bei **Eigene** legst du alles selbst fest.\n"
+            "bei **Eigene** legst du alles selbst fest. Bei **⭐ Favoriten** wählst du die Werte selbst aus der "
+            "Top-500-Liste – gerechnet wird nur mit ihnen, je Klasse gleich gewichtet, mit Aufteilung, Max. Verlust "
+            "und Max. je Position wie bei „Eigene“.\n"
             "- **ETFs / Aktien / wikifolios / Cash %** – deine Aufteilung. Weicht die Summe von 100 % ab, wird "
             "beim Berechnen umgerechnet.\n"
             "- **Max. Verlust %** – höchster tolerierter zwischenzeitlicher Rückgang vom Höchststand. Geprüft wird, "
@@ -133,11 +180,17 @@ def _einstellungen(e):
 # ---------------------------------------------------------------- Rechnen
 def _berechnen(h, e, katalog):
     kand, stand = _daten(h, katalog)
+    favoriten = e["scan_profil"] == S.FAVORITEN
+    if favoriten:                                  # nur die ausgewaehlten Werte (bewertet im Vergleich mit allen)
+        je = _favoriten_katalog(katalog)
+        kand = S.favoriten_markieren(kand, [je[k] for k in e["scan_favoriten"] if k in je])
     jahre = P.monate(e) / 12.0
     bewertet = S.bewerten(kand, jahre)
-    nachgeladen = _kurse_nachladen(h, bewertet)
+    auswahl = [c for c in bewertet if c.get("favorit")] if favoriten else bewertet
+    nachgeladen = _kurse_nachladen(h, auswahl, alle=favoriten)
     auft = S.aufteilung(e)
-    depot = S.musterdepot(bewertet, auft, e["scan_max_gewicht"], nur_mit_kurs=True)   # Stueckzahlen moeglich
+    depot = S.musterdepot(auswahl, auft, e["scan_max_gewicht"], nur_mit_kurs=True,   # Stueckzahlen moeglich
+                          frei=favoriten)
     depot_profil = depot                           # genau die Prozentanteile des Risikoprofils (fuers Musterdepot)
     ziel = e["zielvermoegen"]
     opt = None
@@ -155,8 +208,9 @@ def _berechnen(h, e, katalog):
     zd = None
     if benoetigt and (a["wahrscheinlichkeit"] or 0) < 0.5:     # Ziel mit dem normalen Depot unwahrscheinlich
         # alle Werte der Top-500-/Watchlist-Daten (auch die ~16.000 Aktien ohne Fundamentaldaten)
-        alle = S.kandidaten_katalog(katalog, arten=("aktie", "etf", "wikifolio"))
-        zd = S.ziel_depot(bewertet + alle, benoetigt["rendite"], e["scan_max_gewicht"])
+        # Favoriten: nur aus der eigenen Auswahl
+        alle = [] if favoriten else S.kandidaten_katalog(katalog, arten=("aktie", "etf", "wikifolio"))
+        zd = S.ziel_depot(auswahl + alle, benoetigt["rendite"], e["scan_max_gewicht"])
     return {"zeit": datetime.datetime.now().strftime("%d.%m.%Y, %H:%M Uhr"), "stand": stand, "depot_profil": depot_profil,
             "kurse_nachgeladen": nachgeladen, "ziel_depot": zd,
             "anzahl": {k: sum(1 for c in bewertet if c["art"] == k) for k in ("aktie", "etf", "wikifolio")},
@@ -167,12 +221,12 @@ def _berechnen(h, e, katalog):
             "monate": len(cfs), "eingaben": dict(e)}
 
 
-def _kurse_nachladen(h, bewertet):
+def _kurse_nachladen(h, bewertet, alle=False):
     """Aktuelle Kurse fuer moegliche Depotwerte ohne Kurs in den Top-500-Daten: Kurs-ID aus den Top-500-Listen
     (sonst exakte Suche ueber WKN/ISIN), dann der aktuelle Kurs von ls-tc.de. Traegt kurs + instrument_id in
     die Kandidaten ein. -> Anzahl nachgeladen"""
     hole, suche = (h or {}).get("get_live_kurs"), (h or {}).get("suche_instrument")
-    fehlt = S.kurs_fehlt(bewertet)
+    fehlt = S.kurs_fehlt(bewertet, je_klasse=S.MAX_FAVORITEN, alle=True) if alle else S.kurs_fehlt(bewertet)
     if not fehlt or not hole:
         return 0
     import investment_scanner_pro_engine as PRO
@@ -703,12 +757,14 @@ def render(h, e, katalog_fn, zum_builder=None):
         st.markdown('<div class="pb-karte-t">Risikoprofil & Regeln</div>', unsafe_allow_html=True)
         st.caption("Durchsucht Aktien (mit Fundamentaldaten), ETFs und wikifolios aus den Daten der Watchlist, bewertet "
                    "sie, stellt ein Musterdepot zusammen und simuliert dein Ziel mit den Eckdaten oben.")
-        _einstellungen(e)
+        _einstellungen(e, katalog_fn)
         sig = _signatur(e)
+        keine_favoriten = e["scan_profil"] == S.FAVORITEN and not e["scan_favoriten"]
         erg = st.session_state.get("pb_scan_erg")
         veraltet = erg is not None and st.session_state.get("pb_scan_sig") != sig
         if st.button("🔍 Scannen & Musterdepot berechnen" if erg is None else "🔄 Neu berechnen",
-                     key="pb_scan_los", type="primary" if erg is None or veraltet else "secondary", width="stretch"):
+                     key="pb_scan_los", type="primary" if erg is None or veraltet else "secondary", width="stretch",
+                     disabled=keine_favoriten):
             with st.spinner("Bewerte Aktien, ETFs und wikifolios und simuliere 10.000 Verläufe …"):
                 erg = _berechnen(h, e, katalog_fn())
             st.session_state["pb_scan_erg"], st.session_state["pb_scan_sig"] = erg, sig
