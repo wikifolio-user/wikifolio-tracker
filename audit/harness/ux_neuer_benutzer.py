@@ -7,7 +7,7 @@ def oeffne(page, name):
         page.get_by_role("button", name="☰ Menü").click(); br.warte_ruhe(page)
     page.locator(".st-key-nav_menue button", has_text=name).first.click(); br.warte_ruhe(page, 60); page.wait_for_timeout(500)
 S = sys.argv[1]
-ANS = sys.argv[2].split(",") if len(sys.argv) > 2 else ["Depot", "Einstellungen", "Chronik", "Musterdepot", "Vermögen", "Seit 2026", "Seit 2021", "Candles",
+ANS = sys.argv[2].split(",") if len(sys.argv) > 2 else ["Depot", "Depot verwalten", "Chronik", "Musterdepot", "Vermögen", "Seit 2026", "Seit 2021", "Candles",
        "Prognose", "Szenarien", "Portfolio Builder", "Investment-Scanner", "Investment Scanner Pro", "Planer",
        "Watchlist", "Abfindung", "Zinseszins"]
 with sync_playwright() as p:

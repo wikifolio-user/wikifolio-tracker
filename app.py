@@ -2729,7 +2729,7 @@ AKTUALISIERUNG_ENDE = 23            # letzte Aktualisierung am Tag
 NAV_PRUEF_SEK = 15 * 60             # offene Seite prueft alle 15 Min., ob ein Termin faellig ist
 
 ANSICHT_DEPOT = "🏠 Depot"
-ANSICHT_EINST = "⚙️ Einstellungen"
+ANSICHT_EINST = "⚙️ Einstellungen"   # interner Schluessel (Freigaben je Benutzer) - angezeigt: "Depot verwalten"
 ANSICHT_MUSTER = "📦 Musterdepot"    # aus dem Portfolio-Planer erstellt - Button nur, wenn eines existiert
 ANSICHT_ABFINDUNG = "💶 Abfindungsrechner"
 ANSICHT_ZINS = "🧮 Zinseszinsrechner"
@@ -2763,7 +2763,7 @@ ANSICHTEN = [
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
-    ANSICHT_EINST: "⚙️ Einstellungen",
+    ANSICHT_EINST: "🛠️ Depot verwalten",
     "📈 Vermögens- & Substanzaufbau": "📈 Vermögen",
     "🔍 Seit 01.01.2026": "🔍 Seit 2026",
     "🔎 Seit 01.01.2021": "🔎 Seit 2021",
@@ -2784,7 +2784,7 @@ ANSICHT_KURZ = {
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
     ANSICHT_DEPOT: "🏠 Test-Depot",
-    ANSICHT_EINST: "⚙️ Einstellungen",
+    ANSICHT_EINST: "🛠️ Depot verwalten",
     "📝 Trader-Log (Trades & Kommentare)": "📝 Chronik",
     "📈 Vermögens- & Substanzaufbau": "📈 Vermögensaufbau",
     "🔍 Seit 01.01.2026": "🔍 Performance > 2026",
@@ -2810,7 +2810,7 @@ NAV_TITEL = {
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
 NAV_ZEILEN = [
-    ("Depot", [ANSICHT_DEPOT, ANSICHT_EINST, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_MUSTER]),
+    ("Depot", [ANSICHT_DEPOT, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
@@ -6355,7 +6355,7 @@ def render_dashboard():
             '<div class="hero-label">Mein Depot</div>'
             '<div class="price-line"><span class="hero-val">Noch kein eigenes Depot</span></div>'
             '<div class="card-footnote">Lege deine erste Position an – sie wird für deine nächste '
-            'Anmeldung gespeichert. Sparrate und Entnahme findest du unter ⚙️ Einstellungen.</div>'
+            'Anmeldung gespeichert. Sparrate und Entnahme findest du unter 🛠️ Depot verwalten.</div>'
             '</div>', unsafe_allow_html=True)
         with st.expander("➕ Erste Position anlegen", expanded=True):
             positions_anlage_formular("leer")
@@ -6451,7 +6451,9 @@ def render_dashboard():
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
-    st.markdown('<div class="abschnitt">⚙️ Einstellungen</div>', unsafe_allow_html=True)
+    st.markdown('<div class="abschnitt">🛠️ Depot verwalten</div>', unsafe_allow_html=True)
+    st.caption("Positionen anlegen und ändern, Sparrate und Entnahme, Beobachtungsliste und System-Status "
+               "deines Depots.")
 
     with st.expander("🛠️ Sparrate und Entnahme anpassen", expanded=False):
         # Felder bewusst untereinander (keine Spalten) - auf dem Smartphone
