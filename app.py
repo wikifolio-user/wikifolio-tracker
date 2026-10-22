@@ -6,6 +6,7 @@ import re
 import html
 import logging
 import traceback
+import uuid
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
@@ -1044,6 +1045,10 @@ st.markdown("""
             min-height: 44px !important; height: auto !important; }
         [data-testid="stNumberInputField"], [data-testid="stTextInputRootElement"] input { min-height: 44px !important; }
         [data-testid="stTabs"] [role="tab"] { min-height: 44px !important; }
+        /* "?"-Hilfe: sichtbar 16 px, Tippflaeche 44 px (360°-Pruefung) */
+        [data-testid="stTooltipIcon"] { position: relative; }
+        [data-testid="stTooltipIcon"]::before { content: ""; position: absolute; inset: -14px; }
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 44px !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1239,7 +1244,15 @@ def notify_app_error(context, exc):
 
 
 # --- ZAHLENFORMATIERUNG (Punkt = Tausender, Komma = Dezimal) ---
+def _kaufm(val, dec=2):
+    """Kaufmaennisch runden (0,5 aufwaerts, ab der Dezimaldarstellung): 2,675 -> 2,68 statt 2,67 bei der
+    binaeren Gleitkomma-Rundung (360°-Pruefung F-07). -> float"""
+    from decimal import ROUND_HALF_UP, Decimal
+    return float(Decimal(repr(float(val))).quantize(Decimal(1).scaleb(-dec), rounding=ROUND_HALF_UP))
+
+
 def fmt(val, dec=2):
+    val = _kaufm(val, max(dec, 0))
     if dec > 0:
         s = f"{val:,.{dec}f}"
     else:
@@ -1250,13 +1263,13 @@ def fmt(val, dec=2):
 def fmt_vz(val, dec=2):
     """Wie fmt, aber immer mit Vorzeichen: +1.234,00€ / -500,00€ (Audit DEP-13).
     Nie '+-'; Werte, die auf 0 runden, erscheinen als +0,00€ (kein '-0,00€')."""
-    v = round(float(val), dec) + 0.0
+    v = _kaufm(val, dec) + 0.0
     return ("+" if v >= 0 else "") + fmt(v, dec)
 
 
 def vz_zahl(wert, nachkomma=2):
     """Deutsche Zahl mit Vorzeichen ohne Einheit: +1.234,56 / -0,50 (Audit DEP-13)."""
-    v = round(float(wert), nachkomma) + 0.0
+    v = _kaufm(wert, nachkomma) + 0.0
     s = f"{v:+,.{nachkomma}f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -1523,13 +1536,49 @@ def depot_kennzahlen_real(stueck_real, stueck_sparplan, kurs, einstand, ausgezah
             "rendite_pct": (gewinn / einstand * 100) if einstand else 0.0}
 
 
-def rendite_pa_seit_kauf(einstand, ergebnis_wert, kaufdatum, heute):
+def rendite_pa_geldgewichtet(zahlungen, endwert, heute):
+    """Interner Zinsfuss (XIRR) in % p. a.: zahlungen = [(datum, betrag)] mit Einzahlungen positiv
+    (Startkapital, Sparraten) und Auszahlungen negativ (Entnahmen); endwert = Depotwert am Tag heute.
+    Jede Zahlung zaehlt ab ihrem eigenen Datum - eine Sparrate von gestern hatte keine Zeit zu wachsen.
+    -> Rate oder None (keine Loesung / keine Einzahlung)."""
+    fluss = [(pd.Timestamp(d).normalize(), float(b)) for d, b in zahlungen or [] if b]
+    if not fluss or sum(b for _, b in fluss if b > 0) <= 0 or endwert is None or endwert < 0:
+        return None
+    t_end = pd.Timestamp(heute).normalize()
+    jahre = [max((t_end - d).days, 0) / 365.25 for d, _ in fluss]
+
+    def wert_am_ende(r):          # Endwert der Zahlungen bei Rate r minus tatsaechlicher Endwert
+        return sum(b * (1 + r) ** j for (_, b), j in zip(fluss, jahre)) - endwert
+
+    lo, hi = -0.9999, 10.0
+    if wert_am_ende(lo) > 0 or wert_am_ende(hi) < 0:
+        return None
+    for _ in range(200):
+        mitte = (lo + hi) / 2
+        if wert_am_ende(mitte) > 0:
+            hi = mitte
+        else:
+            lo = mitte
+    return (lo + hi) / 2 * 100
+
+
+def rendite_pa_seit_kauf(einstand, ergebnis_wert, kaufdatum, heute, zahlungen=None, depotwert=None):
     """Ø-Rendite p.a. seit Kauf fuer Kachel UND Vergleichstabelle (Audit A-08, eine Quelle).
     ergebnis_wert = Depotwert + bereits ausgezahlte Entnahmen. Ab 1 Jahr jaehrlich, darunter
     ab 30 Tagen aus der Ø-Monatsrendite hochgerechnet (Nutzerentscheid DEP-08), sonst None.
+    Mit zahlungen (Sparraten/Entnahmen mit Datum, siehe rendite_pa_geldgewichtet) und depotwert:
+    geldgewichtet (XIRR) - sonst wuerde jede Sparrate so gerechnet, als laege sie seit dem Kauf im
+    Depot, und die Rendite fiele viel zu niedrig aus (360°-Pruefung F-01).
     -> (rate_pa | None, hochgerechnet: bool)"""
     if not einstand or einstand <= 0 or ergebnis_wert is None or ergebnis_wert <= 0:
         return None, False
+    if zahlungen and depotwert is not None:
+        erste = min(pd.Timestamp(d) for d, _ in zahlungen).date()
+        tage = (heute - erste).days
+        if tage < 30:
+            return None, False
+        r = rendite_pa_geldgewichtet(zahlungen, depotwert, heute)
+        return (r, tage < 365) if r is not None else (None, False)
     _, monatlich, jaehrlich, _ = berechne_performance_kennzahlen(einstand, ergebnis_wert, kaufdatum, heute)
     if jaehrlich is not None:
         return jaehrlich, False
@@ -1974,8 +2023,8 @@ def chronik_eintrag_global(kategorie, titel, inhalt="", schluessel=None):
 
 def _de_zahl(x, nk=2):
     try:
-        return f"{float(x):,.{nk}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (TypeError, ValueError):
+        return f"{_kaufm(x, nk):,.{nk}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (TypeError, ValueError, ArithmeticError):
         return str(x)
 
 
@@ -3044,6 +3093,10 @@ NAV_CSS = """
     white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis;
     color: #FFFFFF !important; letter-spacing: 0.2px;
     text-shadow: none !important;     /* Schatten wuerde hinter Emojis dunkle Kaestchen erzeugen */
+}
+/* sehr schmale Telefone (iPhone SE 1. Gen., 320 px): lange Namen zweizeilig statt ueber den Rand */
+@media (max-width: 340px) {
+    .st-key-nav_menue [data-testid="stButton"] button p { white-space: normal !important; }
 }
 /* Antippen/Hover: Taste hebt sich, Kante und Leuchten werden staerker */
 .st-key-nav_menue [data-testid="stButton"] button:hover,
@@ -5339,7 +5392,8 @@ def render_dashboard():
         kopf = "".join(f'<th class="{"pt-num" if a == "r" else "pt-wert"}">{t}</th>' for t, a in spalten)
         rumpf = "".join("<tr>" + "".join(f'<td class="{"pt-num" if a == "r" else ""}">{z}</td>'
                                          for z, (_, a) in zip(r, spalten)) + "</tr>" for r in zeilen)
-        st.markdown(f'<div class="ue-wrap"><table class="pt pt-kompakt ks-mini"><thead><tr>{kopf}</tr></thead>'
+        st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                    f'<table class="pt pt-kompakt ks-mini"><thead><tr>{kopf}</tr></thead>'
                     f'<tbody>{rumpf}</tbody></table></div>', unsafe_allow_html=True)
 
     @st.fragment
@@ -5990,8 +6044,15 @@ def render_dashboard():
     ausgezahlt_ist = _real["ausgezahlt"]
     gewinn_real = _real["gewinn"]
     rendite_real_pct = _real["rendite_pct"]
+    # Zahlungen mit Datum: Startkapital am Kaufdatum, jede ausgefuehrte Sparrate am Kauftag,
+    # jede ausgefuehrte Entnahme am Termin (Auszahlung) - fuer die geldgewichtete Rendite p. a.
+    _zahlungen = ([(kaufdatum_aktiv, startkapital_aktiv)] if startkapital_aktiv and kaufdatum_aktiv else [])
+    _zahlungen += [(k[0], k[1]) for k in sparplan_kaufliste]
+    if entnahme_rate and _letzter_kurstag is not None:
+        _zahlungen += [(t, -entnahme_rate) for t in entnahme_termine_liste if pd.Timestamp(t) <= _letzter_kurstag]
     rendite_pa_real, rendite_pa_hochgerechnet = rendite_pa_seit_kauf(
-        einstand_aktiv, depotwert_real_ist + ausgezahlt_ist, kaufdatum_aktiv, heute_date)
+        einstand_aktiv, depotwert_real_ist + ausgezahlt_ist, kaufdatum_aktiv, heute_date,
+        zahlungen=_zahlungen if len(_zahlungen) > 1 else None, depotwert=depotwert_real_ist)
 
     kumulierte_sparrate_marktwert = zusaetzliche_stueckzahl_sparplan * aktueller_kurs
 
@@ -6102,8 +6163,11 @@ def render_dashboard():
 
         prefix trennt die session_state-Keys, damit jede Position ihren
         eigenen, unabhaengigen Suchzustand hat."""
+        # Schluessel mit Zaehler: nach dem Speichern bekommt das Feld einen neuen Schluessel und ist
+        # wirklich leer - sonst schickt der Browser den alten Begriff erneut und das naechste
+        # Formular uebernaehme wieder WKN/Kursquelle des alten Treffers (360°-Pruefung F-04)
         suchbegriff = st.text_input(
-            label, key=f"{prefix}_suche",
+            label, key=f"{prefix}_suche_{st.session_state.get(f'{prefix}_nr', 0)}",
             placeholder="z. B. A0LC12, IE00B4L5Y983 oder MSCI World",
         )
 
@@ -6136,6 +6200,12 @@ def render_dashboard():
             f"ISIN {gewaehlt['isin'] or '–'} · aktuell {kurs_txt}"
         )
         return gewaehlt
+
+    def suche_zuruecksetzen(prefix):
+        """Suchblock leeren (neues, leeres Suchfeld; Treffer und Auswahl vergessen)."""
+        for k in (f"{prefix}_letzter", f"{prefix}_treffer", f"{prefix}_wahl"):
+            st.session_state.pop(k, None)
+        st.session_state[f"{prefix}_nr"] = st.session_state.get(f"{prefix}_nr", 0) + 1
 
     def positions_anlage_formular(prefix):
         """Neue Position anlegen (Suche + Formular). prefix trennt die Schluessel - das
@@ -6185,15 +6255,14 @@ def render_dashboard():
                         )
                     else:
                         _p_anlage = {
-                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
+                            "id": f"pos-{uuid.uuid4().hex[:12]}",     # eindeutig, auch bei zwei Anlagen je Sekunde
                             "name": neu_name, "wkn": neu_wkn,
                             "instrument_id": int(neu_inst) if neu_inst else None,
                             "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
                             "startkapital": float(neu_kapital),
                         }
                         if aendere_positionen(lambda l: l + [_p_anlage], "position angelegt [skip ci]"):
-                            for k in (f"{prefix}_suche", f"{prefix}_letzter", f"{prefix}_treffer", f"{prefix}_wahl"):
-                                st.session_state.pop(k, None)
+                            suche_zuruecksetzen(prefix)
                             if test_kurs is not None:
                                 st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
                             else:
@@ -6525,6 +6594,7 @@ def render_dashboard():
                                               if lbl != "seit Kauf"}))
 
             p_tage = max(1, (heute_date - p_kaufdatum).days)
+            p_pa_ist, p_pa_hoch = rendite_pa_seit_kauf(p_einstand, p_wert, p_kaufdatum, heute_date)
             # Fuer die Prognose die Produkt-Rendite (Median); Rueckfall auf die eigene
             # Rendite seit Kauf: ab 1 Jahr realisiert p.a., darunter ab 1 Monat aus der
             # Ø-Monatsrendite hochgerechnet, sonst 0 % (Audit DEP-08 / Nutzerentscheid).
@@ -6557,9 +6627,12 @@ def render_dashboard():
                 f'<div class="hero-label">{_h(pos.get("name", "Position"))} · {_h(pos.get("wkn", ""))}</div>'
                 '<div class="price-line">'
                 f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
-                f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a.'
-                f'{" (hochgerechnet)" if (_p_hinweis or "").startswith("Hochgerechnet") else ""}</span>'
-                f'<span class="stat-chip-val">{_de_zahl(p_prognose_pa, 1)} %</span></span>'
+                # wie bei der Hauptposition: erzielte Rendite seit Kauf, nicht die Prognoserate
+                # (die gehoert in die Prognosen - Audit A-08, 360°-Pruefung F-05)
+                + (f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
+                   f'{" (hochgerechnet)" if p_pa_hoch else ""}</span>'
+                   f'<span class="stat-chip-val">{_de_zahl(p_pa_ist, 1)} %</span></span>'
+                   if p_pa_ist is not None else '') +
                 f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
                 '</div>'
                 f'{perf_zeilen_html(p_perioden_depot, 2)}'
@@ -6907,7 +6980,7 @@ def render_dashboard():
             )
             if v_btn.button("Übernehmen", width="stretch", key="beob_vorlage_btn"):
                 _neu_eintrag = {
-                    "id": f"beob-{int(datetime.datetime.now().timestamp())}",
+                    "id": f"beob-{uuid.uuid4().hex[:12]}",
                     "name": v_wahl, "wkn": "",
                     "instrument_id": _vorschlaege[v_wahl],
                 }
@@ -6944,7 +7017,7 @@ def render_dashboard():
 
                 if b_gespeichert:
                     _b_neu = {
-                        "id": eintrag.get("id") or f"beob-{int(datetime.datetime.now().timestamp())}",
+                        "id": eintrag.get("id") or f"beob-{uuid.uuid4().hex[:12]}",
                         "name": nb_name, "wkn": nb_wkn,
                         "instrument_id": int(nb_inst) if nb_inst else None,
                     }
@@ -6956,9 +7029,7 @@ def render_dashboard():
                         l[j] = _neu
                         return l
                     if aendere_beobachtung(_b_ersetzen, "beobachtung geaendert [skip ci]"):
-                        for k in (f"beob_edit_{b_idx}_suche", f"beob_edit_{b_idx}_letzter",
-                                  f"beob_edit_{b_idx}_treffer", f"beob_edit_{b_idx}_wahl"):
-                            st.session_state.pop(k, None)
+                        suche_zuruecksetzen(f"beob_edit_{b_idx}")
                         st.success("Gespeichert.")
                         st.rerun()
                     else:
@@ -7009,14 +7080,12 @@ def render_dashboard():
                         )
                     else:
                         _b_anlage = {
-                            "id": f"beob-{int(datetime.datetime.now().timestamp())}",
+                            "id": f"beob-{uuid.uuid4().hex[:12]}",
                             "name": bneu_name, "wkn": bneu_wkn,
                             "instrument_id": int(bneu_inst),
                         }
                         if aendere_beobachtung(lambda l: l + [_b_anlage], "beobachtung angelegt [skip ci]"):
-                            for k in ("beob_neu_suche", "beob_neu_letzter",
-                                      "beob_neu_treffer", "beob_neu_wahl"):
-                                st.session_state.pop(k, None)
+                            suche_zuruecksetzen("beob_neu")
                             st.success(f"„{bneu_name}“ hinzugefügt "
                                        f"(aktueller Kurs {de_zahl(b_test)} €).")
                             st.rerun()
@@ -7092,7 +7161,7 @@ def render_dashboard():
 
                 if gespeichert:
                     _p_neu = {
-                        "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
+                        "id": pos.get("id") or f"pos-{uuid.uuid4().hex[:12]}",
                         "name": n_name,
                         "wkn": config.WKN if ist_haupt else n_wkn,
                         "instrument_id": (int(config.LS_INSTRUMENT_ID) if ist_haupt
@@ -7108,31 +7177,44 @@ def render_dashboard():
                         l[j] = _neu
                         return l
                     if aendere_positionen(_p_ersetzen, "position geaendert [skip ci]"):
-                        for k in (f"edit_{idx}_suche", f"edit_{idx}_letzter",
-                                  f"edit_{idx}_treffer", f"edit_{idx}_wahl"):
-                            st.session_state.pop(k, None)
+                        suche_zuruecksetzen(f"edit_{idx}")
                         st.success("Gespeichert.")
                         st.rerun()
                     else:
                         st.error("Speichern fehlgeschlagen (kein persistenter State?).")
 
+                # Admin: die Hauptposition bleibt immer; normale Benutzer duerfen alles loeschen
+                _min_rest = 0 if eigen else 1
+                _frage = f"pos_del_frage_{pos.get('id', idx)}"
                 if geloescht:
-                    # Admin: die Hauptposition bleibt immer; normale Benutzer duerfen alles loeschen
-                    _min_rest = 0 if eigen else 1
                     if len(alle_positionen) <= _min_rest:
                         st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
                     else:
-                        def _p_entfernen(l, _alt=pos, _i=idx, _min=_min_rest):
-                            j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
-                            if j is None or len(l) <= _min:
-                                return None
-                            l.pop(j)
-                            return l
-                        if aendere_positionen(_p_entfernen, "position geloescht [skip ci]"):
-                            st.success("Gelöscht.")
-                            st.rerun()
-                        else:
-                            st.error("Löschen fehlgeschlagen (kein persistenter State?).")
+                        st.session_state[_frage] = True      # erst nachfragen (360°-Pruefung F-03)
+
+            # Rueckfrage ausserhalb des Formulars - wie beim Loeschen eines Benutzers
+            if st.session_state.get(_frage):
+                st.warning(f"„{pos.get('name', '')}“ wirklich löschen? Kaufdatum, Kaufkurs und Kapital "
+                           "dieser Position gehen verloren.")
+                j1, j2 = st.columns(2)
+                if j2.button("Abbrechen", key=f"pos_del_nein_{pos.get('id', idx)}", width="stretch"):
+                    st.session_state.pop(_frage, None)
+                    st.rerun()
+                if j1.button("🗑️ Endgültig löschen", key=f"pos_del_ja_{pos.get('id', idx)}", width="stretch",
+                             type="primary"):
+                    st.session_state.pop(_frage, None)
+
+                    def _p_entfernen(l, _alt=pos, _i=idx, _min=_min_rest):
+                        j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
+                        if j is None or len(l) <= _min:
+                            return None
+                        l.pop(j)
+                        return l
+                    if aendere_positionen(_p_entfernen, "position geloescht [skip ci]"):
+                        st.success("Gelöscht.")
+                        st.rerun()
+                    else:
+                        st.error("Löschen fehlgeschlagen (kein persistenter State?).")
 
         # --- Neue Position anlegen ---
         st.markdown("---")
@@ -7356,6 +7438,10 @@ def render_dashboard():
                     gesamt, monatlich, jaehrlich, _ = berechne_performance_kennzahlen(
                         einstand_aktiv, depotwert_real_ist + ausgezahlt_ist, kaufdatum_aktiv, heute_date
                     )
+                    # Ø/Jahr und Ø/Monat aus derselben (geldgewichteten) Rendite wie die Kachel
+                    jaehrlich = rendite_pa_real if not rendite_pa_hochgerechnet else None
+                    monatlich = (((1 + rendite_pa_real / 100) ** (1 / 12) - 1) * 100
+                                 if rendite_pa_real is not None else None)
                     performance_liste_haupt.append({
                         "Wert": f"Hauptindizes Global ({config.WKN})",
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": gewinn_real,

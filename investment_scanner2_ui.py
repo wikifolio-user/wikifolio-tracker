@@ -42,7 +42,8 @@ table.is2 th { text-align:left; color:#9AA0A6; font-size:.7rem; letter-spacing:.
 table.is2 td { padding:6px 8px; border-bottom:1px solid #1A1E24; vertical-align:top; }
 table.is2 .r { text-align:right; white-space:nowrap; }
 table.is2 .m { color:#9AA0A6; font-size:.74rem; }
-.is2-wrap { overflow-x:auto; }
+.is2-wrap, .is2-scroll { overflow-x:auto; }
+@media (max-width: 420px) { table.is2 td.nm { min-width:110px; } table.is2 td, table.is2 th { padding:6px 5px; } }
 .is2-wrap table.is2 { min-width:620px; }
 table.is2 td.nm { min-width:160px; }
 table.is2 .nr { width:36px; }
@@ -202,7 +203,8 @@ def _tabelle(kopf, zeilen, rechts=(), breit=True):
     th = "".join(f'<th class="{k}">{_esc(t)}</th>' for t, k in kopf)
     tr = "".join("<tr>" + "".join(f'<td class="{k}">{z}</td>' for (_, k), z in zip(kopf, zeile)) + "</tr>"
                  for zeile in zeilen)
-    st.markdown(f'<div class="{"is2-wrap" if breit else ""}"><table class="is2"><thead><tr>{th}</tr></thead>'
+    st.markdown(f'<div class="{"is2-wrap" if breit else "is2-scroll"}" tabindex="0" role="region" '
+                f'aria-label="Tabelle (seitlich scrollbar)"><table class="is2"><thead><tr>{th}</tr></thead>'
                 f'<tbody>{tr}</tbody></table></div>', unsafe_allow_html=True)
 
 

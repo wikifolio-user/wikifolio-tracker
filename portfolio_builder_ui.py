@@ -70,6 +70,8 @@ CSS = """
 .pb-bew { white-space:nowrap; } .pb-bew-leer { color:var(--label,#AAB1BE); }
 .pb-tab i { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:7px; }
 .pb-wrap { overflow-x:auto; }
+/* der Rahmen (.pb-wrap, per Tastatur fokussierbar) scrollt - nicht die Tabelle selbst (globale Tabellenregel) */
+[data-testid="stMarkdownContainer"] .pb-wrap table.pb-tab { display:table; overflow:visible; }
 @media (max-width: 480px) { .pb-tab .kurs { display:none; } }
 .pb-hinweis { font-size:.8rem; color:var(--label,#AAB1BE); line-height:1.45; }
 /* Eingabereihen: Desktop 4 nebeneinander, Handy 2 */

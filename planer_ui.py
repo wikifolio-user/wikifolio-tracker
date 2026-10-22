@@ -125,7 +125,9 @@ CSS = """
 .pl-hinweis { font-size: 0.8rem; color: var(--label, #8A9099); margin: -2px 0 10px 2px;
               letter-spacing: 0.3px; }
 .pl-badge { display: inline-block; font-size: 0.8rem; font-weight: 700; padding: 2px 7px;
-            border-radius: 999px; margin: 1px 4px 1px 0; white-space: nowrap; }
+            border-radius: 999px; margin: 1px 4px 1px 0; white-space: nowrap; max-width: 100%; }
+/* lange Hinweise duerfen umbrechen (sonst laufen sie auf dem Handy seitlich aus dem Bild) */
+.pl-badge.pl-warn, .pl-badge.pl-info { white-space: normal; border-radius: 10px; }
 .pl-warn { background: rgba(245, 185, 66, 0.14); color: #F5B942; border: 1px solid rgba(245, 185, 66, 0.4); }
 .pl-info { background: rgba(76, 154, 255, 0.12); color: #8DBBFF; border: 1px solid rgba(76, 154, 255, 0.35); }
 .pl-gut { color: #16C784; } .pl-schlecht { color: #EA3943; }
@@ -1287,8 +1289,9 @@ def _rahmen(m, eingebettet=False):
                                                              "(nach allen Entnahmen)."))
         if eingebettet:
             if float(rahmen["startkapital"] or 0) <= 0 and float(rahmen.get("sparrate_monat") or 0) <= 0:
-                st.error("Bitte ein Startkapital oder eine monatliche Sparrate eingeben – sonst gibt es nichts zu "
-                         "rechnen.")
+                # Hinweis statt Fehler: bei einem neuen Benutzer sind die Felder bewusst leer (360°-Pruefung)
+                st.info("Bitte ein Startkapital oder eine monatliche Sparrate eingeben – sonst gibt es nichts zu "
+                        "rechnen.")
             elif 0 < float(rahmen.get("zielvermoegen") or 0) <= float(rahmen["startkapital"] or 0) \
                     and int(rahmen["horizont_jahre"] or 0) > 0:
                 st.info("Das Zielvermögen liegt nicht über dem Startkapital – es ist schon erreicht.")
