@@ -742,6 +742,17 @@ st.markdown("""
     .pt.wk .wk-rang { left: 0; width: 44px; min-width: 44px; max-width: 44px; box-sizing: border-box;
                       box-shadow: none; }
     .pt.wk .wk-name { left: 44px; width: auto; min-width: 150px; max-width: 220px; }
+    /* iPad hochkant: etwas engere Spalten, damit alle Zeitraeume ohne Wischen passen */
+    @media (min-width: 701px) and (max-width: 1100px) {
+        .pt.wk td, .pt.wk thead th { padding-left: 6px; padding-right: 6px; }
+        .pt.wk .wk-rang { width: 36px; min-width: 36px; max-width: 36px; }
+        .pt.wk .wk-name { left: 36px; min-width: 130px; max-width: 170px; }
+    }
+    @media (min-width: 701px) and (max-width: 800px) {
+        .pt.wk td, .pt.wk thead th { padding-left: 4px; padding-right: 4px; }
+        .pt.wk .wk-name { min-width: 112px; max-width: 140px; }
+        .pt.wk .pt-num { font-size: 0.76rem; }
+    }
     @media (max-width: 700px) { .pt.wk .wk-name { min-width: 128px; max-width: 150px; } }
     .q-balken { margin: 4px 0 14px; }
     .q-b-zeile {

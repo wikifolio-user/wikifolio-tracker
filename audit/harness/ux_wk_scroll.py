@@ -4,9 +4,10 @@ import br
 from playwright.sync_api import sync_playwright
 from ux_wikifolios import oeffne
 S = sys.argv[1]
-for w in (390, 1440):
+BREITEN = [int(x) for x in sys.argv[2].split(',')] if len(sys.argv) > 2 else [390, 1440]
+for w in BREITEN:
     with sync_playwright() as p:
-        b, ctx, page = br.start(p, w, 900, w < 600)
+        b, ctx, page = br.start(p, w, 1180 if w < 1100 else 900, w < 1100)
         br.login(page, "neu", "Neu-Test-Pass-12"); page.wait_for_timeout(1500)
         oeffne(page, "Watchlist")
         page.locator("[data-testid=stButtonGroup] button", has_text="Wikifolios").first.click(); page.wait_for_timeout(1500); br.warte_ruhe(page)
