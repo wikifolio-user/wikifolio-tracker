@@ -8256,7 +8256,10 @@ _LADE_JS = """
       /* reine Navigation (Ansicht/Schritt/Unterseite): Inhalt nicht abdunkeln */
       'html.lade-still [data-stale="true"], html.lade-still .stale-element { opacity:1 !important; transition:none !important; }' +
       /* kurze Neuberechnungen (die meisten Klicks) nicht abdunkeln - erst nach 1,2 s */
-      'html.lade-js [data-stale="true"], html.lade-js .stale-element { transition:opacity .25s ease 1.2s !important; }';
+      'html.lade-js [data-stale="true"], html.lade-js .stale-element { transition:opacity .25s ease 1.2s !important; }' +
+      /* Ansichtswechsel ueber das Menue: die alte Ansicht (z. B. die Menue-Kacheln) bis zum Ende des Aufbaus
+         ganz ausblenden - halb durchsichtig und ohne ihr Layout wirkte sie wie ein verzerrtes Bild */
+      'html.lade-wechsel [data-stale="true"], html.lade-wechsel .stale-element { display:none !important; }';
     D.head.appendChild(st);
     var b = D.createElement('div');
     b.id = 'lade-banner';
@@ -8276,10 +8279,12 @@ _LADE_JS = """
     /* Klicks auf reine Navigation (Container mit Key "pl_nav...") zeigen keinen Ladebalken:
        die Seite wird zwar neu gerechnet, das dauert aber nur Sekundenbruchteile. Dauert es
        ausnahmsweise laenger als 4 s, erscheint der Balken doch. */
-    var navKlick = 0, still = false;
+    var navKlick = 0, still = false, menueKlick = 0, wechsel = false;
     function merkeNav(e) {
       var t = e.target;
       if (t && t.closest && t.closest('[class*="st-key-pl_nav"]')) navKlick = Date.now();
+      /* Kachel im Menue oder Knopf "Menue" in der Kopfleiste: Wechsel der Ansicht */
+      if (t && t.closest && t.closest('.st-key-nav_menue button, .st-key-nav_menue_btn')) menueKlick = Date.now();
     }
     D.addEventListener('pointerdown', merkeNav, true);
     D.addEventListener('keydown', merkeNav, true);
@@ -8326,10 +8331,12 @@ _LADE_JS = """
           still = (Date.now() - navKlick) < 2500;
           D.documentElement.classList.toggle('lade-still', still);
         }   /* sonst: laeuft vom bisherigen Stand weiter */
+        if ((Date.now() - menueKlick) < 2500) { wechsel = true; D.documentElement.classList.add('lade-wechsel'); }
         if (ende) { clearTimeout(ende); ende = null; }
         timer = setInterval(tick, 100);
       } else if (!laeuft && timer) {
         fertig();
+        if (wechsel) { wechsel = false; menueKlick = 0; D.documentElement.classList.remove('lade-wechsel'); }
         if (still) { still = false; navKlick = 0; setTimeout(function () {
           if (!timer) D.documentElement.classList.remove('lade-still'); }, 400); }
       }
