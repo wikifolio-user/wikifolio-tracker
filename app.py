@@ -944,6 +944,14 @@ st.markdown("""
         overflow-wrap: break-word;
     }
     [data-testid="stMetricValue"] { font-size: clamp(1.25rem, 5.2vw, 2.25rem) !important; line-height: 1.15 !important; }
+    /* Depot | Kurse: gleich hohe Kopfzeilen (Titel links, Auswahl rechts), eine durchgehende Linie */
+    .st-key-depot_kopf_links, .st-key-depot_kopf_rechts {
+        min-height: 54px; justify-content: center; margin: 6px 0 4px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.45); padding-bottom: 6px; }
+    .st-key-depot_kopf_links .abschnitt, .st-key-depot_kopf_rechts .abschnitt {
+        border-bottom: none !important; box-shadow: none !important; margin: 0 0 0 2px !important;
+        padding-bottom: 0 !important; }
+    .st-key-depot_kopf_rechts [data-testid="stWidgetLabel"] { display: none !important; }
     /* Depot | Kurse: nebeneinander erst ab 820 px, darunter untereinander */
     @media (max-width: 819px) {
         .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"],
@@ -951,6 +959,7 @@ st.markdown("""
             flex-direction: column !important; flex-wrap: wrap !important; gap: 0.7rem !important; }
         .st-key-depot_spalten [data-testid="stColumn"] {
             width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; }
+        .st-key-depot_kopf_rechts { margin-top: 14px; }
     }
     /* Touch: Plotly-Werkzeugleiste (22-px-Symbole) ausblenden - Zoomen per Fingergeste geht weiter */
     @media (pointer: coarse) { .modebar-container { display: none !important; } }
@@ -6234,8 +6243,12 @@ def render_dashboard():
     # Handy bleibt die Reihenfolge Depot -> Kurse.
     # Eigener Container: die App verhindert Spaltenumbrueche global (Kachel-Raster), hier
     # werden die beiden Spalten unter 820 px per CSS untereinander gestellt (siehe unten).
-    _spalte_depot, _spalte_kurse = st.container(key="depot_spalten").columns([1.1, 1], gap="large")
+    # Beide Spalten gleich breit und mit gleich hoher Kopfzeile (Titel | Auswahl) - die Kacheln
+    # darunter beginnen auf derselben Hoehe.
+    _spalte_depot, _spalte_kurse = st.container(key="depot_spalten").columns([1, 1], gap="large")
     _spalte_depot.__enter__()
+    with st.container(key="depot_kopf_links"):
+        st.markdown('<div class="abschnitt">🏠 Mein Depot</div>', unsafe_allow_html=True)
 
     # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
     if (1 if haupt_aktiv else 0) + len(weitere_positionen) >= 2:
@@ -6319,7 +6332,6 @@ def render_dashboard():
     # Zuerst steht das eigene Ergebnis (Depot gesamt, Positionen), danach die Kurse des
     # Zertifikats und der beobachteten Werte - auf dem Handy war die Depotsumme vorher
     # erst nach der kompletten Kurskachel zu sehen.
-    st.markdown('<div class="abschnitt">📈 Kurse</div>', unsafe_allow_html=True)
     if beobachtung:
         # EIGENES FRAGMENT: beim Umschalten wird NUR dieser Bereich neu
         # gezeichnet, nicht das komplette Dashboard. Vorher lief bei jedem
@@ -6328,9 +6340,6 @@ def render_dashboard():
         @st.fragment
         def _render_kursansicht():
             _zugang_pruefen()      # nur Anmeldung - der Bereich wird auch in anderen Ansichten (verborgen) gebaut
-            # Umschalter bewusst adaptiv:
-            #   bis 3 Werte -> Pills (ein Tap, alles sichtbar)
-            #   ab 4 Werten -> Dropdown (Pills braeuchten sonst 3+ Zeilen)
             # Die WKN wird aus den Beschriftungen entfernt - sie steht ohnehin
             # in der Kachel darunter und macht die Buttons nur breiter.
             def _kurzname(text, fallback=""):
@@ -6350,19 +6359,17 @@ def render_dashboard():
                 else:
                     gesehen[opt] = 1
 
-            if len(kurs_optionen) <= 3:
-                auswahl = st.pills(
-                    "Kurs anzeigen für", kurs_optionen, default=kurs_optionen[0],
-                    key="kurs_ansicht_wahl",
-                )
-            else:
-                auswahl = st.selectbox(
+            # Kopfzeile wie links: Titel und Auswahl in einer Zeile
+            with st.container(key="depot_kopf_rechts"):
+                _k_titel, _k_wahl = st.columns([1, 1.6], vertical_alignment="center")
+                _k_titel.markdown('<div class="abschnitt">📈 Kurse</div>', unsafe_allow_html=True)
+                # immer ein Dropdown: Pills liefen in der halben Breite ueber den Rand
+                auswahl = _k_wahl.selectbox(
                     "Wert wählen", kurs_optionen,
-                    key="kurs_ansicht_wahl_select",
+                    key="kurs_ansicht_wahl_select", label_visibility="collapsed",
                 )
 
-            # Abwaehlen ist bei st.pills moeglich - dann auf den ersten Wert
-            # zurueckfallen, damit nie eine leere Ansicht entsteht.
+            # Gemerkte Auswahl gibt es nicht mehr: auf den ersten Wert zurueckfallen.
             if auswahl not in kurs_optionen:
                 auswahl = kurs_optionen[0]
 
@@ -6390,6 +6397,8 @@ def render_dashboard():
 
         _render_kursansicht()
     else:
+        with st.container(key="depot_kopf_rechts"):
+            st.markdown('<div class="abschnitt">📈 Kurse</div>', unsafe_allow_html=True)
         st.markdown(kurs_karte, unsafe_allow_html=True)
     _spalte_kurse.__exit__(None, None, None)
 
