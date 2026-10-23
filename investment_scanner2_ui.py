@@ -21,16 +21,16 @@ ANSATZ_HINT = {"auto": "Innerhalb Risikolimit", "defensiv": "Stabilität im Foku
 CSS = """
 <style>
 .is2-chip { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.72rem; font-weight:700;
-  letter-spacing:.6px; background:#193c38; color:#9af1d4; }
+  letter-spacing:.6px; background:rgba(91,155,255,.16); color:#BFD6FF; border:1px solid rgba(91,155,255,.35); }
 .is2-chip.warn { background:#423523; color:#f4c67b; }
-.pb-karte-t .is2-nr { color:#52d9b3; margin-right:6px; }
+.pb-karte-t .is2-nr { color:var(--accent-hell,#8AB8FF); margin-right:6px; }
 .is2-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:8px 0; }
 .is2-k .k { border:1px solid #262B33; border-radius:12px; padding:10px 12px; background:#0F1115; }
 .is2-k .l { color:#9AA0A6; font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; }
 .is2-k .w { font-size:1.2rem; font-weight:800; margin-top:2px; }
 .is2-k .s { color:#9AA0A6; font-size:.74rem; }
 .is2-szen .c { min-height:150px; border:1px solid #262B33; border-radius:12px; padding:12px; background:#0F1115; }
-.is2-szen .c.sel { border-color:#52d9b3; box-shadow:0 0 12px rgba(82,217,179,.25); }
+.is2-szen .c.sel { border-color:var(--accent,#5B9BFF); background:rgba(91,155,255,.10); box-shadow:none; }
 .is2-szen .c.off { opacity:.55; }
 .is2-szen .t { color:#9AA0A6; font-size:.7rem; text-transform:uppercase; letter-spacing:.6px; }
 .is2-szen .n { font-weight:800; margin-top:2px; }
@@ -460,7 +460,7 @@ def _scores(erg, typen):
     _tabelle([("Faktor", "nm"), ("Wert", "r"), ("", "")],
              [[f'{k} <span class="m">({a["score"].get("weights", E.SCORE_WEIGHTS)[k]} %)</span>', "keine Daten" if v is None else _de(v, 0),
                f'<div class="is2-bar"><div style="width:{0 if v is None else max(0.0, min(100.0, v))}%;'
-               f'background:#52d9b3"></div></div>'] for k, v in a["score"]["details"].items()], breit=False)
+               f'background:var(--accent,#5B9BFF)"></div></div>'] for k, v in a["score"]["details"].items()], breit=False)
     st.caption("Modellheuristik, keine Renditeprognose oder Anlageberatung. Fehlende Faktoren werden nicht geschätzt, "
                "sie senken die Datenabdeckung; Score erst ab 60 % Abdeckung und vorhandener Risikokennzahl.")
 

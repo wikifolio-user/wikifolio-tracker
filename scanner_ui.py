@@ -636,10 +636,10 @@ def _faecher(erg, ziel):
     fig.add_trace(go.Scatter(x=x, y=[z["p90"] for z in v], mode="lines", line=dict(width=0), showlegend=False,
                              hoverinfo="skip"))
     fig.add_trace(go.Scatter(x=x, y=[z["p10"] for z in v], mode="lines", line=dict(width=0), fill="tonexty",
-                             fillcolor="rgba(22,199,132,0.16)", name="10–90 % der Verläufe",
+                             fillcolor="rgba(91,155,255,0.16)", name="10–90 % der Verläufe",
                              customdata=[f"{_eur(z['p10'])} – {_eur(z['p90'])}" for z in v],
                              hovertemplate="10–90 %: %{customdata}<extra></extra>"))
-    fig.add_trace(go.Scatter(x=x, y=[z["p50"] for z in v], mode="lines", line=dict(color="#16C784", width=2.6),
+    fig.add_trace(go.Scatter(x=x, y=[z["p50"] for z in v], mode="lines", line=dict(color="#5B9BFF", width=2.6),
                              name="Median", customdata=[_eur(z["p50"]) for z in v],
                              hovertemplate="Median: %{customdata}<extra></extra>"))
     if ziel > 0:

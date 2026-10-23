@@ -401,15 +401,16 @@ def pruefe_anmeldung(cfg, daten, name, passwort):
 # ---------------------------------------------------------------------------
 LOGIN_CSS = """<style>
 .st-key-login_box { max-width: 420px; margin: 8vh auto 0; padding: 22px 20px; border-radius: 18px;
-                    background: #12151c; border: 1px solid #2c313d; }
+                    background: linear-gradient(180deg, #152236, #0E1826); border: 1px solid #24364F;
+                    box-shadow: 0 14px 34px rgba(2, 8, 20, .45); }
 .login-titel { font-size: 1.4rem; font-weight: 800; color: #fff; margin-bottom: 2px; }
-.login-text { font-size: .85rem; color: #a9a79c; margin-bottom: 14px; }
+.login-text { font-size: .85rem; color: #AEBDD0; margin-bottom: 14px; }
 /* Beschriftung ueber den Feldern */
 .st-key-login_box [data-testid="stTextInput"] label p {
-    font-size: .95rem !important; font-weight: 700 !important; color: #e8e6df !important; }
+    font-size: .95rem !important; font-weight: 700 !important; color: #D5DFEC !important; }
 /* Eingabefelder: heller Kasten mit deutlichem Rahmen */
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] {
-    background: #222836 !important; border: 2px solid #4a5468 !important;
+    background: #0E1826 !important; border: 1px solid #2E4363 !important;
     border-radius: 12px !important; min-height: 52px; transition: border-color .15s, box-shadow .15s; }
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] > div,
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="base-input"] {
@@ -617,9 +618,9 @@ RECHTE_CSS = """<style>
 [class*="st-key-rechte_"] [data-testid="stCheckbox"] label p { font-size: .9rem !important; color: #e8e6df !important; }
 .rechte-info { font-size: .8rem; color: #a9a79c; margin: 2px 0 8px; }
 [class*="st-key-rspeichern_"] button {
-    background: #16C784 !important; border: none !important; min-height: 46px; border-radius: 12px !important;
-    box-shadow: 0 0 10px rgba(22,199,132,.35) !important; }
-[class*="st-key-rspeichern_"] button p { color: #0a0b0d !important; font-weight: 700 !important; font-size: 1rem !important; }
+    background: #5B9BFF !important; border: none !important; min-height: 46px; border-radius: 12px !important;
+    box-shadow: none !important; }
+[class*="st-key-rspeichern_"] button p { color: #071224 !important; font-weight: 700 !important; font-size: 1rem !important; }
 </style>"""
 
 

@@ -8,11 +8,14 @@ showErrorDetails = false
 
 [theme]
 base = "dark"
-backgroundColor = "#0A0B0D"
-secondaryBackgroundColor = "#131519"
-textColor = "#E9EBEF"
-# primaryColor faerbt in Streamlit u.a. Fokusrahmen von Eingabefeldern und
-# Dropdowns. Bewusst Weiss statt Gruen: Gruen/Rot sind in dieser App fuer
-# Kursveraenderungen reserviert - ein gruener Fokusrahmen wuerde dort faelschlich
-# nach "Gewinn" aussehen. Bedienelemente heben sich stattdessen ueber Weiss ab.
-primaryColor = "#FFFFFF"
+# Blau-Design (10/2026): Navy-Grund, blaue Akzente. Gruen/Rot bleiben fuer
+# Kursveraenderungen reserviert - Blau als Bedienfarbe kollidiert damit nicht.
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#0E1826"
+textColor = "#E8EEF6"
+primaryColor = "#5B9BFF"
+linkColor = "#8AB8FF"
+borderColor = "#24364F"
+showWidgetBorder = true
+baseRadius = "12px"
+buttonRadius = "12px"

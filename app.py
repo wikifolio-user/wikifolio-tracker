@@ -844,7 +844,7 @@ st.markdown("""
         padding: 10px 16px 0; display: block;
         font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
         font-size: 1.35rem; font-weight: 700; line-height: 1.2; color: var(--text);
-        background: rgba(10, 11, 13, 0.97); border-bottom: 1px solid var(--line);
+        background: rgba(11, 18, 32, 0.97); border-bottom: 1px solid var(--line);
         box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
         opacity: 0; pointer-events: none;
         animation: ladeein 0.2s ease 0.5s forwards, ladezahl 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
@@ -857,7 +857,7 @@ st.markdown("""
         font-size: 0.9rem; font-weight: 600; color: var(--muted); white-space: nowrap;
         /* Balken: unten im Banner, Fuellung waechst mit --ladebreite */
         background:
-            linear-gradient(var(--up), var(--up)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
+            linear-gradient(var(--accent, #5B9BFF), var(--accent, #5B9BFF)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
             linear-gradient(var(--line), var(--line)) no-repeat 16px 46px / calc(100% - 32px) 9px;
         opacity: 0; pointer-events: none;
         animation: ladeein 0.2s ease 0.5s forwards, ladebalken 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
@@ -879,7 +879,7 @@ st.markdown("""
         position: fixed; top: 0; left: 0; right: 0; z-index: 9999; height: 66px; box-sizing: border-box;
         display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 8px;
         padding: 10px 16px 0; align-content: flex-start;
-        background: rgba(10, 11, 13, 0.97);
+        background: rgba(11, 18, 32, 0.97);
         border-bottom: 1px solid var(--line);
         box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
         backdrop-filter: blur(6px);
@@ -896,7 +896,7 @@ st.markdown("""
         background: var(--line); overflow: hidden;
     }
     .loading-bar-fill {
-        height: 100%; background: var(--up); border-radius: 999px;
+        height: 100%; background: var(--accent, #5B9BFF); border-radius: 999px;
         transition: width 0.25s ease;
     }
     /* Text rechts neben der Prozentzahl, bei Bedarf abgeschnitten */
@@ -1052,6 +1052,134 @@ st.markdown("""
         button[aria-label^="Help for"]::before { content: ""; position: absolute; inset: -14px 0 -14px -28px; }
         [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 44px !important; }
     }
+
+    /* ============================================================
+       BLAU-DESIGN (10/2026) - Vorbild "Portfolio Lab": Navy-Grund, ruhige Karten mit
+       weichen Rahmen, fette Feldbeschriftungen, dunkle Eingabefelder, Blau als Bedienfarbe.
+       Liegt bewusst am Ende und ueberschreibt die frueheren weissen Leucht-Rahmen.
+       Gruen/Rot bleiben ausschliesslich Kursveraenderungen vorbehalten.
+       ============================================================ */
+    :root {
+        --ink: #0B1220; --surface: #111C2C; --surface-2: #0E1826; --line: #22344C;
+        --muted: #7F90A8; --label: #AEBDD0; --text: #E8EEF6;
+        --accent: #5B9BFF; --accent-hell: #8AB8FF; --accent-soft: rgba(91, 155, 255, 0.14);
+        --accent-rand: rgba(91, 155, 255, 0.55);
+        --karte: linear-gradient(180deg, rgba(21, 34, 54, 0.94) 0%, rgba(14, 24, 38, 0.94) 100%);
+    }
+    .stApp {
+        background:
+            radial-gradient(1100px 560px at 88% -6%, rgba(59, 130, 246, 0.20), transparent 62%),
+            radial-gradient(800px 600px at -12% 40%, rgba(37, 99, 235, 0.07), transparent 60%),
+            var(--ink) !important;
+        background-attachment: fixed !important;
+    }
+    [data-testid="stHeader"], [data-testid="stBottomBlockContainer"] { background: transparent !important; }
+
+    /* Karten: Kacheln, Aufklappbereiche und umrandete Bloecke (.karte setzt das Lade-Skript) */
+    .quote, .hero, .karte {
+        background: var(--karte) !important;
+        border: 1px solid var(--line) !important;
+        border-radius: 20px !important;
+        box-shadow: 0 10px 28px rgba(2, 8, 20, 0.35);
+    }
+    .karte { padding: 18px 18px 16px !important; }
+    @media (max-width: 640px) { .karte { padding: 14px 14px 12px !important; } }
+    [data-testid="stExpander"] {
+        background: var(--karte) !important;
+        border: 1px solid var(--line) !important;
+        border-radius: 16px !important;
+        box-shadow: 0 6px 18px rgba(2, 8, 20, 0.28) !important;
+    }
+    [data-testid="stExpander"]:hover { border-color: var(--accent-rand) !important;
+                                       box-shadow: 0 6px 18px rgba(2, 8, 20, 0.28) !important; }
+    [data-testid="stExpander"] summary:hover, [data-testid="stExpander"] summary:hover p { color: var(--accent-hell) !important; }
+
+    /* Feldbeschriftungen: fett und hell wie im Vorbild, nicht als Grossbuchstaben-Ueberschrift */
+    [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label,
+    [data-testid="stSelectbox"] label, [data-testid="stSelectbox"] label p {
+        font-size: 0.9rem !important; font-weight: 600 !important; color: #D5DFEC !important;
+        letter-spacing: 0.1px !important; text-transform: none !important; text-shadow: none !important;
+    }
+
+    /* Eingabefelder: dunkle Flaeche, feiner Rahmen, blauer Fokus */
+    [data-baseweb="input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
+    [data-testid="stDateInputField"], [data-baseweb="base-input"] {
+        background-color: var(--surface-2) !important;
+        border-color: var(--line) !important;
+        border-radius: 12px !important;
+    }
+    [data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within,
+    [data-testid="stNumberInputContainer"]:focus-within {
+        border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important;
+    }
+    [data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"] {
+        background: transparent !important; color: var(--label) !important; border-radius: 10px !important;
+    }
+    [data-testid="stNumberInputStepUp"]:hover, [data-testid="stNumberInputStepDown"]:hover {
+        background: var(--accent-soft) !important; color: var(--accent-hell) !important;
+    }
+
+    /* Auswahlfelder: ruhiger Rahmen statt weissem Leuchten und Puls */
+    [data-testid="stSelectbox"] > div, [data-testid="stSelectbox"] [data-baseweb="select"] {
+        outline: none !important; box-shadow: none !important; animation: none !important;
+        background-color: var(--surface-2) !important; border-radius: 12px !important;
+    }
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+        border: 1px solid var(--line) !important; border-radius: 12px !important;
+        background-color: var(--surface-2) !important;
+    }
+    [data-testid="stSelectbox"] > div:hover [data-baseweb="select"] > div,
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {
+        border-color: var(--accent-rand) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important;
+    }
+    [data-testid="stSelectbox"] > div:hover, [data-testid="stSelectbox"] > div:focus-within { box-shadow: none !important; }
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        background-color: var(--surface-2) !important; border-color: var(--line) !important; border-radius: 12px !important;
+    }
+    [data-testid="stMultiSelect"] [data-tag] { background: var(--accent) !important; }
+    [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * { color: #071224 !important; }
+
+    /* Auswahl-Pillen: gewaehlte Pille blau hinterlegt (wie "Automatisch" im Vorbild) */
+    [data-testid="stButtonGroup"] button {
+        background: var(--surface-2) !important; border: 1px solid var(--line) !important;
+        color: #D5DFEC !important; box-shadow: none !important;
+    }
+    [data-testid="stButtonGroup"] button:hover { border-color: var(--accent-rand) !important; }
+    [data-testid="stButtonGroup"] button[aria-checked="true"],
+    [data-testid="stButtonGroup"] button[aria-pressed="true"] {
+        background: var(--accent-soft) !important; border-color: var(--accent) !important;
+        color: var(--accent-hell) !important; box-shadow: none !important;
+    }
+    [data-testid="stButtonGroup"] button[aria-checked="true"] p,
+    [data-testid="stButtonGroup"] button[aria-pressed="true"] p { color: var(--accent-hell) !important; }
+
+    /* Knoepfe: sekundaer dunkel mit feinem Rahmen, primaer blau */
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button {
+        background: var(--surface-2) !important; border: 1px solid var(--line) !important;
+        border-radius: 12px !important; color: var(--text) !important;
+    }
+    [data-testid="stBaseButton-secondary"]:hover, [data-testid="stBaseButton-secondaryFormSubmit"]:hover,
+    [data-testid="stDownloadButton"] button:hover {
+        border-color: var(--accent-rand) !important; color: var(--accent-hell) !important;
+    }
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"] {
+        background: var(--accent) !important; border-color: var(--accent) !important; border-radius: 12px !important;
+    }
+    [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p,
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) p { color: #071224 !important; }
+
+    /* Reiter: blaue Markierung */
+    [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p { color: var(--accent-hell) !important; }
+
+    /* Hinweisboxen im Blau-Ton */
+    [data-testid="stAlertContentInfo"] { color: #CFE0FA !important; }
+    [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div {
+        background: rgba(91, 155, 255, 0.10) !important; border: 1px solid rgba(91, 155, 255, 0.28) !important;
+        border-radius: 14px !important;
+    }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -2997,8 +3125,8 @@ NAV_CSS = """
     /* gleicher Tasten-Look wie die Kacheln: klarer Rand, 3D-Kante, kein Leuchten */
     display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 6px; padding: 7px 16px;
     border-radius: 999px; font-size: 0.8rem; color: #FFFFFF; font-weight: 700;
-    border: 1px solid rgba(255, 255, 255, 0.85); background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%);
-    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30);
+    border: 1px solid rgba(150, 188, 240, 0.55); background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%);
+    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 .nav-chip b { color: #FFFFFF; font-weight: 700; }
 .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
@@ -3032,7 +3160,7 @@ NAV_CSS = """
 }
 .nav-gruppe::after {
     content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.12));
+    background: linear-gradient(90deg, rgba(138, 184, 255, 0.7), rgba(91, 155, 255, 0.10));
 }
 .nav-wander {
     position: absolute; bottom: 12px; left: 0; white-space: nowrap;
@@ -3078,14 +3206,15 @@ NAV_CSS = """
 .st-key-nav_menue [data-testid="stButton"] button {
     position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
     padding: 8px 6px !important;
-    background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.85) !important;
+    /* Blau-Design: Navy-Taste mit blau schimmernder Kante */
+    background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%) !important;
+    border: 1px solid rgba(150, 188, 240, 0.55) !important;
     transform: translateY(-4px);
     box-shadow:
-        0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 5px 0 #1B1D21, 0 6px 0 #16171A,
-        0 18px 26px rgba(0, 0, 0, 0.7),
-        inset 0 1px 0 rgba(255, 255, 255, 0.30),
-        inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
+        0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 5px 0 #142031, 0 6px 0 #101A28,
+        0 18px 26px rgba(2, 8, 20, 0.7),
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        inset 0 -10px 16px rgba(0, 0, 0, 0.30) !important;
     transition: transform .15s ease, box-shadow .15s ease;
 }
 .st-key-nav_menue [data-testid="stButton"] button > div { min-width: 0; max-width: 100%; }
@@ -3104,12 +3233,12 @@ NAV_CSS = """
 .st-key-nav_menue [data-testid="stButton"] button:hover,
 .st-key-nav_menue [data-testid="stButton"] button:focus-visible {
     transform: translateY(-6px);
-    border-color: #FFFFFF !important;
+    border-color: #8AB8FF !important;
     box-shadow:
-        0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 5px 0 #1B1D21, 0 6px 0 #16171A,
-        0 7px 0 #121315, 0 8px 0 #0E0F11,
-        0 22px 30px rgba(0, 0, 0, 0.75),
-        0 0 3px rgba(255, 255, 255, 0.25),
+        0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 5px 0 #142031, 0 6px 0 #101A28,
+        0 7px 0 #0D1624, 0 8px 0 #0A121E,
+        0 22px 30px rgba(2, 8, 20, 0.75),
+        0 0 10px rgba(91, 155, 255, 0.35),
         inset 0 1px 0 rgba(255, 255, 255, 0.40),
         inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
 }
@@ -3117,8 +3246,8 @@ NAV_CSS = """
 .st-key-nav_menue [data-testid="stButton"] button:active {
     transform: translateY(1px);
     box-shadow:
-        0 1px 0 #282B31,
-        0 6px 12px rgba(0, 0, 0, 0.6),
+        0 1px 0 #1E2E44,
+        0 6px 12px rgba(2, 8, 20, 0.6),
         inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.8rem !important; font-weight: 700 !important; }
@@ -3136,13 +3265,13 @@ NAV_CSS = """
 }
 .st-key-nav_menue .st-key-nav_refresh button {
     width: auto !important; min-height: 34px !important; padding: 2px 18px !important; border-radius: 999px !important;
-    transform: translateY(-2px) !important; border: 1px solid rgba(255, 255, 255, 0.85) !important;
-    background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%) !important;
-    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30) !important;
+    transform: translateY(-2px) !important; border: 1px solid rgba(150, 188, 240, 0.55) !important;
+    background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%) !important;
+    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button:hover {
-    transform: translateY(-3px) !important; border-color: #FFFFFF !important;
-    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30), 0 0 3px rgba(255, 255, 255, 0.25) !important;
+    transform: translateY(-3px) !important; border-color: #8AB8FF !important;
+    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 10px rgba(91, 155, 255, 0.35) !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button:active {
     transform: translateY(1px) !important;
@@ -3164,11 +3293,10 @@ NAV_CSS = """
 
 /* ================= IN EINER ANSICHT: Kopfleiste ================= */
 .st-key-nav_leiste {
-    padding: 6px 8px; border-radius: 16px;
-    background: linear-gradient(165deg, #1E2127, #0E0F12);
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 8px 18px rgba(0, 0, 0, 0.5),
-                0 0 6px rgba(255, 255, 255, 0.35), 0 0 16px rgba(255, 255, 255, 0.14);
+    padding: 6px 8px; border-radius: 18px;
+    background: linear-gradient(165deg, #18263B, #0E1826);
+    border: 1px solid #24364F;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(2, 8, 20, 0.45);
 }
 .st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
                                                        align-items: center !important; }
@@ -3178,15 +3306,15 @@ NAV_CSS = """
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
 .st-key-nav_leiste [data-testid="stButton"] button {
     min-height: 44px !important; min-width: 44px !important; border-radius: 10px !important; padding: 4px 12px !important;
-    white-space: nowrap !important; background: rgba(255, 255, 255, 0.04) !important;
-    border: 1px solid rgba(255, 255, 255, 0.8) !important;
-    box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 14px rgba(255, 255, 255, 0.2) !important;
+    white-space: nowrap !important; background: #0E1826 !important;
+    border: 1px solid #2E4363 !important; box-shadow: none !important;
 }
+.st-key-nav_leiste [data-testid="stButton"] button:hover { border-color: rgba(91, 155, 255, 0.7) !important; }
 .st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; color: #FFFFFF !important; }
 .nav-titel {
     font-size: 1.02rem; font-weight: 700; color: #FFFFFF; line-height: 1.2;
     overflow-wrap: anywhere; text-align: center; letter-spacing: 0.3px;
-    text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+    text-shadow: none;
 }
 .nav-stand { font-size: 0.8rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
 .nav-stand b { color: #FFFFFF; }
@@ -8574,14 +8702,14 @@ _LADE_JS = """
       'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +
       'html.lade-js .loading-overlay { display:none !important; }' +
       '#lade-banner { position:fixed; top:0; left:0; right:0; z-index:10000; height:66px; box-sizing:border-box;' +
-      ' padding:10px 16px 0; background:rgba(10,11,13,.97); border-bottom:1px solid #21252C;' +
+      ' padding:10px 16px 0; background:rgba(11,18,32,.97); border-bottom:1px solid #22344C;' +
       ' box-shadow:0 2px 14px rgba(0,0,0,.6); display:none; pointer-events:none; }' +
       '#lade-banner .lb-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }' +
       '#lade-banner .lb-pct { font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;' +
       ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; flex-shrink:0; }' +
       '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }' +
-      '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#21252C; overflow:hidden; }' +
-      '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#16C784; transition:width .2s linear; }' +
+      '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#1A2A40; overflow:hidden; }' +
+      '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#5B9BFF; transition:width .2s linear; }' +
       /* reine Navigation (Ansicht/Schritt/Unterseite): Inhalt nicht abdunkeln */
       'html.lade-still [data-stale="true"], html.lade-still .stale-element { opacity:1 !important; transition:none !important; }' +
       /* kurze Neuberechnungen (die meisten Klicks) nicht abdunkeln - erst nach 1,2 s */
@@ -8673,6 +8801,19 @@ _LADE_JS = """
     new MutationObserver(pruefe).observe(D.body, { attributes: true, subtree: true,
                                                    attributeFilter: ['data-test-script-state'] });
     pruefe();
+    /* Blau-Design: umrandete Bloecke (st.container(border=True)) als Karte markieren -
+       Streamlit kennzeichnet sie im HTML nicht, erkennbar sind sie nur am Rahmen */
+    var karteTimer = null;
+    function karten() {
+      karteTimer = null;
+      var bl = D.querySelectorAll('[data-testid="stVerticalBlock"]:not(.karte)');
+      for (var i = 0; i < bl.length; i++) {
+        if (parseFloat(getComputedStyle(bl[i]).borderTopWidth) >= 1) bl[i].classList.add('karte');
+      }
+    }
+    new MutationObserver(function () { if (!karteTimer) karteTimer = setTimeout(karten, 80); })
+      .observe(D.body, { childList: true, subtree: true });
+    karten();
   };
   var s = D.createElement('script');
   s.textContent = '(' + code.toString() + ')();';
