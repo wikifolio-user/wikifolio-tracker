@@ -6,6 +6,7 @@ import re
 import html
 import logging
 import traceback
+import uuid
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
@@ -754,6 +755,17 @@ st.markdown("""
         .pt.wk .pt-num { font-size: 0.76rem; }
     }
     @media (max-width: 700px) { .pt.wk .wk-name { min-width: 128px; max-width: 150px; } }
+    /* ETF-/wikifolio-Score: Begruendung als kurze Zeilen, Teilpunkte als Balken */
+    .pt.ks td.ks-grund, .pt.ks th.ks-grund { white-space: normal; min-width: 220px; max-width: 320px;
+                                              text-align: left; font-size: 0.78rem; line-height: 1.35; }
+    .ks-plus, .ks-minus { display: block; }
+    .ks-plus { color: #16C784; }
+    .ks-minus { color: #F5B942; }
+    .ks-bahn { width: 140px; height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px;
+               overflow: hidden; }
+    .ks-bahn > div { height: 100%; background: #16C784; border-radius: 4px; }
+    .pt.ks-mini td { white-space: normal; }
+    .pt.ks-mini td.pt-num { white-space: nowrap; }
     .q-balken { margin: 4px 0 14px; }
     .q-b-zeile {
         display: grid; grid-template-columns: minmax(0, 1fr) 96px 46px;
@@ -832,7 +844,7 @@ st.markdown("""
         padding: 10px 16px 0; display: block;
         font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
         font-size: 1.35rem; font-weight: 700; line-height: 1.2; color: var(--text);
-        background: rgba(10, 11, 13, 0.97); border-bottom: 1px solid var(--line);
+        background: rgba(11, 18, 32, 0.97); border-bottom: 1px solid var(--line);
         box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
         opacity: 0; pointer-events: none;
         animation: ladeein 0.2s ease 0.5s forwards, ladezahl 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
@@ -845,7 +857,7 @@ st.markdown("""
         font-size: 0.9rem; font-weight: 600; color: var(--muted); white-space: nowrap;
         /* Balken: unten im Banner, Fuellung waechst mit --ladebreite */
         background:
-            linear-gradient(var(--up), var(--up)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
+            linear-gradient(var(--accent, #5B9BFF), var(--accent, #5B9BFF)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
             linear-gradient(var(--line), var(--line)) no-repeat 16px 46px / calc(100% - 32px) 9px;
         opacity: 0; pointer-events: none;
         animation: ladeein 0.2s ease 0.5s forwards, ladebalken 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
@@ -867,7 +879,7 @@ st.markdown("""
         position: fixed; top: 0; left: 0; right: 0; z-index: 9999; height: 66px; box-sizing: border-box;
         display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 8px;
         padding: 10px 16px 0; align-content: flex-start;
-        background: rgba(10, 11, 13, 0.97);
+        background: rgba(11, 18, 32, 0.97);
         border-bottom: 1px solid var(--line);
         box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
         backdrop-filter: blur(6px);
@@ -884,7 +896,7 @@ st.markdown("""
         background: var(--line); overflow: hidden;
     }
     .loading-bar-fill {
-        height: 100%; background: var(--up); border-radius: 999px;
+        height: 100%; background: var(--accent, #5B9BFF); border-radius: 999px;
         transition: width 0.25s ease;
     }
     /* Text rechts neben der Prozentzahl, bei Bedarf abgeschnitten */
@@ -1033,7 +1045,141 @@ st.markdown("""
             min-height: 44px !important; height: auto !important; }
         [data-testid="stNumberInputField"], [data-testid="stTextInputRootElement"] input { min-height: 44px !important; }
         [data-testid="stTabs"] [role="tab"] { min-height: 44px !important; }
+        /* "?"-Hilfe: sichtbar 16 px, Tippflaeche 44 px (360°-Pruefung) */
+        /* nur die "?"-Knoepfe selbst - stTooltipIcon umhuellt auch Knoepfe mit Hinweistext (z. B. "Menue");
+           Flaeche waechst nach links/oben/unten, nicht ueber den rechten Bildschirmrand */
+        button[aria-label^="Help for"] { position: relative; }
+        button[aria-label^="Help for"]::before { content: ""; position: absolute; inset: -14px 0 -14px -28px; }
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 44px !important; }
     }
+
+    /* ============================================================
+       BLAU-DESIGN (10/2026) - Vorbild "Portfolio Lab": Navy-Grund, ruhige Karten mit
+       weichen Rahmen, fette Feldbeschriftungen, dunkle Eingabefelder, Blau als Bedienfarbe.
+       Liegt bewusst am Ende und ueberschreibt die frueheren weissen Leucht-Rahmen.
+       Gruen/Rot bleiben ausschliesslich Kursveraenderungen vorbehalten.
+       ============================================================ */
+    :root {
+        --ink: #0B1220; --surface: #111C2C; --surface-2: #0E1826; --line: #22344C;
+        --muted: #7F90A8; --label: #AEBDD0; --text: #E8EEF6;
+        --accent: #5B9BFF; --accent-hell: #8AB8FF; --accent-soft: rgba(91, 155, 255, 0.14);
+        --accent-rand: rgba(91, 155, 255, 0.55);
+        --karte: linear-gradient(180deg, rgba(21, 34, 54, 0.94) 0%, rgba(14, 24, 38, 0.94) 100%);
+    }
+    .stApp {
+        background:
+            radial-gradient(1100px 560px at 88% -6%, rgba(59, 130, 246, 0.20), transparent 62%),
+            radial-gradient(800px 600px at -12% 40%, rgba(37, 99, 235, 0.07), transparent 60%),
+            var(--ink) !important;
+        background-attachment: fixed !important;
+    }
+    [data-testid="stHeader"], [data-testid="stBottomBlockContainer"] { background: transparent !important; }
+
+    /* Karten: Kacheln, Aufklappbereiche und umrandete Bloecke (.karte setzt das Lade-Skript) */
+    .quote, .hero, .karte {
+        background: var(--karte) !important;
+        border: 1px solid var(--line) !important;
+        border-radius: 20px !important;
+        box-shadow: 0 10px 28px rgba(2, 8, 20, 0.35);
+    }
+    .karte { padding: 18px 18px 16px !important; }
+    @media (max-width: 640px) { .karte { padding: 14px 14px 12px !important; } }
+    [data-testid="stExpander"] {
+        background: var(--karte) !important;
+        border: 1px solid var(--line) !important;
+        border-radius: 16px !important;
+        box-shadow: 0 6px 18px rgba(2, 8, 20, 0.28) !important;
+    }
+    [data-testid="stExpander"]:hover { border-color: var(--accent-rand) !important;
+                                       box-shadow: 0 6px 18px rgba(2, 8, 20, 0.28) !important; }
+    [data-testid="stExpander"] summary:hover, [data-testid="stExpander"] summary:hover p { color: var(--accent-hell) !important; }
+
+    /* Feldbeschriftungen: fett und hell wie im Vorbild, nicht als Grossbuchstaben-Ueberschrift */
+    [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label,
+    [data-testid="stSelectbox"] label, [data-testid="stSelectbox"] label p {
+        font-size: 0.9rem !important; font-weight: 600 !important; color: #D5DFEC !important;
+        letter-spacing: 0.1px !important; text-transform: none !important; text-shadow: none !important;
+    }
+
+    /* Eingabefelder: dunkle Flaeche, feiner Rahmen, blauer Fokus */
+    [data-baseweb="input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
+    [data-testid="stDateInputField"], [data-baseweb="base-input"] {
+        background-color: var(--surface-2) !important;
+        border-color: var(--line) !important;
+        border-radius: 12px !important;
+    }
+    [data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within,
+    [data-testid="stNumberInputContainer"]:focus-within {
+        border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important;
+    }
+    [data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"] {
+        background: transparent !important; color: var(--label) !important; border-radius: 10px !important;
+    }
+    [data-testid="stNumberInputStepUp"]:hover, [data-testid="stNumberInputStepDown"]:hover {
+        background: var(--accent-soft) !important; color: var(--accent-hell) !important;
+    }
+
+    /* Auswahlfelder: ruhiger Rahmen statt weissem Leuchten und Puls */
+    [data-testid="stSelectbox"] > div, [data-testid="stSelectbox"] [data-baseweb="select"] {
+        outline: none !important; box-shadow: none !important; animation: none !important;
+        background-color: var(--surface-2) !important; border-radius: 12px !important;
+    }
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+        border: 1px solid var(--line) !important; border-radius: 12px !important;
+        background-color: var(--surface-2) !important;
+    }
+    [data-testid="stSelectbox"] > div:hover [data-baseweb="select"] > div,
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {
+        border-color: var(--accent-rand) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important;
+    }
+    [data-testid="stSelectbox"] > div:hover, [data-testid="stSelectbox"] > div:focus-within { box-shadow: none !important; }
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        background-color: var(--surface-2) !important; border-color: var(--line) !important; border-radius: 12px !important;
+    }
+    [data-testid="stMultiSelect"] [data-tag] { background: var(--accent) !important; }
+    [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * { color: #071224 !important; }
+
+    /* Auswahl-Pillen: gewaehlte Pille blau hinterlegt (wie "Automatisch" im Vorbild) */
+    [data-testid="stButtonGroup"] button {
+        background: var(--surface-2) !important; border: 1px solid var(--line) !important;
+        color: #D5DFEC !important; box-shadow: none !important;
+    }
+    [data-testid="stButtonGroup"] button:hover { border-color: var(--accent-rand) !important; }
+    [data-testid="stButtonGroup"] button[aria-checked="true"],
+    [data-testid="stButtonGroup"] button[aria-pressed="true"] {
+        background: var(--accent-soft) !important; border-color: var(--accent) !important;
+        color: var(--accent-hell) !important; box-shadow: none !important;
+    }
+    [data-testid="stButtonGroup"] button[aria-checked="true"] p,
+    [data-testid="stButtonGroup"] button[aria-pressed="true"] p { color: var(--accent-hell) !important; }
+
+    /* Knoepfe: sekundaer dunkel mit feinem Rahmen, primaer blau */
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button {
+        background: var(--surface-2) !important; border: 1px solid var(--line) !important;
+        border-radius: 12px !important; color: var(--text) !important;
+    }
+    [data-testid="stBaseButton-secondary"]:hover, [data-testid="stBaseButton-secondaryFormSubmit"]:hover,
+    [data-testid="stDownloadButton"] button:hover {
+        border-color: var(--accent-rand) !important; color: var(--accent-hell) !important;
+    }
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"] {
+        background: var(--accent) !important; border-color: var(--accent) !important; border-radius: 12px !important;
+    }
+    [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p,
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) p { color: #071224 !important; }
+
+    /* Reiter: blaue Markierung */
+    [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p { color: var(--accent-hell) !important; }
+
+    /* Hinweisboxen im Blau-Ton */
+    [data-testid="stAlertContentInfo"] { color: #CFE0FA !important; }
+    [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div {
+        background: rgba(91, 155, 255, 0.10) !important; border: 1px solid rgba(91, 155, 255, 0.28) !important;
+        border-radius: 14px !important;
+    }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1228,7 +1374,15 @@ def notify_app_error(context, exc):
 
 
 # --- ZAHLENFORMATIERUNG (Punkt = Tausender, Komma = Dezimal) ---
+def _kaufm(val, dec=2):
+    """Kaufmaennisch runden (0,5 aufwaerts, ab der Dezimaldarstellung): 2,675 -> 2,68 statt 2,67 bei der
+    binaeren Gleitkomma-Rundung (360°-Pruefung F-07). -> float"""
+    from decimal import ROUND_HALF_UP, Decimal
+    return float(Decimal(repr(float(val))).quantize(Decimal(1).scaleb(-dec), rounding=ROUND_HALF_UP))
+
+
 def fmt(val, dec=2):
+    val = _kaufm(val, max(dec, 0))
     if dec > 0:
         s = f"{val:,.{dec}f}"
     else:
@@ -1239,13 +1393,13 @@ def fmt(val, dec=2):
 def fmt_vz(val, dec=2):
     """Wie fmt, aber immer mit Vorzeichen: +1.234,00€ / -500,00€ (Audit DEP-13).
     Nie '+-'; Werte, die auf 0 runden, erscheinen als +0,00€ (kein '-0,00€')."""
-    v = round(float(val), dec) + 0.0
+    v = _kaufm(val, dec) + 0.0
     return ("+" if v >= 0 else "") + fmt(v, dec)
 
 
 def vz_zahl(wert, nachkomma=2):
     """Deutsche Zahl mit Vorzeichen ohne Einheit: +1.234,56 / -0,50 (Audit DEP-13)."""
-    v = round(float(wert), nachkomma) + 0.0
+    v = _kaufm(wert, nachkomma) + 0.0
     s = f"{v:+,.{nachkomma}f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -1512,13 +1666,49 @@ def depot_kennzahlen_real(stueck_real, stueck_sparplan, kurs, einstand, ausgezah
             "rendite_pct": (gewinn / einstand * 100) if einstand else 0.0}
 
 
-def rendite_pa_seit_kauf(einstand, ergebnis_wert, kaufdatum, heute):
+def rendite_pa_geldgewichtet(zahlungen, endwert, heute):
+    """Interner Zinsfuss (XIRR) in % p. a.: zahlungen = [(datum, betrag)] mit Einzahlungen positiv
+    (Startkapital, Sparraten) und Auszahlungen negativ (Entnahmen); endwert = Depotwert am Tag heute.
+    Jede Zahlung zaehlt ab ihrem eigenen Datum - eine Sparrate von gestern hatte keine Zeit zu wachsen.
+    -> Rate oder None (keine Loesung / keine Einzahlung)."""
+    fluss = [(pd.Timestamp(d).normalize(), float(b)) for d, b in zahlungen or [] if b]
+    if not fluss or sum(b for _, b in fluss if b > 0) <= 0 or endwert is None or endwert < 0:
+        return None
+    t_end = pd.Timestamp(heute).normalize()
+    jahre = [max((t_end - d).days, 0) / 365.25 for d, _ in fluss]
+
+    def wert_am_ende(r):          # Endwert der Zahlungen bei Rate r minus tatsaechlicher Endwert
+        return sum(b * (1 + r) ** j for (_, b), j in zip(fluss, jahre)) - endwert
+
+    lo, hi = -0.9999, 10.0
+    if wert_am_ende(lo) > 0 or wert_am_ende(hi) < 0:
+        return None
+    for _ in range(200):
+        mitte = (lo + hi) / 2
+        if wert_am_ende(mitte) > 0:
+            hi = mitte
+        else:
+            lo = mitte
+    return (lo + hi) / 2 * 100
+
+
+def rendite_pa_seit_kauf(einstand, ergebnis_wert, kaufdatum, heute, zahlungen=None, depotwert=None):
     """Ø-Rendite p.a. seit Kauf fuer Kachel UND Vergleichstabelle (Audit A-08, eine Quelle).
     ergebnis_wert = Depotwert + bereits ausgezahlte Entnahmen. Ab 1 Jahr jaehrlich, darunter
     ab 30 Tagen aus der Ø-Monatsrendite hochgerechnet (Nutzerentscheid DEP-08), sonst None.
+    Mit zahlungen (Sparraten/Entnahmen mit Datum, siehe rendite_pa_geldgewichtet) und depotwert:
+    geldgewichtet (XIRR) - sonst wuerde jede Sparrate so gerechnet, als laege sie seit dem Kauf im
+    Depot, und die Rendite fiele viel zu niedrig aus (360°-Pruefung F-01).
     -> (rate_pa | None, hochgerechnet: bool)"""
     if not einstand or einstand <= 0 or ergebnis_wert is None or ergebnis_wert <= 0:
         return None, False
+    if zahlungen and depotwert is not None:
+        erste = min(pd.Timestamp(d) for d, _ in zahlungen).date()
+        tage = (heute - erste).days
+        if tage < 30:
+            return None, False
+        r = rendite_pa_geldgewichtet(zahlungen, depotwert, heute)
+        return (r, tage < 365) if r is not None else (None, False)
     _, monatlich, jaehrlich, _ = berechne_performance_kennzahlen(einstand, ergebnis_wert, kaufdatum, heute)
     if jaehrlich is not None:
         return jaehrlich, False
@@ -1963,8 +2153,8 @@ def chronik_eintrag_global(kategorie, titel, inhalt="", schluessel=None):
 
 def _de_zahl(x, nk=2):
     try:
-        return f"{float(x):,.{nk}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (TypeError, ValueError):
+        return f"{_kaufm(x, nk):,.{nk}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (TypeError, ValueError, ArithmeticError):
         return str(x)
 
 
@@ -2935,8 +3125,8 @@ NAV_CSS = """
     /* gleicher Tasten-Look wie die Kacheln: klarer Rand, 3D-Kante, kein Leuchten */
     display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 6px; padding: 7px 16px;
     border-radius: 999px; font-size: 0.8rem; color: #FFFFFF; font-weight: 700;
-    border: 1px solid rgba(255, 255, 255, 0.85); background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%);
-    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30);
+    border: 1px solid rgba(150, 188, 240, 0.55); background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%);
+    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 .nav-chip b { color: #FFFFFF; font-weight: 700; }
 .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
@@ -2970,7 +3160,7 @@ NAV_CSS = """
 }
 .nav-gruppe::after {
     content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.12));
+    background: linear-gradient(90deg, rgba(138, 184, 255, 0.7), rgba(91, 155, 255, 0.10));
 }
 .nav-wander {
     position: absolute; bottom: 12px; left: 0; white-space: nowrap;
@@ -3016,14 +3206,15 @@ NAV_CSS = """
 .st-key-nav_menue [data-testid="stButton"] button {
     position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
     padding: 8px 6px !important;
-    background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.85) !important;
+    /* Blau-Design: Navy-Taste mit blau schimmernder Kante */
+    background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%) !important;
+    border: 1px solid rgba(150, 188, 240, 0.55) !important;
     transform: translateY(-4px);
     box-shadow:
-        0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 5px 0 #1B1D21, 0 6px 0 #16171A,
-        0 18px 26px rgba(0, 0, 0, 0.7),
-        inset 0 1px 0 rgba(255, 255, 255, 0.30),
-        inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
+        0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 5px 0 #142031, 0 6px 0 #101A28,
+        0 18px 26px rgba(2, 8, 20, 0.7),
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        inset 0 -10px 16px rgba(0, 0, 0, 0.30) !important;
     transition: transform .15s ease, box-shadow .15s ease;
 }
 .st-key-nav_menue [data-testid="stButton"] button > div { min-width: 0; max-width: 100%; }
@@ -3034,16 +3225,20 @@ NAV_CSS = """
     color: #FFFFFF !important; letter-spacing: 0.2px;
     text-shadow: none !important;     /* Schatten wuerde hinter Emojis dunkle Kaestchen erzeugen */
 }
+/* sehr schmale Telefone (iPhone SE 1. Gen., 320 px): lange Namen zweizeilig statt ueber den Rand */
+@media (max-width: 340px) {
+    .st-key-nav_menue [data-testid="stButton"] button p { white-space: normal !important; }
+}
 /* Antippen/Hover: Taste hebt sich, Kante und Leuchten werden staerker */
 .st-key-nav_menue [data-testid="stButton"] button:hover,
 .st-key-nav_menue [data-testid="stButton"] button:focus-visible {
     transform: translateY(-6px);
-    border-color: #FFFFFF !important;
+    border-color: #8AB8FF !important;
     box-shadow:
-        0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 5px 0 #1B1D21, 0 6px 0 #16171A,
-        0 7px 0 #121315, 0 8px 0 #0E0F11,
-        0 22px 30px rgba(0, 0, 0, 0.75),
-        0 0 3px rgba(255, 255, 255, 0.25),
+        0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 5px 0 #142031, 0 6px 0 #101A28,
+        0 7px 0 #0D1624, 0 8px 0 #0A121E,
+        0 22px 30px rgba(2, 8, 20, 0.75),
+        0 0 10px rgba(91, 155, 255, 0.35),
         inset 0 1px 0 rgba(255, 255, 255, 0.40),
         inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
 }
@@ -3051,8 +3246,8 @@ NAV_CSS = """
 .st-key-nav_menue [data-testid="stButton"] button:active {
     transform: translateY(1px);
     box-shadow:
-        0 1px 0 #282B31,
-        0 6px 12px rgba(0, 0, 0, 0.6),
+        0 1px 0 #1E2E44,
+        0 6px 12px rgba(2, 8, 20, 0.6),
         inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.8rem !important; font-weight: 700 !important; }
@@ -3070,13 +3265,13 @@ NAV_CSS = """
 }
 .st-key-nav_menue .st-key-nav_refresh button {
     width: auto !important; min-height: 34px !important; padding: 2px 18px !important; border-radius: 999px !important;
-    transform: translateY(-2px) !important; border: 1px solid rgba(255, 255, 255, 0.85) !important;
-    background: linear-gradient(175deg, #2E323C 0%, #1A1C21 45%, #101114 100%) !important;
-    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30) !important;
+    transform: translateY(-2px) !important; border: 1px solid rgba(150, 188, 240, 0.55) !important;
+    background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%) !important;
+    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button:hover {
-    transform: translateY(-3px) !important; border-color: #FFFFFF !important;
-    box-shadow: 0 1px 0 #3A3E47, 0 2px 0 #30333B, 0 3px 0 #282B31, 0 4px 0 #212328, 0 10px 16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.30), 0 0 3px rgba(255, 255, 255, 0.25) !important;
+    transform: translateY(-3px) !important; border-color: #8AB8FF !important;
+    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 10px rgba(91, 155, 255, 0.35) !important;
 }
 .st-key-nav_menue .st-key-nav_refresh button:active {
     transform: translateY(1px) !important;
@@ -3098,11 +3293,10 @@ NAV_CSS = """
 
 /* ================= IN EINER ANSICHT: Kopfleiste ================= */
 .st-key-nav_leiste {
-    padding: 6px 8px; border-radius: 16px;
-    background: linear-gradient(165deg, #1E2127, #0E0F12);
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 8px 18px rgba(0, 0, 0, 0.5),
-                0 0 6px rgba(255, 255, 255, 0.35), 0 0 16px rgba(255, 255, 255, 0.14);
+    padding: 6px 8px; border-radius: 18px;
+    background: linear-gradient(165deg, #18263B, #0E1826);
+    border: 1px solid #24364F;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(2, 8, 20, 0.45);
 }
 .st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
                                                        align-items: center !important; }
@@ -3112,15 +3306,15 @@ NAV_CSS = """
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
 .st-key-nav_leiste [data-testid="stButton"] button {
     min-height: 44px !important; min-width: 44px !important; border-radius: 10px !important; padding: 4px 12px !important;
-    white-space: nowrap !important; background: rgba(255, 255, 255, 0.04) !important;
-    border: 1px solid rgba(255, 255, 255, 0.8) !important;
-    box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 14px rgba(255, 255, 255, 0.2) !important;
+    white-space: nowrap !important; background: #0E1826 !important;
+    border: 1px solid #2E4363 !important; box-shadow: none !important;
 }
+.st-key-nav_leiste [data-testid="stButton"] button:hover { border-color: rgba(91, 155, 255, 0.7) !important; }
 .st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; color: #FFFFFF !important; }
 .nav-titel {
     font-size: 1.02rem; font-weight: 700; color: #FFFFFF; line-height: 1.2;
     overflow-wrap: anywhere; text-align: center; letter-spacing: 0.3px;
-    text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+    text-shadow: none;
 }
 .nav-stand { font-size: 0.8rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
 .nav-stand b { color: #FFFFFF; }
@@ -5143,12 +5337,208 @@ def render_dashboard():
                    "Werte übernehmen: im Portfolio Builder unter „Wert hinzufügen → Wikifolios → Top-Listen“. "
                    "Vergangene Entwicklung ist keine Prognose.")
 
+    KS_SEITE = 25
+
+    def _ks_de(x, dez=1):
+        return f"{x:,.{dez}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def _ks_seite(nr):
+        st.session_state["ks_seite"] = nr
+
+    def _ks_rangliste(art):
+        """ETF-/wikifolio-Score aus dem Top-500-Katalog - je Sitzung und Datenstand gemerkt."""
+        import klassen_score as KS
+        teile = [gh_read_taeglich(f"state/planer/katalog_gross_{i}.json", {}) or {} for i in range(4)]
+        stand = next((t.get("stand") for t in teile if t.get("stand")), "")
+        gemerkt = st.session_state.get(f"_ks_{art}")
+        if gemerkt and gemerkt[0] == stand:
+            return stand, gemerkt[1]
+        liste = KS.rangliste(teile, art)
+        st.session_state[f"_ks_{art}"] = (stand, liste)
+        return stand, liste
+
+    def _render_klassen_score():
+        """Eigene Bewertung fuer ETFs und wikifolios (klassen_score.py) - unabhaengig vom Aktien-Score."""
+        import klassen_score as KS
+        art_titel = {"ETFs": "etf", "wikifolios": "wikifolio"}
+        art_wahl = st.pills("Anlageklasse", list(art_titel), default="ETFs", key="ks_art") or "ETFs"
+        art = art_titel[art_wahl]
+        stand, alle = _ks_rangliste(art)
+        if not alle:
+            st.info("Noch keine Kursdaten für diese Anlageklasse – sie entstehen beim nächsten Lauf des "
+                    "Watchlist-Agenten (täglich 07:30 Uhr).")
+            return
+        kriterien = KS.KRITERIEN[art]
+        with st.expander("ℹ️ Wie wird bewertet?"):
+            st.markdown(
+                f"**{art_wahl} haben eine eigene Bewertung** – unabhängig vom Qualitäts-Score der Aktien "
+                "(der beruht auf Geschäftszahlen, die es hier nicht gibt). Bewertet wird die Kurshistorie aus "
+                "den Top-500-Daten. Jedes Kriterium gibt 0–100 Punkte, linear zwischen „schwach“ und „stark“; "
+                "der Score ist der gewichtete Durchschnitt.")
+            einheit = {"rendite": " % p. a.", "rr": "", "rdd": "", "dd": " %", "vola": " %", "historie": " J.",
+                       "bestaendig": " %"}
+            _ks_tabelle([("Kriterium", "l"), ("Gewicht", "r"), ("schwach (0 P.)", "r"), ("stark (100 P.)", "r")],
+                        [[_h(t), f"{g} %",
+                          ("−" if k == "dd" else "") + f"{_ks_de(sl, 1 if sl % 1 else 0)}{einheit[k]}",
+                          ("−" if k == "dd" else "") + f"{_ks_de(gu, 1 if gu % 1 else 0)}{einheit[k]}"]
+                         for k, t, g, sl, gu in kriterien])
+            erkl = {"etf": "- **Rendite je Risiko** = Rendite p. a. ÷ Schwankung p. a.\n"
+                           "- **Hebel-/Short-Produkte** werden auf höchstens 40 Punkte gedeckelt – sie eignen sich "
+                           "nur für kurzfristige Spekulation.\n"
+                           "- Nicht enthalten, weil in den Daten nicht vorhanden: laufende Kosten (TER), "
+                           "Tracking Difference, Fondsvolumen, Replikation.",
+                    "wikifolio": "- **Rendite je Rückgang** = Rendite p. a. ÷ maximaler Rückgang. Die gemessene "
+                                 "Schwankung ist bei wikifolios oft untypisch niedrig, der Rückgang zeigt das "
+                                 "Verlustrisiko ehrlicher.\n"
+                                 "- **Track Record:** lange Historie zählt stärker als bei ETFs – kurze Zeiträume "
+                                 "sind bei aktiven Strategien wenig aussagekräftig.\n"
+                                 "- Renditen über 60 % p. a. bringen keine Extrapunkte (Ausnahme, nicht "
+                                 "fortschreibbar).\n"
+                                 "- Nicht enthalten: Gebühren, investiertes Kapital, Handelsstil des Traders, "
+                                 "Emittentenrisiko."}[art]
+            st.markdown(
+                "- **Rendite p. a.** aus dem längsten vorhandenen Zeitraum (10, 5, 3 oder 1 Jahr).\n"
+                "- **Beständigkeit** = Anteil der Zeiträume (1/3/5/10 Jahre) mit Gewinn.\n" + erkl + "\n"
+                f"- **Einordnung:** ab {_ks_de(KS.GRENZE_PRIO, 0)} Punkten *Hohe Analysepriorität* (nur mit mindestens "
+                f"{_ks_de(KS.MIN_JAHRE[art], 0)} Jahren Historie, ohne Hebel), ab {_ks_de(KS.GRENZE_BEOBACHTEN, 0)} "
+                "*Beobachtungsliste*, darunter *Nicht weiterverfolgen*.\n"
+                "- Modellbewertung aus vergangenen Kursen – keine Prognose und keine Kaufempfehlung.")
+        ansichten = ["Gesamt-Rangliste"] + list(KS.KLASSEN.values())
+        e_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="ks_klasse") or ansichten[0]
+        laenge = _listen_laenge("ks")
+        begriff = st.text_input("In der Liste suchen", key="ks_such", placeholder="Name, WKN oder ISIN …")
+        liste = alle
+        if e_wahl != ansichten[0]:
+            kl = next(k for k, v in KS.KLASSEN.items() if v == e_wahl)
+            liste = [e for e in liste if e["bewertung"]["einordnung"] == kl]
+        liste = liste[:laenge]
+        b_ = str(begriff or "").strip().lower()
+        if b_:
+            liste = [e for e in liste if b_ in f'{e["name"]} {e["kennung"]} {e["isin"]}'.lower()]
+        signatur = (art, e_wahl, laenge, begriff)
+        if st.session_state.get("ks_signatur") != signatur:
+            st.session_state["ks_signatur"], st.session_state["ks_seite"] = signatur, 1
+        anz = {k: sum(1 for e in alle if e["bewertung"]["einordnung"] == k) for k in KS.KLASSEN}
+        try:
+            stand_txt = datetime.date.fromisoformat(str(stand)[:10]).strftime("%d.%m.%Y")
+        except Exception:
+            stand_txt = str(stand) or "–"
+        st.caption(f"Stand {stand_txt} · {len(alle)} {art_wahl} bewertet · Priorität {anz['prio']} · "
+                   f"Beobachten {anz['beobachten']} · Nicht weiterverfolgen {anz['nicht']}"
+                   + (f" · {len(liste)} Treffer" if b_ else ""))
+        if not liste:
+            st.info(f"„{begriff}“ ist nicht in dieser Auswahl." if b_ else "Keine Werte in dieser Auswahl.")
+            return
+        seiten = max((len(liste) + KS_SEITE - 1) // KS_SEITE, 1)
+        nr = min(max(int(st.session_state.get("ks_seite", 1)), 1), seiten)
+        teil = liste[(nr - 1) * KS_SEITE:nr * KS_SEITE]
+        risiko_titel = "Rendite je Risiko" if art == "etf" else "Rendite je Rückgang"
+        risiko_k = "rr" if art == "etf" else "rdd"
+
+        def zahl(v, dez=1, einheit="", vz=False, minus=False):
+            if v is None:
+                return '<td class="pt-num pt-leer">–</td>'
+            if minus:
+                return f'<td class="pt-num">−{_ks_de(v, 0)} %</td>'
+            txt = (vz_zahl(v, dez) if vz else _ks_de(v, dez)) + einheit
+            farbe = (" pt-up" if v >= 0 else " pt-down") if vz else ""
+            return f'<td class="pt-num{farbe}">{txt}</td>'
+
+        zeilen = []
+        for e in teil:
+            b = e["bewertung"]
+            k = b["kennzahlen"]
+            staerken, schwaechen = KS.staerken_schwaechen(b, art)
+            grund = "".join(f'<span class="ks-plus">+ {_h(x)}</span>' for x in staerken) + "".join(
+                f'<span class="ks-minus">– {_h(x)}</span>' for x in schwaechen)
+            zeilen.append(
+                f'<tr class="{"pt-zebra" if e["rang"] % 2 == 0 else ""}">'
+                f'<td class="pt-num pt-seit ue-fix wk-rang">{e["rang"]}</td>'
+                f'<td class="pt-wert ue-fix wk-name"><span class="pt-name">{_h(e["name"])}</span>'
+                f'<span class="pt-sub">{_h(e["kennung"] or e["isin"])}</span></td>'
+                f'<td class="pt-num"><span class="q-punkte {Q_KLASSE_CSS[b["einordnung"]]}">'
+                f'{_ks_de(b["score"], 0)}</span></td>'
+                + zahl(k["rendite"], 1, " %", vz=True) + zahl(k[risiko_k], 2)
+                + zahl(k["dd"], minus=True) + zahl(k["vola"], 0, " %")
+                + zahl(k["jahre"], 1, " J.")
+                + f'<td class="ks-grund">{grund or "–"}</td></tr>')
+        kopf = "".join(f'<th class="pt-num">{t}</th>' for t in
+                       ("Score", "Rendite p. a.", risiko_titel, "Max. Rückgang", "Schwankung", "Historie"))
+        st.markdown('<div class="q-legende">Score: <span class="q-prio">■</span> Hohe Analysepriorität · '
+                    '<span class="q-beob">■</span> Beobachtungsliste · <span class="q-nicht">■</span> '
+                    'Nicht weiterverfolgen</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                    '<table class="pt pt-kompakt ue wk ks"><thead><tr><th class="pt-num ue-fix wk-rang">#</th>'
+                    f'<th class="pt-wert ue-fix wk-name">{art_wahl[:-1] if art == "etf" else "wikifolio"}</th>'
+                    f'{kopf}<th class="ks-grund">Begründung</th></tr></thead>'
+                    f'<tbody>{"".join(zeilen)}</tbody></table></div>', unsafe_allow_html=True)
+        if seiten > 1:
+            n1, n2, n3 = st.columns([0.5, 2, 0.5], vertical_alignment="bottom")
+            n1.button("◀", key="ks_zur", on_click=_ks_seite, args=(nr - 1,), disabled=nr <= 1, width="stretch",
+                      help="Vorherige Seite")
+
+            def bereich(i):
+                t = liste[(i - 1) * KS_SEITE:i * KS_SEITE]
+                return f"Rang {t[0]['rang']}–{t[-1]['rang']}  ({i}/{seiten})"
+
+            wahl = n2.selectbox("Seite", list(range(1, seiten + 1)), index=nr - 1, format_func=bereich,
+                                key=f"ks_bereich_{nr}", label_visibility="collapsed")
+            if wahl != nr:
+                st.session_state["ks_seite"] = wahl
+                st.rerun()
+            n3.button("▶", key="ks_vor", on_click=_ks_seite, args=(nr + 1,), disabled=nr >= seiten,
+                      width="stretch", help="Nächste Seite")
+
+        # Teilpunkte eines Werts der aktuellen Seite
+        fokus = st.selectbox("Teilpunkte ansehen", range(len(teil)), key=f"ks_fokus_{art}_{nr}",
+                             format_func=lambda i: f"#{teil[i]['rang']} {teil[i]['name']}")
+        e = teil[fokus if fokus is not None and fokus < len(teil) else 0]
+        b = e["bewertung"]
+        _ks_tabelle([("Kriterium", "l"), ("Gewicht", "r"), ("Punkte", "r"), ("", "l")],
+                    [[_h(t), f"{g} %", "keine Daten" if b["teile"].get(k) is None else _ks_de(b["teile"][k], 0),
+                      f'<div class="ks-bahn"><div style="width:{b["teile"].get(k) or 0}%"></div></div>']
+                     for k, t, g, _, _ in kriterien])
+        if b["hinweise"]:
+            st.caption(" · ".join(b["hinweise"]))
+
+        pdf_schluessel = f"ks_pdf|{stand}|{signatur}"
+        if st.button("📄 PDF der ganzen Liste erstellen", key="ks_pdf_knopf", width="stretch"):
+            try:
+                import wikifolio_pdf
+                kopfzeile = (f"Stand {stand_txt} · {art_wahl} · {e_wahl} · Top {laenge} · {len(liste)} Werte"
+                             + (f" · Suche „{begriff}“" if b_ else ""))
+                st.session_state["ks_pdf"] = (pdf_schluessel, wikifolio_pdf.score_bericht(liste, art, kopfzeile))
+            except ImportError:
+                st.error("Für das PDF fehlt das Paket **reportlab** (requirements.txt).")
+        fertig = st.session_state.get("ks_pdf")
+        if fertig and fertig[0] == pdf_schluessel:
+            st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
+                               file_name=f"{art}_Score_{datetime.date.today().isoformat()}.pdf",
+                               key="ks_pdf_download", width="stretch", type="primary")
+        st.caption("Tabelle seitlich wischen für alle Kennzahlen – Rang und Name bleiben stehen. "
+                   "Vergangene Entwicklung ist keine Prognose.")
+
+    def _ks_tabelle(spalten, zeilen):
+        kopf = "".join(f'<th class="{"pt-num" if a == "r" else "pt-wert"}">{t}</th>' for t, a in spalten)
+        rumpf = "".join("<tr>" + "".join(f'<td class="{"pt-num" if a == "r" else ""}">{z}</td>'
+                                         for z, (_, a) in zip(r, spalten)) + "</tr>" for r in zeilen)
+        st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                    f'<table class="pt pt-kompakt ks-mini"><thead><tr>{kopf}</tr></thead>'
+                    f'<tbody>{rumpf}</tbody></table></div>', unsafe_allow_html=True)
+
     @st.fragment
     def _render_top50():
         _zugang_pruefen("🏆 Watchlist Top 50")
-        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🧭 Qualität × Kurs", "📈 Performance", "🧩 Wikifolios",
-                                 "🗂️ Gesamtübersicht"],
+        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🏅 ETF- & wikifolio-Score", "🧭 Qualität × Kurs",
+                                 "📈 Performance", "🧩 Wikifolios", "🗂️ Gesamtübersicht"],
                        default="⭐ Qualitäts-Score", key="top50_art") or "⭐ Qualitäts-Score"
+        if art == "🏅 ETF- & wikifolio-Score":
+            try:
+                _render_klassen_score()
+            except Exception as e:
+                st.error(f"⚠️ Fehler in diesem Tab: {e}")
+                notify_app_error("Tab-Klassen-Score", e)
+            return
         if art == "🧩 Wikifolios":
             try:
                 _render_wikifolios()
@@ -5784,8 +6174,15 @@ def render_dashboard():
     ausgezahlt_ist = _real["ausgezahlt"]
     gewinn_real = _real["gewinn"]
     rendite_real_pct = _real["rendite_pct"]
+    # Zahlungen mit Datum: Startkapital am Kaufdatum, jede ausgefuehrte Sparrate am Kauftag,
+    # jede ausgefuehrte Entnahme am Termin (Auszahlung) - fuer die geldgewichtete Rendite p. a.
+    _zahlungen = ([(kaufdatum_aktiv, startkapital_aktiv)] if startkapital_aktiv and kaufdatum_aktiv else [])
+    _zahlungen += [(k[0], k[1]) for k in sparplan_kaufliste]
+    if entnahme_rate and _letzter_kurstag is not None:
+        _zahlungen += [(t, -entnahme_rate) for t in entnahme_termine_liste if pd.Timestamp(t) <= _letzter_kurstag]
     rendite_pa_real, rendite_pa_hochgerechnet = rendite_pa_seit_kauf(
-        einstand_aktiv, depotwert_real_ist + ausgezahlt_ist, kaufdatum_aktiv, heute_date)
+        einstand_aktiv, depotwert_real_ist + ausgezahlt_ist, kaufdatum_aktiv, heute_date,
+        zahlungen=_zahlungen if len(_zahlungen) > 1 else None, depotwert=depotwert_real_ist)
 
     kumulierte_sparrate_marktwert = zusaetzliche_stueckzahl_sparplan * aktueller_kurs
 
@@ -5896,8 +6293,11 @@ def render_dashboard():
 
         prefix trennt die session_state-Keys, damit jede Position ihren
         eigenen, unabhaengigen Suchzustand hat."""
+        # Schluessel mit Zaehler: nach dem Speichern bekommt das Feld einen neuen Schluessel und ist
+        # wirklich leer - sonst schickt der Browser den alten Begriff erneut und das naechste
+        # Formular uebernaehme wieder WKN/Kursquelle des alten Treffers (360°-Pruefung F-04)
         suchbegriff = st.text_input(
-            label, key=f"{prefix}_suche",
+            label, key=f"{prefix}_suche_{st.session_state.get(f'{prefix}_nr', 0)}",
             placeholder="z. B. A0LC12, IE00B4L5Y983 oder MSCI World",
         )
 
@@ -5930,6 +6330,12 @@ def render_dashboard():
             f"ISIN {gewaehlt['isin'] or '–'} · aktuell {kurs_txt}"
         )
         return gewaehlt
+
+    def suche_zuruecksetzen(prefix):
+        """Suchblock leeren (neues, leeres Suchfeld; Treffer und Auswahl vergessen)."""
+        for k in (f"{prefix}_letzter", f"{prefix}_treffer", f"{prefix}_wahl"):
+            st.session_state.pop(k, None)
+        st.session_state[f"{prefix}_nr"] = st.session_state.get(f"{prefix}_nr", 0) + 1
 
     def positions_anlage_formular(prefix):
         """Neue Position anlegen (Suche + Formular). prefix trennt die Schluessel - das
@@ -5979,15 +6385,14 @@ def render_dashboard():
                         )
                     else:
                         _p_anlage = {
-                            "id": f"pos-{int(datetime.datetime.now().timestamp())}",
+                            "id": f"pos-{uuid.uuid4().hex[:12]}",     # eindeutig, auch bei zwei Anlagen je Sekunde
                             "name": neu_name, "wkn": neu_wkn,
                             "instrument_id": int(neu_inst) if neu_inst else None,
                             "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
                             "startkapital": float(neu_kapital),
                         }
                         if aendere_positionen(lambda l: l + [_p_anlage], "position angelegt [skip ci]"):
-                            for k in (f"{prefix}_suche", f"{prefix}_letzter", f"{prefix}_treffer", f"{prefix}_wahl"):
-                                st.session_state.pop(k, None)
+                            suche_zuruecksetzen(prefix)
                             if test_kurs is not None:
                                 st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
                             else:
@@ -6319,6 +6724,7 @@ def render_dashboard():
                                               if lbl != "seit Kauf"}))
 
             p_tage = max(1, (heute_date - p_kaufdatum).days)
+            p_pa_ist, p_pa_hoch = rendite_pa_seit_kauf(p_einstand, p_wert, p_kaufdatum, heute_date)
             # Fuer die Prognose die Produkt-Rendite (Median); Rueckfall auf die eigene
             # Rendite seit Kauf: ab 1 Jahr realisiert p.a., darunter ab 1 Monat aus der
             # Ø-Monatsrendite hochgerechnet, sonst 0 % (Audit DEP-08 / Nutzerentscheid).
@@ -6351,9 +6757,12 @@ def render_dashboard():
                 f'<div class="hero-label">{_h(pos.get("name", "Position"))} · {_h(pos.get("wkn", ""))}</div>'
                 '<div class="price-line">'
                 f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
-                f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a.'
-                f'{" (hochgerechnet)" if (_p_hinweis or "").startswith("Hochgerechnet") else ""}</span>'
-                f'<span class="stat-chip-val">{_de_zahl(p_prognose_pa, 1)} %</span></span>'
+                # wie bei der Hauptposition: erzielte Rendite seit Kauf, nicht die Prognoserate
+                # (die gehoert in die Prognosen - Audit A-08, 360°-Pruefung F-05)
+                + (f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
+                   f'{" (hochgerechnet)" if p_pa_hoch else ""}</span>'
+                   f'<span class="stat-chip-val">{_de_zahl(p_pa_ist, 1)} %</span></span>'
+                   if p_pa_ist is not None else '') +
                 f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
                 '</div>'
                 f'{perf_zeilen_html(p_perioden_depot, 2)}'
@@ -6701,7 +7110,7 @@ def render_dashboard():
             )
             if v_btn.button("Übernehmen", width="stretch", key="beob_vorlage_btn"):
                 _neu_eintrag = {
-                    "id": f"beob-{int(datetime.datetime.now().timestamp())}",
+                    "id": f"beob-{uuid.uuid4().hex[:12]}",
                     "name": v_wahl, "wkn": "",
                     "instrument_id": _vorschlaege[v_wahl],
                 }
@@ -6738,7 +7147,7 @@ def render_dashboard():
 
                 if b_gespeichert:
                     _b_neu = {
-                        "id": eintrag.get("id") or f"beob-{int(datetime.datetime.now().timestamp())}",
+                        "id": eintrag.get("id") or f"beob-{uuid.uuid4().hex[:12]}",
                         "name": nb_name, "wkn": nb_wkn,
                         "instrument_id": int(nb_inst) if nb_inst else None,
                     }
@@ -6750,9 +7159,7 @@ def render_dashboard():
                         l[j] = _neu
                         return l
                     if aendere_beobachtung(_b_ersetzen, "beobachtung geaendert [skip ci]"):
-                        for k in (f"beob_edit_{b_idx}_suche", f"beob_edit_{b_idx}_letzter",
-                                  f"beob_edit_{b_idx}_treffer", f"beob_edit_{b_idx}_wahl"):
-                            st.session_state.pop(k, None)
+                        suche_zuruecksetzen(f"beob_edit_{b_idx}")
                         st.success("Gespeichert.")
                         st.rerun()
                     else:
@@ -6803,14 +7210,12 @@ def render_dashboard():
                         )
                     else:
                         _b_anlage = {
-                            "id": f"beob-{int(datetime.datetime.now().timestamp())}",
+                            "id": f"beob-{uuid.uuid4().hex[:12]}",
                             "name": bneu_name, "wkn": bneu_wkn,
                             "instrument_id": int(bneu_inst),
                         }
                         if aendere_beobachtung(lambda l: l + [_b_anlage], "beobachtung angelegt [skip ci]"):
-                            for k in ("beob_neu_suche", "beob_neu_letzter",
-                                      "beob_neu_treffer", "beob_neu_wahl"):
-                                st.session_state.pop(k, None)
+                            suche_zuruecksetzen("beob_neu")
                             st.success(f"„{bneu_name}“ hinzugefügt "
                                        f"(aktueller Kurs {de_zahl(b_test)} €).")
                             st.rerun()
@@ -6886,7 +7291,7 @@ def render_dashboard():
 
                 if gespeichert:
                     _p_neu = {
-                        "id": pos.get("id") or f"pos-{int(datetime.datetime.now().timestamp())}",
+                        "id": pos.get("id") or f"pos-{uuid.uuid4().hex[:12]}",
                         "name": n_name,
                         "wkn": config.WKN if ist_haupt else n_wkn,
                         "instrument_id": (int(config.LS_INSTRUMENT_ID) if ist_haupt
@@ -6902,31 +7307,44 @@ def render_dashboard():
                         l[j] = _neu
                         return l
                     if aendere_positionen(_p_ersetzen, "position geaendert [skip ci]"):
-                        for k in (f"edit_{idx}_suche", f"edit_{idx}_letzter",
-                                  f"edit_{idx}_treffer", f"edit_{idx}_wahl"):
-                            st.session_state.pop(k, None)
+                        suche_zuruecksetzen(f"edit_{idx}")
                         st.success("Gespeichert.")
                         st.rerun()
                     else:
                         st.error("Speichern fehlgeschlagen (kein persistenter State?).")
 
+                # Admin: die Hauptposition bleibt immer; normale Benutzer duerfen alles loeschen
+                _min_rest = 0 if eigen else 1
+                _frage = f"pos_del_frage_{pos.get('id', idx)}"
                 if geloescht:
-                    # Admin: die Hauptposition bleibt immer; normale Benutzer duerfen alles loeschen
-                    _min_rest = 0 if eigen else 1
                     if len(alle_positionen) <= _min_rest:
                         st.error("Die letzte verbleibende Position kann nicht gelöscht werden.")
                     else:
-                        def _p_entfernen(l, _alt=pos, _i=idx, _min=_min_rest):
-                            j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
-                            if j is None or len(l) <= _min:
-                                return None
-                            l.pop(j)
-                            return l
-                        if aendere_positionen(_p_entfernen, "position geloescht [skip ci]"):
-                            st.success("Gelöscht.")
-                            st.rerun()
-                        else:
-                            st.error("Löschen fehlgeschlagen (kein persistenter State?).")
+                        st.session_state[_frage] = True      # erst nachfragen (360°-Pruefung F-03)
+
+            # Rueckfrage ausserhalb des Formulars - wie beim Loeschen eines Benutzers
+            if st.session_state.get(_frage):
+                st.warning(f"„{pos.get('name', '')}“ wirklich löschen? Kaufdatum, Kaufkurs und Kapital "
+                           "dieser Position gehen verloren.")
+                j1, j2 = st.columns(2)
+                if j2.button("Abbrechen", key=f"pos_del_nein_{pos.get('id', idx)}", width="stretch"):
+                    st.session_state.pop(_frage, None)
+                    st.rerun()
+                if j1.button("🗑️ Endgültig löschen", key=f"pos_del_ja_{pos.get('id', idx)}", width="stretch",
+                             type="primary"):
+                    st.session_state.pop(_frage, None)
+
+                    def _p_entfernen(l, _alt=pos, _i=idx, _min=_min_rest):
+                        j = liste_element_index(l, _alt.get("id"), _i, _alt.get("name"))
+                        if j is None or len(l) <= _min:
+                            return None
+                        l.pop(j)
+                        return l
+                    if aendere_positionen(_p_entfernen, "position geloescht [skip ci]"):
+                        st.success("Gelöscht.")
+                        st.rerun()
+                    else:
+                        st.error("Löschen fehlgeschlagen (kein persistenter State?).")
 
         # --- Neue Position anlegen ---
         st.markdown("---")
@@ -7150,6 +7568,10 @@ def render_dashboard():
                     gesamt, monatlich, jaehrlich, _ = berechne_performance_kennzahlen(
                         einstand_aktiv, depotwert_real_ist + ausgezahlt_ist, kaufdatum_aktiv, heute_date
                     )
+                    # Ø/Jahr und Ø/Monat aus derselben (geldgewichteten) Rendite wie die Kachel
+                    jaehrlich = rendite_pa_real if not rendite_pa_hochgerechnet else None
+                    monatlich = (((1 + rendite_pa_real / 100) ** (1 / 12) - 1) * 100
+                                 if rendite_pa_real is not None else None)
                     performance_liste_haupt.append({
                         "Wert": f"Hauptindizes Global ({config.WKN})",
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": gewinn_real,
@@ -8280,14 +8702,14 @@ _LADE_JS = """
       'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +
       'html.lade-js .loading-overlay { display:none !important; }' +
       '#lade-banner { position:fixed; top:0; left:0; right:0; z-index:10000; height:66px; box-sizing:border-box;' +
-      ' padding:10px 16px 0; background:rgba(10,11,13,.97); border-bottom:1px solid #21252C;' +
+      ' padding:10px 16px 0; background:rgba(11,18,32,.97); border-bottom:1px solid #22344C;' +
       ' box-shadow:0 2px 14px rgba(0,0,0,.6); display:none; pointer-events:none; }' +
       '#lade-banner .lb-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }' +
       '#lade-banner .lb-pct { font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;' +
       ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; flex-shrink:0; }' +
       '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }' +
-      '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#21252C; overflow:hidden; }' +
-      '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#16C784; transition:width .2s linear; }' +
+      '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#1A2A40; overflow:hidden; }' +
+      '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#5B9BFF; transition:width .2s linear; }' +
       /* reine Navigation (Ansicht/Schritt/Unterseite): Inhalt nicht abdunkeln */
       'html.lade-still [data-stale="true"], html.lade-still .stale-element { opacity:1 !important; transition:none !important; }' +
       /* kurze Neuberechnungen (die meisten Klicks) nicht abdunkeln - erst nach 1,2 s */
@@ -8379,6 +8801,19 @@ _LADE_JS = """
     new MutationObserver(pruefe).observe(D.body, { attributes: true, subtree: true,
                                                    attributeFilter: ['data-test-script-state'] });
     pruefe();
+    /* Blau-Design: umrandete Bloecke (st.container(border=True)) als Karte markieren -
+       Streamlit kennzeichnet sie im HTML nicht, erkennbar sind sie nur am Rahmen */
+    var karteTimer = null;
+    function karten() {
+      karteTimer = null;
+      var bl = D.querySelectorAll('[data-testid="stVerticalBlock"]:not(.karte)');
+      for (var i = 0; i < bl.length; i++) {
+        if (parseFloat(getComputedStyle(bl[i]).borderTopWidth) >= 1) bl[i].classList.add('karte');
+      }
+    }
+    new MutationObserver(function () { if (!karteTimer) karteTimer = setTimeout(karten, 80); })
+      .observe(D.body, { childList: true, subtree: true });
+    karten();
   };
   var s = D.createElement('script');
   s.textContent = '(' + code.toString() + ')();';

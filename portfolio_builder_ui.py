@@ -31,14 +31,14 @@ FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa
 SPALTEN = {"Name": "name", "Art": "art", "Rendite % p. a.": "rendite", "Kurs €": "kurs", "Gewicht %": "gewicht",
            "Betrag €": "betrag", "Stück": "stueck",
            "Wert €": "wert"}
-FARBEN = ["#16C784", "#4C9AFF", "#F5B942", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C", "#94A3B8",
+FARBEN = ["#5B9BFF", "#16C784", "#F5B942", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C", "#94A3B8",
           "#84CC16", "#E879F9"]
 
 CSS = """
 <style>
 .pb-kopf { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:2px 0 12px; }
 .pb-titel { font-size:1.35rem; font-weight:800; color:var(--text,#E9EBEF); letter-spacing:.2px; }
-.pb-titel span { color:var(--up,#16C784); }
+.pb-titel span { color:var(--accent,#5B9BFF); }
 .pb-unter { font-size:.8rem; color:var(--label,#AAB1BE); }
 .pb-kpis { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; margin:0 0 16px; }
 @media (max-width: 819px) { .pb-kpis { grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; } }
@@ -70,6 +70,8 @@ CSS = """
 .pb-bew { white-space:nowrap; } .pb-bew-leer { color:var(--label,#AAB1BE); }
 .pb-tab i { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:7px; }
 .pb-wrap { overflow-x:auto; }
+/* der Rahmen (.pb-wrap, per Tastatur fokussierbar) scrollt - nicht die Tabelle selbst (globale Tabellenregel) */
+[data-testid="stMarkdownContainer"] .pb-wrap table.pb-tab { display:table; overflow:visible; }
 @media (max-width: 480px) { .pb-tab .kurs { display:none; } }
 .pb-hinweis { font-size:.8rem; color:var(--label,#AAB1BE); line-height:1.45; }
 /* Eingabereihen: Desktop 4 nebeneinander, Handy 2 */
@@ -961,7 +963,7 @@ def _diagramme(r):
             x = [_monat_plus(heute, z["monat"]) for z in v]
             fig = go.Figure()
             hat_kredit = r["eingaben"]["kredit_summe"] > 0
-            reihen = [("Portfolio", "portfolio", "#16C784")]
+            reihen = [("Portfolio", "portfolio", "#5B9BFF")]
             if hat_kredit:
                 reihen += [("Schulden", "schulden", "#EA3943"), ("Netto (Portfolio − Schulden)", "netto", "#E9EBEF")]
             for name, feld, farbe in reihen:
@@ -969,7 +971,7 @@ def _diagramme(r):
                     x=x, y=[z[feld] for z in v], name=name, mode="lines", line=dict(color=farbe, width=2.4),
                     customdata=[eur(z[feld]) for z in v], hovertemplate=f"{name}: %{{customdata}}<extra></extra>",
                     fill="tozeroy" if feld == "portfolio" else None,
-                    fillcolor="rgba(22,199,132,0.10)" if feld == "portfolio" else None))
+                    fillcolor="rgba(91,155,255,0.12)" if feld == "portfolio" else None))
             fig.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=300, separators=",.",
                 margin=dict(l=4, r=4, t=8, b=4), font=dict(color="#D6D9DE", size=12), hovermode="x unified",

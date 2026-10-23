@@ -21,16 +21,16 @@ ANSATZ_HINT = {"auto": "Innerhalb Risikolimit", "defensiv": "Stabilität im Foku
 CSS = """
 <style>
 .is2-chip { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.72rem; font-weight:700;
-  letter-spacing:.6px; background:#193c38; color:#9af1d4; }
+  letter-spacing:.6px; background:rgba(91,155,255,.16); color:#BFD6FF; border:1px solid rgba(91,155,255,.35); }
 .is2-chip.warn { background:#423523; color:#f4c67b; }
-.pb-karte-t .is2-nr { color:#52d9b3; margin-right:6px; }
+.pb-karte-t .is2-nr { color:var(--accent-hell,#8AB8FF); margin-right:6px; }
 .is2-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:8px 0; }
 .is2-k .k { border:1px solid #262B33; border-radius:12px; padding:10px 12px; background:#0F1115; }
 .is2-k .l { color:#9AA0A6; font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; }
 .is2-k .w { font-size:1.2rem; font-weight:800; margin-top:2px; }
 .is2-k .s { color:#9AA0A6; font-size:.74rem; }
 .is2-szen .c { min-height:150px; border:1px solid #262B33; border-radius:12px; padding:12px; background:#0F1115; }
-.is2-szen .c.sel { border-color:#52d9b3; box-shadow:0 0 12px rgba(82,217,179,.25); }
+.is2-szen .c.sel { border-color:var(--accent,#5B9BFF); background:rgba(91,155,255,.10); box-shadow:none; }
 .is2-szen .c.off { opacity:.55; }
 .is2-szen .t { color:#9AA0A6; font-size:.7rem; text-transform:uppercase; letter-spacing:.6px; }
 .is2-szen .n { font-weight:800; margin-top:2px; }
@@ -42,7 +42,8 @@ table.is2 th { text-align:left; color:#9AA0A6; font-size:.7rem; letter-spacing:.
 table.is2 td { padding:6px 8px; border-bottom:1px solid #1A1E24; vertical-align:top; }
 table.is2 .r { text-align:right; white-space:nowrap; }
 table.is2 .m { color:#9AA0A6; font-size:.74rem; }
-.is2-wrap { overflow-x:auto; }
+.is2-wrap, .is2-scroll { overflow-x:auto; }
+@media (max-width: 420px) { table.is2 td.nm { min-width:110px; } table.is2 td, table.is2 th { padding:6px 5px; } }
 .is2-wrap table.is2 { min-width:620px; }
 table.is2 td.nm { min-width:160px; }
 table.is2 .nr { width:36px; }
@@ -202,7 +203,8 @@ def _tabelle(kopf, zeilen, rechts=(), breit=True):
     th = "".join(f'<th class="{k}">{_esc(t)}</th>' for t, k in kopf)
     tr = "".join("<tr>" + "".join(f'<td class="{k}">{z}</td>' for (_, k), z in zip(kopf, zeile)) + "</tr>"
                  for zeile in zeilen)
-    st.markdown(f'<div class="{"is2-wrap" if breit else ""}"><table class="is2"><thead><tr>{th}</tr></thead>'
+    st.markdown(f'<div class="{"is2-wrap" if breit else "is2-scroll"}" tabindex="0" role="region" '
+                f'aria-label="Tabelle (seitlich scrollbar)"><table class="is2"><thead><tr>{th}</tr></thead>'
                 f'<tbody>{tr}</tbody></table></div>', unsafe_allow_html=True)
 
 
@@ -441,7 +443,9 @@ def _scores(erg, typen):
     verf = erg["available"]
     geeignet = [a for a in verf if a["type"] in typen]
     st.caption(f"{sum(1 for a in verf if a.get('combinedScore') is not None)} von {len(verf)} Werten bewertbar · "
-               + " · ".join(f"{k} {v} %" for k, v in E.SCORE_WEIGHTS.items()))
+               "Aktien: " + " · ".join(f"{k} {v} %" for k, v in E.SCORE_WEIGHTS.items())
+               + " · ETFs und wikifolios: eigene Kriterien aus der Kurshistorie (wie Watchlist → 🏅 ETF- & "
+               "wikifolio-Score)")
     gezeigt = geeignet[:12]
     if not gezeigt:
         st.info("Keine Werte für die gewählten Anlageklassen.")
@@ -454,9 +458,9 @@ def _scores(erg, typen):
                         format_func=lambda i: f"#{gezeigt[i]['scannerRank']} {gezeigt[i]['name']}")
     a = gezeigt[wahl if wahl is not None and wahl < len(gezeigt) else 0]
     _tabelle([("Faktor", "nm"), ("Wert", "r"), ("", "")],
-             [[f'{k} <span class="m">({E.SCORE_WEIGHTS[k]} %)</span>', "keine Daten" if v is None else _de(v, 0),
+             [[f'{k} <span class="m">({a["score"].get("weights", E.SCORE_WEIGHTS)[k]} %)</span>', "keine Daten" if v is None else _de(v, 0),
                f'<div class="is2-bar"><div style="width:{0 if v is None else max(0.0, min(100.0, v))}%;'
-               f'background:#52d9b3"></div></div>'] for k, v in a["score"]["details"].items()], breit=False)
+               f'background:var(--accent,#5B9BFF)"></div></div>'] for k, v in a["score"]["details"].items()], breit=False)
     st.caption("Modellheuristik, keine Renditeprognose oder Anlageberatung. Fehlende Faktoren werden nicht geschätzt, "
                "sie senken die Datenabdeckung; Score erst ab 60 % Abdeckung und vorhandener Risikokennzahl.")
 
@@ -467,9 +471,12 @@ def _hinweise():
             "- **Universum:** Top-500-/Watchlist-Daten der App (Aktien, ETFs, wikifolios) mit Tagesschlusskurs in EUR; "
             "Hebelprodukte und Datenfehler ausgefiltert; eigene Werte per Wertpapier-CSV. Quellenrang = Rang nach "
             "12-Monats-Rendite.\n"
-            "- **Score:** Momentum (12- und 3-Monats-Rendite), Risiko (Schwankung, maximaler Rückgang), Qualität und KGV "
-            "(Aktien mit Daten des Qualitäts-Agenten). Kosten (TER), Handelsvolumen und Spread liegen nicht vor – ETFs "
-            "und wikifolios haben daher meist keinen Score und werden nach Quellenrang berücksichtigt.\n"
+            "- **Score Aktien:** Momentum (12- und 3-Monats-Rendite), Risiko (Schwankung, maximaler Rückgang), Qualität "
+            "und KGV (Daten des Qualitäts-Agenten).\n"
+            "- **Score ETFs und wikifolios:** eigene Kriterien aus der Kurshistorie, unabhängig von den Aktien – "
+            "Rendite p. a., Rendite je Risiko bzw. je Rückgang, maximaler Rückgang, Schwankung, Länge der Historie, "
+            "Beständigkeit (Gewichte unter „Teilbewertungen“). Eigene Werte aus der CSV ohne lange Historie werden "
+            "wie bisher allgemein bewertet.\n"
             "- **Kaufplan:** je Anlageklasse die bis zu vier besten Werte, Budget nach Soll-Anteil der Strategie "
             "abzüglich vorhandenem Bestand, ganze Stücke, Ordergebühr je Kauf, Höchstgewicht je Wertpapier.\n"
             "- **Strategien:** feste Renditeannahmen (Szenario) mit Sparrate und Entnahmen; Auto wählt die "

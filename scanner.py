@@ -15,6 +15,7 @@ import re
 
 import numpy as np
 
+import klassen_score as KS
 import portfolio_builder as P
 
 KLASSEN = {"etf": "ETFs", "aktie": "Aktien", "wikifolio": "wikifolios", "cash": "Cash / Tagesgeld"}
@@ -107,8 +108,7 @@ def aufteilung(e):
 
 
 # Hebel-, Short- und Faktor-Daily-Produkte gehoeren nicht in ein langfristiges Musterdepot
-_HEBEL = re.compile(r"(\b[2-9]x\b|\bx[2-9]\b|leverag|short|\bbear\b|\bbull\b|daily|ultra|hebel|inverse|"
-                    r"\b[2-9]\s?fach|\bfaktor\b)", re.I)
+_HEBEL = KS.HEBEL
 # ETFs auf denselben Kernindex nur einmal (Ueberschneidung der zugrunde liegenden Werte)
 # Reihenfolge: Branchen-/Themenbegriffe vor den breiten Indizes ("S&P 500 Information Technology" ist IT)
 _INDEX_GRUPPEN = [("semiconductor", "halbleiter"), ("information technology", "it"), ("technology", "it"),

@@ -125,7 +125,9 @@ CSS = """
 .pl-hinweis { font-size: 0.8rem; color: var(--label, #8A9099); margin: -2px 0 10px 2px;
               letter-spacing: 0.3px; }
 .pl-badge { display: inline-block; font-size: 0.8rem; font-weight: 700; padding: 2px 7px;
-            border-radius: 999px; margin: 1px 4px 1px 0; white-space: nowrap; }
+            border-radius: 999px; margin: 1px 4px 1px 0; white-space: nowrap; max-width: 100%; }
+/* lange Hinweise duerfen umbrechen (sonst laufen sie auf dem Handy seitlich aus dem Bild) */
+.pl-badge.pl-warn, .pl-badge.pl-info { white-space: normal; border-radius: 10px; }
 .pl-warn { background: rgba(245, 185, 66, 0.14); color: #F5B942; border: 1px solid rgba(245, 185, 66, 0.4); }
 .pl-info { background: rgba(76, 154, 255, 0.12); color: #8DBBFF; border: 1px solid rgba(76, 154, 255, 0.35); }
 .pl-gut { color: #16C784; } .pl-schlecht { color: #EA3943; }
@@ -1287,8 +1289,9 @@ def _rahmen(m, eingebettet=False):
                                                              "(nach allen Entnahmen)."))
         if eingebettet:
             if float(rahmen["startkapital"] or 0) <= 0 and float(rahmen.get("sparrate_monat") or 0) <= 0:
-                st.error("Bitte ein Startkapital oder eine monatliche Sparrate eingeben – sonst gibt es nichts zu "
-                         "rechnen.")
+                # Hinweis statt Fehler: bei einem neuen Benutzer sind die Felder bewusst leer (360°-Pruefung)
+                st.info("Bitte ein Startkapital oder eine monatliche Sparrate eingeben – sonst gibt es nichts zu "
+                        "rechnen.")
             elif 0 < float(rahmen.get("zielvermoegen") or 0) <= float(rahmen["startkapital"] or 0) \
                     and int(rahmen["horizont_jahre"] or 0) > 0:
                 st.info("Das Zielvermögen liegt nicht über dem Startkapital – es ist schon erreicht.")
@@ -1705,7 +1708,7 @@ WZ_CSS = """
 .wz-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 3px; display: flex; align-items: center;
           justify-content: center; font-size: 0.8rem; font-weight: 900; border: 1.5px solid rgba(255,255,255,0.25);
           color: #D6D9DE; background: transparent; }
-.wz-step.ok .wz-dot { background: rgba(22,199,132,0.18); border-color: #16C784; color: #16C784; }
+.wz-step.ok .wz-dot { background: rgba(91,155,255,0.18); border-color: #5B9BFF; color: #8AB8FF; }
 .wz-step.warn .wz-dot { background: rgba(245,185,66,0.15); border-color: #F5B942; color: #F5B942; }
 .wz-step.fehler .wz-dot { background: rgba(234,57,67,0.15); border-color: #EA3943; color: #EA3943; }
 .wz-step.aktiv .wz-dot { box-shadow: 0 0 0 3px rgba(76,154,255,0.45); border-color: #4C9AFF; }
@@ -1719,7 +1722,7 @@ WZ_CSS = """
                                     clip: rect(0 0 0 0); white-space: nowrap; }
 }
 .wz-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 2px 0 10px; }
-.wz-bar > div { height: 100%; background: linear-gradient(90deg, #4C9AFF, #16C784); border-radius: 3px; }
+.wz-bar > div { height: 100%; background: linear-gradient(90deg, #3B7BE8, #8AB8FF); border-radius: 3px; }
 .wz-kopf { border: 1px solid rgba(76,154,255,0.35); background: rgba(76,154,255,0.06); border-radius: 12px;
            padding: 10px 14px; margin: 4px 0 12px; }
 .wz-kopf .wz-nr { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; color: #8DBBFF; font-weight: 800; }

@@ -17,6 +17,7 @@ import io
 import math
 import re
 
+import klassen_score as KS
 from scanner import _HEBEL, PLAUSIBEL
 
 TYPES = ["ETF", "Aktie", "Wikifolio", "Anleihe", "Gold", "Fonds", "Geldmarkt"]
@@ -36,6 +37,8 @@ PROFILES = {
 STANDARD_RENDITE = {"defensiv": 2.0, "ausgewogen": 5.0, "wachstum": 8.0}     # % p. a., Szenarioannahmen
 SCORE_WEIGHTS = {"Momentum": 25, "Risiko": 25, "Qualität": 20, "Kosten / Bewertung": 15, "Liquidität": 10,
                  "Depot-Ergänzung": 5}
+# ETFs und wikifolios mit Top-500-Kurshistorie: eigene Kriterien statt Aktien-Massstab (klassen_score.py)
+KLASSEN_ART = {"ETF": "etf", "Wikifolio": "wikifolio"}
 MARKT_GEWICHT = 95                              # Summe ohne Depot-Ergaenzung
 MIN_ABDECKUNG = 57                              # 60 % von 95
 _TYP_ALIAS = {"etf": "ETF", "etp": "ETF", "etc": "Gold", "aktie": "Aktie", "stock": "Aktie", "wikifolio": "Wikifolio",
@@ -123,7 +126,9 @@ def universum(katalog_teile, qualitaet=None, isin_je_symbol=None, stand="", alle
                         "volatility12mPct": _z(w.get("vola")), "maxDrawdown12mPct": -abs(dd) if dd is not None else None,
                         "qualityScore": _z((q or {}).get("gesamt")),
                         "annualCostPct": None, "peRatio": _z((q or {}).get("fkgv")) if typ == "Aktie" else None,
-                        "volumeEur": None, "spreadPct": None, "source": "Top-500-Daten"})
+                        "volumeEur": None, "spreadPct": None, "source": "Top-500-Daten",
+                        # ETFs/wikifolios: eigene Bewertung aus der Kurshistorie (wie in der Watchlist)
+                        "klassenScore": KS.bewerte(w, KLASSEN_ART[typ]) if typ in KLASSEN_ART else None})
     rang = sorted((a for a in aus if a["return12mPct"] is not None), key=lambda a: -a["return12mPct"])
     for i, a in enumerate(rang):
         a["rank"] = i + 1
@@ -214,6 +219,14 @@ def calc_score(a, snapshot, sektor_je_id=None):
         fit -= 20
     if summe > 0 and sektor / summe > 0.35:
         fit -= 15
+    ks = a.get("klassenScore")
+    if a["type"] in KLASSEN_ART and ks and ks.get("score") is not None:
+        kriterien = KS.KRITERIEN[KLASSEN_ART[a["type"]]]
+        details = {t: ks["teile"].get(k) for k, t, _, _, _ in kriterien}
+        gewichte = {t: g for _, t, g, _, _ in kriterien}
+        details["Depot-Ergänzung"], gewichte["Depot-Ergänzung"] = fit, 5
+        return {"value": round(ks["score"] * 0.95 + fit * 0.05, 1), "coverage": float(ks["abdeckung"]),
+                "details": details, "weights": gewichte, "hasRisk": True, "basis": KLASSEN_ART[a["type"]]}
     momentum = average_known([scored_value(a.get("return12mPct"), -30, 30), scored_value(a.get("return3mPct"), -12, 12)])
     dd = a.get("maxDrawdown12mPct")
     risiko = average_known([scored_value(a.get("volatility12mPct"), 5, 60, False),
@@ -232,7 +245,7 @@ def calc_score(a, snapshot, sektor_je_id=None):
     markt = sum(SCORE_WEIGHTS[k] * v for k, v in komp) / abgedeckt if genug else None
     wert = round(markt * 0.95 + fit * 0.05, 1) if genug else None
     return {"value": wert, "coverage": round(1000 * abgedeckt / MARKT_GEWICHT) / 10, "details": details,
-            "hasRisk": risiko is not None}
+            "weights": dict(SCORE_WEIGHTS), "hasRisk": risiko is not None, "basis": "allgemein"}
 
 
 def rangliste(katalog, snapshot, modus="score"):

@@ -61,8 +61,9 @@ def enthalten(liste, w):
 
 def eintrag(w, jetzt):
     """Neuer Listeneintrag aus einer Top-500-Option (instrument_id muss gesetzt sein)."""
-    return {"id": f"prog-{int(jetzt)}", "name": w["name"], "wkn": w.get("wkn") or w.get("isin") or "",
-            "isin": w.get("isin") or "", "instrument_id": int(w["instrument_id"])}
+    return {"id": f"prog-{int(jetzt)}-{int(w['instrument_id'])}", "name": w["name"],
+            "wkn": w.get("wkn") or w.get("isin") or "", "isin": w.get("isin") or "",
+            "instrument_id": int(w["instrument_id"])}
 
 
 def hinzufuegen(liste, neu):

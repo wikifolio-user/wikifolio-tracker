@@ -1,0 +1,344 @@
+<title>Dashboard 360°-Prüfung</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: eine Lesespalte (max. 980 px), Tabellen in eigenen Scrollrahmen; Zusammenfassung vor Details */
+:root {
+  --bg: #F6F7F9; --surface: #FFFFFF; --fg: #17202B; --muted: #5A6675; --line: #DCE1E8;
+  --accent: #0E6E66; --accent-soft: #E3F2F0;
+  --ok: #157347; --ok-soft: #E4F4EA; --warn: #9A5B00; --warn-soft: #FBF0DD; --bad: #B42318; --bad-soft: #FCE9E7;
+  --info: #31588F; --info-soft: #E6EEF9;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0F1419; --surface: #161D25; --fg: #E6EAF0; --muted: #9AA6B4; --line: #2A3542;
+  --accent: #4FC4B6; --accent-soft: #123430;
+  --ok: #57C98A; --ok-soft: #12301F; --warn: #E5A945; --warn-soft: #34270F; --bad: #F2867B; --bad-soft: #3A1714;
+  --info: #8DB4EC; --info-soft: #172840; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0F1419; --surface: #161D25; --fg: #E6EAF0; --muted: #9AA6B4; --line: #2A3542;
+  --accent: #4FC4B6; --accent-soft: #123430;
+  --ok: #57C98A; --ok-soft: #12301F; --warn: #E5A945; --warn-soft: #34270F; --bad: #F2867B; --bad-soft: #3A1714;
+  --info: #8DB4EC; --info-soft: #172840; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 980px; margin: 0 auto; padding-block: 40px 64px; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: 1.35rem; font-weight: 700; padding-bottom: 8px; border-bottom: 2px solid var(--fg); }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; max-width: 72ch; }
+section { display: grid; gap: 16px; min-width: 0; }
+.kopf { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--mono); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.meta { color: var(--muted); font-size: .9rem; }
+.kennz { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.kz { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 2px; }
+.kz b { font-family: var(--display); font-size: 1.7rem; font-variant-numeric: tabular-nums; }
+.kz span { color: var(--muted); font-size: .85rem; }
+.hinweis { border-radius: 8px; padding: 14px 16px; display: grid; gap: 6px; }
+.hinweis.warn { background: var(--warn-soft); }
+.hinweis.ok { background: var(--ok-soft); }
+.hinweis strong { font-family: var(--display); }
+.rahmen { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td.z, th.z { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); white-space: nowrap; }
+code, .mono { font-family: var(--mono); font-size: .85em; }
+.pill { display: inline-block; font-family: var(--mono); font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.p-ok { background: var(--ok-soft); color: var(--ok); }
+.p-warn { background: var(--warn-soft); color: var(--warn); }
+.p-bad { background: var(--bad-soft); color: var(--bad); }
+.p-info { background: var(--info-soft); color: var(--info); }
+.befund { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; gap: 10px; min-width: 0; }
+.befund .zeile { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.befund .id { font-family: var(--mono); font-weight: 600; color: var(--accent); }
+.befund dl { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: .9rem; }
+.befund dt { color: var(--muted); }
+.befund dd { margin: 0; }
+@media (max-width: 560px) { .befund dl { grid-template-columns: 1fr; } .befund dt { margin-top: 6px; } }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<main>
+<header class="kopf">
+  <div class="eyebrow">Prüfbericht · Stand 22.10.2026</div>
+  <h1>Finanz-Dashboard: 360°-Qualitäts-, Funktions- und Geräteprüfung</h1>
+  <p class="meta">Basis: <span class="mono">main</span> nach PR #39 plus PR #40 (ETF-/wikifolio-Score) und den hier beschriebenen Korrekturen auf dem Branch <span class="mono">claude/finance-dashboard-audit-5g50v8</span>. Geprüft in einer isolierten Sandbox mit synthetischen Depots und Kursen. Die Watchlist-Ranglisten kamen aus öffentlichen Marktdaten. Keine Produktivdaten, keine echten Benachrichtigungen, keine Zahlungen.</p>
+</header>
+
+<section>
+  <h2>Ergebnis auf einen Blick</h2>
+  <div class="kennz">
+    <div class="kz"><b>1.356</b><span>Messungen im Hauptlauf (Ansichten und Unterzustände)</span></div>
+    <div class="kz"><b>18</b><span>Gerätegrößen, davon 4 im Querformat</span></div>
+    <div class="kz"><b>13</b><span>Befunde, alle behoben und nachgeprüft</span></div>
+    <div class="kz"><b>3</b><span>offene Punkte (1 Designfrage, 2 Prüflücken)</span></div>
+    <div class="kz"><b>637</b><span>automatische Tests grün (vorher 621)</span></div>
+    <div class="kz"><b>26/27</b><span>Klick-Abläufe bestanden, bei 390, 820 und 1440 px</span></div>
+  </div>
+  <div class="hinweis warn">
+    <strong>Freigabe mit Einschränkung</strong>
+    <p>Die Prüfung zeigt keine offenen kritischen oder hohen Fehler. Alle Finanzkennzahlen bestehen die Referenztests. Als vollständig geprüft im Sinne des Auftrags gilt die App trotzdem nicht. Getestet wurde ausschließlich mit der Chromium-Engine und Geräteemulation. Echte iPhones, iPads und Android-Geräte sowie Safari, Firefox, Edge und Samsung Internet standen nicht zur Verfügung. Diese Kombinationen sind unten als „nicht verifizierbar“ markiert.</p>
+  </div>
+</section>
+
+<section>
+  <h2>A · Seiteninventar</h2>
+  <p>Die App hat 19 Ansichten, die über das Menü erreichbar sind. Der Messlauf hat in jeder Ansicht zusätzlich die Reiter und Auswahl-Pillen der ersten Ebene durchgeklickt. Das waren 898 Unterzustände, etwa jede Watchlist-Liste, jeder Vergleichszeitraum und jeder Planer-Schritt.</p>
+  <div class="rahmen"><table>
+    <thead><tr><th>Bereich</th><th>Ansicht</th><th>Geprüft</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Depot</td><td>🏠 Depot (Mein Depot, Kurse, Positionsreiter)</td><td>18 Größen, 4 Rollen</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Depot</td><td>🛠️ Depot verwalten (Positionen, Sparrate/Entnahme, Beobachtungsliste, Diagnose)</td><td>18 Größen, E2E</td><td><span class="pill p-ok">geprüft · 3 Befunde behoben</span></td></tr>
+      <tr><td>Depot</td><td>📦 Musterdepot (nur sichtbar, wenn eines existiert)</td><td>5 Größen, Anlegen per Scanner</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Depot</td><td>📝 Chronik (Filter je Kategorie)</td><td>18 Größen, E2E</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Analyse</td><td>📈 Vermögensaufbau (Vergleichswerte, Sortierungen)</td><td>18 Größen</td><td><span class="pill p-ok">geprüft · 1 Befund behoben</span></td></tr>
+      <tr><td>Analyse</td><td>🔍 Performance seit 2026 / 🔎 seit 2021</td><td>18 Größen, alle Sortierungen</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Analyse</td><td>🕯️ Candlestick (Tag)</td><td>18 Größen</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Planung</td><td>🔮 Zukunfts-Prognose (Prognose-Basis verwalten)</td><td>18 Größen</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Planung</td><td>📊 Szenario-Simulator</td><td>18 Größen</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Planung</td><td>🚀 Portfolio Builder 2.0</td><td>18 Größen</td><td><span class="pill p-ok">geprüft · 1 Befund behoben</span></td></tr>
+      <tr><td>Planung</td><td>🤖 Investment-Scanner · 🔎 Scanner Pro · 🧭 Scanner 2.0</td><td>18 Größen</td><td><span class="pill p-ok">geprüft · 2 Befunde behoben</span></td></tr>
+      <tr><td>Planung</td><td>💼 Portfolio-Planer (Schritte, Bausteine)</td><td>18 Größen, 3 Rollen</td><td><span class="pill p-ok">geprüft · 2 Befunde behoben</span></td></tr>
+      <tr><td>Planung</td><td>🏆 Watchlist Top 500 (6 Listen inkl. ETF-/wikifolio-Score)</td><td>18 Größen</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Rechner</td><td>💶 Abfindungsrechner (8 Reiter) · 🧮 Zinseszinsrechner</td><td>18 Größen, Referenztests</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Verwaltung</td><td>👥 Benutzer (nur Admin), Anmeldung, Abmelden</td><td>18 Größen, E2E, Sperre</td><td><span class="pill p-ok">geprüft</span></td></tr>
+    </tbody></table></div>
+  <p><strong>Im Auftrag genannt, in dieser App nicht vorhanden:</strong> Einnahmen/Ausgaben, Budgets, Konten und Buchungen, Schulden- und Kreditverwaltung, Selbstregistrierung (Benutzer legt nur der Admin an) und ein Hellmodus (die App ist bewusst dunkel). Die Referenzrechnung aus dem Auftrag (5.000 € − 3.200 € = 1.800 €, Sparquote 36 %) ließ sich daher an keiner App-Funktion prüfen. Import und Export gibt es: CSV-Import in Scanner Pro und 2.0, PDF- und CSV-Export in mehreren Ansichten. Beides wurde geprüft.</p>
+</section>
+
+<section>
+  <h2>B · Testmatrix Gerät × Rolle</h2>
+  <p>Je Messung erfasst: Ladezeit, seitlicher Überlauf, Elemente außerhalb des Bildschirms, abgeschnittene Texte, Touch-Ziele unter 44 px, App-Fehler, Konsolenfehler. Bei 375, 820 und 1440 px kam ein axe-core-Lauf (WCAG 2 A/AA) dazu. Rollen: <em>admin</em> mit vollem Depot, <em>maria</em> mit eigenem Depot und Sparplan, <em>neu</em> ohne Daten, <em>leser</em> mit nur 3 freigegebenen Ansichten.</p>
+  <div class="rahmen"><table>
+    <thead><tr><th>Gerätegröße (CSS-px)</th><th>entspricht etwa</th><th>Rolle</th><th class="z">Ansichten</th><th class="z">Unterzust.</th><th class="z">Fehler</th><th class="z">Überlauf</th><th class="z">max. Laden</th><th>nach Korrektur</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">320×568 t</td><td>iPhone SE (1. Gen.)</td><td>admin</td><td class="z">18</td><td class="z">41</td><td class="z">0</td><td class="z">3</td><td class="z">3,2 s</td><td><span class="pill p-ok">0 Überlauf</span></td></tr>
+      <tr><td class="mono">360×740 t</td><td>kleine Android-Telefone</td><td>admin</td><td class="z">18</td><td class="z">41</td><td class="z">0</td><td class="z">0</td><td class="z">2,3 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">375×667 t</td><td>iPhone SE (2./3. Gen.)</td><td>admin</td><td class="z">18</td><td class="z">41</td><td class="z">0</td><td class="z">0</td><td class="z">2,2 s</td><td><span class="pill p-ok">axe 2 → 0</span></td></tr>
+      <tr><td class="mono">390×844 t</td><td>iPhone 13–15</td><td>admin</td><td class="z">18</td><td class="z">41</td><td class="z">0</td><td class="z">0</td><td class="z">2,5 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">414×896 t</td><td>iPhone Plus/Max (ältere)</td><td>admin</td><td class="z">18</td><td class="z">41</td><td class="z">0</td><td class="z">0</td><td class="z">2,5 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">430×932 t</td><td>iPhone Pro Max</td><td>admin</td><td class="z">18</td><td class="z">41</td><td class="z">0</td><td class="z">0</td><td class="z">2,4 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">600×960 t</td><td>kleine Tablets, Foldables</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,1 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">667×375 t</td><td>iPhone quer</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,7 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">768×1024 t</td><td>iPad mini/Standard hoch</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,1 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">820×1180 t</td><td>iPad Air hoch</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,3 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">844×390 t</td><td>iPhone Pro quer</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,5 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">1024×1366 t</td><td>iPad Pro 12,9″ hoch</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">3,2 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">1024×768 t</td><td>iPad quer</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,2 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">1180×820 t</td><td>iPad Air quer</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,2 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">1280×800</td><td>Laptop (Windows/Linux)</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,3 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">1440×900</td><td>MacBook Air/Pro</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,4 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">1920×1080</td><td>Desktop-Monitor</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,3 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">2560×1440</td><td>iMac / QHD-Monitor</td><td>admin</td><td class="z">18</td><td class="z">39</td><td class="z">0</td><td class="z">0</td><td class="z">2,4 s</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td class="mono">375 · 820 · 1440</td><td>Telefon · Tablet · Laptop</td><td>maria</td><td class="z">17 je</td><td class="z">31–33</td><td class="z">1*</td><td class="z">1</td><td class="z">2,6 s</td><td><span class="pill p-ok">0 Fehler, 0 Überlauf</span></td></tr>
+      <tr><td class="mono">375 · 820 · 1440</td><td>Telefon · Tablet · Laptop</td><td>neu</td><td class="z">17 je</td><td class="z">29–31</td><td class="z">1*</td><td class="z">1</td><td class="z">2,7 s</td><td><span class="pill p-ok">0 Fehler, 0 Überlauf</span></td></tr>
+      <tr><td class="mono">375 · 1440</td><td>Telefon · Laptop</td><td>leser</td><td class="z">3 je</td><td class="z">0</td><td class="z">0</td><td class="z">0</td><td class="z">2,3 s</td><td><span class="pill p-ok">ok</span></td></tr>
+    </tbody></table></div>
+  <p class="meta">t = Touch-Emulation mit Safari-Kennung (iPhone/iPad). * Rote Fehlerbox im Planer bei leeren Feldern, siehe F-12. Der abschließende Regressionslauf mit allen Korrekturen (394 Messungen bei 320, 375, 667 quer, 820 und 1440 px, Rollen admin und maria) fand keine Fehler, keinen Überlauf und keine axe-Verstöße. Ladezeit im Hauptlauf: Median 1,4 s, 95 % bis 2,0 s, höchstens 3,2 s.</p>
+
+  <h3>Browser und Betriebssysteme</h3>
+  <div class="rahmen"><table>
+    <thead><tr><th>Kombination</th><th>Methode</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Chromium (Engine von Chrome, Edge, Samsung Internet) · Linux</td><td>Playwright, Desktop und Touch-Emulation</td><td><span class="pill p-ok">geprüft</span></td></tr>
+      <tr><td>Safari auf iOS/iPadOS/macOS (WebKit)</td><td>nur Safari-Kennung in Chromium, keine WebKit-Engine verfügbar</td><td><span class="pill p-warn">nicht verifizierbar</span></td></tr>
+      <tr><td>Firefox (Gecko) · Windows/macOS/Linux</td><td>keine Firefox-Engine in der Testumgebung</td><td><span class="pill p-warn">nicht verifizierbar</span></td></tr>
+      <tr><td>Echte Geräte (iPhone, iPad, Galaxy, Pixel, Android-Tablet)</td><td>keine physischen Geräte</td><td><span class="pill p-warn">nicht verifizierbar</span></td></tr>
+      <tr><td>Bildschirmtastatur, Notch/Safe-Area, Systemschriftgröße, Zoom</td><td>nur echte Geräte zeigen das zuverlässig</td><td><span class="pill p-warn">nicht verifizierbar</span></td></tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <h2>E · Fehlerprotokoll</h2>
+  <p>Schweregrade: <span class="pill p-bad">hoch</span> falsche Finanzzahl oder falsche Daten · <span class="pill p-warn">mittel</span> deutlich erschwerte Bedienung oder widersprüchliche Anzeige · <span class="pill p-info">niedrig</span> Komfort, Darstellung. Keine Befunde der Stufe kritisch.</p>
+
+  <article class="befund">
+    <div class="zeile"><span class="id">F-01</span><span class="pill p-bad">hoch</span><span class="pill p-ok">behoben · nachgeprüft</span><h3>Ø Rendite p. a. bei Sparplan und Entnahmen viel zu niedrig</h3></div>
+    <dl>
+      <dt>Seite</dt><dd>Depot, Kachel „Depotwert“, Chip „Ø p.a. seit Kauf“</dd>
+      <dt>Ursache</dt><dd><code>rendite_pa_seit_kauf</code> rechnete das gesamte Geld (Startkapital und alle Sparraten) so, als läge es seit dem Kaufdatum im Depot.</dd>
+      <dt>Reproduktion</dt><dd>Sparplan 24 × 500 € monatlich, Wertentwicklung genau 10 % p. a.</dd>
+      <dt>Erwartet</dt><dd>10,0 % p. a.</dd>
+      <dt>Tatsächlich</dt><dd>5,2 % p. a.</dd>
+      <dt>Korrektur</dt><dd>Geldgewichtete Rendite (interner Zinsfuß, XIRR): Jede Sparrate zählt ab ihrem Kauftag, jede Entnahme ab ihrem Termin. Ohne Sparplan und Entnahmen ist das Ergebnis exakt die bisherige CAGR.</dd>
+      <dt>Retest</dt><dd>Neue Referenztests: reiner Sparplan, Startkapital mit Sparplan und Entnahmen, Verlust, Grenzfälle unter 30 Tagen und unter 1 Jahr. Im Browser zeigen Kachel und Tabelle 12,3 % bzw. 12,28 %.</dd>
+    </dl>
+  </article>
+
+  <article class="befund">
+    <div class="zeile"><span class="id">F-04</span><span class="pill p-bad">hoch</span><span class="pill p-ok">behoben · nachgeprüft</span><h3>Neue Position übernimmt still WKN und Kursquelle des vorherigen Suchtreffers</h3></div>
+    <dl>
+      <dt>Seite</dt><dd>Depot verwalten → Positionen verwalten (auch Beobachtungsliste und Bearbeiten)</dd>
+      <dt>Ursache</dt><dd>Nach dem Anlegen löschte das Programm den Suchbegriff nur intern. Im Browser blieb er stehen und wurde bei der nächsten Eingabe erneut gesendet. Das Formular übernahm dann wieder den alten Treffer.</dd>
+      <dt>Reproduktion</dt><dd>„MSCI World“ suchen und anlegen, danach eine zweite Position mit eigenem Namen anlegen.</dd>
+      <dt>Erwartet</dt><dd>Zweite Position ohne Kursquelle</dd>
+      <dt>Tatsächlich</dt><dd>Laut Chronik bekam die zweite Position die WKN A1XB5U und die Kursquelle des ETF</dd>
+      <dt>Korrektur</dt><dd>Das Suchfeld wird nach dem Speichern als neues, leeres Feld erzeugt (<code>suche_zuruecksetzen</code>), an allen vier Stellen.</dd>
+      <dt>Retest</dt><dd>E2E „Suchfeld nach dem Anlegen leer“ und „Hand-Position ohne WKN des vorherigen Suchtreffers“ bestanden, bei 1440 und 390 px.</dd>
+    </dl>
+  </article>
+
+  <article class="befund">
+    <div class="zeile"><span class="id">F-02</span><span class="pill p-warn">mittel</span><span class="pill p-ok">behoben · nachgeprüft</span><h3>Vermögensaufbau-Tabelle rechnet Ø/Jahr anders als die Depotkachel</h3></div>
+    <dl>
+      <dt>Ursache</dt><dd>Die eigene Zeile hatte einen eigenen Rechenweg, obwohl der Code-Kommentar „dieselben Zahlen wie die Depotkachel“ verlangt.</dd>
+      <dt>Korrektur</dt><dd>Ø/Jahr und Ø/Monat kommen aus derselben Rendite wie die Kachel.</dd>
+      <dt>Retest</dt><dd>Kachel 12,3 % = Tabelle 12,28 %. Gewinn identisch in Tabelle (2.058 €) und Prognose (2.057,71 €).</dd>
+    </dl>
+  </article>
+
+  <article class="befund">
+    <div class="zeile"><span class="id">F-05</span><span class="pill p-warn">mittel</span><span class="pill p-ok">behoben · nachgeprüft</span><h3>„Ø p.a.“ auf Positionskarten zeigte die Prognoserate</h3></div>
+    <dl>
+      <dt>Ursache</dt><dd>Gleiche Beschriftung, andere Kennzahl: Die Hauptposition zeigte die erzielte Rendite, weitere Positionen die gedämpfte Langfristrate des Produkts. Das widerspricht der früheren Audit-Regel A-08.</dd>
+      <dt>Korrektur</dt><dd>Alle Karten zeigen „Ø p.a. seit Kauf“, also die erzielte Rendite. Die Prognoserate bleibt in den Prognose-Ansichten.</dd>
+      <dt>Retest</dt><dd>Von Hand nachgerechnet:<ul><li>FF Inlinetrading: 58,25 € → 87,415 € in 234 Tagen, hochgerechnet 88,4 % p. a. Angezeigt werden 88,5 %, die Differenz ist Rundung.</li><li>iShares Core MSCI World: 52,10 € → 87,415 € in 890 Tagen, angezeigt 23,7 % p. a. ✓</li></ul></dd>
+    </dl>
+  </article>
+
+  <article class="befund">
+    <div class="zeile"><span class="id">F-03</span><span class="pill p-warn">mittel</span><span class="pill p-ok">behoben · nachgeprüft</span><h3>Depot-Position wurde ohne Rückfrage gelöscht</h3></div>
+    <dl>
+      <dt>Korrektur</dt><dd>Rückfrage „wirklich löschen?“ mit „Endgültig löschen“ und „Abbrechen“, wie beim Löschen eines Benutzers.</dd>
+      <dt>Retest</dt><dd>E2E: Rückfrage erscheint, Abbrechen behält die Position, endgültiges Löschen entfernt sie, die Chronik protokolliert es.</dd>
+    </dl>
+  </article>
+
+  <article class="befund">
+    <div class="zeile"><span class="id">F-08</span><span class="pill p-warn">mittel</span><span class="pill p-ok">behoben · nachgeprüft</span><h3>Planer „Bausteine“ lief auf dem Handy 150 px seitlich aus dem Bild</h3></div>
+    <dl><dt>Ursache</dt><dd>Das Warnschild „⚠ Sehr hohe Vergangenheitsrendite …“ brach nicht um und war 496 px breit.</dd><dt>Retest</dt><dd>375 px, Rollen maria und neu: kein Überlauf.</dd></dl>
+  </article>
+
+  <article class="befund">
+    <div class="zeile"><span class="id">F-11</span><span class="pill p-warn">mittel</span><span class="pill p-ok">behoben · nachgeprüft</span><h3>Scrollbare Tabellen nicht per Tastatur erreichbar (WCAG 2.1.1)</h3></div>
+    <dl><dt>Seite</dt><dd>Portfolio Builder, Scanner 2.0, Teilpunkte im ETF-/wikifolio-Score</dd><dt>Korrektur</dt><dd>Der fokussierbare Rahmen scrollt, nicht die Tabelle selbst.</dd><dt>Retest</dt><dd>axe-core: 0 Verstöße.</dd></dl>
+  </article>
+
+  <div class="rahmen"><table>
+    <thead><tr><th>ID</th><th>Befund</th><th>Schwere</th><th>Korrektur und Retest</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">F-06</td><td>IDs für Positionen, Beobachtung und Prognose-Basis waren nur sekundengenau. Zwei Einträge in derselben Sekunde bekamen dieselbe ID, Löschen konnte dann beide treffen.</td><td><span class="pill p-info">niedrig</span></td><td>Zufalls-ID bzw. Kurs-ID in der ID · Tests grün</td></tr>
+      <tr><td class="mono">F-07</td><td>Geldbeträge wurden binär gerundet: 2,675 € erschien als 2,67 €.</td><td><span class="pill p-info">niedrig</span></td><td>Kaufmännische Rundung in allen €-Formatierern · Referenztests</td></tr>
+      <tr><td class="mono">F-09</td><td>Score-Tabelle in Scanner 2.0 bei 320 px 25 px zu breit, ohne Scrollrahmen</td><td><span class="pill p-info">niedrig</span></td><td>Scrollrahmen, schmalere Namensspalte · 0 Überlauf</td></tr>
+      <tr><td class="mono">F-10</td><td>Menükachel „Investment Scanner 2.0“ bei 320 px 3 px zu breit</td><td><span class="pill p-info">niedrig</span></td><td>Zweizeilig unter 340 px · 0 Überlauf</td></tr>
+      <tr><td class="mono">F-12</td><td>Planer zeigt neuen Benutzern bei leeren Feldern eine rote Fehlerbox</td><td><span class="pill p-info">niedrig</span></td><td>Neutraler Hinweis statt Fehler</td></tr>
+      <tr><td class="mono">F-13</td><td>„?“-Hilfesymbole haben nur 16×16 px Tippfläche</td><td><span class="pill p-info">niedrig</span></td><td>Auf Touch-Geräten 44×44 px Tippfläche, auch ein Tipp 18 px neben das Symbol öffnet den Hinweis. Die erste Fassung verursachte selbst einen Fehler: „☰ Menü“ war bei 820 px nicht klickbar, und bei 375 px gab es 2 px Überlauf. Die Regression hat das gefunden, es ist behoben und erneut geprüft. Auf echtem iPhone nicht verifizierbar.</td></tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <h2>D · Finanzmathematische Validierung</h2>
+  <p>Sollwerte stammen aus geschlossenen Formeln oder Handrechnung, nie aus dem App-Code (<code>test_referenz_360.py</code>, 16 Tests). Dazu kommen die übrigen Tests für Sparplan, Entnahmen, Monte Carlo, Planer, Builder, Scanner und Abfindung.</p>
+  <div class="rahmen"><table>
+    <thead><tr><th>Kennzahl</th><th>Formel / Referenz</th><th class="z">Referenz</th><th class="z">App</th><th>Ergebnis</th></tr></thead>
+    <tbody>
+      <tr><td>Ø Rendite p. a., reiner Sparplan</td><td>24 × 500 €, jede Rate wächst mit (1,10)^(Tage/365,25)</td><td class="z">10,0000 %</td><td class="z">10,0000 %</td><td><span class="pill p-ok">ok (vorher 5,2 %)</span></td></tr>
+      <tr><td>Ø Rendite p. a., Start + Sparplan + Entnahmen</td><td>10.000 € + 12 × 250 € − 12 × 100 €, 7 % p. a.</td><td class="z">7,0000 %</td><td class="z">7,0000 %</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>CAGR ohne Zusatzzahlungen</td><td>1.000 € → 1.210 € in 731 Tagen</td><td class="z">9,99 %</td><td class="z">9,99 %</td><td><span class="pill p-ok">ok, identisch zur alten Rechnung</span></td></tr>
+      <tr><td>Zeiträume Tag/Woche/lfd. Jahr/Jahr</td><td>Schlusskurs am oder vor dem Stichtag; lfd. Jahr gegen Schluss 31.12.</td><td class="z">–</td><td class="z">–</td><td><span class="pill p-ok">ok, kurze Historie ehrlich beschriftet</span></td></tr>
+      <tr><td>Einkommensteuer 2026</td><td>§ 32a EStG, alle 5 Zonen und Grenzen (13 Stützstellen)</td><td class="z">z. B. 0 / 15.000 / 500.000 €</td><td class="z">identisch</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Fünftelregelung, Splitting</td><td>ESt(R) + 5 × [ESt(R + A/5) − ESt(R)]; 2 × ESt(zvE/2)</td><td class="z">–</td><td class="z">identisch</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Solidaritätszuschlag 2026</td><td>Freigrenze 20.350 €, Milderung 11,9 %, Satz 5,5 %</td><td class="z">0 / 77,35 / 5.500 €</td><td class="z">identisch</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Zinseszins, Einmalanlage</td><td>10.000 € × 1,03^10</td><td class="z">13.439,16 €</td><td class="z">± 0,05 €</td><td><span class="pill p-ok">ok (Cent-Rundung je Gutschrift)</span></td></tr>
+      <tr><td>Sparrate nachschüssig, 1 Jahr</td><td>100 € × 0,25 % × (11 + 10 + … + 0)</td><td class="z">1.216,50 €</td><td class="z">1.216,50 €</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Sparrate vorschüssig, 1 Jahr</td><td>100 € × 0,25 % × (12 + 11 + … + 1)</td><td class="z">1.219,50 €</td><td class="z">1.219,50 €</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Abgeltungsteuer mit Freibetrag</td><td>(3.000 − 1.000) × 26,375 %</td><td class="z">527,50 €</td><td class="z">527,50 €</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Scanner 2.0 Endwert</td><td>10.000 × 1,005^24 + 100 × (1,005^24 − 1)/0,005</td><td class="z">13.814,79 €</td><td class="z">identisch</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Scanner 2.0 nötige Rendite</td><td>Verdopplung in 120 Monaten</td><td class="z">(1 + r/12)^120 = 2</td><td class="z">erfüllt</td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Rundung von Geldbeträgen</td><td>kaufmännisch, Halbe vom Nullpunkt weg</td><td class="z">2,675 → 2,68</td><td class="z">2,68</td><td><span class="pill p-ok">ok (vorher 2,67)</span></td></tr>
+    </tbody></table></div>
+  <p><strong>Konsistenz zwischen Ansichten</strong> (im Browser ausgelesen):</p>
+  <ul>
+    <li>Ø p. a.: Depotkachel 12,3 % = Vermögensaufbau-Tabelle 12,28 %.</li>
+    <li>Gewinn seit Kauf: Tabelle 2.058 € = Prognose 2.057,71 €.</li>
+    <li>Positionswert iShares: 479,8464 Anteile × 87,4155 € (angezeigt gerundet 87,415 €) = 41.946,02 € ✓</li>
+  </ul>
+  <p><strong>Hinweis ohne Änderung:</strong> Scanner 2.0 verzinst wie die mitgelieferte Vorlage monatlich mit Rendite ÷ 12. „8 % p. a.“ entspricht dort effektiv 8,30 % p. a. Das ist dokumentiert, die Geschäftslogik wurde nicht verändert.</p>
+</section>
+
+<section>
+  <h2>Funktionsabläufe (E2E)</h2>
+  <p>27 Prüfpunkte, je einmal bei 1440 px (Maus) sowie 820 und 390 px (Touch). Der Benutzer wurde dabei über die Benutzerverwaltung neu angelegt. Die Ergebnisse bei 820 px sind identisch mit denen bei 390 px (26/27).</p>
+  <div class="rahmen"><table>
+    <thead><tr><th>Prüfpunkt</th><th>1440</th><th>390</th></tr></thead>
+    <tbody>
+      <tr><td>Anmeldung: falsches Passwort und leere Felder abgewiesen</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Benutzer anlegen: zu kurzes Passwort und doppelter Name abgewiesen, Anlegen klappt</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Abmelden; Zurück-Taste danach zeigt keine Daten</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Neuer Benutzer ohne vorbelegte Positionen</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Pflichtfelder geprüft; Anlegen per Suche; Doppelklick legt nur eine Position an</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>HTML im Namen (<code>&lt;img onerror&gt;</code>) wird nicht ausgeführt und lesbar angezeigt</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Änderung bleibt nach Neuladen erhalten</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Löschen mit Rückfrage, Abbrechen, endgültig löschen</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Sparrate speichern; Chronik protokolliert Anlegen, Ändern, Löschen</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Suchfeld leer nach Anlegen; keine fremde WKN (F-04)</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Zurück-Taste innerhalb der App ohne Absturz</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Eingeschränkter Benutzer sieht nur 3 Ansichten; gesperrter Direktlink öffnet nichts</td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+      <tr><td>Neuladen (F5) behält die Anmeldung</td><td><span class="pill p-warn">nein, O-1</span></td><td><span class="pill p-warn">nein, O-1</span></td></tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <h2>Sicherheit, Stabilität, Performance</h2>
+  <div class="rahmen"><table>
+    <thead><tr><th>Prüfung</th><th>Ergebnis</th></tr></thead>
+    <tbody>
+      <tr><td>Sperre nach Fehlversuchen</td><td><span class="pill p-ok">ok</span> Nach 5 Fehlversuchen 60 s Sperre; auch das richtige Passwort wird während der Sperre abgewiesen.</td></tr>
+      <tr><td>Mandantentrennung</td><td><span class="pill p-ok">ok</span> Ein neuer Benutzer sieht keine fremden Positionen. Der eingeschränkte Benutzer erreicht keine gesperrten Ansichten.</td></tr>
+      <tr><td>Einschleusen von HTML/Skript</td><td><span class="pill p-ok">ok</span> wird maskiert angezeigt, nicht ausgeführt</td></tr>
+      <tr><td>Gleichzeitiges Anlegen in zwei Sitzungen</td><td><span class="pill p-ok">ok</span> Beide Positionen bleiben erhalten (Lesen-Ändern-Schreiben mit Versionsprüfung).</td></tr>
+      <tr><td>Speicher fällt beim Schreiben aus (HTTP 500)</td><td><span class="pill p-ok">ok</span> „Speichern fehlgeschlagen – die Sparrate wurde NICHT übernommen“, Daten unverändert</td></tr>
+      <tr><td>Speicher fällt beim Lesen aus</td><td><span class="pill p-ok">ok</span> „Anmeldung gerade nicht möglich – der Datenspeicher ist nicht erreichbar“</td></tr>
+      <tr><td>Kursquelle fällt aus</td><td><span class="pill p-ok">ok</span> kein Absturz in 6 Ansichten; letzter gespeicherter Kurs mit Zeitstempel</td></tr>
+      <tr><td>Konsolenfehler und fehlgeschlagene Netzanfragen</td><td><span class="pill p-ok">ok</span> 0 in 1.356 Messungen</td></tr>
+      <tr><td>Große Datenmengen</td><td><span class="pill p-ok">ok</span> 9.687 wikifolios bewerten 0,14 s; PDF mit 500 Zeilen 0,6 s; keine Ansicht über 3,2 s</td></tr>
+      <tr><td>Touch-Ziele unter 44 px</td><td><span class="pill p-info">Rest</span> fast nur Streamlit-intern: Tabellen-Werkzeugleiste 24 px, Plus/Minus 42 px, Datumsfeld. Die App kann sie nicht steuern.</td></tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <h2>F · Offene Punkte und Testabdeckung</h2>
+  <div class="rahmen"><table>
+    <thead><tr><th>ID</th><th>Punkt</th><th>Art</th><th>Was nötig ist</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">O-1</td><td>Neuladen (F5) meldet ab. Die App hat keine dauerhafte Anmeldung (kein Cookie).</td><td><span class="pill p-warn">Designfrage</span></td><td>Deine Entscheidung. Sicherer, aber unbequem. Eine „angemeldet bleiben“-Lösung bräuchte ein signiertes Cookie.</td></tr>
+      <tr><td class="mono">O-2</td><td>Echte Geräte sowie Safari, Firefox, Edge und Samsung Internet</td><td><span class="pill p-warn">nicht verifizierbar</span></td><td>Kurzer Sichttest auf deinem iPhone und iPad, vor allem Hilfe-„?“, Tastatur und Querformat</td></tr>
+      <tr><td class="mono">O-3</td><td>Discord-Alarme: GitHub-Secret <code>DISCORD_WEBHOOK_URL</code> ungültig (bekannt aus PR #37)</td><td><span class="pill p-warn">offen</span></td><td>Secret auf GitHub neu eintragen; nicht im Code lösbar</td></tr>
+    </tbody></table></div>
+  <div class="rahmen"><table>
+    <thead><tr><th>Status</th><th>Bereiche</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill p-ok">erfolgreich getestet</span></td><td>alle 19 Ansichten, 898 Unterzustände, 18 Größen; Anmeldung, Rechte, CRUD, Chronik, Störungen, Parallelität, Referenzrechnungen</td></tr>
+      <tr><td><span class="pill p-ok">korrigiert und erneut getestet</span></td><td>F-01 bis F-13</td></tr>
+      <tr><td><span class="pill p-warn">noch offen</span></td><td>O-1 (Designfrage), O-3 (Secret)</td></tr>
+      <tr><td><span class="pill p-warn">mangels Gerät oder Browser nicht verifizierbar</span></td><td>O-2: WebKit, Gecko, echte Touch-Geräte, Bildschirmtastatur, Safe Areas, Systemschrift, Screenreader (VoiceOver/TalkBack)</td></tr>
+      <tr><td><span class="pill p-info">nicht getestet</span></td><td>Musterdepot nur bei 5 Größen (es erscheint erst nach dem Anlegen); Unterzustände ab der zweiten Ebene (z. B. jede Index-Auswahl der Watchlist) nur stichprobenartig</td></tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <h2>G · Abschlussbewertung</h2>
+  <div class="rahmen"><table>
+    <thead><tr><th>Bereich</th><th>Bewertung der geprüften Teile</th></tr></thead>
+    <tbody>
+      <tr><td>Funktionalität</td><td><span class="pill p-ok">gut</span> Alle Abläufe funktionieren; F-03 und F-04 behoben.</td></tr>
+      <tr><td>Finanzlogik</td><td><span class="pill p-ok">gut</span> Alle Referenztests bestanden. F-01 war der wichtigste Fund: Sparplan-Nutzer sahen eine etwa halb so hohe Rendite.</td></tr>
+      <tr><td>Datenkonsistenz</td><td><span class="pill p-ok">gut</span> Gleiche Kennzahlen stimmen jetzt überall überein (F-02, F-05).</td></tr>
+      <tr><td>UX und visuelle Qualität</td><td><span class="pill p-ok">gut</span> Keine Überlappungen, kein Seitenüberlauf, Rückfragen bei kritischen Aktionen.</td></tr>
+      <tr><td>Responsivität</td><td><span class="pill p-ok">gut</span> 320–2560 px ohne Überlauf, in der Emulation</td></tr>
+      <tr><td>Barrierefreiheit</td><td><span class="pill p-ok">gut</span> axe 0 Verstöße; Screenreader und Systemschrift nicht verifizierbar</td></tr>
+      <tr><td>Performance</td><td><span class="pill p-ok">gut</span> Median 1,4 s je Ansicht</td></tr>
+      <tr><td>Sicherheit</td><td><span class="pill p-ok">gut</span> Sperre, Mandantentrennung, Maskierung und Fehlerbehandlung bestätigt</td></tr>
+    </tbody></table></div>
+  <p>Alle Prüfskripte liegen im Repository unter <code>audit/harness/</code>: <code>x360.py</code> (Messlauf), <code>e2e360.py</code>, <code>konsistenz360.py</code>, <code>fault360.py</code>, <code>parallel360.py</code>, <code>sperre360.py</code> und weitere. Die Referenztests liegen in <code>test_referenz_360.py</code>.</p>
+</section>
+</main>

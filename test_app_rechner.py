@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 FUNKTIONEN = [
-    "fmt", "fmt_vz", "vz_zahl", "_h",
+    "_kaufm", "fmt", "fmt_vz", "vz_zahl", "_h",
     "monats_termine", "sparplan_termine", "entnahme_termine", "kumulierte_entnahme",
     "sparplan_phasen", "sparrate_am", "sparplan_state_neu", "sparplan_einzelkaeufe", "sparplan_kaeufe",
     "sparplan_verlauf", "depot_kennzahlen_real", "rendite_pa_seit_kauf",

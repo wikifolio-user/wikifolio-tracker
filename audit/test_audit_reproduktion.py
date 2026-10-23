@@ -31,7 +31,7 @@ import abfindung  # noqa: E402
 import nutzerdaten  # noqa: E402
 import zinsrechner  # noqa: E402
 
-FUNKTIONEN = ["fmt", "fmt_vz", "monats_termine", "entnahme_termine", "kumulierte_entnahme",
+FUNKTIONEN = ["_kaufm", "fmt", "fmt_vz", "monats_termine", "entnahme_termine", "kumulierte_entnahme",
               "depot_kennzahlen", "berechne_reale_stueckzahl", "berechne_performance_kennzahlen",
               "realisierte_rendite_pa", "sparplan_termine", "sparplan_kaeufe", "_berlin_tage",
               "historie_zuschnitt"]
