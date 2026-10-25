@@ -2992,6 +2992,7 @@ ANSICHT_BUILDER = "🚀 Portfolio Builder 2.0"
 ANSICHT_SCANNER = "🤖 Investment-Scanner"
 ANSICHT_SCANNER_PRO = "🔎 Investment Scanner Pro"
 ANSICHT_SCANNER2 = "🧭 Investment Scanner 2.0"
+ANSICHT_ANALYSE = "🧠 Depot-Analyse & Optimierung"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
@@ -3016,6 +3017,7 @@ ANSICHTEN = [
     ANSICHT_SCANNER,
     ANSICHT_SCANNER_PRO,
     ANSICHT_SCANNER2,           # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_ANALYSE,
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -3037,6 +3039,7 @@ ANSICHT_KURZ = {
     ANSICHT_SCANNER: "🤖 Scanner",
     ANSICHT_SCANNER_PRO: "🔎 Scanner Pro",
     ANSICHT_SCANNER2: "🧭 Scanner 2.0",
+    ANSICHT_ANALYSE: "🧠 Depot-Analyse",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -3054,6 +3057,7 @@ NAV_NAMEN = {
     ANSICHT_SCANNER: "🤖 Investment-Scanner",
     ANSICHT_SCANNER_PRO: "🔎 Investment Scanner Pro",
     ANSICHT_SCANNER2: "🧭 Investment Scanner 2.0",
+    ANSICHT_ANALYSE: "🧠 Depot-Analyse & Optimierung",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
@@ -3068,7 +3072,7 @@ NAV_TITEL = {
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
 NAV_ZEILEN = [
-    ("Depot", [ANSICHT_DEPOT, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
+    ("Depot", [ANSICHT_DEPOT, ANSICHT_ANALYSE, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
@@ -6664,6 +6668,15 @@ def render_dashboard():
         "instrument_id": config.LS_INSTRUMENT_ID,
         "wkn": config.WKN,
     }] if haupt_aktiv else []
+    # Bestand fuer die Depot-Analyse (depot_analyse_ui): dieselben Werte wie die Kacheln, je Position
+    # Stueck, Kurs, Einstand, Kurshistorie. Positionen ohne Kurs werden markiert und nicht bewertet.
+    depot_bestand = [{
+        "name": haupt_name, "wkn": config.WKN, "instrument_id": config.LS_INSTRUMENT_ID,
+        "stueck": depotwert_real_ist / aktueller_kurs if aktueller_kurs else 0.0,
+        "kurs": aktueller_kurs, "vortag": vortag_kurs, "wert": depotwert_real_ist, "einstand": einstand_aktiv,
+        "ausgezahlt": ausgezahlt_ist, "kaufdatum": kaufdatum_aktiv, "ist_wikifolio": ist_wikifolio(config.WKN),
+        "hist": df_chart["Close"].iloc[-420:] if (not df_chart.empty and is_live_history) else None,
+    }] if haupt_aktiv else []
 
     _pos_gesamt = len(weitere_positionen)
 
@@ -6695,12 +6708,18 @@ def render_dashboard():
                     '</div>'
                 )
                 positions_karten.append((p_name, karte))
+                depot_bestand.append({"name": p_name, "wkn": pos.get("wkn", ""), "instrument_id": None,
+                                      "stueck": p_stueck, "kurs": None, "wert": 0.0, "einstand": p_einstand,
+                                      "ohne_kurs": True})
                 continue
 
             p_kurs, p_vortag, p_quelle = get_live_kurs(pos["instrument_id"])
             if p_kurs is None:
                 positionen_ok = False
                 st.warning(f"⚠️ Für **{p_name}** sind gerade keine Live-Daten verfügbar.")
+                depot_bestand.append({"name": p_name, "wkn": pos.get("wkn", ""), "instrument_id": pos["instrument_id"],
+                                      "stueck": position_stueckzahl(pos), "kurs": None, "wert": 0.0,
+                                      "einstand": float(pos.get("startkapital") or 0), "ohne_kurs": True})
                 continue
 
             p_stueck = position_stueckzahl(pos)
@@ -6751,6 +6770,11 @@ def render_dashboard():
                 "instrument_id": pos["instrument_id"],
                 "wkn": pos.get("wkn", ""),
             })
+            depot_bestand.append({"name": p_name, "wkn": pos.get("wkn", ""), "instrument_id": pos["instrument_id"],
+                                  "stueck": p_stueck, "kurs": p_kurs, "vortag": p_vortag, "wert": p_wert,
+                                  "einstand": p_einstand, "kaufdatum": p_kaufdatum, "quelle": p_quelle,
+                                  "ist_wikifolio": ist_wikifolio(pos.get("wkn", ""), p_name),
+                                  "hist": p_hist if p_hist is not None and not p_hist.empty else None})
 
             karte = (
                 '<div class="hero">'
@@ -8288,6 +8312,29 @@ def render_dashboard():
     if gewaehlte_ansicht == "🔮 Zukunfts-Prognose":
         melde("ansicht", 0.3, "Berechne Prognose …")
         _render_forecast()
+        lade_fertig()
+
+    # --- DEPOT-ANALYSE & OPTIMIERUNG (depot_analyse.py / depot_analyse_ui.py): bewertet das echte Depot,
+    # Simulator rechnet nur virtuell (das gespeicherte Depot aendert sich hier nie ohne Bestaetigung)
+    if gewaehlte_ansicht == ANSICHT_ANALYSE:
+        melde("ansicht", 0.3, "Analysiere Depot …")
+        _da_h = {"bestand": depot_bestand, "kurs_stand": f"{fetched_source} · {kurs_zeit_text}",
+                 "gh_read": gh_read, "gh_read_taeglich": gh_read_taeglich, "gh_aktualisiere": gh_aktualisiere,
+                 "pfad": upfad("state/depot_analyse.json"), "speichern": GH_STATE_READY,
+                 "chronik": chronik_eintrag, "suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs,
+                 "get_kurshistorie": get_kurshistorie, "aendere_positionen": aendere_positionen,
+                 "anthropic_key": st.secrets.get("ANTHROPIC_API_KEY", "")}
+
+        @st.fragment
+        def _render_analyse():
+            _zugang_pruefen(ANSICHT_ANALYSE)
+            try:
+                import depot_analyse_ui
+                depot_analyse_ui.seite(_da_h)
+            except Exception as e:
+                st.error(f"⚠️ Fehler in der Depot-Analyse: {e}")
+                notify_app_error("Tab-Depot-Analyse", e)
+        _render_analyse()
         lade_fertig()
 
     # @st.fragment: dadurch loest eine Auswahl INNERHALB dieser Ansicht
