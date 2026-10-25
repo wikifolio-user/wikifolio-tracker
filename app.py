@@ -2994,6 +2994,7 @@ ANSICHT_SCANNER = "🤖 Investment-Scanner"
 ANSICHT_SCANNER_PRO = "🔎 Investment Scanner Pro"
 ANSICHT_SCANNER2 = "🧭 Investment Scanner 2.0"
 ANSICHT_ANALYSE = "🧠 Depot-Analyse & Optimierung"
+ANSICHT_ANALYSE_DEPOT = "📥 Analyse-Depot"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
@@ -3019,6 +3020,7 @@ ANSICHTEN = [
     ANSICHT_SCANNER_PRO,
     ANSICHT_SCANNER2,           # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_ANALYSE,
+    ANSICHT_ANALYSE_DEPOT,
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -3041,6 +3043,7 @@ ANSICHT_KURZ = {
     ANSICHT_SCANNER_PRO: "🔎 Scanner Pro",
     ANSICHT_SCANNER2: "🧭 Scanner 2.0",
     ANSICHT_ANALYSE: "🧠 Depot-Analyse",
+    ANSICHT_ANALYSE_DEPOT: "📥 Analyse-Depot",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -3059,6 +3062,7 @@ NAV_NAMEN = {
     ANSICHT_SCANNER_PRO: "🔎 Investment Scanner Pro",
     ANSICHT_SCANNER2: "🧭 Investment Scanner 2.0",
     ANSICHT_ANALYSE: "🧠 Depot-Analyse",          # Kachel: kurz, voller Name in der Kopfleiste (NAV_TITEL)
+    ANSICHT_ANALYSE_DEPOT: "📥 Analyse-Depot",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
@@ -3074,7 +3078,7 @@ NAV_TITEL = {
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
 NAV_ZEILEN = [
-    ("Depot", [ANSICHT_DEPOT, ANSICHT_ANALYSE, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
+    ("Depot", [ANSICHT_DEPOT, ANSICHT_ANALYSE, ANSICHT_ANALYSE_DEPOT, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
@@ -3084,7 +3088,7 @@ NAV_ZEILEN = [
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
-LEICHTE_ANSICHTEN = {"💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
+LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
@@ -5711,6 +5715,24 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Investment Scanner 2.0: {e}")
             notify_app_error("Tab-Investment-Scanner-2", e)
+        lade_fertig()
+
+    # --- ANALYSE-DEPOT: eigenes, vom echten Depot getrenntes Depot fuer die Depot-Analyse
+    # (analyse_depot.py / analyse_depot_ui.py) - bequeme Erfassung, keine Depotberechnung noetig
+    if gewaehlte_ansicht == ANSICHT_ANALYSE_DEPOT:
+        _ad_h = {"gh_read": gh_read, "gh_aktualisiere": gh_aktualisiere, "pfad": upfad("state/analyse_depot.json"),
+                 "speichern": GH_STATE_READY, "suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs}
+
+        @st.fragment
+        def _render_analyse_depot():
+            _zugang_pruefen(ANSICHT_ANALYSE_DEPOT)
+            try:
+                import analyse_depot_ui
+                analyse_depot_ui.seite(_ad_h)
+            except Exception as e:
+                st.error(f"⚠️ Fehler im Analyse-Depot: {e}")
+                notify_app_error("Tab-Analyse-Depot", e)
+        _render_analyse_depot()
         lade_fertig()
 
     # --- INVESTMENT SCANNER PRO: eigenstaendiges Board mit eigenen Eingaben (Kaufplan, Reserve,
@@ -8391,7 +8413,9 @@ def render_dashboard():
                  "gh_read": gh_read, "gh_read_taeglich": gh_read_taeglich, "gh_aktualisiere": gh_aktualisiere,
                  "pfad": upfad("state/depot_analyse.json"), "speichern": GH_STATE_READY,
                  "chronik": chronik_eintrag, "suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs,
-                 "get_kurshistorie": get_kurshistorie, "aendere_positionen": aendere_positionen}
+                 "get_kurshistorie": get_kurshistorie,
+                 "analyse_depot_lesen": lambda: gh_read(upfad("state/analyse_depot.json"), None),
+                 "monatsplan": (sparrate_aktiv if haupt_aktiv else 0.0) - (entnahme_rate if haupt_aktiv else 0.0)}
 
         @st.fragment
         def _render_analyse():
