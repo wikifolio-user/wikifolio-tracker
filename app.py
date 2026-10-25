@@ -3058,7 +3058,7 @@ NAV_NAMEN = {
     ANSICHT_SCANNER: "🤖 Investment-Scanner",
     ANSICHT_SCANNER_PRO: "🔎 Investment Scanner Pro",
     ANSICHT_SCANNER2: "🧭 Investment Scanner 2.0",
-    ANSICHT_ANALYSE: "🧠 Depot-Analyse & Optimierung",
+    ANSICHT_ANALYSE: "🧠 Depot-Analyse",          # Kachel: kurz, voller Name in der Kopfleiste (NAV_TITEL)
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
@@ -3067,6 +3067,7 @@ NAV_NAMEN = {
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
 NAV_TITEL = {
+    ANSICHT_ANALYSE: "🧠 Depot-Analyse & Optimierung",
     "🔍 Seit 01.01.2026": "🔍 Performance seit 01.01.2026",
     "🔎 Seit 01.01.2021": "🔎 Performance seit 01.01.2021",
 }
@@ -3231,9 +3232,8 @@ NAV_CSS = """
     text-shadow: none !important;     /* Schatten wuerde hinter Emojis dunkle Kaestchen erzeugen */
 }
 /* sehr schmale Telefone (iPhone SE 1. Gen., 320 px): lange Namen zweizeilig statt ueber den Rand */
-@media (max-width: 340px) {
-    .st-key-nav_menue [data-testid="stButton"] button p { white-space: normal !important; }
-}
+/* Zu lange Namen brechen um statt ueber den Kachelrand zu laufen (jede Breite) */
+.st-key-nav_menue [data-testid="stButton"] button p { white-space: normal !important; overflow-wrap: anywhere; }
 /* Antippen/Hover: Taste hebt sich, Kante und Leuchten werden staerker */
 .st-key-nav_menue [data-testid="stButton"] button:hover,
 .st-key-nav_menue [data-testid="stButton"] button:focus-visible {
