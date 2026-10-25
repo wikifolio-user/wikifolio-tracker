@@ -349,11 +349,15 @@ def kennzahlen(positionen, cash=0.0, profil=None):
     cash = max(_z(cash, 0.0) or 0.0, 0.0)
     investiert = sum(_wert(p) for p in bewertbar)
     gesamt = investiert + cash
-    einstand = sum(_z(p.get("einstand"), 0.0) or 0.0 for p in bewertbar)
-    ausgezahlt = sum(_z(p.get("ausgezahlt"), 0.0) or 0.0 for p in bewertbar)
+    # Gewinn/Rendite nur ueber Positionen mit bekanntem Einstand (sonst zaehlte ihr Wert als Gewinn)
+    mit_einstand = [p for p in bewertbar if _z(p.get("einstand")) is not None]
+    einstand = sum(_z(p.get("einstand")) for p in mit_einstand)
+    ausgezahlt = sum(_z(p.get("ausgezahlt"), 0.0) or 0.0 for p in mit_einstand)
+    wert_mit = sum(_wert(p) for p in mit_einstand)
     k = {"gesamt": gesamt, "investiert": investiert, "cash": cash, "einstand": einstand, "ausgezahlt": ausgezahlt,
-         "gv": investiert + ausgezahlt - einstand if einstand else None,
-         "rendite": ((investiert + ausgezahlt) / einstand - 1) * 100 if einstand else None,
+         "gv": wert_mit + ausgezahlt - einstand if einstand else None,
+         "rendite": ((wert_mit + ausgezahlt) / einstand - 1) * 100 if einstand else None,
+         "einstand_abdeckung": (wert_mit / investiert * 100) if investiert else 0.0,
          "anzahl": len(bewertbar), "ohne_kurs": [p for p in positionen if p.get("ohne_kurs")]}
     if gesamt <= 0:
         k.update(score=None, teile={}, gewichte={}, verteilung={}, groesste=None, eff_n=0.0, vola=None,
@@ -741,7 +745,8 @@ def simulieren(ist, aenderungen, cash=0.0, zusatz=0.0, gebuehr_fix=0.0, gebuehr_
                  "neu": bool(p.get("neu")), "gewinn": None}
             if delta < 0:
                 liquiditaet += betrag - geb
-                einstand_je = (_z(p.get("einstand"), 0.0) or 0.0) / alt if alt else None
+                einstand_je = (_z(p.get("einstand")) / alt if alt and _z(p.get("einstand")) is not None
+                               else None)                # unbekannter Einstand -> Gewinn unbekannt
                 t["gewinn"] = (kurs - einstand_je) * abs(delta) - geb if einstand_je is not None else None
                 t["teilfreistellung"] = p.get("teilfreistellung", 0.0)
                 anteil = neu / alt if alt else 0.0

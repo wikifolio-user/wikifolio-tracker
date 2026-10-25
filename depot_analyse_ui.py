@@ -13,6 +13,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
+import analyse_depot as AD
 import depot_analyse as D
 import portfolio_builder_ui as B
 
@@ -194,36 +195,69 @@ def _details(h, sym, zeile):
     return (d.get("werte") or {}).get(sym)
 
 
+def _analyse_depot(h):
+    """Gespeichertes Analyse-Depot (Menuepunkt „📥 Analyse-Depot“) oder leer."""
+    try:
+        return AD.bereinigen(h["analyse_depot_lesen"]()) if h.get("analyse_depot_lesen") else AD.leer()
+    except Exception as e:
+        logging.warning(f"Depot-Analyse: Analyse-Depot nicht lesbar: {e}")
+        return AD.leer()
+
+
 def _bestand(h, z):
-    """Analysegrundlage: echtes Depot oder (umschaltbar) ein importiertes Analyse-Depot."""
-    if st.session_state.get(P + "quelle") == "import" and st.session_state.get(P + "import_pos"):
-        return st.session_state[P + "import_pos"], True
-    return h.get("bestand") or [], False
+    """Analysegrundlage: echtes Depot oder das Analyse-Depot (Kurse und Historie aus ls-tc.de, je Stunde gemerkt)."""
+    if st.session_state.get(P + "quelle") != "analyse":
+        return h.get("bestand") or [], "depot"
+    ad = _analyse_depot(h)
+    ids = tuple(sorted({p["instrument_id"] for p in ad["positionen"] if p.get("instrument_id")}))
+    merk = (ids, ad.get("stand"), datetime.datetime.now().strftime("%Y%m%d%H"))
+    cache = st.session_state.get(P + "ad_cache")
+    if not cache or cache[0] != merk:
+        heute = datetime.date.today()
+        kurse, hist = {}, {}
+        for iid in ids:
+            try:
+                k_, v_, _ = h["get_live_kurs"](iid)
+                kurse[iid] = (k_, v_)
+                if k_:
+                    hs = h["get_kurshistorie"](iid, heute - datetime.timedelta(days=420), heute)
+                    hist[iid] = hs if hs is not None and not hs.empty else None
+            except Exception as e:
+                logging.warning(f"Depot-Analyse: Kurs fuer {iid} nicht lesbar: {e}")
+        cache = (merk, kurse, hist)
+        st.session_state[P + "ad_cache"] = cache
+    return AD.bestand(ad, cache[1], cache[2]), "analyse"
 
 
 def _analyse(h):
     z = _zustand(h)
-    roh, importiert = _bestand(h, z)
+    roh, quelle = _bestand(h, z)
     heute = datetime.date.today().isoformat()
     m = _markt(h["gh_read_taeglich"], heute)
     pos = []
     for r in roh:
         try:
-            pos.append(D.anreichern(r, m, z["angaben"].get(D.schluessel(r)), lambda s, zl: _details(h, s, zl)))
+            ang = dict(z["angaben"].get(D.schluessel(r)) or {})
+            if r.get("art_vorgabe") and not ang.get("art"):
+                ang["art"] = r["art_vorgabe"]
+            pos.append(D.anreichern(r, m, ang, lambda s, zl: _details(h, s, zl)))
         except Exception as e:
             logging.warning(f"Depot-Analyse: {r.get('name')} nicht auswertbar: {e}")
             pos.append(dict(r, art="sonstiges", score=None, score_quelle=f"Fehler bei der Auswertung: {e}",
                             score_teile={}, hk=None, fund=None, div=None, ter=None, vola=None, maxdd=None))
     k = D.kennzahlen(pos, z["cash"], z["profil"])
     empf = {D.schluessel(p): D.empfehlung(p, k, z["profil"]) for p in pos if not p.get("ohne_kurs")}
-    warn = D.warnungen(pos, k, z.get("stand"))
-    return {"pos": pos, "k": k, "empf": empf, "warn": warn, "markt": m, "importiert": importiert, "z": z}
+    stand_key = "stand_ad" if quelle == "analyse" else "stand"
+    warn = D.warnungen(pos, k, z.get(stand_key))
+    plan = (AD.monatsplan(_analyse_depot(h)) if quelle == "analyse" else float(h.get("monatsplan") or 0.0))
+    return {"pos": pos, "k": k, "empf": empf, "warn": warn, "markt": m, "quelle": quelle, "z": z,
+            "stand_key": stand_key, "monatsplan": plan}
 
 
 # ---------------------------------------------------------------- Ueberwachung
 def _ueberwachung(h, a):
     """Neue relevante Hinweise einmal je 7 Tage in die Chronik (keine Wiederholung derselben Meldung)."""
-    if a["importiert"] or not h.get("chronik"):
+    if not h.get("chronik"):
         return []
     z = a["z"]
     heute = datetime.date.today()
@@ -270,9 +304,9 @@ def _uebersicht(h, a):
                 st.caption("Keine Maßnahmen nötig.")
             st.caption("„… prüfen“ heißt: die Kennzahlen sprechen dafür, sich den Wert genauer anzusehen – es ist "
                        "keine Kauf- oder Verkaufsaufforderung. Umsetzen lässt sich alles zuerst virtuell im Simulator.")
-        if st.session_state.pop(P + "stand_neu", False) and not a["importiert"]:
+        if st.session_state.pop(P + "stand_neu", False):
             jetzt = datetime.datetime.now().isoformat(timespec="minutes")
-            if _speichern(h, {"stand": D.stand_merken(pos, k), "stand_zeit": jetzt}):
+            if _speichern(h, {a["stand_key"]: D.stand_merken(pos, k), a["stand_key"] + "_zeit": jetzt}):
                 st.caption(f"Analyse-Stand vom {_zeit_de(jetzt)} gespeichert – spätere Veränderungen "
                            "(Score, Dividende, Risiko) werden daran gemessen.")
 
@@ -281,7 +315,10 @@ def _uebersicht(h, a):
     _kpis([("Depotwert", D.eur(k["gesamt"]), f'davon Liquidität {D.eur(k["cash"])}' if k["cash"] else
             f'{k["anzahl"]} Positionen mit Kurs'),
            ("Gesamtrendite", f'<span class="{_vz_css(k.get("gv"))}">{D.eur(k.get("gv"))}</span>',
-            D.pct(rendite, 1, True) + " seit Kauf (inkl. Auszahlungen)" if rendite is not None else "Einstand unbekannt"),
+            (D.pct(rendite, 1, True) + " seit Kauf (inkl. Auszahlungen)"
+             + (f" · Einstand für {D.pct(k.get('einstand_abdeckung'), 0)} bekannt"
+                if (k.get("einstand_abdeckung") or 100) < 99.5 else ""))
+            if rendite is not None else "Einstand unbekannt"),
            ("Depot-Score", f'{_score(s)} <span class="da-m">/ 100</span>',
             f'Qualität aus {D.pct(k.get("score_abdeckung"), 0)} des Depots' if s is not None else "keine Daten"),
            ("Risiko", _e(k.get("risiko")), f'Schwankung {D.pct(k.get("vola"))} p. a. · tragbar '
@@ -793,7 +830,10 @@ def _szenarien(h, a):
     pr = z["profil"]
     st.caption("Je Szenario: Zielstruktur des Profils angewandt auf deine vorhandenen Werte (keine neuen Käufe), "
                "simuliert mit den heutigen Kursen. Die Spanne ist eine Modellrechnung aus den Renditeannahmen der "
-               "Klassen und der Depotschwankung (10 % / 50 % / 90 %) – keine Prognose und keine Garantie.")
+               "Klassen und der Depotschwankung (10 % / 50 % / 90 %) – keine Prognose und keine Garantie. "
+               + (f"Monatlich netto {'+' if a['monatsplan'] >= 0 else '−'}{D.eur(abs(a['monatsplan']))} (Sparplan "
+                  "minus Entnahme " + ("des Analyse-Depots" if a["quelle"] == "analyse" else "aus „Depot verwalten“")
+                  + ") ist eingerechnet." if a["monatsplan"] else ""))
     jahre = int(max(pr.get("horizont") or 10, 1))
     zeilen, ergebnisse = [], {}
     szen = dict(D.SZENARIEN)
@@ -804,7 +844,7 @@ def _szenarien(h, a):
         o = D.optimieren(a["pos"], k0, prof)
         sim = D.simulieren([p for p in a["pos"] if not p.get("ohne_kurs")], o["stueck"], cash=z["cash"])
         k1 = D.kennzahlen(sim["soll"], sim["cash_nachher"], prof)
-        m = D.modell_entwicklung(k1, jahre, pr.get("sparrate") or 0.0)
+        m = D.modell_entwicklung(k1, jahre, a["monatsplan"])
         ergebnisse[key] = (k0, k1, o)
         zeilen.append([f'<b>{_e(sz["titel"])}</b><br><span class="da-m">{_e(sz["text"])}</span>',
                        f'{_score(k0.get("score"))} → {_score(k1.get("score"))}', D.pct(k1.get("vola")),
@@ -904,8 +944,7 @@ def _profil(h, a):
         horizont = c[2].number_input("Anlagehorizont (Jahre)", 1, 60, int(pr["horizont"] or 10))
         c = _spalten(3)
         ziel = c[0].number_input("Renditeziel % p. a.", 0.0, 30.0, float(pr["renditeziel"]), step=0.5, format="%.1f")
-        spar = c[1].number_input("Sparrate € / Monat", 0.0, 1e6, float(pr["sparrate"]), step=25.0, format="%.0f")
-        kapital = c[2].number_input("Verfügbares Kapital €", 0.0, 1e9, float(pr["kapital"]), step=500.0,
+        kapital = c[1].number_input("Verfügbares Kapital €", 0.0, 1e9, float(pr["kapital"]), step=500.0,
                                     format="%.0f")
         c = _spalten(3)
         cash = c[0].number_input("Liquidität (Konto/Verrechnung) €", 0.0, 1e9, float(z["cash"]), step=100.0,
@@ -915,7 +954,7 @@ def _profil(h, a):
                                float(pr["max_gewicht"] or 0.0), step=1.0, format="%.0f")
         gespeichert = st.form_submit_button("💾 Profil speichern", type="primary")
     if gespeichert:
-        neu = {"risiko": risiko, "strategie": strat, "horizont": horizont, "renditeziel": ziel, "sparrate": spar,
+        neu = {"risiko": risiko, "strategie": strat, "horizont": horizont, "renditeziel": ziel,
                "kapital": kapital, "max_gewicht": mg or None}
         ok = _speichern(h, {"profil": neu, "cash": cash})
         st.session_state.pop(P + "soll", None)
@@ -972,86 +1011,6 @@ def _angaben(h, a):
         st.rerun(scope="fragment")
 
 
-def _import(h, a):
-    s = st.session_state
-    _titel("Depot importieren (CSV / Excel)")
-    st.caption("Spalten: Name, ISIN oder WKN, Stück, Kaufkurs (oder Einstand), Kaufdatum. Der Import bildet ein "
-               "eigenes Analyse-Depot – dein gespeichertes Depot bleibt unverändert. Kurse kommen aus der "
-               "Kursquelle (ls-tc.de).")
-    c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
-    f = c1.file_uploader("Datei", type=["csv", "xlsx"], key=P + "imp_datei")
-    c2.download_button("CSV-Vorlage", D.CSV_VORLAGE.encode("utf-8-sig"), "depot_vorlage.csv", "text/csv",
-                       key=P + "imp_vorlage", width="stretch")
-    if f is not None and s.get(P + "imp_name") != f.name + str(f.size):
-        try:
-            if f.name.lower().endswith(".xlsx"):
-                df = pd.read_excel(f, dtype=str)
-            else:
-                text = f.getvalue().decode("utf-8-sig", "replace")
-                df = pd.read_csv(io.StringIO(text), sep=None, engine="python", dtype=str)
-            zeilen, fehler = D.import_zeilen(df.to_dict("records"))
-        except Exception as e:
-            zeilen, fehler = [], [f"Datei nicht lesbar: {type(e).__name__}"]
-        aufgeloest = []
-        with st.spinner("Suche Kursquellen …"):
-            for z_ in zeilen[:40]:
-                tr = h["suche_instrument"](z_["kennung"] or z_["name"]) or []
-                t = tr[0] if tr else None
-                kurs = vortag = None
-                hist = None
-                if t:
-                    kurs, vortag, _ = h["get_live_kurs"](int(t["instrument_id"]))
-                    if kurs:
-                        hist = h["get_kurshistorie"](int(t["instrument_id"]),
-                                                     datetime.date.today() - datetime.timedelta(days=420),
-                                                     datetime.date.today())
-                p = {"name": (t or {}).get("name") or z_["name"], "wkn": (t or {}).get("wkn") or z_["kennung"],
-                     "isin": (t or {}).get("isin") or (z_["kennung"] if len(z_["kennung"]) == 12 else ""),
-                     "instrument_id": int(t["instrument_id"]) if t else None, "stueck": z_["stueck"],
-                     "kurs": kurs, "vortag": vortag, "wert": (kurs or 0) * z_["stueck"], "einstand": z_["einstand"],
-                     "kaufkurs": z_["kaufkurs"], "kaufdatum": z_["kaufdatum"], "hist": hist,
-                     "ist_wikifolio": "wikifolio" in str((t or {}).get("kategorie") or "").lower(),
-                     "ohne_kurs": not kurs}
-                aufgeloest.append(p)
-        if len(zeilen) > 40:
-            fehler.append(f"Nur die ersten 40 von {len(zeilen)} Positionen übernommen")
-        s[P + "import_pos"] = aufgeloest
-        s[P + "imp_fehler"] = fehler
-        s[P + "imp_name"] = f.name + str(f.size)
-        s[P + "quelle"] = "import"
-        s.pop(P + "soll", None)
-        st.rerun(scope="fragment")
-    imp = s.get(P + "import_pos") or []
-    for x in s.get(P + "imp_fehler") or []:
-        st.caption("⚠️ " + x)
-    if not imp:
-        return
-    st.radio("Analysegrundlage", ["depot", "import"], key=P + "quelle", horizontal=True,
-             format_func={"depot": "Mein Depot", "import": f"Importiertes Depot ({len(imp)} Positionen)"}.get,
-             on_change=lambda: s.pop(P + "soll", None))
-    _tabelle([("Position", "nm"), ("Stück", "r"), ("Kurs", "r"), ("Kursquelle", "")],
-             [[_e(p["name"]), D.de(p["stueck"], 4), D.eur(p["kurs"], 2) if p["kurs"] else "–",
-               "✓ gefunden" if p["kurs"] else '<span class="da-warn">nicht gefunden – nicht bewertet</span>']
-              for p in imp], breit=False)
-    with st.expander("In mein Depot übernehmen"):
-        uebernehmbar = [p for p in imp if p["instrument_id"] and p["kurs"] and p.get("kaufkurs") and p.get("kaufdatum")]
-        st.caption(f"{len(uebernehmbar)} von {len(imp)} Positionen haben Kursquelle, Kaufkurs und Kaufdatum und "
-                   "können als neue Positionen angelegt werden. Vorhandene Positionen werden nicht verändert oder "
-                   "gelöscht. Danach sind sie unter „Depot verwalten“ bearbeitbar.")
-        ok = st.checkbox("Ja, diese Positionen dauerhaft in meinem Depot anlegen.", key=P + "imp_ok")
-        if st.button("Positionen anlegen", key=P + "imp_los", disabled=not (ok and uebernehmbar)):
-            import uuid
-            neu = [{"id": f"pos-{uuid.uuid4().hex[:12]}", "name": p["name"], "wkn": p["wkn"] or p["isin"],
-                    "instrument_id": p["instrument_id"], "kaufdatum": p["kaufdatum"].isoformat(),
-                    "kaufkurs": float(p["kaufkurs"]), "startkapital": float(p["kaufkurs"]) * float(p["stueck"])}
-                   for p in uebernehmbar]
-            if h["aendere_positionen"](lambda l: l + neu, "positionen importiert [skip ci]"):
-                st.success(f"{len(neu)} Positionen angelegt. Nach dem Neuladen der Seite sind sie Teil deines Depots.")
-                s[P + "imp_ok"] = False
-            else:
-                st.error("Speichern fehlgeschlagen – es wurde nichts angelegt.")
-
-
 def _grenzen(a):
     m = a["markt"]
     return [f"Kurse: ls-tc.de (Live/Tagesschluss); Kurshistorie 420 Tage je Position.",
@@ -1080,15 +1039,14 @@ def _daten(h, a):
     with st.container(border=True):
         _angaben(h, a)
     with st.container(border=True):
-        _import(h, a)
-    with st.container(border=True):
         _titel("Datenquellen, Zeitstempel & Grenzen")
         st.markdown("\n".join(f"- {_e(x)}" for x in _grenzen(a)))
         z = a["z"]
-        if z.get("stand_zeit"):
-            st.caption(f"Letzter gespeicherter Analyse-Stand: {_zeit_de(z['stand_zeit'])}")
-        st.caption("Eine direkte Broker-Anbindung gibt es nicht. Positionen pflegst du unter „🛠️ Depot verwalten“ "
-                   "oder importierst sie hier als CSV/Excel; die Kurse aktualisiert die App bei jedem Laden.")
+        if z.get(a["stand_key"] + "_zeit"):
+            st.caption(f"Letzter gespeicherter Analyse-Stand: {_zeit_de(z[a['stand_key'] + '_zeit'])}")
+        st.caption("Eine direkte Broker-Anbindung gibt es nicht. Ein eigenes Depot (z. B. das bei deiner Bank) "
+                   "erfasst du im Menüpunkt „📥 Analyse-Depot“ – mit Suche, Tabelle, Schnelleingabe, CSV/Excel-Import "
+                   "sowie Sparplan und Entnahme; die Kurse aktualisiert die App bei jedem Laden.")
 
 
 def _zeit_de(x):
@@ -1110,7 +1068,7 @@ def _stand_text(h, a):
         f"Kurse: {h.get('kurs_stand')}" if h.get("kurs_stand") else None,
         f"Qualitätsdaten {_datum_de(a['markt'].get('stand_q'))}" if a["markt"].get("stand_q") else None,
         f"Top-500-Katalog {_datum_de(a['markt'].get('stand_k'))}" if a["markt"].get("stand_k") else None,
-        "Analyse-Depot aus Import" if a["importiert"] else None,
+        "Grundlage: 📥 Analyse-Depot" if a["quelle"] == "analyse" else None,
         f"Erstellt {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}") if x)
 
 
@@ -1126,15 +1084,21 @@ def _seite(h):
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Depot-Analyse <span>&amp; Optimierung</span></div>'
                 '<div class="pb-unter">Bewertung · Empfehlungen · Simulator · Szenarien · Assistent</div></div>',
                 unsafe_allow_html=True)
+    ad_n = len(_analyse_depot(h)["positionen"])
+    if P + "quelle" not in st.session_state:
+        st.session_state[P + "quelle"] = "analyse" if ad_n else "depot"
+    st.radio("Welches Depot analysieren?", ["depot", "analyse"], key=P + "quelle", horizontal=True,
+             format_func={"depot": "🏠 Mein Depot", "analyse": f"📥 Analyse-Depot ({ad_n} Positionen)"}.get,
+             on_change=lambda: [st.session_state.pop(k_, None) for k_ in (P + "soll", P + "neu", P + "opt")])
     a = _analyse(h)
-    st.markdown(f'<span class="da-chip">{_e(_stand_text(h, a))}</span>'
-                + ('<span class="da-chip warn">Analyse-Depot aus Import</span>' if a["importiert"] else ""),
-                unsafe_allow_html=True)
+    st.markdown(f'<span class="da-chip">{_e(_stand_text(h, a))}</span>', unsafe_allow_html=True)
     if st.session_state.get(P + "lesefehler"):
         st.warning("Deine gespeicherten Analyse-Einstellungen sind gerade nicht lesbar – es wird nichts überschrieben.")
-    if not [p for p in a["pos"] if not p.get("ohne_kurs")] and not a["importiert"]:
-        st.info("Dein Depot enthält noch keine Position mit Kurs. Lege Positionen unter „🛠️ Depot verwalten“ an "
-                "oder importiere eine CSV/Excel-Datei unter „⚙️ Daten & Profil“.")
+    if not [p for p in a["pos"] if not p.get("ohne_kurs")]:
+        st.info("Das Analyse-Depot ist noch leer – Positionen erfasst du bequem im Menüpunkt „📥 Analyse-Depot“ "
+                "(Suche, Tabelle, Schnelleingabe, CSV/Excel)." if a["quelle"] == "analyse" else
+                "Dein Depot enthält noch keine Position mit Kurs. Lege Positionen unter „🛠️ Depot verwalten“ an "
+                "oder erfasse ein eigenes Depot im Menüpunkt „📥 Analyse-Depot“.")
     neu = _ueberwachung(h, a)
     if neu:
         st.markdown(f'<div class="da-box warn"><b>🔔 {len(neu)} neue Hinweise seit der letzten Prüfung</b>'
