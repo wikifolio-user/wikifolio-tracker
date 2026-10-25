@@ -19,6 +19,7 @@ import chronik
 import login
 import nutzerdaten
 import prognose_basis as PROG_BASIS
+import branchen as BR
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -4287,8 +4288,9 @@ def render_dashboard():
             e = werte.get(sym)
             if not e:
                 continue
-            z = {"#": rang, "Unternehmen": e.get("name") or sym, "Symbol": sym, "Punkte": e.get("gesamt"),
-                 "Einordnung": Q_KLASSEN.get(e.get("klasse"), "")}
+            sek_, br_ = BR.einordnen(e.get("br"))
+            z = {"#": rang, "Unternehmen": e.get("name") or sym, "Symbol": sym, "Sektor": sek_,
+                 "Branche": br_, "Punkte": e.get("gesamt"), "Einordnung": Q_KLASSEN.get(e.get("klasse"), "")}
             for key, titel, _, _ in Q_SPALTEN:
                 z[titel] = e.get(key)
             zeilen.append(z)
@@ -4337,7 +4339,8 @@ def render_dashboard():
                                  default=list(namen)[:3], key="q_vergleich_wahl",
                                  format_func=lambda s_: f"{namen[s_]} ({s_})")
         if auswahl:
-            kennzahlen = [("Punkte", "gesamt", lambda x: "–" if x is None else f"{x}")] + \
+            kennzahlen = [("Punkte", "gesamt", lambda x: "–" if x is None else f"{x}"),
+                          ("Firmen-Kategorie", "br", BR.kategorie_text)] + \
                          [(t, k, f) for k, t, f, _ in Q_SPALTEN]
             tab = {"Kennzahl": [t for t, _, _ in kennzahlen]}
             for s_ in auswahl:
@@ -4383,7 +4386,7 @@ def render_dashboard():
             if mit_trend:
                 t, art = _trend(vergleich["vor"].get(sym), rang)
                 z += f'<td class="pt-num" style="color:{TREND_FARBE[art]};font-weight:700">{t}</td>'
-            unter = " · ".join(x for x in (sym, e.get("br")) if x)
+            unter = " · ".join(x for x in (sym, BR.kategorie_text(e.get("br"))) if x)
             z += (f'<td class="pt-wert"><span class="pt-name">{html.escape(str(e["name"]))}</span>'
                   f'<span class="pt-sub">{html.escape(unter)}</span></td>')
             for key, _, fmt, farbe in Q_SPALTEN:
@@ -4414,7 +4417,7 @@ def render_dashboard():
             return
         st.markdown(f"#### {e['name']} ({sym})")
         st.caption(
-            f"{e.get('br') or 'Branche unbekannt'} · {e.get('land') or '–'} · Kurs {e['kurs']:,.2f} {e['kwae']} · "
+            f"{BR.kategorie_text(e.get('br')) if e.get('br') else 'Branche unbekannt'} · {e.get('land') or '–'} · Kurs {e['kurs']:,.2f} {e['kwae']} · "
             f"Marktkap. {e['mcap']:,.1f} Mrd € · Jahresabschlüsse {e['gj_erst'][:4]}–{e['gj'][:4]} "
             f"({e['n']} Geschäftsjahre, letztes bis {datetime.date.fromisoformat(e['gj']).strftime('%d.%m.%Y')})"
         )
@@ -4528,6 +4531,47 @@ def render_dashboard():
 
     daten_q = {}
 
+    def _q_mitglieder(kat_key, alle):
+        """Alle Aktien der gewaehlten Kategorie bzw. des Index (fuer den Sektor-Filter)."""
+        if not alle:
+            return []
+        if kat_key == "alle":
+            return list(alle)
+        gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
+        if kat_key.startswith("i:"):
+            g = (gruppen.get("indizes") or {}).get(kat_key[2:]) or {}
+        else:
+            g = (gruppen.get("kategorien") or {}).get(kat_key) or {}
+        return [s_ for s_ in g.get("s") or [] if s_ in alle]
+
+    def _q_sektoren_tabelle(alle, mitglieder):
+        """Je Sektor: Anzahl, Ø Punkte, Hohe Prioritaet, bester Wert."""
+        je = {}
+        for s_ in mitglieder:
+            e = alle[s_]
+            je.setdefault(BR.sektor(e.get("br")), []).append(e)
+        zeilen = ""
+        for i, (sek, liste) in enumerate(sorted(je.items(), key=lambda kv: -len(kv[1])), 1):
+            bester = max(liste, key=lambda e: e.get("gesamt") or 0)
+            schnitt = sum(e.get("gesamt") or 0 for e in liste) / len(liste)
+            prio = sum(1 for e in liste if e.get("klasse") == "prio")
+            branchen_n = len({BR.branche_de(e.get("br")) for e in liste})
+            zeilen += (f'<tr class="{"pt-zebra" if i % 2 == 0 else ""}">'
+                       f'<td class="pt-wert"><span class="pt-name">{BR.SEKTOR_ICON.get(sek, "")} {html.escape(sek)}</span>'
+                       f'<span class="pt-sub">{"ohne Branchenangabe" if sek == "Sonstige" else f"{branchen_n} Branche" + ("n" if branchen_n != 1 else "")}</span></td>'
+                       f'<td class="pt-num">{len(liste)}</td><td class="pt-num">{_de_zahl(schnitt, 0)}</td>'
+                       f'<td class="pt-num">{prio}</td>'
+                       f'<td class="pt-wert"><span class="pt-name">{html.escape(str(bester["name"]))}</span>'
+                       f'<span class="pt-sub">{bester.get("gesamt")} Punkte · '
+                       f'{html.escape(BR.branche_de(bester.get("br")))}</span></td></tr>')
+        st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                    '<table class="pt"><thead><tr><th class="pt-wert">Sektor</th><th class="pt-num">Aktien</th>'
+                    '<th class="pt-num">Ø Punkte</th><th class="pt-num">Priorität</th>'
+                    '<th class="pt-wert">Bester Wert</th></tr></thead>'
+                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+        st.caption("Sektor und Branche aus der Yahoo-Branchenangabe (11 Sektoren). „Sonstige“ = keine "
+                   "Branchenangabe. Filter oben: „Firmen-Kategorie“.")
+
     def _render_qualitaet():
         nonlocal daten_q
         daten = gh_read_taeglich("state/qualitaet.json", None)
@@ -4586,13 +4630,37 @@ def render_dashboard():
                                           for kl in Q_KLASSEN})
             else:
                 kat = dict(kat, top=kat["top"][:n], je_klasse={k: v[:n] for k, v in kat["je_klasse"].items()})
+        # Firmen-Kategorie (Sektor, aus der Yahoo-Branche): Rangliste aus allen Aktien der Auswahl
+        sek_opt = ["Alle Sektoren"] + [f"{BR.SEKTOR_ICON[x]} {x}" for x in BR.SEKTOREN + ["Sonstige"]]
+        sek_wahl = auswahl_kompakt("Firmen-Kategorie (Sektor)", sek_opt, default=sek_opt[0], key="q_sektor") or sek_opt[0]
+        alle_q, _ = _q_alle()
+        mitglieder_alle = _q_mitglieder(kat_key, alle_q)
+        sektor = sek_wahl.split(" ", 1)[1] if sek_wahl != sek_opt[0] else None
+        if sektor and not mitglieder_alle:
+            st.warning("Die Firmen-Kategorien sind gerade nicht lesbar – bitte später erneut öffnen.")
+            sektor = None
+        if sektor:
+            werte = {**werte, **{s_: alle_q[s_] for s_ in mitglieder_alle}}
+            im_sektor = [s_ for s_ in mitglieder_alle if BR.sektor(alle_q[s_].get("br")) == sektor]
+
+            def rang_sek(liste):
+                return sorted(liste, key=lambda s_: (-werte[s_]["gesamt"], -(werte[s_]["b_ant"] or 0)))[:n]
+
+            kat = dict(kat, top=rang_sek(im_sektor), bewertet=len(im_sektor), universum=len(mitglieder_alle),
+                       je_klasse={kl: rang_sek([s_ for s_ in im_sektor if werte[s_]["klasse"] == kl])
+                                  for kl in Q_KLASSEN},
+                       klassen={kl: sum(1 for s_ in im_sektor if werte[s_]["klasse"] == kl) for kl in Q_KLASSEN})
+        if mitglieder_alle:
+            with st.expander("🏷️ Firmen-Kategorien im Überblick"):
+                _q_sektoren_tabelle(alle_q, mitglieder_alle)
         a_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="q_klasse") or ansichten[0]
         if a_wahl == ansichten[0]:
             symbole, liste_key = kat["top"], f"{kat_key}|top"
         else:
             kl = next(k for k, v in Q_KLASSEN.items() if v == a_wahl)
             symbole, liste_key = kat["je_klasse"].get(kl, []), f"{kat_key}|{kl}"
-        vergleich = (daten.get("vergleich") or {}).get(liste_key)
+        # Wochenvergleich gibt es nur fuer die Ranglisten des Agenten, nicht fuer Sektor-Auswahlen
+        vergleich = None if sektor else (daten.get("vergleich") or {}).get(liste_key)
 
         try:
             stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
@@ -4600,7 +4668,8 @@ def render_dashboard():
             stand = daten.get("stand", "–")
         abd = daten.get("abdeckung", {})
         kl = kat["klassen"]
-        basis_txt = "Indexmitgliedern" if kat_key.startswith("i:") else "Aktien"
+        basis_txt = ("Aktien der Auswahl im Sektor " + sektor if sektor else
+                     "Indexmitgliedern" if kat_key.startswith("i:") else "Aktien")
         st.caption(
             f"Stand {stand} · {kat['bewertet']} von {kat['universum']} {basis_txt} bewertet · "
             f"Priorität {kl['prio']} · Beobachten {kl['beobachten']} · Nicht weiterverfolgen {kl['nicht']}"
@@ -4630,7 +4699,7 @@ def render_dashboard():
         else:
             fokus = next((k for k, t, _, _ in Q_SPALTEN if t == f_wahl), "roic")
             _q_tabelle(werte, symbole, vergleich, fokus)
-        if vergleich is not None or daten.get("vergleich_seit") is None:
+        if not sektor and (vergleich is not None or daten.get("vergleich_seit") is None):
             _wochen_bilanz([(r, werte[s]["name"] if s in werte else s, s, (vergleich or {}).get("vor", {}).get(s))
                             for r, s in enumerate(symbole, 1)],
                            (vergleich or {}).get("raus", []), daten.get("vergleich_seit"))
@@ -4874,7 +4943,7 @@ def render_dashboard():
             kl = e.get("klasse")
             z = [_ue_z(platz, fett=True),
                  _ue_trend((vergleich or {}).get("vor", {}).get(sym), platz) if vergleich is not None else _ue_z("–", "grau"),
-                 _ue_z(f'{e["name"]} ({sym})', fett=True), _ue_z(e.get("br") or "–"),
+                 _ue_z(f'{e["name"]} ({sym})', fett=True), _ue_z(BR.kategorie_text(e.get("br")) if e.get("br") else "–"),
                  _ue_z(e.get("gesamt", "–"), {"prio": "prio", "beobachten": "beob"}.get(kl, "nicht"), True),
                  _ue_z(Q_KLASSEN_KURZ.get(kl, "–"), {"prio": "prio", "beobachten": "beob"}.get(kl, "nicht"))]
             for key, _, fmt, farbe in Q_SPALTEN:
@@ -4943,7 +5012,7 @@ def render_dashboard():
                     for platz, z in enumerate(felder[f_key][:umfang], 1):
                         fy = z.get("fcfy")
                         zl.append([_ue_z(platz, fett=True), _ue_z(f'{z["name"]} ({z["s"]})', fett=True),
-                                   _ue_z(z.get("br") or "–"),
+                                   _ue_z(BR.kategorie_text(z.get("br")) if z.get("br") else "–"),
                                    _ue_z(f'{vz_zahl(z["p12"], 1)} %', "up" if z["p12"] >= 0 else "down", True),
                                    _ue_z(f'{z["q_ant"]:.0f} %'),
                                    _ue_z(z["gesamt"], {"prio": "prio", "beobachten": "beob"}.get(z["klasse"], "nicht"), True),

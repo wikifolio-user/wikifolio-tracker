@@ -16,6 +16,7 @@ import copy
 import math
 import re
 
+import branchen as BR
 import klassen_score as KS
 
 ARTEN = {"aktie": "Aktie", "etf": "ETF", "wikifolio": "wikifolio", "fonds": "Fonds", "sonstiges": "Sonstiges",
@@ -221,7 +222,8 @@ def anreichern(p, markt, angaben=None, detail_lader=None):
     p["hk"] = hk
     # Stammdaten: eigene Angabe > Agentendaten > unbekannt
     p["land"] = a.get("land") or f.get("land") or ("Strategie (wikifolio)" if p["art"] == "wikifolio" else None)
-    p["branche"] = a.get("branche") or f.get("br") or None
+    p["branche"] = a.get("branche") or (BR.branche_de(f["br"]) if f.get("br") else None)
+    p["sektor"] = a.get("sektor") or (BR.sektor(f["br"]) if f.get("br") else None)
     p["waehrung"] = a.get("waehrung") or f.get("kwae") or ("EUR" if p["art"] in ("wikifolio", "etf") else None)
     p["ter"] = _z(a.get("ter"))
     div = _z(a.get("div"))
@@ -377,7 +379,8 @@ def kennzahlen(positionen, cash=0.0, profil=None):
     klassen["cash"] = cash / gesamt * 100
     k["verteilung"] = {"Anlageklasse": {ARTEN.get(a, a): v for a, v in sorted(klassen.items(), key=lambda kv: -kv[1])
                                         if v > 0},
-                       "Branche": verteil("branche"), "Land": verteil("land"), "Währung": verteil("waehrung")}
+                       "Sektor": verteil("sektor"), "Branche": verteil("branche"), "Land": verteil("land"),
+                       "Währung": verteil("waehrung")}
     k["klassen"] = klassen
     gr = max(bewertbar, key=_wert) if bewertbar else None
     k["groesste"] = (gr["name"], gew[schluessel(gr)]) if gr else None

@@ -378,7 +378,8 @@ def _positionen(h, a):
     with c1, st.container(border=True):
         _titel("Kennzahlen (Fakten)")
         werte = [("Klasse", D.ARTEN.get(p["art"])), ("Gewicht im Depot", D.pct(k["gewichte"].get(D.schluessel(p)))),
-                 ("Land", p.get("land") or "unbekannt"), ("Branche", p.get("branche") or "unbekannt"),
+                 ("Land", p.get("land") or "unbekannt"), ("Sektor", p.get("sektor") or "unbekannt"),
+                 ("Branche", p.get("branche") or "unbekannt"),
                  ("Währung", p.get("waehrung") or "unbekannt"),
                  ("Dividendenrendite", (D.pct(p.get("div")) + f' ({p["div_quelle"]})') if p.get("div") is not None
                   else "unbekannt"),
