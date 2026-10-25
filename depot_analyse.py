@@ -16,6 +16,7 @@ import copy
 import math
 import re
 
+import branchen as BR
 import klassen_score as KS
 
 ARTEN = {"aktie": "Aktie", "etf": "ETF", "wikifolio": "wikifolio", "fonds": "Fonds", "sonstiges": "Sonstiges",
@@ -221,7 +222,8 @@ def anreichern(p, markt, angaben=None, detail_lader=None):
     p["hk"] = hk
     # Stammdaten: eigene Angabe > Agentendaten > unbekannt
     p["land"] = a.get("land") or f.get("land") or ("Strategie (wikifolio)" if p["art"] == "wikifolio" else None)
-    p["branche"] = a.get("branche") or f.get("br") or None
+    p["branche"] = a.get("branche") or (BR.branche_de(f["br"]) if f.get("br") else None)
+    p["sektor"] = a.get("sektor") or (BR.sektor(f["br"]) if f.get("br") else None)
     p["waehrung"] = a.get("waehrung") or f.get("kwae") or ("EUR" if p["art"] in ("wikifolio", "etf") else None)
     p["ter"] = _z(a.get("ter"))
     div = _z(a.get("div"))
@@ -377,7 +379,8 @@ def kennzahlen(positionen, cash=0.0, profil=None):
     klassen["cash"] = cash / gesamt * 100
     k["verteilung"] = {"Anlageklasse": {ARTEN.get(a, a): v for a, v in sorted(klassen.items(), key=lambda kv: -kv[1])
                                         if v > 0},
-                       "Branche": verteil("branche"), "Land": verteil("land"), "Währung": verteil("waehrung")}
+                       "Sektor": verteil("sektor"), "Branche": verteil("branche"), "Land": verteil("land"),
+                       "Währung": verteil("waehrung")}
     k["klassen"] = klassen
     gr = max(bewertbar, key=_wert) if bewertbar else None
     k["groesste"] = (gr["name"], gew[schluessel(gr)]) if gr else None
@@ -1135,12 +1138,149 @@ def modell_entwicklung(k, jahre=10, sparrate=0.0):
             "jahre": n, "eingezahlt": gesamt + einzahlung}
 
 
+# ============================================================ Top-500-Bewertungen (Ranglisten, Alternativen)
+EINORDNUNG = {"prio": "Hohe Analysepriorität", "beobachten": "Beobachtungsliste", "nicht": "Nicht weiterverfolgen"}
+
+
+def ranglisten(aktien_zeilen, isin_zu_symbol, katalog_teile, n=None):
+    """Bewertete Top-500-Werte je Klasse, nach Score sortiert: Aktien nach dem Qualitaets-Score des Agenten,
+    ETFs/wikifolios nach klassen_score. -> {"aktie": [...], "etf": [...], "wikifolio": [...]} mit
+    {name, art, kennung, isin, score, einordnung, staerken, schwaechen, div, bew, branche}"""
+    isin_je = {}
+    for isin, sym in (isin_zu_symbol or {}).items():
+        if sym:
+            isin_je.setdefault(sym, str(isin).upper())
+    aktien = []
+    for sym, z in (aktien_zeilen or {}).items():
+        sc = _z(z.get("gesamt"))
+        if sc is None:
+            continue
+        st_, sw_ = [], []
+        if z.get("moat") in ("stark", "breit"):
+            st_.append(f"Burggraben {z['moat']}")
+        if _z(z.get("roic")) is not None and z["roic"] >= 15:
+            st_.append(f"ROIC {de(z['roic'], 0)} %")
+        if _z(z.get("g_ums")) is not None and z["g_ums"] >= 10:
+            st_.append(f"Umsatzwachstum {de(z['g_ums'], 0)} % p. a.")
+        if z.get("bew") == "teuer":
+            sw_.append("Bewertung teuer")
+        if z.get("risiko") == "hoch":
+            sw_.append("Risiko hoch")
+        aktien.append({"name": str(z.get("name") or sym), "art": "aktie", "symbol": sym, "kennung": sym,
+                       "isin": isin_je.get(sym, ""), "score": sc, "einordnung": z.get("klasse"),
+                       "staerken": st_[:3], "schwaechen": sw_[:3], "div": _z(z.get("div")), "bew": z.get("bew"),
+                       "branche": z.get("br")})
+    aktien.sort(key=lambda e: (-e["score"], e["name"].lower()))
+    aus = {"aktie": aktien[:n]}
+    for art in ("etf", "wikifolio"):
+        liste = []
+        for e in KS.rangliste(katalog_teile, art)[:n]:
+            b = e["bewertung"]
+            st_, sw_ = KS.staerken_schwaechen(b, art)
+            liste.append({"name": e["name"], "art": art, "kennung": e["kennung"], "isin": e["isin"],
+                          "score": b["score"], "einordnung": b.get("einordnung"), "staerken": st_,
+                          "schwaechen": sw_, "div": None, "bew": None, "branche": None})
+        aus[art] = liste
+    return aus
+
+
+def _im_depot(e, positionen):
+    kenn = {str(x).upper() for p in positionen for x in (p.get("isin"), p.get("wkn"), p.get("symbol")) if x}
+    namen = {str(p.get("name") or "").lower() for p in positionen}
+    return bool({str(e.get("isin") or "").upper(), str(e.get("kennung") or "").upper()} & kenn) \
+        or e["name"].lower() in namen
+
+
+def alternativen(rang, art, positionen, n=5, strategie=None, mindest=None):
+    """Bestbewertete Top-500-Werte einer Klasse, die nicht im Depot sind. mindest: nur Werte mit hoeherem Score.
+    Dividendenstrategie: unter den gut bewerteten (Score >= 60) die hoechste Dividendenrendite zuerst."""
+    liste = [e for e in (rang or {}).get(art) or [] if not _im_depot(e, positionen)
+             and e.get("einordnung") != "nicht" and (mindest is None or e["score"] > mindest)]
+    if strategie == "dividende" and art == "aktie":
+        liste = sorted([e for e in liste if e["score"] >= 60 and e.get("div")], key=lambda e: -(e["div"] or 0))
+    return liste[:n]
+
+
+def _text_alternative(e):
+    teile = [f"Score {de(e['score'], 0)}/100", EINORDNUNG.get(e.get("einordnung"), "")]
+    if e.get("div"):
+        teile.append(f"Dividende {pct(e['div'])}")
+    if e.get("staerken"):
+        teile.append("Stärken: " + ", ".join(e["staerken"]))
+    if e.get("schwaechen"):
+        teile.append("Schwächen: " + ", ".join(e["schwaechen"]))
+    return f"• {e['name']} ({ARTEN[e['art']]}" + (f", {e['isin'] or e['kennung']}" if e.get("isin") or
+                                                    e.get("kennung") else "") + "): " + " · ".join(x for x in teile if x)
+
+
+def wert_finden(frage, positionen, rang):
+    """Position oder Top-500-Wert, der in der Frage genannt wird (laengster passender Name zuerst)."""
+    f = (frage or "").lower()
+    kandidaten = [("pos", p, str(p.get("name") or "")) for p in positionen]
+    for art in ("aktie", "etf", "wikifolio"):
+        kandidaten += [("rang", e, e["name"]) for e in (rang or {}).get(art) or []]
+    treffer = []
+    for typ, obj, name in kandidaten:
+        n = name.lower()
+        kurz = re.split(r"[\s,.(]+", n)[0] if n else ""
+        kenn = [str(obj.get(x) or "").lower() for x in ("isin", "wkn", "kennung")]
+        if (n and n in f) or any(k_ and len(k_) >= 5 and k_ in f for k_ in kenn) or \
+                (typ == "pos" and len(kurz) >= 5 and re.search(rf"\b{re.escape(kurz)}\b", f)):
+            treffer.append((typ == "pos", len(n), typ, obj))
+    if not treffer:
+        return None
+    treffer.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return treffer[0][2], treffer[0][3]
+
+
+def _bewertung_position(p, k, e):
+    zeilen = [f"{p['name']} ({ARTEN.get(p['art'])}): Score {de(p.get('score'), 0)}/100 – {p.get('score_quelle')}",
+              f"Gewicht {pct(k['gewichte'].get(schluessel(p)))} · Empfehlung: {e['kategorie']} ({e['anlass']})"]
+    f = p.get("fund") or {}
+    if f.get("klasse"):
+        zeilen.append(f"Einordnung Top 500: {EINORDNUNG.get(f['klasse'], f['klasse'])}"
+                      + (f" · {f['grund']}" if f.get("grund") else ""))
+    if p["art"] == "aktie":
+        zeilen.append(e["bewertung"])
+    if e["chancen"]:
+        zeilen.append("Chancen: " + "; ".join(e["chancen"]))
+    if e["risiken"]:
+        zeilen.append("Risiken: " + "; ".join(e["risiken"]))
+    return "\n".join(zeilen)
+
+
 # ============================================================ Assistent (regelbasiert)
-def assistent(frage, positionen, k, empf, profil=None):
-    """Beantwortet typische Fragen mit den echten Depotdaten. -> {"antwort", "art", "simulation"?} oder None,
-    wenn die Frage nicht erkannt wird (dann kann die App optional Claude fragen)."""
+def assistent(frage, positionen, k, empf, profil=None, rang=None):
+    """Beantwortet Fragen mit den echten Depotdaten und den Bewertungen der Top 500 (Qualitaets-Score,
+    ETF-/wikifolio-Score). Liefert immer eine Antwort. -> {"antwort", "art", "simulation"?, "kandidaten"?}"""
     f = (frage or "").lower()
     pos = [p for p in positionen if not p.get("ohne_kurs")]
+    pr = profil_bereinigen(profil)
+    if re.search(r"alternativ|ersetz|stattdessen|vorschl|empfiehl|empfehl.*kauf|was .*kaufen|neue[nr]? (wert|aktie|etf)|"
+                 r"bessere[nr]? (wert|aktie|etf|wikifolio)|nachkauf|beimisch|ergänz", f):
+        art = ("etf" if re.search(r"\betfs?\b|fonds", f) else "wikifolio" if "wikifolio" in f else
+               "aktie" if re.search(r"aktie", f) else None)
+        schwach = sorted([p for p in pos if p.get("score") is not None], key=lambda p: p["score"])
+        bezug = None
+        if art is None:
+            if schwach and schwach[0]["score"] < 60:
+                bezug = schwach[0]
+                art = bezug["art"] if bezug["art"] in ("aktie", "etf", "wikifolio") else "etf"
+            else:
+                fehl = [a for a, d in (k.get("abweichung") or {}).items() if a != "cash" and d <= -10]
+                art = fehl[0] if fehl else "etf"
+        kand = alternativen(rang, art, positionen, 5, pr["strategie"], bezug["score"] if bezug else None)
+        if not kand:
+            return {"art": "alternativen", "antwort": f"In den Top-500-Bewertungen gibt es für {ARTEN[art]} keine "
+                    "besser bewerteten Werte außerhalb deines Depots (oder die Daten sind gerade nicht lesbar)."}
+        kopf = (f"Besser bewertete {ARTEN[art]}-Alternativen zu {bezug['name']} (Score {de(bezug['score'], 0)})"
+                if bezug else f"Bestbewertete {ARTEN[art]}-Werte der Top 500, die du noch nicht hast"
+                + (" (Dividendenstrategie: höchste Ausschüttung unter den gut bewerteten)"
+                   if pr["strategie"] == "dividende" and art == "aktie" else ""))
+        return {"art": "alternativen", "kandidaten": kand,
+                "antwort": kopf + ":\n" + "\n".join(_text_alternative(e) for e in kand)
+                + "\nBewertung = Score der Top-500-Liste (Aktien: Qualitäts-Score, ETFs/wikifolios: eigener "
+                  "Klassen-Score). Im Simulator kannst du jeden Wert virtuell hinzufügen."}
     if not pos:
         return {"art": "leer", "antwort": "Dein Depot enthält keine Positionen mit Kurs – es gibt nichts zu analysieren."}
     zahl = None
@@ -1197,28 +1337,21 @@ def assistent(frage, positionen, k, empf, profil=None):
         return {"art": "simulation", "simulation": {"optimieren": True},
                 "antwort": "„Mein Depot optimieren“ berechnet eine bessere Gewichtung deiner vorhandenen Werte "
                            "– Ergebnis im Simulator."}
-    return None
-
-
-def claude_kontext(positionen, k, empf, profil):
-    """Kompakte, faktenbasierte Depotzusammenfassung fuer die optionale Claude-Frage (keine Rohdaten)."""
-    zeilen = []
-    for p in positionen:
-        if p.get("ohne_kurs"):
-            continue
-        e = empf.get(schluessel(p)) or {}
-        zeilen.append({"name": p["name"], "klasse": ARTEN.get(p["art"]), "gewicht_pct": round(k["gewichte"].get(
-            schluessel(p), 0), 1), "wert_eur": round(_wert(p)), "score": p.get("score"),
-            "score_quelle": p.get("score_quelle"), "schwankung_pct": round(p["vola"], 1) if p.get("vola") else None,
-            "max_rueckgang_pct": round(p["maxdd"], 1) if p.get("maxdd") is not None else None,
-            "dividende_pct": p.get("div"), "ter_pct": p.get("ter"), "land": p.get("land"),
-            "branche": p.get("branche"), "empfehlung": e.get("kategorie"), "bewertung": e.get("bewertung")})
-    return {"depot": {"wert_eur": round(k["gesamt"]), "liquiditaet_eur": round(k["cash"]),
-                      "score": k.get("score"), "schwankung_pct": round(k["vola"], 1) if k.get("vola") else None,
-                      "effektive_positionen": round(k.get("eff_n") or 0, 1),
-                      "dividende_eur_pa": round(k["dividende"]) if k.get("dividende") else None,
-                      "zielstruktur_pct": k["ziel"]["ziel"], "hoechstgewicht_pct": k["ziel"]["max_gewicht"]},
-            "profil": profil_bereinigen(profil), "positionen": zeilen}
+    w = wert_finden(frage, pos, rang)
+    if w:
+        typ, obj = w
+        if typ == "pos":
+            return {"art": "wert", "antwort": _bewertung_position(obj, k, empf[schluessel(obj)])}
+        return {"art": "wert", "kandidaten": [obj],
+                "antwort": "Bewertung laut Top 500 (nicht in deinem Depot):\n" + _text_alternative(obj)}
+    # nicht erkannt: Bewertungen aller Positionen laut Top 500
+    zeilen = [f"• {p['name']}: Score {de(p.get('score'), 0)} · {empf[schluessel(p)]['kategorie']}"
+              for p in sorted(pos, key=lambda p: -(p.get("score") or -1))]
+    return {"art": "uebersicht",
+            "antwort": "Dazu habe ich keine gezielte Auswertung. Die Bewertungen deiner Werte laut Top 500:\n"
+                       + "\n".join(zeilen) + f"\nDepot-Score {de(k.get('score'), 0)}/100. Gezielt beantworten kann "
+                       "ich Fragen zu Risiko, Überschneidungen, Dividenden, Gewichtung, defensiver Aufstellung, "
+                       "zusätzlichem Kapital, einzelnen Werten (Name nennen) und besseren Alternativen."}
 
 
 # ============================================================ Import / Export
