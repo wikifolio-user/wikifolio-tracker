@@ -8322,8 +8322,7 @@ def render_dashboard():
                  "gh_read": gh_read, "gh_read_taeglich": gh_read_taeglich, "gh_aktualisiere": gh_aktualisiere,
                  "pfad": upfad("state/depot_analyse.json"), "speichern": GH_STATE_READY,
                  "chronik": chronik_eintrag, "suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs,
-                 "get_kurshistorie": get_kurshistorie, "aendere_positionen": aendere_positionen,
-                 "anthropic_key": st.secrets.get("ANTHROPIC_API_KEY", "")}
+                 "get_kurshistorie": get_kurshistorie, "aendere_positionen": aendere_positionen}
 
         @st.fragment
         def _render_analyse():

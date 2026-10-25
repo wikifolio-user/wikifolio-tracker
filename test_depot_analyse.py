@@ -350,13 +350,31 @@ class Assistent(unittest.TestCase):
                          "dividende")
         self.assertEqual(self.frage("Wie könnte ich mein Depot defensiver aufstellen?")["simulation"]["szenario"],
                          "defensiv")
-        self.assertIsNone(self.frage("Wie wird das Wetter morgen?"))
+        r = self.frage("Wie wird das Wetter morgen?")
+        self.assertEqual(r["art"], "uebersicht")                 # nie leer: Bewertungen aller Positionen
+        self.assertIn("Gross", r["antwort"])
+        self.assertEqual(self.frage("Wie ist Klein bewertet?")["art"], "wert")
 
-    def test_kontext_ohne_rohdaten(self):
-        c = D.claude_kontext(self.ps, self.k, self.e, None)
-        self.assertEqual(len(c["positionen"]), 2)
-        self.assertNotIn("hist", c["positionen"][0])
-        self.assertNotIn("einstand", c["positionen"][0])
+    def test_alternativen_aus_top500(self):
+        zeilen = {"AAA": {"name": "Alpha AG", "gesamt": 88, "klasse": "prio", "roic": 20, "div": 1.0},
+                  "BBB": {"name": "Beta AG", "gesamt": 75, "klasse": "beobachten", "div": 4.0},
+                  "CCC": {"name": "Gamma AG", "gesamt": 30, "klasse": "nicht"}}
+        kat = [{"felder": ["typ", "name", "kennung", "isin", "1J", "3J", "5J", "vola", "maxdd", "jahre"],
+                "zeilen": [["etf", "Welt ETF", "W1", "IE0000000001", 15, 40, 70, 13, -25, 12]]}]
+        rang = D.ranglisten(zeilen, {"DE000ALPHA01": "AAA"}, kat)
+        self.assertEqual([e["name"] for e in rang["aktie"]], ["Alpha AG", "Beta AG", "Gamma AG"])
+        self.assertEqual(rang["aktie"][0]["isin"], "DE000ALPHA01")
+        self.assertEqual(rang["etf"][0]["name"], "Welt ETF")
+        alt = D.alternativen(rang, "aktie", self.ps, 5)
+        self.assertEqual([e["name"] for e in alt], ["Alpha AG", "Beta AG"])     # "nicht" ausgeschlossen
+        self.assertEqual(D.alternativen(rang, "aktie", self.ps, 5, "dividende")[0]["name"], "Beta AG")
+        r = D.assistent("Welche besseren Aktien gibt es als Alternative?", self.ps, self.k, self.e, None, rang)
+        self.assertEqual(r["art"], "alternativen")
+        self.assertEqual(r["kandidaten"][0]["name"], "Alpha AG")
+        r = D.assistent("Wie ist Alpha AG bewertet?", self.ps, self.k, self.e, None, rang)
+        self.assertEqual((r["art"], r["kandidaten"][0]["name"]), ("wert", "Alpha AG"))
+        im_depot = self.ps + [dict(self.ps[0], name="Alpha AG", isin="DE000ALPHA01", wkn="")]
+        self.assertNotIn("Alpha AG", [e["name"] for e in D.alternativen(rang, "aktie", im_depot, 5)])
 
 
 class Gesamtanalyse(unittest.TestCase):

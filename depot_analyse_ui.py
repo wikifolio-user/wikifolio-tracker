@@ -26,8 +26,8 @@ BEISPIELE = ["Welche Positionen sind am riskantesten?", "Wie könnte ich mein De
              "Wie würde sich mein Depot verändern, wenn ich 10.000 € zusätzlich investiere?",
              "Welche Überschneidungen gibt es zwischen meinen ETFs?",
              "Wie könnte ich mein Portfolio besser gewichten?",
-             "Was passiert, wenn ich meine größte Position halbiere?"]
-CLAUDE_MODELL = "claude-opus-5-5"
+             "Was passiert, wenn ich meine größte Position halbiere?",
+             "Welche besser bewerteten Alternativen gibt es zu meinem schwächsten Wert?"]
 STATE_PFAD = "state/depot_analyse.json"
 
 CSS = """
@@ -184,6 +184,7 @@ def _markt(_lesen, schluessel_tag):
         kat.append(d)
     yahoo = _lesen("state/top50_yahoo.json", None) or {}
     m = D.marktdaten_index(zeilen, yahoo.get("isin") or {}, kat)
+    m["rang"] = D.ranglisten(zeilen, yahoo.get("isin") or {}, kat)
     m["stand_q"], m["stand_k"] = stand_q, stand_k
     return m
 
@@ -484,8 +485,8 @@ def _sim_neu_suchen(h):
 def _simulator(h, a):
     s = st.session_state
     z = a["z"]
-    if P + "soll" not in s:
-        _sim_reset(a)
+    if P + "soll" not in s:                         # erster Aufruf: Soll = Ist (vorgemerkte neue Werte bleiben)
+        s[P + "soll"] = {D.schluessel(p): D._z(p.get("stueck"), 0.0) for p in a["pos"]}
     if P + "zusatz_neu" in s:                       # aus "Variante laden" (Widget existierte schon)
         s[P + "zusatz"] = s.pop(P + "zusatz_neu")
     st.markdown('<div class="da-sim">🧪 <b>Simulation</b> – alle Änderungen sind virtuell. Dein echtes Depot wird '
@@ -513,12 +514,23 @@ def _simulator(h, a):
         st.caption(f'Vorschlag aus {s[P + "sim_quelle"]}: ' + (
             f'Depot-Score {D.de(o.get("score_vorher"), 0)} → {D.de(o.get("score_nachher"), 0)}.'
             if o.get("massnahmen") else "keine Umschichtung verbessert den Depot-Score – Vorschlag = aktueller Bestand.")
-            + (f' Im Depot fehlen: {", ".join(D.ARTEN[x] for x in o["fehlende_klassen"])} – neue Werte nur über '
-               '„Neuen Wert virtuell hinzufügen“ (Vorschläge macht der Scanner 2.0).' if o.get("fehlende_klassen") else ""))
+            + (f' Im Depot fehlen: {", ".join(D.ARTEN[x] for x in o["fehlende_klassen"])} – unten die '
+               'bestbewerteten Werte der Top 500 zum virtuellen Hinzufügen.' if o.get("fehlende_klassen") else ""))
         for m in (o.get("massnahmen") or [])[:8]:
             st.markdown(f'<div class="da-box"><b>{_e(m["aktion"])} {D.de(m["stueck"], 0)} × {_e(m["name"])} '
                         f'(ca. {D.eur(m["betrag"])})</b>{_e(m["grund"])} · Gewicht {D.pct(m["ist_pct"])} → '
                         f'{D.pct(m["ziel_pct"])} · {_e(m["risiko"])}</div>', unsafe_allow_html=True)
+        for art in o.get("fehlende_klassen") or []:
+            kand = D.alternativen(a["markt"].get("rang"), art, a["pos"], 3, z["profil"].get("strategie"))
+            if not kand:
+                continue
+            _titel(f"Top-500-Vorschläge: {D.ARTEN[art]}")
+            for i, e in enumerate(kand):
+                c1, c2 = st.columns([4, 1], vertical_alignment="center")
+                c1.markdown(f'<span class="da-m">{_e(D._text_alternative(e)[2:])}</span>', unsafe_allow_html=True)
+                if c2.button("➕ Hinzufügen", key=f"{P}fk_{art}_{i}", width="stretch"):
+                    if _kandidat_hinzufuegen(h, e):
+                        st.rerun(scope="fragment")
 
     stz = z.get("steuer") or {}
     for key_, wert_ in (("cash_sim", float(z["cash"])), ("zusatz", 0.0), ("geb_fix", float(stz.get("geb_fix", 1.0))),
@@ -812,31 +824,28 @@ def _szenarien(h, a):
 
 
 # ---------------------------------------------------------------- Assistent
-def _claude(h, frage, a):
-    """Optionale Freitextfrage an Claude (nur mit API-Schluessel in den Secrets und Zustimmung)."""
-    import anthropic
-    kontext = D.claude_kontext(a["pos"], a["k"], a["empf"], a["z"]["profil"])
-    system = ("Du bist ein sachlicher Investment-Assistent in einem privaten Finanz-Dashboard. Antworte auf Deutsch, "
-              "knapp und strukturiert. Nutze ausschließlich die mitgelieferten Depotdaten (JSON) – erfinde keine "
-              "Kurse, Kennzahlen oder Nachrichten. Trenne klar zwischen Fakten (aus den Daten), Einschätzungen und "
-              "Annahmen und kennzeichne sie. Fehlen Daten, sag es. Gib keine Kauf- oder Verkaufsaufforderungen, "
-              "sondern Prüfhinweise; erwähne, dass es keine Anlageberatung ist.")
-    client = anthropic.Anthropic(api_key=h["anthropic_key"], max_retries=2, timeout=90)
-    nachricht = [{"role": "user", "content": f"Depotdaten:\n{json.dumps(kontext, ensure_ascii=False, default=str)}"
-                                             f"\n\nFrage: {frage}"}]
-    try:            # mit serverseitigem Ersatzmodell bei Ueberlast
-        antwort = client.beta.messages.create(
-            model=CLAUDE_MODELL, max_tokens=1500, system=system, messages=nachricht,
-            betas=["server-side-fallback-2026-06-01"], fallbacks=[{"model": "claude-opus-4-8"}])
-    except anthropic.BadRequestError:
-        antwort = client.messages.create(model=CLAUDE_MODELL, max_tokens=1500, system=system, messages=nachricht)
-    return "".join(b.text for b in antwort.content if getattr(b, "type", "") == "text").strip()
+def _kandidat_hinzufuegen(h, e):
+    """Top-500-Wert mit echtem Kurs (ls-tc.de) als virtuelle neue Position (0 Stueck) in den Simulator."""
+    tr = (h["suche_instrument"](e.get("isin") or e.get("kennung") or e["name"]) or
+          h["suche_instrument"](e["name"]) or [])
+    t = tr[0] if tr else None
+    kurs = h["get_live_kurs"](int(t["instrument_id"]))[0] if t else None
+    if not kurs:
+        st.error(f"Für „{e['name']}“ liefert die Kursquelle gerade keinen Kurs – nicht hinzugefügt.")
+        return False
+    st.session_state[P + "neu"] = [n for n in st.session_state.get(P + "neu") or []
+                                  if n["instrument_id"] != int(t["instrument_id"])] + [
+        {"name": t["name"], "isin": t.get("isin") or e.get("isin") or "", "wkn": t.get("wkn") or "",
+         "instrument_id": int(t["instrument_id"]), "kurs": float(kurs), "stueck": 0.0, "art": e["art"]}]
+    st.session_state[P + "ed_nr"] = st.session_state.get(P + "ed_nr", 0) + 1
+    return True
 
 
 def _assistent(h, a):
     s = st.session_state
-    st.caption("Antworten aus deinen echten Depotdaten. Typische Fragen beantwortet die App selbst (regelbasiert, "
-               "mit Kennzahlen); Fragen mit Simulation lassen sich direkt im Simulator öffnen.")
+    st.caption("Antworten aus deinen echten Depotdaten und den Bewertungen der Top-500-Liste (Aktien: "
+               "Qualitäts-Score, ETFs/wikifolios: Klassen-Score) – regelbasiert und nachvollziehbar. Fragen mit "
+               "Simulation lassen sich direkt im Simulator öffnen, Alternativen dort virtuell hinzufügen.")
     cols = [st.container()] * 2 if B._smartphone() else st.columns(2)
     for i, b in enumerate(BEISPIELE):
         if cols[i % 2].button(b, key=f"{P}bsp_{i}", width="stretch"):
@@ -849,14 +858,19 @@ def _assistent(h, a):
     if los or s.pop(P + "frage_los", False):
         frage = (s.get(P + "frage") or "").strip()
         if frage:
-            r = D.assistent(frage, a["pos"], a["k"], a["empf"], a["z"]["profil"])
-            s[P + "antwort"] = {"frage": frage, "r": r, "quelle": "App (regelbasiert)"}
+            r = D.assistent(frage, a["pos"], a["k"], a["empf"], a["z"]["profil"], a["markt"].get("rang"))
+            s[P + "antwort"] = {"frage": frage, "r": r, "quelle": "Depotdaten & Top-500-Bewertungen"}
     erg = s.get(P + "antwort")
     if not erg:
         return
     st.markdown(f'<div class="da-chip">Frage</div> {_e(erg["frage"])}', unsafe_allow_html=True)
     r = erg["r"]
     if r:
+        for i, e in enumerate(r.get("kandidaten") or []):
+            if st.button(f"➕ {e['name']} im Simulator hinzufügen", key=f"{P}kand_{i}"):
+                if _kandidat_hinzufuegen(h, e):
+                    s[P + "reiter_neu"] = REITER[2]
+                    st.rerun(scope="fragment")
         st.markdown(f'<div class="da-box"><b>Antwort · {erg["quelle"]}</b>'
                     f'{_e(r["antwort"]).replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
         sim = r.get("simulation")
@@ -874,27 +888,6 @@ def _assistent(h, a):
             s[P + "reiter_neu"] = REITER[2]
             st.rerun(scope="fragment")
         return
-    if erg.get("claude"):
-        st.markdown(f'<div class="da-box"><b>Antwort · Claude (KI-Einschätzung, keine Anlageberatung)</b>'
-                    f'{_e(erg["claude"]).replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
-        return
-    if not h.get("anthropic_key"):
-        st.info("Diese Frage kann die App nicht aus den Kennzahlen beantworten. Freitextfragen an eine KI (Claude) "
-                "sind möglich, sobald ein Anthropic-API-Schlüssel als `ANTHROPIC_API_KEY` in den Streamlit-Secrets "
-                "hinterlegt ist (kostenpflichtig, Abrechnung über console.anthropic.com).")
-        return
-    ok = st.checkbox("Ich bin einverstanden, dass meine Frage und eine Zusammenfassung meines Depots (Namen, "
-                     "Gewichte, Werte, Kennzahlen – ohne Benutzername) an Anthropic übertragen werden.",
-                     key=P + "claude_ok")
-    if st.button("An Claude senden", key=P + "claude_los", disabled=not ok):
-        try:
-            with st.spinner("Claude antwortet …"):
-                erg["claude"] = _claude(h, erg["frage"], a)
-            st.rerun(scope="fragment")
-        except Exception as e:
-            logging.warning(f"Depot-Analyse: Claude-Anfrage fehlgeschlagen: {type(e).__name__}")
-            st.error(f"Die KI-Anfrage ist fehlgeschlagen ({type(e).__name__}). Die Analyse der App bleibt verfügbar.")
-
 
 # ---------------------------------------------------------------- Daten & Profil
 def _profil(h, a):
