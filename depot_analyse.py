@@ -17,6 +17,7 @@ import math
 import re
 
 import branchen as BR
+import dividenden as DV
 import klassen_score as KS
 
 ARTEN = {"aktie": "Aktie", "etf": "ETF", "wikifolio": "wikifolio", "fonds": "Fonds", "sonstiges": "Sonstiges",
@@ -1174,7 +1175,8 @@ def ranglisten(aktien_zeilen, isin_zu_symbol, katalog_teile, n=None):
         aktien.append({"name": str(z.get("name") or sym), "art": "aktie", "symbol": sym, "kennung": sym,
                        "isin": isin_je.get(sym, ""), "score": sc, "einordnung": z.get("klasse"),
                        "staerken": st_[:3], "schwaechen": sw_[:3], "div": _z(z.get("div")), "bew": z.get("bew"),
-                       "branche": z.get("br")})
+                       "branche": z.get("br"), "div_q": _z(z.get("div_q")), "risiko": z.get("risiko"),
+                       "g_ums": _z(z.get("g_ums")), "moat": z.get("moat")})
     aktien.sort(key=lambda e: (-e["score"], e["name"].lower()))
     aus = {"aktie": aktien[:n]}
     for art in ("etf", "wikifolio"):
@@ -1204,6 +1206,46 @@ def alternativen(rang, art, positionen, n=5, strategie=None, mindest=None):
     if strategie == "dividende" and art == "aktie":
         liste = sorted([e for e in liste if e["score"] >= 60 and e.get("div")], key=lambda e: -(e["div"] or 0))
     return liste[:n]
+
+
+# Aktienauswahl je Szenario: (Bedingung, Sortierschluessel, Begruendung)
+SZENARIO_AKTIEN = {
+    "defensiv": (lambda e: e.get("risiko") == "niedrig" and e.get("bew") != "teuer",
+                 lambda e: -e["score"],
+                 "niedriges Risiko, keine teure Bewertung"),
+    "ausgewogen": (lambda e: e.get("risiko") in ("niedrig", "mittel"),
+                   lambda e: -e["score"],
+                   "höchster Qualitäts-Score bei niedrigem bis mittlerem Risiko"),
+    "wachstum": (lambda e: e["score"] >= 75 and (e.get("g_ums") or 0) >= 15,
+                 lambda e: -(e["score"] + min(e.get("g_ums") or 0, 60) / 2),
+                 "Umsatzwachstum ab 15 % p. a. bei Qualitäts-Score ab 75 – Score und Wachstum gemeinsam gewichtet"),
+    "dividende": (lambda e: 3 <= (e.get("div") or 0) <= 8 and e.get("risiko") != "hoch"
+                  and DV.nachhaltigkeit(e.get("div"), e.get("div_q")) in ("nachhaltig", "solide"),
+                  lambda e: -(e["score"] + 2 * (e.get("div") or 0)),
+                  "Dividende 3–8 %, vom Gewinn gedeckt (Ausschüttungsquote ≤ 80 %), ohne hohes Risiko – "
+                  "Qualität und Rendite gemeinsam gewichtet"),
+}
+
+
+def szenario_aktien(rang, szenario, positionen, n=5, mindest=60, je_sektor=1):
+    """Aktien der Top-500-Rangliste, die zum Szenario passen und noch nicht im Depot sind.
+    Nur Werte mit Score >= mindest und nicht 'Nicht weiterverfolgen'; hoechstens je_sektor Werte je Sektor
+    (Streuung). 'individuell' nutzt die Strategie des Profils. -> (liste, begruendung)"""
+    if szenario not in SZENARIO_AKTIEN:
+        szenario = "ausgewogen"
+    bed, sort, grund = SZENARIO_AKTIEN[szenario]
+    liste = sorted([e for e in (rang or {}).get("aktie") or [] if e["score"] >= mindest
+                    and e.get("einordnung") != "nicht" and not _im_depot(e, positionen) and bed(e)], key=sort)
+    aus, je = [], {}
+    for e in liste:
+        sek = BR.sektor(e.get("branche"))
+        if je.get(sek, 0) >= je_sektor:
+            continue
+        je[sek] = je.get(sek, 0) + 1
+        aus.append(dict(e, sektor=sek))
+        if len(aus) >= n:
+            break
+    return aus, grund
 
 
 def _text_alternative(e):

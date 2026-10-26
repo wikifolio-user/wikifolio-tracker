@@ -20,6 +20,7 @@ import login
 import nutzerdaten
 import prognose_basis as PROG_BASIS
 import branchen as BR
+import dividenden as DV
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -4275,6 +4276,8 @@ def render_dashboard():
         ("moat", "Moat*", str, _qc_label(("stark",), ("gering",))),
         ("mgmt", "Management*", str, _qc_label(("gut",), ("schwach",))),
         ("bew", "Bewertung", str, _qc_label(("günstig",), ("teuer",))),
+        ("div", "Dividende", _qf_pct(2, False), _qc_schwelle(3, -1)),
+        ("div_q", "Ausschüttungsquote", _qf_pct(0, False), _qc_schwelle(60, 100, True)),
         ("risiko", "Risiko", str, _qc_label(("niedrig",), ("hoch",))),
         # Dividendenrendite (letzte 12 Monate): grün ab 3 %, keine Rotfärbung - keine Dividende ist kein Mangel
         ("div", "Dividende", _qf_pct(2, False), _qc_schwelle(3, -1)),
@@ -4294,7 +4297,8 @@ def render_dashboard():
                 continue
             sek_, br_ = BR.einordnen(e.get("br"))
             z = {"#": rang, "Unternehmen": e.get("name") or sym, "Symbol": sym, "Sektor": sek_,
-                 "Branche": br_, "Punkte": e.get("gesamt"), "Einordnung": Q_KLASSEN.get(e.get("klasse"), "")}
+                 "Branche": br_, "Punkte": e.get("gesamt"), "Einordnung": Q_KLASSEN.get(e.get("klasse"), ""),
+                 "Dividenden-Kategorie": DV.text(e.get("div"), e.get("div_q"))}
             for key, titel, _, _ in Q_SPALTEN:
                 z[titel] = e.get(key)
             zeilen.append(z)
@@ -4548,6 +4552,27 @@ def render_dashboard():
             g = (gruppen.get("kategorien") or {}).get(kat_key) or {}
         return [s_ for s_ in g.get("s") or [] if s_ in alle]
 
+    def _q_dividenden_tabelle(alle, mitglieder):
+        """Je Dividenden-Kategorie: Anzahl, Ø Punkte, davon nachhaltig, bester Wert."""
+        zeilen = ""
+        for i, z in enumerate(DV.uebersicht([alle[s_] for s_ in mitglieder]), 1):
+            b = z["bester"]
+            zeilen += (f'<tr class="{"pt-zebra" if i % 2 == 0 else ""}">'
+                       f'<td class="pt-wert"><span class="pt-name">{DV.ICON[z["schluessel"]]} '
+                       f'{html.escape(z["titel"])}</span></td>'
+                       f'<td class="pt-num">{z["anzahl"]}</td><td class="pt-num">{_de_zahl(z["schnitt_punkte"], 0)}</td>'
+                       f'<td class="pt-num">{z["nachhaltig"] if z["schluessel"] != "keine" else "–"}</td>'
+                       f'<td class="pt-wert"><span class="pt-name">{html.escape(str(b["name"]))}</span>'
+                       f'<span class="pt-sub">{b.get("gesamt")} Punkte · Dividende '
+                       f'{_de_zahl(b.get("div") or 0, 1)} %</span></td></tr>')
+        st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                    '<table class="pt"><thead><tr><th class="pt-wert">Dividende</th><th class="pt-num">Aktien</th>'
+                    '<th class="pt-num">Ø Punkte</th><th class="pt-num">nachhaltig</th>'
+                    '<th class="pt-wert">Bester Wert</th></tr></thead>'
+                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+        st.caption("Dividendenrendite und Ausschüttungsquote vom Qualitäts-Agenten (Yahoo Finance). „nachhaltig“ = "
+                   "Ausschüttungsquote höchstens 80 % des Gewinns. Filter und Sortierung oben unter „🔎 Filter“.")
+
     def _q_sektoren_tabelle(alle, mitglieder):
         """Je Sektor: Anzahl, Ø Punkte, Hohe Prioritaet, bester Wert."""
         je = {}
@@ -4603,8 +4628,11 @@ def render_dashboard():
         _filter_titel = " · ".join(x for x in (
             _was, _ss.get("q_laenge") or "Top 500",
             str(_ss.get("q_sektor") or "").split(" ", 1)[-1] if _ss.get("q_sektor") not in (None, "Alle Sektoren") else "",
-            _ss.get("q_klasse") if _ss.get("q_klasse") not in (None, ansichten[0]) else "") if x)
-        with st.expander(f"🔎 Filter: {_filter_titel}", expanded=False):
+            _ss.get("q_klasse") if _ss.get("q_klasse") not in (None, ansichten[0]) else "",
+            f"Dividende {_ss.get('q_div_filter')}" if _ss.get("q_div_filter") not in (None, "Alle") else "",
+            "nachhaltig" if _ss.get("q_div_nachhaltig") else "",
+            "nach Dividende sortiert" if _ss.get("q_sortierung") == "Dividendenrendite" else "") if x)
+        with st.expander(f"🔎 Filter: {_filter_titel}", expanded=False, key="q_filter_exp"):
             if _auswahl_art("q") == "Index":
                 # Index: Rangliste aus den Gesamtdaten, gleiche Sortierung wie der Agent
                 gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
@@ -4653,14 +4681,26 @@ def render_dashboard():
             alle_q, _ = _q_alle()
             mitglieder_alle = _q_mitglieder(kat_key, alle_q)
             sektor = sek_wahl.split(" ", 1)[1] if sek_wahl != sek_opt[0] else None
-            if sektor and not mitglieder_alle:
-                st.warning("Die Firmen-Kategorien sind gerade nicht lesbar – bitte später erneut öffnen.")
-                sektor = None
-            if sektor:
+            # Dividenden: Filter nach Hoehe/Nachhaltigkeit und Sortierung nach Rendite
+            div_filter = st.selectbox("Dividende", list(DV.FILTER), key="q_div_filter") or "Alle"
+            nur_nachhaltig = st.toggle("Nur nachhaltige Dividende", key="q_div_nachhaltig",
+                                       help="Ausschüttungsquote höchstens 80 % des Gewinns")
+            sortierung = st.pills("Sortieren nach", ["Punkte", "Dividendenrendite"], default="Punkte",
+                                  key="q_sortierung") or "Punkte"
+            nach_div = sortierung == "Dividendenrendite"
+            gefiltert = bool(sektor or div_filter != "Alle" or nur_nachhaltig or nach_div)
+            if gefiltert and not mitglieder_alle:
+                st.warning("Die Gesamtdaten sind gerade nicht lesbar – Filter bitte später erneut versuchen.")
+                sektor, gefiltert = None, False
+            if gefiltert:
                 werte = {**werte, **{s_: alle_q[s_] for s_ in mitglieder_alle}}
-                im_sektor = [s_ for s_ in mitglieder_alle if BR.sektor(alle_q[s_].get("br")) == sektor]
+                im_sektor = [s_ for s_ in mitglieder_alle
+                             if (not sektor or BR.sektor(alle_q[s_].get("br")) == sektor)
+                             and DV.passt(alle_q[s_], div_filter, nur_nachhaltig)]
 
                 def rang_sek(liste):
+                    if nach_div:
+                        return sorted(liste, key=lambda s_: (-(werte[s_].get("div") or 0), -werte[s_]["gesamt"]))[:n]
                     return sorted(liste, key=lambda s_: (-werte[s_]["gesamt"], -(werte[s_]["b_ant"] or 0)))[:n]
 
                 kat = dict(kat, top=rang_sek(im_sektor), bewertet=len(im_sektor), universum=len(mitglieder_alle),
@@ -4671,13 +4711,15 @@ def render_dashboard():
         if mitglieder_alle:
             with st.expander("🏷️ Firmen-Kategorien im Überblick"):
                 _q_sektoren_tabelle(alle_q, mitglieder_alle)
+            with st.expander("💶 Dividenden-Kategorien im Überblick"):
+                _q_dividenden_tabelle(alle_q, mitglieder_alle)
         if a_wahl == ansichten[0]:
             symbole, liste_key = kat["top"], f"{kat_key}|top"
         else:
             kl = next(k for k, v in Q_KLASSEN.items() if v == a_wahl)
             symbole, liste_key = kat["je_klasse"].get(kl, []), f"{kat_key}|{kl}"
-        # Wochenvergleich gibt es nur fuer die Ranglisten des Agenten, nicht fuer Sektor-Auswahlen
-        vergleich = None if sektor else (daten.get("vergleich") or {}).get(liste_key)
+        # Wochenvergleich gibt es nur fuer die Ranglisten des Agenten, nicht fuer eigene Filter
+        vergleich = None if gefiltert else (daten.get("vergleich") or {}).get(liste_key)
 
         try:
             stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
@@ -4685,7 +4727,11 @@ def render_dashboard():
             stand = daten.get("stand", "–")
         abd = daten.get("abdeckung", {})
         kl = kat["klassen"]
-        basis_txt = ("Aktien der Auswahl im Sektor " + sektor if sektor else
+        _filter_txt = " · ".join(x for x in (f"Sektor {sektor}" if sektor else "",
+                                             f"Dividende {div_filter}" if div_filter != "Alle" else "",
+                                             "nachhaltig" if nur_nachhaltig else "",
+                                             "sortiert nach Dividendenrendite" if nach_div else "") if x)
+        basis_txt = (f"Aktien der Auswahl ({_filter_txt})" if gefiltert else
                      "Indexmitgliedern" if kat_key.startswith("i:") else "Aktien")
         st.caption(
             f"Stand {stand} · {kat['bewertet']} von {kat['universum']} {basis_txt} bewertet · "
@@ -4716,7 +4762,7 @@ def render_dashboard():
         else:
             fokus = next((k for k, t, _, _ in Q_SPALTEN if t == f_wahl), "roic")
             _q_tabelle(werte, symbole, vergleich, fokus)
-        if not sektor and (vergleich is not None or daten.get("vergleich_seit") is None):
+        if not gefiltert and (vergleich is not None or daten.get("vergleich_seit") is None):
             _wochen_bilanz([(r, werte[s]["name"] if s in werte else s, s, (vergleich or {}).get("vor", {}).get(s))
                             for r, s in enumerate(symbole, 1)],
                            (vergleich or {}).get("raus", []), daten.get("vergleich_seit"))

@@ -420,5 +420,32 @@ class Import(unittest.TestCase):
         self.assertTrue(b.startswith(b"%PDF"))
 
 
+class SzenarioAktien(unittest.TestCase):
+    def _rang(self):
+        def a(name, score, **kw):
+            return dict({"name": name, "art": "aktie", "kennung": name[:3].upper(), "isin": "", "score": score,
+                         "einordnung": "prio", "branche": "Software - Application", "risiko": "mittel",
+                         "bew": "fair", "div": None, "div_q": None, "g_ums": 5}, **kw)
+        return {"aktie": [
+            a("Soft Eins", 90), a("Soft Zwei", 88),
+            a("Bank Sicher", 80, branche="Banks - Regional", risiko="niedrig", div=3.0, div_q=40),
+            a("Bank Teuer", 85, branche="Banks - Diversified", risiko="niedrig", bew="teuer"),
+            a("Versorger Hoch", 70, branche="Utilities—Regulated Electric", div=7.0, div_q=70),
+            a("Ungedeckt", 75, branche="Oil & Gas Integrated", div=8.0, div_q=150),
+            a("Wachser", 80, branche="Biotechnology", g_ums=25, risiko="hoch"),
+            a("Schwach", 50, branche="Biotechnology", g_ums=40),
+            a("Abgelehnt", 95, branche="Biotechnology", einordnung="nicht")]}
+
+    def test_auswahl_je_szenario(self):
+        rang = self._rang()
+        namen = lambda sz, pos=(): [e["name"] for e in D.szenario_aktien(rang, sz, list(pos))[0]]
+        self.assertEqual(namen("defensiv"), ["Bank Sicher"])                  # niedriges Risiko, nicht teuer
+        self.assertEqual(namen("ausgewogen")[:2], ["Soft Eins", "Bank Teuer"])   # ein Wert je Sektor
+        self.assertEqual(namen("wachstum"), ["Wachser"])                       # Score >= 60, nicht "nicht"
+        self.assertEqual(namen("dividende"), ["Bank Sicher", "Versorger Hoch"])  # Score + 2 × Rendite; ungedeckt faellt raus
+        self.assertEqual(namen("ausgewogen", [{"name": "Soft Eins"}])[0], "Soft Zwei")  # schon im Depot
+        self.assertEqual(D.szenario_aktien({}, "defensiv", [])[0], [])
+
+
 if __name__ == "__main__":
     unittest.main()
