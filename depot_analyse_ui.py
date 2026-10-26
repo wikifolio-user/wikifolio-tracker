@@ -14,7 +14,9 @@ import pandas as pd
 import streamlit as st
 
 import analyse_depot as AD
+import branchen as BR
 import depot_analyse as D
+import dividenden as DV
 import portfolio_builder_ui as B
 
 P = "da_"
@@ -855,6 +857,7 @@ def _szenarien(h, a):
               ("Umschichtungen", "r"), (f"Modell in {jahre} J.", "r")], zeilen)
     st.caption("Der Depot-Score wird je Szenario am jeweiligen Profil gemessen (z. B. Risiko gegen die tragbare "
                "Schwankung des Szenarios).")
+    _szenario_aktien(h, a, szen)
     c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
     wahl = c1.selectbox("Szenario im Simulator öffnen", list(szen), format_func=lambda x: szen[x]["titel"],
                         key=P + "szen_sim")
@@ -862,6 +865,50 @@ def _szenarien(h, a):
         _sim_optimieren(a, dict(pr, **szen[wahl]["profil"]), 0.0, f'Szenario „{szen[wahl]["titel"]}“')
         st.session_state[P + "reiter_neu"] = REITER[2]
         st.rerun(scope="fragment")
+
+
+def _szenario_aktien(h, a, szen):
+    """Konkrete Aktien aus der Top-500-Rangliste, passend zum gewaehlten Szenario."""
+    _titel("📈 Passende Aktien je Szenario")
+    rang = a["markt"].get("rang") or {}
+    if not rang.get("aktie"):
+        st.info("Die Bewertungen der Top-500-Liste sind gerade nicht verfügbar – ohne sie gibt es keine "
+                "Aktienvorschläge.")
+        return
+    wahl = st.pills("Szenario", list(szen), format_func=lambda x: szen[x]["titel"], default="ausgewogen",
+                    key=P + "szen_aktien", label_visibility="collapsed") or "ausgewogen"
+    key = wahl
+    if wahl == "individuell":
+        pr = a["z"]["profil"]
+        key = (pr.get("strategie") if pr.get("strategie") in ("wachstum", "dividende")
+               else "defensiv" if pr.get("risiko") == "defensiv" else "ausgewogen")
+    liste, grund = D.szenario_aktien(rang, key, a["pos"], 5)
+    st.caption(f"Auswahl: {grund} · Qualitäts-Score ab 60 · höchstens ein Wert je Sektor · ohne Werte, die "
+               "schon im Depot sind. Grundlage sind die Bewertungen der Top-500-Liste – keine Kaufempfehlung.")
+    if not liste:
+        st.info("Für dieses Szenario erfüllt gerade keine Aktie alle Bedingungen.")
+        return
+    for i, e in enumerate(liste):
+        teile = [f'{BR.SEKTOR_ICON.get(e["sektor"], "")} {e["sektor"]}'.strip()]
+        if e.get("branche"):
+            teile[0] += f' · {BR.branche_de(e["branche"])}'
+        teile.append("Dividende " + (f'{D.pct(e["div"])} ({DV.text(e["div"], e.get("div_q"))})'
+                                     if e.get("div") else "keine"))
+        if e.get("staerken"):
+            teile.append("Stärken: " + ", ".join(e["staerken"]))
+        if e.get("schwaechen"):
+            teile.append("Schwächen: " + ", ".join(e["schwaechen"]))
+        c1, c2 = ([st.container()] * 2 if B._smartphone()
+                  else st.columns([4, 1], vertical_alignment="center"))
+        c1.markdown(f'<div class="da-box pos"><b>{_score(e["score"])} {_e(e["name"])}</b>'
+                    f'<span class="da-m">{_e(D.EINORDNUNG.get(e.get("einordnung"), ""))}'
+                    f'{" · " + _e(e["isin"]) if e.get("isin") else ""}<br>{_e(" · ".join(teile))}</span></div>',
+                    unsafe_allow_html=True)
+        if c2.button("➕ Zum Simulator", key=f"{P}sa_{wahl}_{i}", width="stretch",
+                     help="Als virtuelle neue Position (0 Stück) in den Simulator übernehmen"):
+            if _kandidat_hinzufuegen(h, e):
+                st.session_state[P + "reiter_neu"] = REITER[2]
+                st.rerun(scope="fragment")
 
 
 # ---------------------------------------------------------------- Assistent
