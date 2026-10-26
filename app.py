@@ -5652,7 +5652,9 @@ def render_dashboard():
                                  "- Nicht enthalten: Gebühren, investiertes Kapital, Handelsstil des Traders, "
                                  "Emittentenrisiko."}[art]
             st.markdown(
-                "- **Rendite p. a.** aus dem längsten vorhandenen Zeitraum (10, 5, 3 oder 1 Jahr).\n"
+                "- **Tabelle:** Rendite p. a. über 1, 3, 5 und 10 Jahre sowie über die gesamte Laufzeit "
+                "(„Gesamt p. a.“, ab 1 Jahr Historie).\n"
+                "- **Für den Score** zählt die Rendite p. a. aus dem längsten vorhandenen Zeitraum (10, 5, 3 oder 1 Jahr).\n"
                 "- **Beständigkeit** = Anteil der Zeiträume (1/3/5/10 Jahre) mit Gewinn.\n" + erkl + "\n"
                 f"- **Einordnung:** ab {_ks_de(KS.GRENZE_PRIO, 0)} Punkten *Hohe Analysepriorität* (nur mit mindestens "
                 f"{_ks_de(KS.MIN_JAHRE[art], 0)} Jahren Historie, ohne Hebel), ab {_ks_de(KS.GRENZE_BEOBACHTEN, 0)} "
@@ -5713,12 +5715,14 @@ def render_dashboard():
                 f'<span class="pt-sub">{_h(e["kennung"] or e["isin"])}</span></td>'
                 f'<td class="pt-num"><span class="q-punkte {Q_KLASSE_CSS[b["einordnung"]]}">'
                 f'{_ks_de(b["score"], 0)}</span></td>'
-                + zahl(k["rendite"], 1, " %", vz=True) + zahl(k[risiko_k], 2)
+                + "".join(zahl(k["pa"][z], 1, " %", vz=True) for z in ("1J", "3J", "5J", "10J", "gesamt"))
+                + zahl(k[risiko_k], 2)
                 + zahl(k["dd"], minus=True) + zahl(k["vola"], 0, " %")
                 + zahl(k["jahre"], 1, " J.")
                 + f'<td class="ks-grund">{grund or "–"}</td></tr>')
         kopf = "".join(f'<th class="pt-num">{t}</th>' for t in
-                       ("Score", "Rendite p. a.", risiko_titel, "Max. Rückgang", "Schwankung", "Historie"))
+                       ("Score", "1 Jahr", "3 J. p. a.", "5 J. p. a.", "10 J. p. a.", "Gesamt p. a.", risiko_titel,
+                        "Max. Rückgang", "Schwankung", "Historie"))
         st.markdown('<div class="q-legende">Score: <span class="q-prio">■</span> Hohe Analysepriorität · '
                     '<span class="q-beob">■</span> Beobachtungsliste · <span class="q-nicht">■</span> '
                     'Nicht weiterverfolgen</div>', unsafe_allow_html=True)

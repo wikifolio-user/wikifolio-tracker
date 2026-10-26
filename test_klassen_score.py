@@ -97,5 +97,24 @@ class Scanner2(unittest.TestCase):
         self.assertAlmostEqual(E.calc_score(u["Welt ETF"], [])["value"], round(ks * 0.95 + 100 * 0.05, 1))
 
 
+class ProJahr(unittest.TestCase):
+    def test_pro_jahr(self):
+        self.assertAlmostEqual(KS.pro_jahr(21.0, 2), 10.0, places=6)      # 1,1^2 = 1,21
+        self.assertEqual(KS.pro_jahr(5.0, 1), 5.0)
+        self.assertIsNone(KS.pro_jahr(None, 3))
+        self.assertIsNone(KS.pro_jahr(-100.0, 3))
+
+    def test_kennzahlen_je_zeitraum_und_gesamt(self):
+        w = dict(zip(FELDER + ["gesamt"], _zeile("etf", "Welt", "A1", 18.0, 60.0, 80.0, 220.0, 11.0, -32.0, 15.0)
+                     + [300.0]))
+        pa = KS.kennzahlen(w)["pa"]
+        self.assertEqual(pa["1J"], 18.0)
+        self.assertAlmostEqual(pa["3J"], (1.6 ** (1 / 3) - 1) * 100, places=6)
+        self.assertAlmostEqual(pa["10J"], (3.2 ** 0.1 - 1) * 100, places=6)
+        self.assertAlmostEqual(pa["gesamt"], (4.0 ** (1 / 15) - 1) * 100, places=6)
+        alt = dict(zip(FELDER, _zeile("etf", "Alt", "A2", 1.0, None, None, None, 5.0, -3.0, 0.5)))
+        self.assertIsNone(KS.kennzahlen(alt)["pa"]["gesamt"])          # alte Daten ohne "gesamt"
+
+
 if __name__ == "__main__":
     unittest.main()

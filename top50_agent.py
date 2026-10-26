@@ -61,6 +61,7 @@ SUCH_URL = "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main"
 STATE_TOP50 = "state/top50.json"
 STATE_IDS = "state/top50_ids.json"
 STATE_WIKIFOLIOS = "state/top50_wikifolios.json"
+STATE_ETFS = "state/top50_etfs.json"           # automatisch gefundene ETFs (woechentlich)
 STATE_INDIZES = "state/top50_indizes.json"     # Mitgliederlisten der US-Indizes
 STATE_YAHOO = "state/top50_yahoo.json"         # Symbol-Zuordnung + letzte Dividendenrenditen
 STATE_VERLAUF = "state/top50_verlauf.json"     # Tagesstaende der Ranglisten (Wochenvergleich)
@@ -251,6 +252,41 @@ def wikifolios_entdecken():
     return list(gefunden.values())
 
 
+# ETF-Suche: Anbieter x Thema ueber die ls-tc-Suche (je Aufruf hoechstens 20 Treffer - viele
+# gezielte Begriffe decken zusammen das ETF-Angebot ab). Woechentlich, Ergebnis gecacht.
+ETF_ANBIETER = ["iShares", "iShares Core", "Xtrackers", "Vanguard", "Amundi", "SPDR", "Invesco", "WisdomTree",
+                "VanEck", "UBS", "HSBC", "Franklin", "JPMorgan", "Global X", "L&G", "Fidelity", "First Trust",
+                "Deka", "BNP Paribas Easy", "Ossiam", "HANetf", "Lyxor", "Leverage Shares", "GraniteShares",
+                "21Shares", "Rize", "Tabula", "KraneShares", "Market Access", "Expat", "Dimensional", "Avantis",
+                "Goldman Sachs", "BlackRock", "State Street", "Nomura", "Lyxor Core", "AXA", "Allianz", "DWS"]
+ETF_THEMEN = ["", "MSCI World", "MSCI ACWI", "MSCI EM", "Emerging Markets", "MSCI Europe", "MSCI USA", "S&P 500",
+              "Nasdaq", "Stoxx", "DAX", "MDAX", "FTSE", "Dividend", "Dividende", "Value", "Momentum", "Quality",
+              "Minimum Volatility", "Small Cap", "Mid Cap", "ESG", "SRI", "Climate", "Clean Energy", "Water",
+              "Health", "Technology", "Semiconductor", "Robotics", "Artificial Intelligence", "Cyber", "Gold",
+              "Bond", "Treasury", "Corporate", "Euro", "China", "India", "Japan", "Pacific", "Real Estate",
+              "Infrastructure", "Equal Weight", "Leveraged", "Short", "Daily", "Global", "World", "Defense",
+              "Banks", "Energy", "Consumer", "Industrials", "Biotech", "Blockchain", "Bitcoin", "Commodity",
+              "Silver", "Inflation", "Govt", "High Yield", "Multi Asset", "Covered Call", "Germany", "USA", "UK",
+              "Switzerland", "Korea", "Brazil", "Latin America", "Africa", "Asia", "Nordic", "Russell", "Dow Jones"]
+ETF_KATEGORIEN = {"ETF"}
+ETF_MAX = 4000
+
+
+def etfs_entdecken(begriffe=None):
+    """Findet ETFs ueber die ls-tc-Suche (Anbieter allein und Anbieter + Thema). -> [[id, wkn, name, isin]]"""
+    begriffe = begriffe or list(dict.fromkeys(f"{a} {t}".strip() for a in ETF_ANBIETER for t in ETF_THEMEN))
+    gefunden = {}
+    with ThreadPoolExecutor(PARALLEL) as pool:
+        for treffer in pool.map(suche, begriffe):
+            for t in treffer:
+                if t["kategorie"] in ETF_KATEGORIEN and t["id"] not in gefunden:
+                    gefunden[t["id"]] = [t["id"], t["wkn"], t["name"], t["isin"]]
+            if len(gefunden) >= ETF_MAX:
+                break
+    log.info(f"ETF-Suche: {len(begriffe)} Begriffe, {len(gefunden)} ETFs gefunden")
+    return list(gefunden.values())
+
+
 # ---------------------------------------------------------------------------
 # Kurshistorie und Performance
 # ---------------------------------------------------------------------------
@@ -348,6 +384,9 @@ def performance(reihe, heute):
                 dd = min(dd, k / hoch - 1.0)
         ergebnis["_maxdd"] = round(dd * 100, 1)
         ergebnis["_jahre"] = round((letzter_tag - reihe[0][0]).days / 365.25, 1)
+        erster = reihe[0][1]
+        if erster >= NAHE_NULL * hoch_bis[0]:
+            ergebnis["_gesamt"] = round((letzter / erster - 1) * 100, 2)   # gesamte Laufzeit
     except Exception:
         pass
     return ergebnis
@@ -1603,7 +1642,7 @@ def katalog_kennzahlen(id_cache, jetzt):
 STATE_KATALOG_GROSS = "state/planer/katalog_gross_{}.json"
 KATALOG_TEILE = 4
 KATALOG_FELDER = ["typ", "kat", "name", "kennung", "isin", "1J", "3J", "5J", "10J", "kurs", "div", "vola", "maxdd",
-                  "jahre"]
+                  "jahre", "gesamt"]
 
 
 def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
@@ -1620,7 +1659,7 @@ def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
             zeile = [typ, key, str(name)[:45], wkn, isin or "", p.get("1J"), p.get("3J"), p.get("5J"), p.get("10J"),
                      round(p["_kurs"], 4) if p.get("_kurs") else None,
                      round(p["_div"], 2) if p.get("_div") is not None else None,
-                     p.get("_vola"), p.get("_maxdd"), p.get("_jahre")]
+                     p.get("_vola"), p.get("_maxdd"), p.get("_jahre"), p.get("_gesamt")]
             teile[zlib.crc32(str(uid).encode()) % KATALOG_TEILE].append(zeile)
     titel = {k: v["titel"] for k, v in KATEGORIEN.items()}
     for i, zeilen in teile.items():
@@ -1672,6 +1711,23 @@ def main():
         log.info(f"{kat['titel']}: {len(liste)} von {len(eintraege)} aufgeloest")
     if len(id_cache) != anzahl_vorher:
         speichere_state(STATE_IDS, id_cache, "top50: id-cache [skip ci]")
+
+    # 2a) ETFs automatisch ergaenzen (woechentlich) - die feste Liste bleibt vorne
+    etf_cache = lade_state(STATE_ETFS, {}) or {}
+    try:
+        alter = (heute - datetime.date.fromisoformat(etf_cache.get("stand", "2000-01-01"))).days
+    except Exception:
+        alter = 9999
+    if not etf_cache.get("liste") or alter >= WIKIFOLIO_CACHE_TAGE:
+        log.info("Suche ETFs neu ...")
+        liste = etfs_entdecken()
+        if len(liste) >= 0.5 * len(etf_cache.get("liste") or []):      # Stoerung: alte Liste behalten
+            etf_cache = {"stand": heute.isoformat(), "liste": liste}
+            speichere_state(STATE_ETFS, etf_cache, "top50: etf-liste [skip ci]")
+    if "etf" in mitglieder:
+        bekannt = {m[0] for m in mitglieder["etf"]}
+        mitglieder["etf"] += [(i, n, w, s) for i, w, n, s in etf_cache.get("liste", []) if i not in bekannt]
+        log.info(f"ETFs: {len(mitglieder['etf'])} Werte (feste Liste + Suche)")
 
     # 2) wikifolios entdecken (woechentlich)
     wiki = lade_state(STATE_WIKIFOLIOS, {}) or {}

@@ -101,7 +101,7 @@ def score_bericht(liste, art, kopfzeile):
     risiko = ("rr", "Rendite je Risiko") if art == "etf" else ("rdd", "Rendite je Rückgang")
     titel = "ETF-Score" if art == "etf" else "wikifolio-Score"
     breite = landscape(A4)[0] - 20 * mm
-    feste = [10 * mm, 58 * mm, 22 * mm, 13 * mm, 18 * mm, 18 * mm, 16 * mm, 16 * mm, 14 * mm]
+    feste = [8 * mm, 50 * mm, 20 * mm, 11 * mm] + [14 * mm] * 5 + [15 * mm, 14 * mm, 14 * mm, 12 * mm]
     breiten = feste + [breite - sum(feste)]
 
     def zahl(v, dez=1, einheit="", vz=False):
@@ -110,7 +110,8 @@ def score_bericht(liste, art, kopfzeile):
         return ("+" if vz and v >= 0 else "-" if v < 0 else "") + _de(abs(v), dez) + einheit
 
     kopf = [Paragraph(t, kopf_r if r else kopf_l) for t, r in (
-        ("#", True), ("Name", False), ("WKN / ISIN", False), ("Score", True), ("Rendite p. a.", True),
+        ("#", True), ("Name", False), ("WKN / ISIN", False), ("Score", True), ("1 Jahr", True), ("3 J. p. a.", True),
+        ("5 J. p. a.", True), ("10 J. p. a.", True), ("Gesamt p. a.", True),
         (risiko[1], True), ("Max. Rückgang", True), ("Schwankung", True), ("Historie", True),
         ("Begründung", False))]
     daten, stil = [kopf], []
@@ -119,7 +120,8 @@ def score_bericht(liste, art, kopfzeile):
         st_, sw = KS.staerken_schwaechen(b, art)
         begr = "; ".join(["+ " + x for x in st_] + ["- " + x for x in sw]).replace("–", "-")
         daten.append([str(e["rang"]), Paragraph(html.escape(e["name"]), name_stil), e["kennung"] or e["isin"],
-                      _de(b["score"], 0), zahl(k["rendite"], 1, " %", vz=True), zahl(k[risiko[0]], 2),
+                      _de(b["score"], 0)] + [zahl((k.get("pa") or {}).get(z), 1, " %", vz=True)
+                                             for z in ("1J", "3J", "5J", "10J", "gesamt")] + [zahl(k[risiko[0]], 2),
                       zahl(-k["dd"], 0, " %") if k["dd"] is not None else "-", zahl(k["vola"], 0, " %"),
                       zahl(k["jahre"], 1, " J."), Paragraph(html.escape(begr), grund)])
         stil.append(("TEXTCOLOR", (3, r), (3, r), colors.HexColor(farbe[b["einordnung"]])))
