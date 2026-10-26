@@ -225,7 +225,35 @@ class TestZins01Nachschuessig(unittest.TestCase):
             self.assertAlmostEqual(r["end"], ref[0], delta=1e-7 * (ref[0] + 1))
 
 
+class TestZinsJahrestag(unittest.TestCase):
+    """Standard: Gutschrift zum Jahrestag wie gaengige Zinsrechner (Referenz: 200.000 EUR, 37,45 %, 5 Jahre)."""
+    def test_referenztabelle(self):
+        p = P(a=200000, s=0, z=37.45, n=5, sd="2026-10-25", st=0)
+        r = Z.rechne(p)
+        self.assertEqual([round(j["zins"], 2) for j in r["jahre"]],
+                         [74900.00, 102950.05, 141504.84, 194498.41, 267338.06])
+        self.assertAlmostEqual(r["end"], 981191.36, places=2)
+        # unabhaengig vom Startmonat gleich (Vertragsjahre)
+        self.assertAlmostEqual(Z.rechne(dict(p, sd="2026-01-01"))["end"], 981191.36, places=2)
+        # Kalenderende-Variante: kuerzeres erstes Zinsjahr, mehr Zinseszins-Zeitpunkte
+        self.assertGreater(Z.rechne(dict(p, zk="k"))["end"], 981191.36 + 1000)
+
+    def test_tabelle_mit_summen(self):
+        p = P(a=200000, s=0, z=37.45, n=5, sd="2026-10-25", st=0)
+        r = Z.rechne(p)
+        t = Z.tabelle_html(Z.zeitachse(p, r), r)
+        self.assertIn("Guthaben zu Jahresbeginn", t)
+        self.assertIn("781.191,36", t)                    # Summe der Zinsgutschriften
+        self.assertIn("274.900,00", t)
+
+    def test_link_und_alte_werte(self):
+        self.assertEqual(Z.aus_url({"zk": "x"})["zk"], "v")
+        self.assertEqual(Z.aus_url({"zk": "k"})["zk"], "k")
+        self.assertNotIn("zk", Z.in_url(dict(Z.STANDARD)))
+
+
 class TestZins04Kalenderjahr(unittest.TestCase):
+    """Option „Zinsgutschrift zum Kalenderende“ (zk="k", Bankpraxis)."""
     def test_start_juli(self):
         # 6 Monate bis 31.12. gutgeschrieben, Freibetrag neu ab Januar, Rest am Laufzeitende
         def rechnen(runden):
@@ -238,7 +266,7 @@ class TestZins04Kalenderjahr(unittest.TestCase):
                 k += zi - t
                 steuer += t
             return k, steuer
-        r = Z.rechne(P(a=100000, s=0, z=5, n=1, sd="2026-07-01", st=26.375, fb=1000))
+        r = Z.rechne(P(zk="k", a=100000, s=0, z=5, n=1, sd="2026-07-01", st=26.375, fb=1000))
         # Referenz des Audits ohne Cent-Rundung: Steuer 805,13 €, Ende 104.247,48 €
         k0, st0 = rechnen(False)
         self.assertAlmostEqual(st0, 805.13, places=2)
@@ -260,7 +288,7 @@ class TestZins04Kalenderjahr(unittest.TestCase):
             k += zi - cent_ab(max(zi - 1000, 0) * 0.26375)
             zi = k_ohne * 0.05
             k_ohne += zi - max(zi - 1000, 0) * 0.26375
-        r = Z.rechne(P(a=100000, s=0, z=5, n=10, st=26.375, fb=1000))
+        r = Z.rechne(P(zk="k", a=100000, s=0, z=5, n=10, st=26.375, fb=1000))
         self.assertAlmostEqual(r["end"], k, places=6)
         self.assertAlmostEqual(r["end"], k_ohne, delta=0.10)
 
@@ -269,13 +297,13 @@ class TestZins04Kalenderjahr(unittest.TestCase):
         k = 10000.0
         for mon in (2, 3, 3, 3, 1):
             k += cent_auf(k * 0.04 * mon / 12)
-        r = Z.rechne(P(a=10000, s=0, z=4, n=1, zp=3, sd="2026-02-15"))
+        r = Z.rechne(P(zk="k", a=10000, s=0, z=4, n=1, zp=3, sd="2026-02-15"))
         self.assertAlmostEqual(r["end"], k, places=6)
         self.assertEqual(len([j for j in r["jahre"]]), 1)
 
     def test_startdatum_wirkt_sich_aus(self):
-        a = Z.rechne(P(a=10000, s=100, z=3, n=5, sd="2026-01-01"))["end"]
-        b = Z.rechne(P(a=10000, s=100, z=3, n=5, sd="2026-11-15"))["end"]
+        a = Z.rechne(P(zk="k", a=10000, s=100, z=3, n=5, sd="2026-01-01"))["end"]
+        b = Z.rechne(P(zk="k", a=10000, s=100, z=3, n=5, sd="2026-11-15"))["end"]
         self.assertNotAlmostEqual(a, b, places=2)
 
     def test_fuzz_kalender(self):
@@ -286,7 +314,7 @@ class TestZins04Kalenderjahr(unittest.TestCase):
             mon, zp, si = random.randint(1, 150), random.choice([1, 3, 6, 12]), random.choice([1, 3, 6, 12])
             vor = random.random() < 0.5
             st, fb = random.choice([(0, 0), (26.375, 1000), (26.375, 500)])
-            r = Z.rechne(P(a=a, s=s, z=z, n=mon, ne="m", zp=zp, si=si, ea="v" if vor else "n", st=st, fb=fb,
+            r = Z.rechne(P(zk="k", a=a, s=s, z=z, n=mon, ne="m", zp=zp, si=si, ea="v" if vor else "n", st=st, fb=fb,
                            sd=f"2027-{sm:02d}-01"))
             ref = ref_sim(a, s, si, vor, z / 100, zp, mon, sm, st / 100, fb)
             self.assertAlmostEqual(r["end"], ref[0], delta=1e-6 * (abs(ref[0]) + 1))
