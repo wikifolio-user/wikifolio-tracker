@@ -242,7 +242,7 @@ class TestZinsJahrestag(unittest.TestCase):
         p = P(a=200000, s=0, z=37.45, n=5, sd="2026-10-25", st=0)
         r = Z.rechne(p)
         t = Z.tabelle_html(Z.zeitachse(p, r), r)
-        self.assertIn("Guthaben zu Jahresbeginn", t)
+        self.assertIn("Guthaben zu Jahres&shy;beginn", t)
         self.assertIn("781.191,36", t)                    # Summe der Zinsgutschriften
         self.assertIn("274.900,00", t)
 
@@ -250,6 +250,35 @@ class TestZinsJahrestag(unittest.TestCase):
         self.assertEqual(Z.aus_url({"zk": "x"})["zk"], "v")
         self.assertEqual(Z.aus_url({"zk": "k"})["zk"], "k")
         self.assertNotIn("zk", Z.in_url(dict(Z.STANDARD)))
+
+
+class TestEntnahmeIntervall(unittest.TestCase):
+    """Entnahme monatlich/jaehrlich ab dem Startdatum (Handrechnung, 5 %, Gutschrift zum Jahrestag)."""
+    def test_jaehrlich_vorschuessig(self):
+        r = Z.rechne(P(a=100000, s=0, z=5, n=3, sd="2026-10-25", ep="3x10000", ei=12, ea="v", st=0))
+        # (100.000 - 10.000) * 1,05 = 94.500; (94.500 - 10.000) * 1,05 = 88.725; ... = 82.661,25
+        self.assertEqual([round(j["stand"], 2) for j in r["jahre"]], [94500.0, 88725.0, 82661.25])
+        self.assertEqual(r["entnommen"], 30000.0)
+
+    def test_jaehrlich_nachschuessig(self):
+        r = Z.rechne(P(a=100000, s=0, z=5, n=3, sd="2026-10-25", ep="3x10000", ei=12, ea="n", st=0))
+        self.assertEqual([round(j["stand"], 2) for j in r["jahre"]], [95000.0, 89750.0, 84237.5])
+
+    def test_monatlich_wie_bisher(self):
+        # 12 x 1.000 am Monatsanfang: Zins = 5 %/12 * (99.000 + 98.000 + ... + 88.000) = 4.675
+        r = Z.rechne(P(a=100000, s=0, z=5, n=1, sd="2026-10-25", ep="1x1000", ea="v", st=0))
+        self.assertAlmostEqual(r["end"], 92675.0, places=2)
+
+    def test_unabhaengig_vom_startmonat(self):
+        a = Z.rechne(P(a=100000, s=0, z=5, n=3, sd="2026-10-25", ep="3x10000", ei=12, st=0))["end"]
+        b = Z.rechne(P(a=100000, s=0, z=5, n=3, sd="2026-01-01", ep="3x10000", ei=12, st=0))["end"]
+        self.assertAlmostEqual(a, b, places=2)
+
+    def test_quartal_und_link(self):
+        r = Z.rechne(P(a=10000, s=0, z=0, n=1, ep="1x500", ei=3, st=0))
+        self.assertEqual(r["entnommen"], 2000.0)                 # 4 Quartale x 500
+        self.assertEqual(Z.aus_url({"ei": "7"})["ei"], 1)
+        self.assertEqual(Z.aus_url({"ei": "12"})["ei"], 12)
 
 
 class TestZins04Kalenderjahr(unittest.TestCase):

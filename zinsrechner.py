@@ -26,12 +26,13 @@ INTERVALLE = {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich", 12: "j�
 ZIEL_FELDER = {"e": "Endkapital", "a": "Anfangskapital", "s": "Sparrate", "dy": "Dynamik", "z": "Zinssatz",
                "n": "Ansparzeit"}
 STANDARD = {"a": 0.0, "s": 100.0, "si": 1, "ea": "v", "dy": 0.0, "dya": "j", "z": 5.0, "zp": 12, "ze": 1,
-            "n": 10, "ne": "j", "f": 0, "fe": "j", "e": 0.0, "calc": "e", "st": 0.0, "fb": 1000.0, "am": "", "sd": "", "sp": "", "ep": "", "zk": "v"}
+            "n": 10, "ne": "j", "f": 0, "fe": "j", "e": 0.0, "calc": "e", "st": 0.0, "fb": 1000.0, "am": "", "sd": "", "sp": "", "ep": "", "zk": "v", "ei": 1}
 ABGELTUNG = 26.375
 # Wertebereiche wie in den Eingabefeldern (fuer Links von aussen)
 GRENZEN = {"a": (0.0, 1e10), "s": (0.0, 1e9), "dy": (0.0, 100.0), "z": (-99.0, 100.0), "n": (0, 1200),
            "f": (0, 1200), "e": (0.0, 1e12), "st": (0.0, 60.0), "fb": (0.0, 1e6)}
 AUSWAHL = {"ea": ("v", "n"), "dya": ("j", "i"), "ne": ("j", "m"), "fe": ("j", "m"), "zk": ("v", "k")}
+EINHEIT = {1: "Monat", 3: "Quartal", 6: "Halbjahr", 12: "Jahr"}       # Entnahme-Intervall (Feld "ei")
 ZINS_ZEITPUNKT = {"v": "zum Jahrestag (Vertragsjahr ab Startdatum)", "k": "zum Kalenderende (31.12., Bankpraxis)"}
 # Zahlenfelder, die bei einem neuen (normalen) Benutzer beim ersten Start auf 0 stehen
 NULL_FELDER = ("a", "s", "dy", "z", "n", "f", "e", "st", "fb")
@@ -182,6 +183,13 @@ def rechne(p):
     ent_kum = [0.0]
     versatz = startdatum(p).month - 1                       # Monate vom 1.1. bis zum Startmonat
     versatz_gut = versatz if p.get("zk", "v") == "k" else 0  # Gutschrift: Kalenderjahr oder Jahrestag
+    # Entnahme-Intervall ab dem Startdatum (1 = monatlich ... 12 = jaehrlich): vorschuessig am Anfang
+    # des Intervalls (Monat 1, 1+ei, ...), nachschuessig am Ende (Monat ei, 2*ei, ...) - also immer
+    # zum Jahrestag bzw. Monatstag des Starts, unabhaengig vom 31.12.
+    ei = int(p.get("ei") or 1) if int(p.get("ei") or 1) in INTERVALLE else 1
+
+    def entnahme_faellig(m):
+        return (m - 1) % ei == 0 if vorschuessig else m % ei == 0
     for m in range(1, n_ges + 1):
         einz = 0.0
         ent = 0.0
@@ -207,21 +215,21 @@ def rechne(p):
             jz["ein"] += einz
             if vorschuessig:
                 verzinst += einz                            # zaehlt schon in diesem Monat
-        if ep_ph and vorschuessig:                          # Entnahme am Monatsanfang
+        if ep_ph and vorschuessig and entnahme_faellig(m):  # Entnahme am Intervallanfang
             ent = min(phase_betrag(ep_ph, m), max(k, 0.0))
             k -= ent
             verzinst = max(verzinst - ent, 0.0)
         periode_zins += verzinst * i_m
         if einz and not vorschuessig:
             verzinst += einz                                # erst ab dem naechsten Monat
-        if ep_ph and not vorschuessig:                      # Entnahme am Monatsende
-            ent = min(phase_betrag(ep_ph, m), max(k, 0.0))
+        if ep_ph and not vorschuessig and entnahme_faellig(m):  # Entnahme am Intervallende
+            ent = min(phase_betrag(ep_ph, m - ei + 1), max(k, 0.0))
             k -= ent
             verzinst = max(verzinst - ent, 0.0)
         if ent:
             entnommen += ent
             jz["ent"] += ent
-        if ep_ph and leer_monat is None and phase_betrag(ep_ph, m) > 0 and k <= 0.005:
+        if ep_ph and leer_monat is None and ent and k <= 0.005:
             leer_monat = m
         kal = versatz + m                                   # Kalendermonate seit Jahresbeginn (Ende Monat m)
         if (versatz_gut + m) % zp == 0 or m == n_ges:       # Gutschrift am Periodenende / Laufzeitende
@@ -427,19 +435,20 @@ def entnahme_analyse(p, r, wachstum=0.02):
             ab += monate
             continue
         test = dict(STANDARD, a=k0, s=0.0, si=1, ea=p["ea"], z=z_akt, zp=p["zp"], ze=p["ze"], zk=p.get("zk", "v"),
-                    n=1, ne="j",
+                    ei=p.get("ei", 1), n=1, ne="j",
                     f=0, st=p.get("st", 0.0), fb=p.get("fb", 1000.0), ep=f"1x{_zahl_text(betrag)}", sp="",
                     sd=plus_monate(sd, ab).isoformat(), am="")
         erhalt = noetiger_zins(test, k0)
         wachs = noetiger_zins(test, k0 * (1 + wachstum))
         jr = rechne(test)
         # Deckung mit den Zinsen NACH Steuer - passt damit zu "Erhalt" (Kapital bleibt gleich <=> Deckung >= 100 %)
-        deckung = (jr["zinsen"] - jr["steuer"]) / (12 * betrag) if betrag else None
+        je_jahr = betrag * 12 / int(p.get("ei") or 1)       # Entnahme pro Jahr
+        deckung = (jr["zinsen"] - jr["steuer"]) / je_jahr if betrag else None
         phasen_.append({"von": plus_monate(sd, ab), "bis": plus_monate(sd, ab + monate) - datetime.timedelta(days=1),
                         "betrag": betrag, "kapital": k0, "erhalt": erhalt, "wachstum": wachs, "deckung": deckung})
         ab += monate
     return {"gesamt": gesamt, "phasen": phasen_, "wachstum": wachstum, "zins": z_akt, "eingezahlt": eingezahlt,
-            "auszahlung": not int(p.get("ze", 1))}
+            "auszahlung": not int(p.get("ze", 1)), "einheit": EINHEIT.get(int(p.get("ei") or 1), "Monat")}
 
 
 def _noetig_text(x):
@@ -485,6 +494,8 @@ def aus_url(qp, basis=None):
         p["si"] = 1
     if p["zp"] not in INTERVALLE:
         p["zp"] = 12
+    if p["ei"] not in INTERVALLE:
+        p["ei"] = 1
     if p["calc"] not in ZIEL_FELDER:
         p["calc"] = "e"
     p["ze"] = 1 if p["ze"] else 0
@@ -604,7 +615,8 @@ def zeilen_kenndaten(p):
     zei.append(["Startdatum", startdatum(p).strftime("%d.%m.%Y")])
     for feld, name in (("sp", "Sparplan"), ("ep", "Entnahmeplan")):
         for von, bis, betrag in phasen_zeitraeume(p, feld):
-            zei.append([f"{name} {von.strftime('%d.%m.%Y')} – {bis.strftime('%d.%m.%Y')}", f"{_de(betrag)} € / Monat"])
+            einheit = EINHEIT.get(int(p.get("ei") or 1), "Monat") if feld == "ep" else "Monat"
+            zei.append([f"{name} {von.strftime('%d.%m.%Y')} – {bis.strftime('%d.%m.%Y')}", f"{_de(betrag)} € / {einheit}"])
     if phasen(p.get("sp")):
         zei[1] = ["Sparrate", "laut Sparplan (siehe unten)"]
     return zei
@@ -814,7 +826,7 @@ def analyse_html(a):
         f'<b>{wert(g["wachstum"])}</b><br><span style="font-size:0.8rem">{status(g["wachstum"])}</span></div></div>')
     th = "".join(f'<th style="text-align:{"left" if i == 0 else "right"};padding:6px 4px;color:#a9a79c;font-weight:600;'
                  f'border-bottom:1px solid #2a2a28;white-space:nowrap">{k}</th>'
-                 for i, k in enumerate(["Phase", "€/Monat", "Erhalt", f"+{_de(a['wachstum'] * 100, 1)} %",
+                 for i, k in enumerate(["Phase", f"€/{a.get('einheit', 'Monat')}", "Erhalt", f"+{_de(a['wachstum'] * 100, 1)} %",
                                         "Deckung"]))
     tr = []
     for x in a["phasen"]:
@@ -842,8 +854,12 @@ def tabelle_html(za, r):
     zeilen_j = za[1:]
     mit_st = bool(r["steuer"])
     mit_ent = any(z.get("ent") for z in zeilen_j)
-    kopf = ["Jahr", "Guthaben zu Jahresbeginn", "Einzahlungen"] + (["Entnahmen"] if mit_ent else []) + \
-           ["Zinsgutschriften"] + (["Steuer"] if mit_st else []) + ["Guthaben am Jahresende"]
+    # Einzahlungen nur zeigen, wenn es welche gibt (sonst passt die Tabelle besser aufs Handy)
+    mit_ein = any(z["ein"] for z in zeilen_j) or not mit_ent
+    # weiche Trennstellen: Kopfzeilen duerfen auf schmalen Bildschirmen umbrechen
+    kopf = ["Jahr", "Guthaben zu Jahres&shy;beginn"] + (["Ein&shy;zahlungen"] if mit_ein else []) + \
+           (["Ent&shy;nahmen"] if mit_ent else []) + ["Zins&shy;gut&shy;schriften"] + \
+           (["Steuer"] if mit_st else []) + ["Guthaben am Jahres&shy;ende"]
     spalten = len(kopf)
     groesse = {5: ".74rem", 6: ".68rem"}.get(spalten, ".62rem")
     pad = "6px 4px" if spalten <= 5 else "5px 2px"
@@ -861,13 +877,13 @@ def tabelle_html(za, r):
     for nr, z in enumerate(zeilen_j, 1):
         jahr = (f'{nr}<div style="font-size:.85em;color:{FARBEN["text2"]};line-height:1.1">'
                 f'{z["datum"].strftime("%d.%m.%Y")}</div>')
-        zellen = [jahr, _de(beginn), _de(z["ein"])] + (["−" + _de(z["ent"]) if z.get("ent") else _de(0)]
-                                                         if mit_ent else []) + \
+        zellen = [jahr, _de(beginn)] + ([_de(z["ein"])] if mit_ein else []) + \
+                 (["−" + _de(z["ent"]) if z.get("ent") else _de(0)] if mit_ent else []) + \
                  [_de(z["zins"])] + ([_de(z["steuer"])] if mit_st else []) + [_de(z["stand"])]
         zeilen.append(zeile(zellen))
         beginn = z["stand"]
     if zeilen_j:
-        summe = (["<b>Gesamt</b>", _de(za[0]["stand"]), _de(sum(z["ein"] for z in zeilen_j))]
+        summe = (["<b>Gesamt</b>", _de(za[0]["stand"])] + ([_de(sum(z["ein"] for z in zeilen_j))] if mit_ein else [])
                  + (["−" + _de(sum(z.get("ent", 0.0) for z in zeilen_j))] if mit_ent else [])
                  + [_de(sum(z["zins"] for z in zeilen_j))] + ([_de(sum(z["steuer"] for z in zeilen_j))] if mit_st
                                                                else []) + [_de(zeilen_j[-1]["stand"])])
@@ -1035,7 +1051,7 @@ def _phasen_setzen(session_state, feld, liste):
     session_state[f"zr_{feld}_leer"] = not liste          # bewusst leer -> kein Beispiel nachladen
 
 
-def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p):
+def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p, einheit="Monat"):
     """Plan in Phasen (Jahre x Euro pro Monat): je Phase eine Zeile mit zwei Feldern und
     einem eigenen 🗑️-Knopf, dazu „Phase hinzufügen“ und „Alle löschen“. -> Text fuer p[feld]."""
     ss = st.session_state
@@ -1075,7 +1091,7 @@ def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p):
                         value=float(max(j, 0.0833)), step=0.5, format="%.2g", key=f"zr_{feld}_j_{ver}_{i}",
                         label_visibility="visible" if i == 0 else "collapsed",
                         help="Dauer dieser Phase (0,5 = 6 Monate)")
-        c2.number_input("€ pro Monat" if i == 0 else f"€ pro Monat ({i + 1}.)", min_value=0.0, value=float(b),
+        c2.number_input(f"€ pro {einheit}" if i == 0 else f"€ pro {einheit} ({i + 1}.)", min_value=0.0, value=float(b),
                         step=50.0, format="%.2f", key=f"zr_{feld}_b_{ver}_{i}",
                         label_visibility="visible" if i == 0 else "collapsed")
         c3.button("🗑️", key=f"zr_{feld}_del_{ver}_{i}", on_click=loeschen, args=(i,),
@@ -1089,7 +1105,7 @@ def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p):
     ss[f"zr_{feld}"] = text
     zeilen = phasen_zeitraeume(dict(p, **{feld: text}), feld)
     if zeilen:
-        st.caption(" · ".join(f"{a.strftime('%d.%m.%Y')}–{e.strftime('%d.%m.%Y')}: {_de(x)} €/Monat"
+        st.caption(" · ".join(f"{a.strftime('%d.%m.%Y')}–{e.strftime('%d.%m.%Y')}: {_de(x)} €/{einheit}"
                               for a, e, x in zeilen) + " · danach 0 €")
     return text
 
@@ -1248,9 +1264,20 @@ def render(basis_url="", gespeichert=None, null=False):
         p["sp"] = _phasen_editor(st, pd, "sp", "📥 Sparplan in Phasen (statt fester Sparrate)",
                                  "Z. B. 2 Jahre 200 €/Monat, danach 3 Jahre 500 €/Monat – ersetzt Sparrate, Intervall "
                                  "und Dynamik. Die Laufzeit reicht mindestens bis zum Ende des Plans.", "2x200,3x500", p)
-        p["ep"] = _phasen_editor(st, pd, "ep", "📤 Entnahmeplan (monatliche Entnahme in Phasen)",
-                                 "Z. B. im 1. Jahr 1.000 €/Monat, die nächsten 3 Jahre 500 €/Monat, danach nichts. "
-                                 "Entnommen wird zum Monatsanfang (vorschüssig) bzw. -ende.", "1x1000,3x500", p)
+        ep_an = bool(st.session_state.get("zr_ep_an", bool(st.session_state.get("zr_ep"))))
+        if ep_an:
+            p["ei"] = st.selectbox("Entnahme", list(INTERVALLE), key="zr_ei",
+                                   format_func=lambda x: {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich",
+                                                          12: "jährlich (ein größerer Betrag pro Jahr)"}[x],
+                                   help="Wie oft entnommen wird. Zeitpunkt immer ab dem Startdatum: vorschüssig am "
+                                        "Anfang des Zeitraums (z. B. jährlich jeweils am Jahrestag des Starts), "
+                                        "nachschüssig am Ende – unabhängig vom 31.12.")
+        einheit = EINHEIT.get(int(p.get("ei") or 1), "Monat")
+        p["ep"] = _phasen_editor(st, pd, "ep", f"📤 Entnahmeplan ({INTERVALLE[int(p.get('ei') or 1)]}e Entnahme "
+                                 "in Phasen)" if ep_an else "📤 Entnahmeplan (Entnahmen in Phasen)",
+                                 f"Z. B. im 1. Jahr 1.000 € pro {einheit}, die nächsten 3 Jahre 500 € pro {einheit}, "
+                                 "danach nichts. Entnommen wird ab dem Startdatum – vorschüssig am Anfang, "
+                                 "nachschüssig am Ende jedes Zeitraums.", "1x1000,3x500", p, einheit)
     if p["sp"] and calc in ("s", "dy"):
         st.warning("Mit Sparplan in Phasen lassen sich Sparrate/Dynamik nicht berechnen – bitte Plan ausschalten "
                    "oder eine andere Größe berechnen.")
