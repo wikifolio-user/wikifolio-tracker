@@ -226,7 +226,29 @@ def cfg_aus_session(ss):
 # ---------------------------------------------------------------------------
 # Bereiche
 # ---------------------------------------------------------------------------
+def _kurzergebnis(st, ziel, fall, erg):
+    """Ergebnis-Leiste oben: Monatsverdienst, Dauer, Spanne der Abfindungsmodelle (oder Hinweis, was fehlt)."""
+    dauer = erg.get("dauer")
+    if not float(erg.get("mv") or 0) or not dauer:
+        fehlt = " und ".join(x for x in ("Bruttomonatsgehalt" if not float(erg.get("mv") or 0) else "",
+                                          "Beginn und Ende" if not dauer else "") if x)
+        ziel.info(f"👋 So geht's: {fehlt} eintragen – das Ergebnis erscheint sofort hier oben.")
+        return
+    betraege = [m["brutto"] for m in erg["modelle"] if m.get("anwendbar") and m.get("brutto")]
+    spanne = (f"{_eur(min(betraege))} – {_eur(max(betraege))}" if len(betraege) > 1 else
+              _eur(betraege[0]) if betraege else "–")
+    a1 = next((m for m in erg["modelle"] if m["key"] == "1a" and m.get("brutto") is not None), None)
+    ziel.markdown(
+        '<div class="abf-oben"><div class="abf-oben-l">Ergebnis (brutto)</div>'
+        f'<div class="abf-oben-w">{spanne}</div><div class="abf-oben-s">'
+        f'Spanne aller anwendbaren Modelle · Monatsverdienst {_eur(erg["mv"], 2)} · '
+        f'{dauer["jahre"]} J. {dauer["monate"]} M. Beschäftigung'
+        + (f' · Regelabfindung § 1a: {_eur(a1["brutto"])}' if a1 else "")
+        + ' · Netto und Details unter „📊 Alle Modelle“</div></div>', unsafe_allow_html=True)
+
+
 def _bereich_fall(st, null):
+    oben = st.container()
     st.caption("Alle Angaben bleiben in dieser Sitzung erhalten und gelten für alle Bereiche. Pflicht sind nur "
                "Monatsgehalt sowie Beginn und Ende (oder die Jahre). Fehlende Angaben werden als „unbekannt“ "
                "gerechnet und ausdrücklich so gekennzeichnet.")
@@ -370,6 +392,7 @@ def _bereich_fall(st, null):
     # Kurzergebnis
     fall = fall_aus_session(st.session_state, null)
     erg = M.alle_modelle(fall, cfg_aus_session(st.session_state))
+    _kurzergebnis(st, oben, fall, erg)
     st.markdown('<div class="abf-ergebnis-kopf">📊 Grundlagen</div>', unsafe_allow_html=True)
     dauer = erg["dauer"]
     c1, c2, c3 = st.columns(3)
