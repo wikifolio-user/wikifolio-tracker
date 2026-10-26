@@ -1,11 +1,19 @@
 name: Watchlist Top 50 (täglich)
 
 on:
-  # Täglich 05:30 UTC = 07:30 Uhr deutscher Sommerzeit (06:30 im Winter) -
-  # vor Handelsbeginn, die Schlusskurse des Vortags liegen dann vollständig vor.
+  # GitHub startet geplante Laeufe oft STUNDEN spaeter als eingetragen (beobachtet: 05:30 UTC
+  # -> 10-11 Uhr UTC). Deshalb mehrere Ausloeser, frueh in der Nacht - der erste rechnet,
+  # die weiteren beenden sich sofort, wenn die Ranglisten von heute schon vorliegen
+  # (NUR_WENN_ALT). Die Schlusskurse des Vortags liegen ab ca. 00 Uhr UTC vollstaendig vor.
+  # 1) direkt im Anschluss an den Qualitaets-Agenten (teilen sich die Yahoo-Drossel)
+  workflow_run:
+    workflows: ["Watchlist Qualitäts-Score (täglich)"]
+    types: [completed]
+  # 2) Ersatz-Termine, falls der Qualitaets-Lauf ausfaellt oder sich verspaetet
   schedule:
-    - cron: "30 5 * * *"
-  # Manuell startbar: Actions -> "Watchlist Top 50 (täglich)" -> Run workflow
+    - cron: "40 1 * * *"
+    - cron: "40 4 * * *"
+  # Manuell startbar: Actions -> "Watchlist Top 50 (täglich)" -> Run workflow (rechnet immer)
   workflow_dispatch: {}
 
 permissions:
@@ -40,4 +48,5 @@ jobs:
       - name: Ranglisten berechnen
         env:
           GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUR_WENN_ALT: ${{ github.event_name != 'workflow_dispatch' && '1' || '' }}
         run: python top50_agent.py

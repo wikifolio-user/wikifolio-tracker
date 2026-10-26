@@ -3419,6 +3419,18 @@ def kurs_dienst():
     return d
 
 
+def ranglisten_stand(daten):
+    """Stand der taeglichen Ranglisten als Text - mit Hinweis, wenn der Lauf von heute noch aussteht."""
+    try:
+        t = datetime.datetime.fromisoformat(daten["stand"])
+    except Exception:
+        return str((daten or {}).get("stand", "–"))
+    text = t.strftime("%d.%m.%Y, %H:%M Uhr")
+    if t.date() < datetime.datetime.now(BERLIN_TZ).date():
+        text += " (die Aktualisierung von heute steht noch aus)"
+    return text
+
+
 def kurs_dienst_bereit():
     """Kursdienst holen und sicherstellen, dass sein Zeitplan laeuft (auch nach einem Absturz)."""
     d = kurs_dienst()
@@ -4165,10 +4177,7 @@ def render_dashboard():
 
             kategorien = daten["kategorien"]
             zeitraeume = daten.get("zeitraeume") or []
-            try:
-                stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
-            except Exception:
-                stand = daten.get("stand", "–")
+            stand = ranglisten_stand(daten)
 
             reihenfolge = daten.get("reihenfolge") or ["aktien", "dividenden", "etf", "wikifolios"]
             kat_keys = [k for k in reihenfolge if k in kategorien] + \
@@ -4837,10 +4846,7 @@ def render_dashboard():
         # Wochenvergleich gibt es nur fuer die Ranglisten des Agenten, nicht fuer eigene Filter
         vergleich = None if gefiltert else (daten.get("vergleich") or {}).get(liste_key)
 
-        try:
-            stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
-        except Exception:
-            stand = daten.get("stand", "–")
+        stand = ranglisten_stand(daten)
         abd = daten.get("abdeckung", {})
         kl = kat["klassen"]
         _filter_txt = " · ".join(x for x in (f"Sektor {sektor}" if sektor else "",
@@ -5516,10 +5522,7 @@ def render_dashboard():
         signatur = (zr, laenge, begriff)
         if st.session_state.get("wk_signatur") != signatur:
             st.session_state["wk_signatur"], st.session_state["wk_seite"] = signatur, 1
-        try:
-            stand = datetime.datetime.fromisoformat(daten["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
-        except Exception:
-            stand = daten.get("stand", "–")
+        stand = ranglisten_stand(daten)
         st.caption(f"Stand {stand} · {len(werte)} wikifolios in den Ranglisten · {kat.get('aktiv', '–')} aktiv "
                    f"· sortiert nach {zr_wahl}" + (f" · {len(liste)} Treffer" if begriff else ""))
         if not liste:
