@@ -608,5 +608,27 @@ class TestPerformanceNaheNull(unittest.TestCase):
         self.assertEqual(p["1J"], 50.0)
 
 
+class TestETFSuche(unittest.TestCase):
+    def test_nur_etfs_ohne_doppelte(self):
+        antworten = {"iShares": [{"id": 1, "name": "iShares Core MSCI World", "wkn": "A0RPWH", "isin": "IE00B4L5Y983",
+                                  "kategorie": "ETF"},
+                                 {"id": 9, "name": "iShares Aktie?", "wkn": "X", "isin": "", "kategorie": "Aktie"}],
+                     "iShares Gold": [{"id": 1, "name": "iShares Core MSCI World", "wkn": "A0RPWH",
+                                       "isin": "IE00B4L5Y983", "kategorie": "ETF"},
+                                      {"id": 2, "name": "iShares Gold Producers", "wkn": "A1JJTD", "isin": "IE00B6R52036",
+                                       "kategorie": "ETF"}]}
+        with mock.patch.object(T, "suche", side_effect=lambda b: antworten.get(b, [])):
+            liste = T.etfs_entdecken(["iShares", "iShares Gold", "Leer"])
+        self.assertEqual(sorted(e[0] for e in liste), [1, 2])
+        self.assertEqual(liste[0][1:], ["A0RPWH", "iShares Core MSCI World", "IE00B4L5Y983"])
+
+    def test_gesamte_laufzeit(self):
+        heute = datetime.date(2026, 10, 23)
+        reihe = [(heute - datetime.timedelta(days=d), k) for d, k in ((3650, 50.0), (365, 80.0), (0, 100.0))]
+        p = T.performance(reihe, heute)
+        self.assertEqual(p["_gesamt"], 100.0)
+        self.assertAlmostEqual(p["_jahre"], 10.0, places=0)
+
+
 if __name__ == "__main__":
     unittest.main()

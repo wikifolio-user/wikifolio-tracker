@@ -60,6 +60,14 @@ def _punkte(wert, schlecht, gut):
     return round(max(0.0, min(1.0, anteil)) * 100.0, 1)
 
 
+def pro_jahr(gesamt_pct, jahre):
+    """Gesamtrendite % ueber `jahre` -> Rendite % p. a. (None ohne Daten; unter 1 Jahr nicht annualisiert)."""
+    v, j = _z(gesamt_pct), _z(jahre)
+    if v is None or not j or v <= -100:
+        return None
+    return v if j <= 1 else ((1 + v / 100.0) ** (1.0 / j) - 1) * 100.0
+
+
 def kennzahlen(w):
     """w: Katalogzeile (1J/3J/5J/10J gesamt %, vola, maxdd, jahre). -> abgeleitete Kennzahlen."""
     rendite = jahre_r = None
@@ -74,7 +82,9 @@ def kennzahlen(w):
     dd = abs(dd) if dd is not None else None
     jahre = max(_z(w.get("jahre")) or 0.0, float(jahre_r or 0))
     perioden = [_z(w.get(z)) for z, _ in ZEITRAEUME if _z(w.get(z)) is not None]
-    return {"rendite": rendite, "rendite_jahre": jahre_r, "vola": vola, "dd": dd, "jahre": jahre or None,
+    pa = {z: pro_jahr(w.get(z), j) for z, j in ZEITRAEUME}
+    pa["gesamt"] = pro_jahr(w.get("gesamt"), _z(w.get("jahre")) if (_z(w.get("jahre")) or 0) >= 1 else None)
+    return {"rendite": rendite, "pa": pa, "rendite_jahre": jahre_r, "vola": vola, "dd": dd, "jahre": jahre or None,
             "historie": jahre or None,
             "rr": rendite / vola if rendite is not None and vola else None,
             "rdd": rendite / max(dd, 1.0) if rendite is not None and dd is not None else None,
