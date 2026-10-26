@@ -1,11 +1,12 @@
 name: Watchlist Qualitäts-Score (täglich)
 
 on:
-  # Täglich 03:00 UTC = 05:00 Uhr deutscher Sommerzeit (04:00 im Winter) -
-  # vor den Top-50-Ranglisten (05:30 UTC). Beide teilen sich die Yahoo-Drossel
-  # und laufen deshalb nie gleichzeitig (concurrency unten).
+  # Täglich 00:20 UTC (01:20 Uhr Winterzeit) - GitHub startet geplante Läufe oft
+  # Stunden später als eingetragen, deshalb so früh. Danach startet der Top-50-Agent
+  # (workflow_run in top50.yml). Beide teilen sich die Yahoo-Drossel und laufen
+  # deshalb nie gleichzeitig (concurrency unten).
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "20 0 * * *"
   # Manuell startbar: Actions -> "Watchlist Qualitäts-Score (täglich)" -> Run workflow
   workflow_dispatch: {}
 

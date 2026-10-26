@@ -75,6 +75,8 @@ ALLE_TEILE = 4
 SUCHE_MAX_TREFFER = 20        # Obergrenze der ls-tc-Suche je Aufruf (getestet)
 WIKIFOLIO_CACHE_TAGE = 7      # Entdeckung nur woechentlich neu
 MAX_ALTER_TAGE = 10           # Werte ohne Kurs seit >10 Tagen gelten als inaktiv
+NAHE_NULL = 0.01              # Kurs unter 1 % des bisherigen Hoechststands: praktisch wertlos (z. B. wikifolio
+                              # nach -99 %) - Renditen aus solchen Kursen sind Rundungs-/Tick-Artefakte
 TOLERANZ_TAGE = 10            # Stichtag darf auf Wochenende/Feiertag fallen
 PARALLEL = 6                  # gleichzeitige Abrufe
 ANFRAGEN_PRO_SEKUNDE = 8      # Obergrenze gegenueber ls-tc.de - bewusst hoeflich
@@ -299,6 +301,13 @@ def performance(reihe, heute):
     letzter_tag, letzter = reihe[-1]
     if (heute - letzter_tag).days > MAX_ALTER_TAGE:
         return {}
+    # Hoechststand bis zu jedem Punkt (fuer die Nahe-Null-Pruefung)
+    hoch_bis, h = [], 0.0
+    for _, k in reihe:
+        h = max(h, k)
+        hoch_bis.append(h)
+    if letzter < NAHE_NULL * hoch_bis[-1]:
+        return {}               # praktisch wertlos (z. B. aufgeloestes wikifolio) - nicht in die Ranglisten
     ergebnis = {"_kurs": letzter, "_stand": letzter_tag.isoformat()}
     tage_liste = [t for t, _ in reihe]
     for schluessel, _, tage in ZEITRAEUME:
@@ -319,6 +328,9 @@ def performance(reihe, heute):
                 ergebnis[schluessel] = None      # Historie reicht nicht so weit
                 continue
             ref = reihe[pos][1]
+            if ref < NAHE_NULL * hoch_bis[pos]:
+                ergebnis[schluessel] = None      # Bezugskurs nahe null: Rendite nicht aussagekraeftig
+                continue
         ergebnis[schluessel] = round((letzter / ref - 1) * 100, 2) if ref > 0 else None
     # Risiko-Kennzahlen fuer den Planer-Katalog: Vola (1 Jahr, annualisiert) und
     # groesster Rueckgang seit Beginn der Historie
@@ -1618,11 +1630,22 @@ def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
     log.info(f"Grosser Katalog: {sum(len(z) for z in teile.values())} Werte")
 
 
+def schon_aktuell(top50, heute):
+    """Liegen die Ranglisten von heute schon vor? (mehrere Ausloeser je Tag - nur der erste rechnet)"""
+    try:
+        return datetime.datetime.fromisoformat(str(top50.get("stand"))).date() == heute
+    except (TypeError, ValueError):
+        return False
+
+
 def main():
     start = time.monotonic()
     jetzt = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
     heute = jetzt.date()
     vorher = lade_state(STATE_TOP50, {}) or {}
+    if os.environ.get("NUR_WENN_ALT") and schon_aktuell(vorher, heute):
+        log.info(f"Ranglisten sind schon vom {heute.isoformat()} - nichts zu tun.")
+        return
 
     # 1) Instrument-IDs der festen Listen aufloesen (gecacht)
     id_cache = lade_state(STATE_IDS, {}) or {}

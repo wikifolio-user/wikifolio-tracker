@@ -584,5 +584,29 @@ class TestSEC08(unittest.TestCase):
         self.assertTrue(t.startswith("ConnectionError"))
 
 
+class TestPerformanceNaheNull(unittest.TestCase):
+    """Praktisch wertlose Werte (z. B. wikifolio nach -99 %) liefern keine Tick-Artefakt-Renditen."""
+    def _reihe(self, kurse_je_tag):
+        heute = datetime.date(2026, 10, 23)
+        return [(heute - datetime.timedelta(days=t), k) for t, k in kurse_je_tag], heute
+
+    def test_wertloser_wert_faellt_raus(self):
+        # 100 € -> 0,001 € -> 0,006 €: frueher "+500 %" in der 1-Jahres-Rangliste
+        reihe, heute = self._reihe([(800, 100.0), (400, 0.001), (365, 0.001), (1, 0.005), (0, 0.006)])
+        self.assertEqual(T.performance(reihe, heute), {})
+
+    def test_bezugskurs_nahe_null_ergibt_keine_rendite(self):
+        # Absturz auf 0,006 €, danach Neustart auf 11,64 € - die 1J-Rendite "+193.950 %" ist kein Ergebnis
+        reihe, heute = self._reihe([(800, 100.0), (365, 0.006), (100, 10.0), (30, 11.0), (0, 11.64)])
+        p = T.performance(reihe, heute)
+        self.assertIsNone(p["1J"])
+        self.assertAlmostEqual(p["1M"], (11.64 / 11.0 - 1) * 100, places=1)
+
+    def test_normaler_verlauf_unveraendert(self):
+        reihe, heute = self._reihe([(365, 100.0), (30, 140.0), (0, 150.0)])
+        p = T.performance(reihe, heute)
+        self.assertEqual(p["1J"], 50.0)
+
+
 if __name__ == "__main__":
     unittest.main()
