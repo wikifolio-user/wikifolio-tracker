@@ -7,6 +7,7 @@ import html
 import logging
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
@@ -18,6 +19,7 @@ import github_store
 import chronik
 import login
 import nutzerdaten
+import kurs_dienst as KD
 import prognose_basis as PROG_BASIS
 import branchen as BR
 import dividenden as DV
@@ -1834,11 +1836,14 @@ def ls_tc_live_auswerten(data):
     return akt, vor, zeitpunkt_ms
 
 
-@st.cache_data(ttl=26 * 3600, show_spinner=False)
 def _live_abruf(instrument_id):
-    """Gecachter Live-Abruf. Wirft bei JEDEM Fehler - st.cache_data speichert Ausnahmen
-    nicht, ein Fehlschlag bleibt so nie bis zum naechsten Termin haengen (Audit A-07).
-    Den Takt bestimmt der Zeitplan (kurse_neu_laden)."""
+    """Live-Kurs aus dem Kursdienst (Hintergrund-Aktualisierung nach Zeitplan). Wirft bei
+    Fehlern - ein Fehlschlag wird nie gemerkt (Audit A-07)."""
+    return kurs_dienst().hole("live", instrument_id)
+
+
+def _live_roh(instrument_id):
+    """Netzabruf des Live-Kurses (nur der Kursdienst ruft ihn auf)."""
     params = {
         "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
         "quotetype": "mid", "series": "intraday,history,flags", "type": "", "localeId": "2",
@@ -1895,29 +1900,29 @@ def kurs_zeitpunkt(instrument_id):
 # --- ECHTE HISTORISCHE DATEN VON ls-tc.de LADEN ---
 # Tageskurs-Historien aendern sich hoechstens einmal am Handelstag - der
 # aktuelle Wert kommt ohnehin live ueber get_live_kurs(). Deshalb EIN Abruf je
-# Instrument, 15 Minuten gehalten und fuer alle Zeitraeume nur zugeschnitten.
-# st.cache_data gilt fuer alle Sitzungen: ein Neuladen der Seite (neue Sitzung)
-# bedient sich ebenfalls aus diesem Speicher.
-HISTORIE_CACHE_SEK = 26 * 3600   # Aktualisierung steuert der Zeitplan (siehe Navigation) bzw. der Knopf
+# Instrument im Kursdienst (gilt fuer alle Sitzungen), fuer alle Zeitraeume nur zugeschnitten.
 
 
-@st.cache_data(ttl=HISTORIE_CACHE_SEK, show_spinner=False)
 def lade_rohhistorie(instrument_id):
-    """[(ts_ms, close), ...] einer Instrument-ID, [] bei Fehler."""
+    """[(ts_ms, close), ...] einer Instrument-ID aus dem Kursdienst; wirft bei Fehlern."""
+    try:
+        return kurs_dienst().hole("historie", instrument_id)
+    except Exception as e:
+        logging.error(f"Historie für Instrument {instrument_id} nicht ladbar: {e}")
+        raise          # Fehler NICHT merken - beim naechsten Aufruf neu versuchen
+
+
+def _historie_roh(instrument_id):
+    """Netzabruf der Tageshistorie (nur der Kursdienst ruft ihn auf)."""
     params = {
         "container": "chart1", "instrumentId": instrument_id, "marketId": "1",
         "quotetype": "mid", "series": "history", "type": "", "localeId": "2",
     }
-    try:
-        r = requests.get(config.LS_TC_BASE_URL, params=params,
-                         headers=config.LS_TC_HEADERS, timeout=8)
-        r.raise_for_status()
-        raw = r.json()
-        return (raw.get("series", {}).get("history", {}).get("data")
-                or raw.get("history", {}).get("data") or [])
-    except Exception as e:
-        logging.error(f"Historie für Instrument {instrument_id} nicht ladbar: {e}")
-        raise          # Fehler NICHT zwischenspeichern - beim naechsten Aufruf neu versuchen
+    r = requests.get(config.LS_TC_BASE_URL, params=params, headers=config.LS_TC_HEADERS, timeout=8)
+    r.raise_for_status()
+    raw = r.json()
+    return (raw.get("series", {}).get("history", {}).get("data")
+            or raw.get("history", {}).get("data") or [])
 
 
 def historie_zuschnitt(history, start_date, end_date):
@@ -2002,9 +2007,13 @@ def gespeicherter_kurs_hauptposition(heute):
 
 
 # --- BENCHMARK-VERGLEICHSDATEN (ls-tc.de, gleiche API wie LS9VFS) ---
-@st.cache_data(ttl=26 * 3600, show_spinner=False)
 def _benchmark_roh(instrument_id):
-    """Rohhistorie eines Vergleichswerts; wirft bei Fehlern (nicht gecacht, Audit A-07)."""
+    """Rohhistorie eines Vergleichswerts aus dem Kursdienst; wirft bei Fehlern (Audit A-07)."""
+    return kurs_dienst().hole("benchmark", instrument_id)
+
+
+def _benchmark_netz(instrument_id):
+    """Netzabruf der Vergleichswert-Historie (nur der Kursdienst ruft ihn auf)."""
     headers = {
         "User-Agent": config.LS_TC_HEADERS["User-Agent"],
         "Referer": f"https://www.ls-tc.de/de/etf/{instrument_id}",
@@ -2030,6 +2039,25 @@ def get_benchmark_history(instrument_id, start_date, end_date):
         return None
     s = historie_zuschnitt(history, start_date, end_date)
     return None if s.empty else s[s > 0]
+
+
+def vergleichswerte_vorladen(instrument_ids, max_parallel=8):
+    """Historie und Live-Kurs aller Vergleichswerte, die noch NICHT im Kursdienst liegen,
+    GLEICHZEITIG abrufen (vorher nacheinander - 2 Netzabrufe je Wert). Fehler werden hier
+    verschluckt; der anschliessende normale Aufruf behandelt sie wie bisher."""
+    ids = list(dict.fromkeys(str(i) for i in instrument_ids if i))
+    if len(ids) < 2:
+        return
+
+    def _eins(inst_id):
+        for f in (_benchmark_roh, _live_abruf):
+            try:
+                f(inst_id)
+            except Exception:
+                pass
+
+    with ThreadPoolExecutor(max_workers=min(max_parallel, len(ids))) as ex:
+        list(ex.map(_eins, ids))
 
 
 def benchmark_normiert_auf_startkapital(df_index, instrument_id, start_date, end_date, startkapital):
@@ -2978,7 +3006,6 @@ def fortschritt_anzeige(platzhalter):
 # geladen). Kurse werden nach Zeitplan aktualisiert: taeglich ab 9 Uhr alle
 # 2 Stunden (9, 11, 13 ... 23 Uhr) - oder sofort per "Aktualisieren".
 # ---------------------------------------------------------------------------
-KURS_CACHE_SEK = 26 * 3600          # Obergrenze; den Takt bestimmt der Zeitplan
 AKTUALISIERUNG_START = 9            # erste Aktualisierung am Tag (Uhr)
 AKTUALISIERUNG_TAKT = 2             # danach alle x Stunden
 AKTUALISIERUNG_ENDE = 23            # letzte Aktualisierung am Tag
@@ -3361,26 +3388,47 @@ def naechster_termin(jetzt):
     return spaeter[0] if spaeter else _termine(jetzt.date() + datetime.timedelta(days=1))[0]
 
 
-@st.cache_data(ttl=KURS_CACHE_SEK, show_spinner=False)
-def _kurse_stand():
-    """Zeitpunkt, seit dem die aktuellen Kursdaten im Zwischenspeicher liegen
-    (wird mit den Kurs-Caches geleert, gilt fuer alle Sitzungen)."""
-    return datetime.datetime.now(BERLIN_TZ).isoformat()
-
-
-def kurse_neu_laden():
-    """Alle Kurs-Zwischenspeicher leeren - der naechste Aufbau holt frisch."""
-    for f in (_live_abruf, lade_rohhistorie, _benchmark_roh, _kurse_stand):
-        try:
-            f.clear()
-        except Exception:
-            pass
+def _nach_kurslauf():
+    """Nach jedem Hintergrund-Lauf: aus Kursen abgeleitete Zwischenspeicher verwerfen
+    (sie rechnen beim naechsten Aufruf aus den neuen Kursen im Speicher, ohne Netzabruf)."""
     try:
         import planer_ui
         planer_ui._hist_eines_cache.clear()
-        st.session_state.pop("planer_hist", None)      # gemerkte Planer-Historie dieser Sitzung
     except Exception:
         pass
+
+
+def _kurslauf_faellig(letzter_lauf):
+    """Ist seit dem letzten Lauf ein Termin (9, 11, 13 … 23 Uhr) vergangen?"""
+    return letzter_lauf is None or letzter_lauf < letzter_termin(datetime.datetime.now(BERLIN_TZ))
+
+
+@st.cache_resource(show_spinner=False)
+def kurs_dienst():
+    """EIN Kursdienst je App-Prozess (fuer alle Sitzungen): haelt alle Kurse im Speicher und
+    aktualisiert sie im Hintergrund nach Zeitplan - niemand wartet beim Seitenaufbau auf Neuabrufe."""
+    d = KD.KursDienst({"live": _live_roh, "historie": _historie_roh, "benchmark": _benchmark_netz},
+                      jetzt=lambda: datetime.datetime.now(BERLIN_TZ), nach_lauf=_nach_kurslauf)
+    d.merken("live", config.LS_INSTRUMENT_ID)            # Hauptposition und Standard-Vergleichswerte
+    d.merken("historie", config.LS_INSTRUMENT_ID)        # gleich beim ersten Lauf mitladen
+    for iid in (getattr(config, "BENCHMARKS", None) or {}).values():
+        d.merken("live", iid)
+        d.merken("benchmark", iid)
+    return d
+
+
+def kurs_dienst_bereit():
+    """Kursdienst holen und sicherstellen, dass sein Zeitplan laeuft (auch nach einem Absturz)."""
+    d = kurs_dienst()
+    if not d.zeitplan_aktiv():
+        d.zeitplan_starten(_kurslauf_faellig)
+    return d
+
+
+def kurse_neu_laden():
+    """Einen Hintergrund-Lauf starten. -> False, wenn schon einer laeuft."""
+    st.session_state.pop("planer_hist", None)      # gemerkte Planer-Historie dieser Sitzung
+    return kurs_dienst_bereit().aktualisieren()
 
 
 # --- GEMERKTE RECHNER-EINGABEN (je Benutzer, nutzerdaten.eingaben_*) ---
@@ -3551,16 +3599,66 @@ AKTUALISIEREN_MIN_ABSTAND_SEK = 60
 
 
 def _nav_aktualisieren():
-    """Kurse neu laden - hoechstens einmal je Minute fuer alle Sitzungen zusammen
-    (Audit A-20: der Cache ist global, jeder Klick loeste sonst alle Abrufe neu aus)."""
-    try:
-        stand = datetime.datetime.fromisoformat(_kurse_stand())
-        if (datetime.datetime.now(BERLIN_TZ) - stand).total_seconds() < AKTUALISIEREN_MIN_ABSTAND_SEK:
-            st.toast("Kurse wurden gerade erst geladen.")
+    """Einen Hintergrund-Lauf starten - hoechstens einmal je Minute fuer alle Sitzungen zusammen
+    (Audit A-20: der Kursspeicher ist global). Waehrend des Laufs ist der Knopf gesperrt."""
+    ende = kurs_dienst_bereit().status()["letzter_ende"]
+    if ende is not None and (datetime.datetime.now(BERLIN_TZ) - ende).total_seconds() < AKTUALISIEREN_MIN_ABSTAND_SEK:
+        st.toast("Kurse wurden gerade erst geladen.")
+        return
+    if not kurse_neu_laden():
+        st.toast("Die Kurse werden bereits im Hintergrund geladen.")
+
+
+def _zeit_kurz(t, jetzt):
+    return t.strftime("%H:%M") if t.date() == jetzt.date() else t.strftime("%d.%m. %H:%M")
+
+
+def kursstand_text(stx, jetzt):
+    """Kurzer Stand aller Kurse fuer Kopf/Startseite."""
+    if stx["aeltester"] is None:
+        return "Kurse werden beim ersten Aufruf geladen"
+    t = f"Kurse vom <b>{_zeit_kurz(stx['aeltester'], jetzt)} Uhr</b> · {stx['werte']} Werte"
+    if stx["letzter_fehler"]:
+        t += f" · {stx['letzter_fehler']} ohne Aktualisierung"
+    return t
+
+
+@st.fragment(run_every=2)
+def _kurslauf_fortschritt():
+    """Nur waehrend eines Laufs: Fortschritt anzeigen und am Ende die Seite mit den neuen Kursen
+    aufbauen (der Knopf ist bis dahin gesperrt)."""
+    stx = kurs_dienst().status()
+    if not stx["laeuft"]:
+        st.rerun(scope="app")
+    pct = stx["fertig"] / stx["gesamt"] if stx["gesamt"] else 0.0
+    st.progress(pct, text=f"⏳ Kurse werden im Hintergrund geladen … {stx['fertig']} von {stx['gesamt']} "
+                          "– die Seite zeigt bis dahin den bisherigen Stand.")
+
+
+def kursstand_details(stx, jetzt):
+    """Ausklappbare Uebersicht: welchen Stand haben alle Kurse?"""
+    with st.expander("ℹ️ Kursstand aller Werte"):
+        if stx["aeltester"] is None:
+            st.caption("Noch keine Kurse im Speicher – sie werden beim ersten Aufruf einer Ansicht geladen.")
             return
-    except Exception:
-        pass
-    kurse_neu_laden()
+        namen = {"live": "Aktuelle Kurse (Aktien, ETFs, wikifolios)", "historie": "Kursverläufe (Charts)",
+                 "benchmark": "Vergleichswerte (Verläufe)"}
+        zeilen = [f"<tr><td>{namen.get(a, a)}</td><td style='text-align:right'>{n}</td></tr>"
+                  for a, n in sorted(stx["anzahl"].items(), key=lambda x: list(namen).index(x[0])
+                                     if x[0] in namen else 9)]
+        st.markdown("<table class='pt'><tr><th>Daten</th><th style='text-align:right'>Werte</th></tr>"
+                    + "".join(zeilen) + "</table>", unsafe_allow_html=True)
+        teile = [f"Ältester Stand {_zeit_kurz(stx['aeltester'], jetzt)} Uhr",
+                 f"neuester {_zeit_kurz(stx['neuester'], jetzt)} Uhr"]
+        if stx["letzter_ende"] is not None:
+            teile.append(f"letzte Hintergrund-Aktualisierung {_zeit_kurz(stx['letzter_lauf'], jetzt)}–"
+                         f"{stx['letzter_ende'].strftime('%H:%M')} Uhr"
+                         + (f" ({stx['letzter_fehler']} Werte nicht erreichbar – sie behalten ihren "
+                            "letzten echten Kurs)" if stx["letzter_fehler"] else ""))
+        teile.append(f"nächste {naechster_termin(jetzt).strftime('%H:%M')} Uhr")
+        st.caption(" · ".join(teile) + f". Alle Kurse werden täglich ab {AKTUALISIERUNG_START} Uhr alle "
+                   f"{AKTUALISIERUNG_TAKT} Stunden automatisch im Hintergrund geladen; neu hinzukommende Werte "
+                   "sofort beim ersten Aufruf.")
 
 
 def navigation():
@@ -3571,17 +3669,15 @@ def navigation():
     st.markdown(NAV_CSS, unsafe_allow_html=True)
     login.pruefen(st, gh_read_cached)       # gesperrt/geloescht? -> sofort abmelden (auch bei Teil-Neuaufbau)
     jetzt = datetime.datetime.now(BERLIN_TZ)
-    try:
-        stand = datetime.datetime.fromisoformat(_kurse_stand())
-    except Exception:
-        stand = jetzt
-    # Zeitplan: ist seit dem letzten Laden ein Termin (9, 11, 13 ... Uhr) vergangen?
-    if stand < letzter_termin(jetzt):
-        kurse_neu_laden()
-        stand = datetime.datetime.fromisoformat(_kurse_stand())
-    stand_html = (f'<div class="nav-stand">Kurse Stand <b>{stand.strftime("%d.%m. %H:%M")} Uhr</b> · '
+    # Kurse aktualisiert der Kursdienst im Hintergrund (9, 11, 13 … 23 Uhr) - hier nur anzeigen
+    dienst = kurs_dienst_bereit()
+    stx = dienst.status()
+    laeuft = stx["laeuft"]
+    stand_html = (f'<div class="nav-stand">{kursstand_text(stx, jetzt)} · '
                   f'nächste Aktualisierung {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div>')
-    hilfe = f"Kurse jetzt neu laden (sonst täglich ab {AKTUALISIERUNG_START} Uhr alle {AKTUALISIERUNG_TAKT} Stunden)"
+    hilfe = ("Die Kurse werden gerade im Hintergrund geladen – der Knopf ist bis zum Ende gesperrt." if laeuft else
+             f"Alle Kurse jetzt im Hintergrund neu laden (sonst automatisch täglich ab {AKTUALISIERUNG_START} Uhr "
+             f"alle {AKTUALISIERUNG_TAKT} Stunden)")
 
     # Permanentlink (?ansicht=zins&...): beim ersten Aufruf direkt diese Ansicht oeffnen
     if not st.session_state.get("_link_geprueft"):
@@ -3601,11 +3697,14 @@ def navigation():
             st.markdown(
                 '<div class="nav-kopf"><div class="nav-logo"><span class="nav-lauf">FINANZ <span>DASHBOARD</span></span></div>'
                 '<div class="nav-credit">created by MarsTech</div>'
-                f'<div class="nav-chip"><span class="nav-dot"></span>Kurse vom <b>{stand.strftime("%d.%m. %H:%M")} Uhr</b>'
+                f'<div class="nav-chip"><span class="nav-dot"></span>{kursstand_text(stx, jetzt)}'
                 f' · nächste {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div></div>',
                 unsafe_allow_html=True)
-            st.button("🔄 Kurse aktualisieren", key="nav_refresh", width="content", help=hilfe,
-                      on_click=_nav_aktualisieren)
+            st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
+                      width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
+            if laeuft:
+                _kurslauf_fortschritt()
+            kursstand_details(stx, jetzt)
             if _nutzer():
                 # klein, fest oben rechts in der Ecke
                 st.markdown("""<style>
@@ -3714,8 +3813,11 @@ def navigation():
                   help="Zurück zur Übersicht aller Ansichten")
         c2.markdown(f'<div class="nav-titel">{html.escape(NAV_TITEL.get(aktiv) or NAV_NAMEN.get(aktiv, aktiv))}</div>',
                     unsafe_allow_html=True)
-        c3.button("🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren)
+        c3.button("⏳" if laeuft else "🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren,
+                  disabled=laeuft)
     st.markdown(stand_html, unsafe_allow_html=True)
+    if laeuft:
+        _kurslauf_fortschritt()
     return aktiv
 
 
@@ -6042,6 +6144,8 @@ def render_dashboard():
         series, startdaten = {}, {}
         items = [(vergleich_label(e), str(e["instrument_id"])) for e in lade_vergleichswerte()]
         gesamt = len(items)
+        melde("benchmarks", 0.0, f"{hinweis} … ({gesamt} Werte)")
+        vergleichswerte_vorladen([i for _, i in items])
         for i, (label, inst_id) in enumerate(items):
             melde("benchmarks", i / gesamt if gesamt else 1.0,
                   f"{hinweis} … ({i + 1}/{gesamt}) · {label}")
@@ -6053,8 +6157,9 @@ def render_dashboard():
                 startdaten[label] = erstes_datum
         return series, startdaten
 
-    # Nur fuer den Vermoegensaufbau-Chart der Hauptposition (Admin) gebraucht
-    if eigen:
+    # Nur fuer den Vermoegensaufbau-Chart der Hauptposition (Admin) gebraucht - in allen anderen
+    # Ansichten (Depot, Analyse, Prognose …) wird nichts davon angezeigt, also auch nichts geladen.
+    if eigen or gewaehlte_ansicht != "📈 Vermögens- & Substanzaufbau":
         benchmark_series, benchmark_start_daten = {}, {}
     else:
         benchmark_series, benchmark_start_daten = lade_benchmarks_mit_fortschritt(
