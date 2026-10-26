@@ -3398,9 +3398,9 @@ def _nach_kurslauf():
         pass
 
 
-def _kurslauf_faellig(letzter_lauf):
-    """Ist seit dem letzten Lauf ein Termin (9, 11, 13 … 23 Uhr) vergangen?"""
-    return letzter_lauf is None or letzter_lauf < letzter_termin(datetime.datetime.now(BERLIN_TZ))
+def _kurslauf_faellig(seit):
+    """Ist seit dem letzten Lauf (bzw. dem Start der App) ein Termin (9, 11, 13 … 23 Uhr) vergangen?"""
+    return seit < letzter_termin(datetime.datetime.now(BERLIN_TZ))
 
 
 @st.cache_resource(show_spinner=False)
@@ -3409,6 +3409,8 @@ def kurs_dienst():
     aktualisiert sie im Hintergrund nach Zeitplan - niemand wartet beim Seitenaufbau auf Neuabrufe."""
     d = KD.KursDienst({"live": _live_roh, "historie": _historie_roh, "benchmark": _benchmark_netz},
                       jetzt=lambda: datetime.datetime.now(BERLIN_TZ), nach_lauf=_nach_kurslauf)
+    # Kein Lauf beim Start der App bzw. bei der Anmeldung - der erste kommt zum naechsten Termin
+    d.gestartet = datetime.datetime.now(BERLIN_TZ)
     d.merken("live", config.LS_INSTRUMENT_ID)            # Hauptposition und Standard-Vergleichswerte
     d.merken("historie", config.LS_INSTRUMENT_ID)        # gleich beim ersten Lauf mitladen
     for iid in (getattr(config, "BENCHMARKS", None) or {}).values():
@@ -3421,7 +3423,7 @@ def kurs_dienst_bereit():
     """Kursdienst holen und sicherstellen, dass sein Zeitplan laeuft (auch nach einem Absturz)."""
     d = kurs_dienst()
     if not d.zeitplan_aktiv():
-        d.zeitplan_starten(_kurslauf_faellig)
+        d.zeitplan_starten(lambda letzter: _kurslauf_faellig(letzter or d.gestartet))
     return d
 
 
@@ -3605,8 +3607,8 @@ def _nav_aktualisieren():
     if ende is not None and (datetime.datetime.now(BERLIN_TZ) - ende).total_seconds() < AKTUALISIEREN_MIN_ABSTAND_SEK:
         st.toast("Kurse wurden gerade erst geladen.")
         return
-    if not kurse_neu_laden():
-        st.toast("Die Kurse werden bereits im Hintergrund geladen.")
+    kurse_neu_laden()
+    st.session_state["_kurslauf_warten"] = True        # diese Sitzung wartet auf das Ende des Laufs
 
 
 def _zeit_kurz(t, jetzt):
@@ -3623,16 +3625,30 @@ def kursstand_text(stx, jetzt):
     return t
 
 
-@st.fragment(run_every=2)
-def _kurslauf_fortschritt():
-    """Nur waehrend eines Laufs: Fortschritt anzeigen und am Ende die Seite mit den neuen Kursen
-    aufbauen (der Knopf ist bis dahin gesperrt)."""
-    stx = kurs_dienst().status()
+KURSLAUF_WARTEN_MAX_SEK = 180
+
+
+def _kurslauf_fortschritt(stx):
+    """Waehrend eines Laufs: Wer ihn per Knopf gestartet hat, wartet hier mit Fortschrittsbalken bis
+    zum Ende und bekommt danach die Seite mit den neuen Kursen (Knopf bis dahin gesperrt). Alle anderen
+    sehen nur einen Hinweis und arbeiten mit dem bisherigen Stand weiter - ohne Wartezeit."""
     if not stx["laeuft"]:
-        st.rerun(scope="app")
-    pct = stx["fertig"] / stx["gesamt"] if stx["gesamt"] else 0.0
-    st.progress(pct, text=f"⏳ Kurse werden im Hintergrund geladen … {stx['fertig']} von {stx['gesamt']} "
-                          "– die Seite zeigt bis dahin den bisherigen Stand.")
+        st.session_state.pop("_kurslauf_warten", None)
+        return
+    if not st.session_state.get("_kurslauf_warten"):
+        st.caption(f"⏳ Kurse werden gerade im Hintergrund aktualisiert ({stx['fertig']} von {stx['gesamt']}) – "
+                   "angezeigt wird bis dahin der bisherige Stand.")
+        return
+    d = kurs_dienst()
+    balken = st.progress(0.0)
+    t0 = time.monotonic()
+    while d.laeuft() and time.monotonic() - t0 < KURSLAUF_WARTEN_MAX_SEK:
+        x = d.status()
+        balken.progress(x["fertig"] / x["gesamt"] if x["gesamt"] else 0.0,
+                        text=f"⏳ Kurse werden geladen … {x['fertig']} von {x['gesamt']}")
+        time.sleep(0.5)
+    st.session_state.pop("_kurslauf_warten", None)
+    st.rerun()
 
 
 def kursstand_details(stx, jetzt):
@@ -3702,8 +3718,7 @@ def navigation():
                 unsafe_allow_html=True)
             st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
                       width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
-            if laeuft:
-                _kurslauf_fortschritt()
+            _kurslauf_fortschritt(stx)
             kursstand_details(stx, jetzt)
             if _nutzer():
                 # klein, fest oben rechts in der Ecke
@@ -3816,8 +3831,7 @@ def navigation():
         c3.button("⏳" if laeuft else "🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren,
                   disabled=laeuft)
     st.markdown(stand_html, unsafe_allow_html=True)
-    if laeuft:
-        _kurslauf_fortschritt()
+    _kurslauf_fortschritt(stx)
     return aktiv
 
 
