@@ -4592,72 +4592,85 @@ def render_dashboard():
         werte = daten.get("werte", {})
         ansichten = ["Gesamt-Rangliste"] + list(Q_KLASSEN.values())
 
-        if _auswahl_art("q") == "Index":
-            # Index: Rangliste aus den Gesamtdaten, gleiche Sortierung wie der Agent
-            gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
-            idx_key = _index_auswahl("q", gruppen.get("indizes") or {}, INDEX_REGIONEN_APP)
-            if not idx_key:
-                return
-            alle, _ = _q_alle()
-            info = gruppen["indizes"][idx_key]
-            mitglieder = [s for s in info.get("s", []) if s in alle]
-            werte = {s: alle[s] for s in mitglieder}
-            n = _listen_laenge("q")
-
-            def rang(liste):
-                return sorted(liste, key=lambda s: (-werte[s]["gesamt"], -(werte[s]["b_ant"] or 0)))[:n]
-
-            kat = {"top": rang(mitglieder), "universum": info.get("zugeordnet", len(mitglieder)),
-                   "bewertet": len(mitglieder),
-                   "je_klasse": {kl: rang([s for s in mitglieder if werte[s]["klasse"] == kl]) for kl in Q_KLASSEN},
-                   "klassen": {kl: sum(1 for s in mitglieder if werte[s]["klasse"] == kl) for kl in Q_KLASSEN}}
-            kat_key = f"i:{idx_key}"
+        # Filter in einem aufklappbaren Bereich (auf dem Handy sonst ~1.100 px Bedienelemente vor der Liste);
+        # die Ueberschrift zeigt die aktuelle Auswahl
+        _ss = st.session_state
+        if (_ss.get("q_auswahl_art") or "Kategorie") == "Index":
+            _reg = _ss.get("q_region") or ""
+            _was = str(_ss.get(f"q_index_{_reg}") or _reg or "Index").split(" (")[0]
         else:
-            wahl = auswahl_kompakt("Kategorie", titel, default=titel[0], key="q_kategorie")
-            kat_key = keys[titel.index(wahl)] if wahl in titel else keys[0]
-            kat = kats[kat_key]
-            n = _listen_laenge("q")
-            if n > len(kat.get("top") or []):
-                # Laengere Liste aus den Gesamtdaten - gleiche Sortierung wie der Agent
+            _was = str(_ss.get("q_kategorie") or titel[0])
+        _filter_titel = " · ".join(x for x in (
+            _was, _ss.get("q_laenge") or "Top 500",
+            str(_ss.get("q_sektor") or "").split(" ", 1)[-1] if _ss.get("q_sektor") not in (None, "Alle Sektoren") else "",
+            _ss.get("q_klasse") if _ss.get("q_klasse") not in (None, ansichten[0]) else "") if x)
+        with st.expander(f"🔎 Filter: {_filter_titel}", expanded=False):
+            if _auswahl_art("q") == "Index":
+                # Index: Rangliste aus den Gesamtdaten, gleiche Sortierung wie der Agent
                 gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
+                idx_key = _index_auswahl("q", gruppen.get("indizes") or {}, INDEX_REGIONEN_APP)
+                if not idx_key:
+                    return
                 alle, _ = _q_alle()
-                g = (gruppen.get("kategorien") or {}).get(kat_key) or {}
-                if alle and (kat_key == "alle" or g.get("s")):
-                    mitglieder = list(alle) if kat_key == "alle" else [s_ for s_ in g["s"] if s_ in alle]
-                    werte = {**werte, **{s_: alle[s_] for s_ in mitglieder}}
+                info = gruppen["indizes"][idx_key]
+                mitglieder = [s for s in info.get("s", []) if s in alle]
+                werte = {s: alle[s] for s in mitglieder}
+                n = _listen_laenge("q")
 
-                    def rang_k(liste):
-                        return sorted(liste, key=lambda s_: (-werte[s_]["gesamt"], -(werte[s_]["b_ant"] or 0)))[:n]
+                def rang(liste):
+                    return sorted(liste, key=lambda s: (-werte[s]["gesamt"], -(werte[s]["b_ant"] or 0)))[:n]
 
-                    kat = dict(kat, top=rang_k(mitglieder),
-                               je_klasse={kl: rang_k([s_ for s_ in mitglieder if werte[s_]["klasse"] == kl])
-                                          for kl in Q_KLASSEN})
+                kat = {"top": rang(mitglieder), "universum": info.get("zugeordnet", len(mitglieder)),
+                       "bewertet": len(mitglieder),
+                       "je_klasse": {kl: rang([s for s in mitglieder if werte[s]["klasse"] == kl]) for kl in Q_KLASSEN},
+                       "klassen": {kl: sum(1 for s in mitglieder if werte[s]["klasse"] == kl) for kl in Q_KLASSEN}}
+                kat_key = f"i:{idx_key}"
             else:
-                kat = dict(kat, top=kat["top"][:n], je_klasse={k: v[:n] for k, v in kat["je_klasse"].items()})
-        # Firmen-Kategorie (Sektor, aus der Yahoo-Branche): Rangliste aus allen Aktien der Auswahl
-        sek_opt = ["Alle Sektoren"] + [f"{BR.SEKTOR_ICON[x]} {x}" for x in BR.SEKTOREN + ["Sonstige"]]
-        sek_wahl = auswahl_kompakt("Firmen-Kategorie (Sektor)", sek_opt, default=sek_opt[0], key="q_sektor") or sek_opt[0]
-        alle_q, _ = _q_alle()
-        mitglieder_alle = _q_mitglieder(kat_key, alle_q)
-        sektor = sek_wahl.split(" ", 1)[1] if sek_wahl != sek_opt[0] else None
-        if sektor and not mitglieder_alle:
-            st.warning("Die Firmen-Kategorien sind gerade nicht lesbar – bitte später erneut öffnen.")
-            sektor = None
-        if sektor:
-            werte = {**werte, **{s_: alle_q[s_] for s_ in mitglieder_alle}}
-            im_sektor = [s_ for s_ in mitglieder_alle if BR.sektor(alle_q[s_].get("br")) == sektor]
+                wahl = auswahl_kompakt("Kategorie", titel, default=titel[0], key="q_kategorie")
+                kat_key = keys[titel.index(wahl)] if wahl in titel else keys[0]
+                kat = kats[kat_key]
+                n = _listen_laenge("q")
+                if n > len(kat.get("top") or []):
+                    # Laengere Liste aus den Gesamtdaten - gleiche Sortierung wie der Agent
+                    gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
+                    alle, _ = _q_alle()
+                    g = (gruppen.get("kategorien") or {}).get(kat_key) or {}
+                    if alle and (kat_key == "alle" or g.get("s")):
+                        mitglieder = list(alle) if kat_key == "alle" else [s_ for s_ in g["s"] if s_ in alle]
+                        werte = {**werte, **{s_: alle[s_] for s_ in mitglieder}}
 
-            def rang_sek(liste):
-                return sorted(liste, key=lambda s_: (-werte[s_]["gesamt"], -(werte[s_]["b_ant"] or 0)))[:n]
+                        def rang_k(liste):
+                            return sorted(liste, key=lambda s_: (-werte[s_]["gesamt"], -(werte[s_]["b_ant"] or 0)))[:n]
 
-            kat = dict(kat, top=rang_sek(im_sektor), bewertet=len(im_sektor), universum=len(mitglieder_alle),
-                       je_klasse={kl: rang_sek([s_ for s_ in im_sektor if werte[s_]["klasse"] == kl])
-                                  for kl in Q_KLASSEN},
-                       klassen={kl: sum(1 for s_ in im_sektor if werte[s_]["klasse"] == kl) for kl in Q_KLASSEN})
+                        kat = dict(kat, top=rang_k(mitglieder),
+                                   je_klasse={kl: rang_k([s_ for s_ in mitglieder if werte[s_]["klasse"] == kl])
+                                              for kl in Q_KLASSEN})
+                else:
+                    kat = dict(kat, top=kat["top"][:n], je_klasse={k: v[:n] for k, v in kat["je_klasse"].items()})
+            # Firmen-Kategorie (Sektor, aus der Yahoo-Branche): Rangliste aus allen Aktien der Auswahl
+            sek_opt = ["Alle Sektoren"] + [f"{BR.SEKTOR_ICON[x]} {x}" for x in BR.SEKTOREN + ["Sonstige"]]
+            sek_wahl = auswahl_kompakt("Firmen-Kategorie (Sektor)", sek_opt, default=sek_opt[0], key="q_sektor") or sek_opt[0]
+            alle_q, _ = _q_alle()
+            mitglieder_alle = _q_mitglieder(kat_key, alle_q)
+            sektor = sek_wahl.split(" ", 1)[1] if sek_wahl != sek_opt[0] else None
+            if sektor and not mitglieder_alle:
+                st.warning("Die Firmen-Kategorien sind gerade nicht lesbar – bitte später erneut öffnen.")
+                sektor = None
+            if sektor:
+                werte = {**werte, **{s_: alle_q[s_] for s_ in mitglieder_alle}}
+                im_sektor = [s_ for s_ in mitglieder_alle if BR.sektor(alle_q[s_].get("br")) == sektor]
+
+                def rang_sek(liste):
+                    return sorted(liste, key=lambda s_: (-werte[s_]["gesamt"], -(werte[s_]["b_ant"] or 0)))[:n]
+
+                kat = dict(kat, top=rang_sek(im_sektor), bewertet=len(im_sektor), universum=len(mitglieder_alle),
+                           je_klasse={kl: rang_sek([s_ for s_ in im_sektor if werte[s_]["klasse"] == kl])
+                                      for kl in Q_KLASSEN},
+                           klassen={kl: sum(1 for s_ in im_sektor if werte[s_]["klasse"] == kl) for kl in Q_KLASSEN})
+            a_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="q_klasse") or ansichten[0]
         if mitglieder_alle:
             with st.expander("🏷️ Firmen-Kategorien im Überblick"):
                 _q_sektoren_tabelle(alle_q, mitglieder_alle)
-        a_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="q_klasse") or ansichten[0]
         if a_wahl == ansichten[0]:
             symbole, liste_key = kat["top"], f"{kat_key}|top"
         else:

@@ -1105,6 +1105,12 @@ ABF_CSS = """<style>
 .st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"],
 .st-key-abf_form [data-testid="stSelectbox"] > div:has([data-testid="stTooltipIcon"]):not(:has([data-baseweb="select"])) {
     outline: none !important; background: transparent !important; box-shadow: none !important; border: none !important; }
+.abf-oben { border: 1px solid rgba(91,155,255,.45); border-radius: 14px; padding: 10px 14px; margin: 4px 0 10px;
+  background: linear-gradient(135deg, rgba(91,155,255,.16), rgba(91,155,255,.04)); }
+.abf-oben-l { font-size: .7rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
+.abf-oben-w { font-size: 1.3rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
+.abf-oben-s { font-size: .8rem; color: #BFD0E6; }
+[data-testid="stMetricLabel"] p { overflow-wrap: normal !important; word-break: normal !important; hyphens: auto; }
 .abf-ergebnis-kopf { margin: 22px 0 10px; padding: 10px 14px; border-radius: 12px; font-size: 1.1rem;
                      font-weight: 800; color: #fff; background: linear-gradient(90deg, rgba(22,199,132,.22), transparent);
                      border-left: 4px solid #16C784; }

@@ -1598,7 +1598,9 @@ def _monatsbilanz_anzeigen(platz, m, R):
     s_ = b["saldo"]
     zeilen.append(z("= Monatsbilanz Depot", f'{"+" if s_ >= 0 else "−"}{_de(abs(s_))} €',
                     "pl-gut" if s_ >= 0 else "pl-schlecht", fett=True))
-    hinweis = ("Depot wächst" if s_ > 0 else "Depot schrumpft") + " – Stand am Start, die Gewinne steigen bzw. sinken mit dem Kapital."
+    hinweis = ("Depot wächst" if s_ > 0 else "Depot schrumpft" if s_ < 0 else "Noch keine Beträge eingetragen") + \
+        (" – Stand am Start, die Gewinne steigen bzw. sinken mit dem Kapital." if s_ else
+         " – Startkapital oder Sparrate eintragen.")
     extra = []
     if b["entnahme_spaeter"]:
         extra.append(f"Entnahme {_de(b['entnahme_spaeter'])} €/Monat beginnt erst nach dem Aufbau.")
@@ -1628,7 +1630,7 @@ def _monatsbilanz_anzeigen(platz, m, R):
     with platz.container():
         st.markdown('<div class="pl-zeile" style="margin:6px 0 2px"><b>Kapital & Monatsbilanz</b></div>'
                     f'<table style="width:100%;border-collapse:collapse;font-size:.92rem">{"".join(zeilen)}</table>'
-                    f'<div class="pl-zeile" style="margin-top:4px"><b class="{"pl-gut" if s_ >= 0 else "pl-schlecht"}">'
+                    f'<div class="pl-zeile" style="margin-top:4px"><b class="{"pl-gut" if s_ > 0 else "pl-schlecht" if s_ < 0 else ""}">'
                     f'{_esc(hinweis)}</b></div>' + stufen_html, unsafe_allow_html=True)
         if extra:
             with st.expander(("⚠️ " if any("⚠" in t for t in extra) else "ℹ️ ") + "Hinweise zur Monatsbilanz",
@@ -2272,7 +2274,7 @@ def _gewichtswarnung(platz, m, leer_zeigen=True):
                 _neu_zeichnen()
                 st.rerun()
         return
-    if abs(summe - 100.0) > 0.05:
+    if abs(summe - 100.0) > 0.05 and E.aktive_assets(m):   # ohne Bausteine keine Warnung (neuer Plan)
         with platz.container():
             c1, c2 = st.columns([1.5, 1] if _smartphone() else [3, 1], vertical_alignment="center")
             c1.warning(f"Portfolio = {_de(summe, 1)} % – die Rechnung skaliert auf 100 %.")
