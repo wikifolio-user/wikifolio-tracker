@@ -4,6 +4,7 @@ Getrennt vom echten Depot ("Depot verwalten"): Suche nach Name/WKN/ISIN, Tabelle
 Schnelleingabe mehrerer Zeilen, CSV/Excel-Import, Sparplan und Entnahme. Kurse kommen immer aus der
 Kursquelle (ls-tc.de), nie aus der Eingabe."""
 import datetime
+import html
 import io
 import logging
 
@@ -25,6 +26,8 @@ CSS = """
 @media (max-width: 760px) { .ad-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }
 .ad-hinweis { border:1px dashed #5B9BFF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#BFD6FF;
   background:rgba(91,155,255,.08); font-size:.85rem; }
+.ad-weg { border-left:3px solid #f4c67b; padding:6px 10px; border-radius:8px; background:rgba(244,198,123,.08);
+  font-size:.88rem; }
 .ad-pos { color:#4ade80; } .ad-neg { color:#f87171; }
 </style>
 """
@@ -57,6 +60,7 @@ def _depot(h):
 
 
 def _speichern(h, depot, meldung):
+    st.session_state.pop(P + "rueckgaengig", None)       # jede neue Aenderung beendet "Rückgängig"
     depot = A.bereinigen(depot)
     depot["stand"] = datetime.datetime.now().isoformat(timespec="minutes")
     st.session_state[P + "depot"] = depot
@@ -107,7 +111,8 @@ def _hinzufuegen(h, depot):
     s = st.session_state
     _titel("➕ Wert hinzufügen")
     with st.form(P + "suche_form", border=False):
-        c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+        c1, c2 = ([st.container()] * 2 if B._smartphone()
+                  else st.columns([4, 1], vertical_alignment="bottom"))
         q = c1.text_input("Name, WKN oder ISIN", key=P + "q", placeholder="z. B. MSCI World, A0RPWH, Siemens")
         if c2.form_submit_button("🔍 Suchen", width="stretch") and q.strip():
             s[P + "treffer"] = (h["suche_instrument"](q.strip()) or [])[:10]
@@ -151,6 +156,7 @@ def _hinzufuegen(h, depot):
 def _tabelle(h, depot):
     s = st.session_state
     _titel(f"📋 Positionen ({len(depot['positionen'])})")
+    _rueckgaengig(h)
     if not depot["positionen"]:
         st.caption("Noch keine Positionen – oben suchen, unten mehrere Zeilen auf einmal eingeben oder eine Datei "
                    "importieren.")
@@ -169,16 +175,18 @@ def _tabelle(h, depot):
             ("Positionen", f'{len(depot["positionen"])}' + (f' <span style="font-size:.75rem;color:#f4c67b">'
                                                           f'({ohne} ohne Kurs)</span>' if ohne else ""))))
         + "</div>", unsafe_allow_html=True)
-    df = pd.DataFrame([{"Wert": p["name"], "Kennung": p.get("isin") or p.get("wkn") or "",
+    df = pd.DataFrame([{"🗑": False, "Wert": p["name"], "Kennung": p.get("isin") or p.get("wkn") or "",
                         "Klasse": A.ARTEN.get(p.get("art") or "", "automatisch"), "Stück": p["stueck"],
                         "Kaufkurs €": p.get("kaufkurs"),
                         "Kaufdatum": D._datum(p["kaufdatum"]) if p.get("kaufdatum") else None,
                         "Kurs €": kurse[p["id"]], "Wert €": (kurse[p["id"]] or 0) * p["stueck"] or None}
                        for p in depot["positionen"]])
     ed = st.data_editor(
-        df, key=f"{P}tab_{s.get(P + 'ed_nr', 0)}", hide_index=True, width="stretch", num_rows="delete",
+        df, key=f"{P}tab_{s.get(P + 'ed_nr', 0)}", hide_index=True, width="stretch", num_rows="fixed",
         disabled=["Wert", "Kennung", "Kurs €", "Wert €"],
-        column_config={"Wert": st.column_config.TextColumn(pinned=True),
+        column_config={"🗑": st.column_config.CheckboxColumn("🗑", help="Anklicken entfernt den Wert sofort "
+                                                             "(rückgängig machbar)", pinned=True, width="small"),
+                       "Wert": st.column_config.TextColumn(pinned=True),
                        "Klasse": st.column_config.SelectboxColumn(options=list(A.ARTEN.values()), required=True),
                        "Stück": st.column_config.NumberColumn(min_value=0.0, format="%.4f", required=True),
                        "Kaufkurs €": st.column_config.NumberColumn(min_value=0.0, format="%.2f"),
@@ -186,14 +194,18 @@ def _tabelle(h, depot):
                                                                 max_value=datetime.date.today()),
                        "Kurs €": st.column_config.NumberColumn(format="%.2f"),
                        "Wert €": st.column_config.NumberColumn(format="%.2f")})
-    st.caption("Direkt in der Tabelle ändern: Stück, Kaufkurs, Kaufdatum, Klasse. Zeile löschen: links markieren "
-               "und 🗑 drücken. Danach „Änderungen speichern“.")
+    st.caption("🗑 anklicken entfernt einen Wert sofort (mit „Rückgängig“). Stück, Kaufkurs, Kaufdatum und Klasse "
+               "direkt in der Tabelle ändern und danach „Änderungen speichern“.")
     rueck = {v: k for k, v in A.ARTEN.items()}
     neu, fehler = [], []
     ids = [p["id"] for p in depot["positionen"]]
+    weg = []
     for i, zeile in ed.iterrows():
         alt = depot["positionen"][ids.index(depot["positionen"][i]["id"])] if i < len(ids) else None
         if alt is None:
+            continue
+        if bool(zeile["🗑"]):
+            weg.append(alt)
             continue
         kd = zeile["Kaufdatum"]
         p, f = A.position(alt["name"], zeile["Stück"], None if pd.isna(zeile["Kaufkurs €"]) else zeile["Kaufkurs €"],
@@ -204,6 +216,10 @@ def _tabelle(h, depot):
             fehler.append(f)
         else:
             neu.append(p)
+    if weg:                     # Entfernen wirkt sofort; uebrige Aenderungen nur, wenn sie gueltig sind
+        bleibt = neu if not fehler else [p for p in depot["positionen"] if p not in weg]
+        _entfernen(h, depot, bleibt, weg)
+        st.rerun(scope="fragment")
     geaendert = [{k: v for k, v in p.items()} for p in neu] != depot["positionen"]
     for f in fehler:
         st.error(f)
@@ -216,6 +232,29 @@ def _tabelle(h, depot):
         _speichern(h, dict(depot, positionen=neu, sparplan=sp),
                    f"{len(neu)} Positionen gespeichert" + (f", {len(depot['positionen']) - len(neu)} gelöscht"
                                                            if len(neu) < len(depot["positionen"]) else ""))
+        st.rerun(scope="fragment")
+
+
+def _entfernen(h, depot, bleibt, weg):
+    """Positionen entfernen und sofort speichern; der vorherige Stand bleibt fuer "Rückgängig" gemerkt."""
+    ziel = depot["sparplan"].get("ziel")
+    sp = dict(depot["sparplan"], ziel=ziel if ziel in {p["id"] for p in bleibt} else "")
+    namen = ", ".join(p["name"] for p in weg[:3]) + (f" und {len(weg) - 3} weitere" if len(weg) > 3 else "")
+    _speichern(h, dict(depot, positionen=bleibt, sparplan=sp), f"{namen} entfernt")
+    st.session_state[P + "rueckgaengig"] = (A.bereinigen(depot), st.session_state.pop(P + "meldung", ""))
+
+
+def _rueckgaengig(h):
+    """Nach dem Entfernen direkt in der Positionsliste: Meldung + Rueckgaengig (bis zur naechsten Aenderung)."""
+    r = st.session_state.get(P + "rueckgaengig")
+    if not r:
+        return
+    alt, text = r
+    c1, c2 = ([st.container()] * 2 if B._smartphone()
+              else st.columns([4, 1], vertical_alignment="center"))
+    c1.markdown(f'<div class="ad-weg">{html.escape(text)}</div>', unsafe_allow_html=True)
+    if c2.button("↩️ Rückgängig", key=P + "rueck", width="stretch"):
+        _speichern(h, alt, "Entfernen rückgängig gemacht")
         st.rerun(scope="fragment")
 
 
@@ -352,6 +391,7 @@ def seite(h):
         m = st.session_state.pop(P + "meldung", None)
         if m:
             (st.success if m.startswith("✅") else st.info)(m)
+
         for f in st.session_state.pop(P + "fehler", []) or []:
             st.warning(f)
         for teil in (_hinzufuegen, _tabelle, _schnell, _import, _plan):
