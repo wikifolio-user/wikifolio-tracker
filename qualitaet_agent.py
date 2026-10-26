@@ -1267,6 +1267,12 @@ def main():
             if e:
                 ergebnisse[s] = e
 
+    # Kategorien ohne feste Liste: Dividenden-Aktien = alle bewerteten Aktien mit Dividende
+    for key, kat in KATEGORIEN.items():
+        if kat["quelle"] == "alle_dividenden":
+            je_kat[key] = [s_ for s_ in alle if (ergebnisse.get(s_) or {}).get("div") and ergebnisse[s_]["div"] > 0]
+            log.info(f"{kat['titel']}: {len(je_kat[key])} Aktien mit Dividende")
+
     # Ranglisten je Kategorie + "Alle Aktien"
     def rangliste(symbole, n):
         return sorted((s for s in symbole if s in ergebnisse),

@@ -630,5 +630,30 @@ class TestETFSuche(unittest.TestCase):
         self.assertAlmostEqual(p["_jahre"], 10.0, places=0)
 
 
+class TestAusschuettungsRhythmus(unittest.TestCase):
+    def _chart(self, abstand_tage, anzahl, letzte_vor_tagen=10):
+        heute = datetime.date(2026, 10, 23)
+        divs = [(heute - datetime.timedelta(days=letzte_vor_tagen + i * abstand_tage), 0.5) for i in range(anzahl)]
+        return {"reihe": [(heute - datetime.timedelta(days=800), 10.0), (heute, 10.0)], "divs": divs}
+
+    def test_rhythmen(self):
+        self.assertEqual(T.ausschuettungs_rhythmus(self._chart(30, 24)), "monatlich")
+        self.assertEqual(T.ausschuettungs_rhythmus(self._chart(61, 12)), "alle 2 Monate")
+        self.assertEqual(T.ausschuettungs_rhythmus(self._chart(91, 8)), "quartalsweise")
+        self.assertEqual(T.ausschuettungs_rhythmus(self._chart(182, 4)), "halbjährlich")
+        self.assertEqual(T.ausschuettungs_rhythmus(self._chart(365, 2)), "jährlich")
+        self.assertEqual(T.ausschuettungs_rhythmus(self._chart(365, 1)), "jährlich")
+
+    def test_keine_zahlung_im_letzten_jahr(self):
+        self.assertIsNone(T.ausschuettungs_rhythmus(self._chart(91, 4, letzte_vor_tagen=500)))
+        self.assertIsNone(T.ausschuettungs_rhythmus({"reihe": [(datetime.date(2026, 1, 1), 1.0)], "divs": []}))
+        self.assertIsNone(T.ausschuettungs_rhythmus(None))
+
+    def test_dividenden_kategorie_ohne_feste_liste(self):
+        import top50_universum as U
+        self.assertEqual(U.KATEGORIEN["dividenden"]["quelle"], "alle_dividenden")
+        self.assertFalse(hasattr(U, "DIVIDENDEN"))
+
+
 if __name__ == "__main__":
     unittest.main()
