@@ -33,7 +33,7 @@ GRENZEN = {"a": (0.0, 1e10), "s": (0.0, 1e9), "dy": (0.0, 100.0), "z": (-99.0, 1
            "f": (0, 1200), "e": (0.0, 1e12), "st": (0.0, 60.0), "fb": (0.0, 1e6)}
 AUSWAHL = {"ea": ("v", "n"), "dya": ("j", "i"), "ne": ("j", "m"), "fe": ("j", "m"), "zk": ("v", "k")}
 EINHEIT = {1: "Monat", 3: "Quartal", 6: "Halbjahr", 12: "Jahr"}       # Entnahme-Intervall (Feld "ei")
-ZINS_ZEITPUNKT = {"v": "zum Jahrestag (Vertragsjahr ab Startdatum)", "k": "zum Kalenderende (31.12., Bankpraxis)"}
+ZINS_ZEITPUNKT = {"v": "Jahrestag des Starts", "k": "31.12. (Kalenderjahr)"}
 # Zahlenfelder, die bei einem neuen (normalen) Benutzer beim ersten Start auf 0 stehen
 NULL_FELDER = ("a", "s", "dy", "z", "n", "f", "e", "st", "fb")
 # weitere gemerkte Felder ausserhalb von STANDARD (Zielwert, Wachstum bei Entnahme)
@@ -1026,6 +1026,11 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-testid="stNumberInput"],
 .st-key-zr_form [data-testid="stTextInput"],
 .st-key-zr_form [data-testid="stDateInput"] { margin-top: 0 !important; padding-top: 0 !important; }
+.zr-oben { border: 1px solid rgba(91,155,255,.45); border-radius: 14px; padding: 10px 14px; margin: 2px 0 10px;
+  background: linear-gradient(135deg, rgba(91,155,255,.16), rgba(91,155,255,.04)); }
+.zr-oben-l { font-size: .7rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
+.zr-oben-w { font-size: 1.35rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
+.zr-oben-s { font-size: .8rem; color: #BFD0E6; }
 .zr-hilfe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 0.8rem; color: #c3c2b7;
             margin: 0 0 4px; padding: 10px 12px; border-radius: 12px; background: #12151c; border: 1px solid #2c313d; }
 .zr-hilfe span { display: inline-flex; align-items: center; gap: 6px; }
@@ -1051,7 +1056,7 @@ def _phasen_setzen(session_state, feld, liste):
     session_state[f"zr_{feld}_leer"] = not liste          # bewusst leer -> kein Beispiel nachladen
 
 
-def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p, einheit="Monat"):
+def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p, einheit="Monat", zusatz=None):
     """Plan in Phasen (Jahre x Euro pro Monat): je Phase eine Zeile mit zwei Feldern und
     einem eigenen 🗑️-Knopf, dazu „Phase hinzufügen“ und „Alle löschen“. -> Text fuer p[feld]."""
     ss = st.session_state
@@ -1060,6 +1065,8 @@ def _phasen_editor(st, pd, feld, titel, hilfe, beispiel, p, einheit="Monat"):
         ss[f"zr_{feld}"] = ""
         ss.pop(f"zr_{feld}_leer", None)
         return ""
+    if zusatz:                                              # z. B. Entnahme-Intervall direkt unter dem Schalter
+        einheit = zusatz() or einheit
     liste = [(mo / 12, b) for mo, b in phasen(ss.get(f"zr_{feld}"))]
     if not liste and not ss.get(f"zr_{feld}_leer"):
         liste = [(mo / 12, b) for mo, b in phasen(beispiel)]   # beim Einschalten ein Beispiel
@@ -1168,6 +1175,7 @@ def render(basis_url="", gespeichert=None, null=False):
                     unsafe_allow_html=True)
         return k_
 
+    ergebnis_oben = form.container()                     # Kurz-Ergebnis oben (wird nach der Rechnung gefuellt)
     form.markdown('<div class="zr-hilfe"><span><i class="zr-muster"></i>antippen &amp; Wert eintippen</span>'
                   '<span><i class="zr-muster calc"></i>wird berechnet</span>'
                   '<span>⌄ antippen = auswählen</span><span>⚡ Ergebnis sofort</span></div>', unsafe_allow_html=True)
@@ -1220,8 +1228,9 @@ def render(basis_url="", gespeichert=None, null=False):
     k_zins = karte("zins", "📈", "Verzinsung", "Zinssatz, Gutschrift und Steuer")
     c7, c8 = k_zins.columns(2)
     p["z"] = zahl("z", "Zinssatz (% p.a.)", -99.0, 100.0, 0.25, "%.3f", spalte=c7)
-    p["zp"] = c8.selectbox("Zinsgutschrift", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_zp")
-    p["zk"] = k_zins.selectbox("Zinsgutschrift zum", list(ZINS_ZEITPUNKT), format_func=ZINS_ZEITPUNKT.get,
+    p["zp"] = c8.selectbox("Gutschrift", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_zp",
+                           help="Wie oft die Zinsen gutgeschrieben (und beim Zinseszins mitverzinst) werden")
+    p["zk"] = k_zins.selectbox("Gutschrift-Stichtag", list(ZINS_ZEITPUNKT), format_func=ZINS_ZEITPUNKT.get,
                                key="zr_zk", help="Jahrestag: Zinsen jeweils ein volles Jahr nach dem Startdatum, wie "
                                "bei den gängigen Zinsrechnern. Kalenderende: Gutschrift zum 31.12. wie bei vielen "
                                "Banken – bei Start im laufenden Jahr gibt es dann ein kürzeres erstes Zinsjahr. "
@@ -1264,20 +1273,20 @@ def render(basis_url="", gespeichert=None, null=False):
         p["sp"] = _phasen_editor(st, pd, "sp", "📥 Sparplan in Phasen (statt fester Sparrate)",
                                  "Z. B. 2 Jahre 200 €/Monat, danach 3 Jahre 500 €/Monat – ersetzt Sparrate, Intervall "
                                  "und Dynamik. Die Laufzeit reicht mindestens bis zum Ende des Plans.", "2x200,3x500", p)
-        ep_an = bool(st.session_state.get("zr_ep_an", bool(st.session_state.get("zr_ep"))))
-        if ep_an:
-            p["ei"] = st.selectbox("Entnahme", list(INTERVALLE), key="zr_ei",
+        def intervall():
+            p["ei"] = st.selectbox("Wie oft entnehmen?", list(INTERVALLE), key="zr_ei",
                                    format_func=lambda x: {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich",
                                                           12: "jährlich (ein größerer Betrag pro Jahr)"}[x],
-                                   help="Wie oft entnommen wird. Zeitpunkt immer ab dem Startdatum: vorschüssig am "
-                                        "Anfang des Zeitraums (z. B. jährlich jeweils am Jahrestag des Starts), "
-                                        "nachschüssig am Ende – unabhängig vom 31.12.")
-        einheit = EINHEIT.get(int(p.get("ei") or 1), "Monat")
-        p["ep"] = _phasen_editor(st, pd, "ep", f"📤 Entnahmeplan ({INTERVALLE[int(p.get('ei') or 1)]}e Entnahme "
-                                 "in Phasen)" if ep_an else "📤 Entnahmeplan (Entnahmen in Phasen)",
-                                 f"Z. B. im 1. Jahr 1.000 € pro {einheit}, die nächsten 3 Jahre 500 € pro {einheit}, "
-                                 "danach nichts. Entnommen wird ab dem Startdatum – vorschüssig am Anfang, "
-                                 "nachschüssig am Ende jedes Zeitraums.", "1x1000,3x500", p, einheit)
+                                   help="Zeitpunkt immer ab dem Startdatum: vorschüssig am Anfang des Zeitraums "
+                                        "(jährlich = jeweils am Jahrestag des Starts), nachschüssig am Ende – "
+                                        "unabhängig vom 31.12.")
+            return EINHEIT.get(int(p["ei"]), "Monat")
+        p["ep"] = _phasen_editor(st, pd, "ep", "📤 Entnahmeplan (Entnahmen in Phasen)",
+                                 "Z. B. im 1. Jahr 1.000 €, die nächsten 3 Jahre 500 € je Monat oder Jahr, danach "
+                                 "nichts. Entnommen wird ab dem Startdatum – vorschüssig am Anfang, nachschüssig am "
+                                 "Ende jedes Zeitraums.", "1x1000,3x500", p, zusatz=intervall)
+        if not p["ep"]:
+            p["ei"] = 1
     if p["sp"] and calc in ("s", "dy"):
         st.warning("Mit Sparplan in Phasen lassen sich Sparrate/Dynamik nicht berechnen – bitte Plan ausschalten "
                    "oder eine andere Größe berechnen.")
@@ -1300,6 +1309,21 @@ def render(basis_url="", gespeichert=None, null=False):
     else:
         st.session_state["zr_e"] = round(r["end"], 2)     # Vorbelegung, falls danach etwas anderes berechnet wird
 
+    leer = (r["einzahlungen"] <= 0 and not r.get("entnommen")) or r["monate"] <= 0
+    if leer:
+        ergebnis_oben.info("👋 So geht's: Anfangskapital oder Sparrate, Zinssatz und Ansparzeit eintragen – das "
+                           "Ergebnis erscheint sofort hier oben und ausführlich ganz unten.")
+    else:
+        haupt = (f"Endkapital {_de(r['end'])} €" if calc == "e" else
+                 f"{ZIEL_FELDER[calc]}: " + (_laufzeit_text(_monate(q["n"], q["ne"])) if calc == "n" else
+                                            f"{_de(float(q[calc]), 3)} %" if calc in ("z", "dy") else
+                                            f"{_de(float(q[calc]))} €"))
+        ergebnis_oben.markdown(
+            f'<div class="zr-oben"><div class="zr-oben-l">Ergebnis</div><div class="zr-oben-w">{haupt}</div>'
+            f'<div class="zr-oben-s">Eingezahlt {_de(r["einzahlungen"])} € · Zinsen {_de(r["zinsen"])} €'
+            + (f' · Entnahmen {_de(r["entnommen"])} €' if r.get("entnommen") else "")
+            + (f' · Endkapital {_de(r["end"])} €' if calc != "e" else "") + ' · Details unten ↓</div></div>',
+            unsafe_allow_html=True)
     st.markdown(_kopf("📊", "Ergebnis"), unsafe_allow_html=True)
     if calc == "e":
         st.metric("Endkapital inkl. Zinsen", f"{_de(r['end'])} €")
@@ -1339,16 +1363,19 @@ def render(basis_url="", gespeichert=None, null=False):
         analyse = entnahme_analyse(q, r, wg)
         st.markdown(analyse_html(analyse), unsafe_allow_html=True)
 
-    try:
-        st.plotly_chart(chart(q, r), width="stretch", config={"displayModeBar": False}, key="zr_chart")
-    except Exception as ex:
-        st.caption(f"Chart nicht verfügbar: {ex}")
-
-    za = zeitachse(q, r)
-    st.markdown(_kopf("📅", "Entwicklung", "Jahr für Jahr ab dem Startdatum · Zinsgutschrift "
-                      + ZINS_ZEITPUNKT.get(q.get("zk", "v"), "").split(" (")[0]), unsafe_allow_html=True)
-    st.markdown('<div tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)" style="overflow-x:auto">'
-                + tabelle_html(za, r) + '</div>', unsafe_allow_html=True)
+    if leer:
+        st.caption("Noch keine Werte – Diagramm und Jahrestabelle erscheinen, sobald Kapital oder Sparrate und eine "
+                   "Ansparzeit eingetragen sind.")
+    else:
+        try:
+            st.plotly_chart(chart(q, r), width="stretch", config={"displayModeBar": False}, key="zr_chart")
+        except Exception as ex:
+            st.caption(f"Chart nicht verfügbar: {ex}")
+        za = zeitachse(q, r)
+        st.markdown(_kopf("📅", "Entwicklung", "Jahr für Jahr ab dem Startdatum · Zinsgutschrift zum "
+                          + ZINS_ZEITPUNKT.get(q.get("zk", "v"), "")), unsafe_allow_html=True)
+        st.markdown('<div tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)" style="overflow-x:auto">'
+                    + tabelle_html(za, r) + '</div>', unsafe_allow_html=True)
 
     # Permanentlink: Browser-Adresse zeigt immer die aktuelle Variante
     params = in_url(q)
