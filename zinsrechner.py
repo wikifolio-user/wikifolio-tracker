@@ -876,7 +876,7 @@ def tabelle_html(za, r):
         return f"<tr>{td}</tr>"
 
     for nr, z in enumerate(zeilen_j, 1):
-        jahr = (f'{nr}<div style="font-size:.85em;color:{FARBEN["text2"]};line-height:1.1">'
+        jahr = (f'{nr}<div style="font-size:max(.85em, .75rem);color:{FARBEN["text2"]};line-height:1.1">'
                 f'{z["datum"].strftime("%d.%m.%Y")}</div>')
         zellen = [jahr, _de(beginn)] + ([_de(z["ein"])] if mit_ein else []) + \
                  (["−" + _de(z["ent"]) if z.get("ent") else _de(0)] if mit_ent else []) + \

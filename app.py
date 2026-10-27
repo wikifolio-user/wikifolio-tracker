@@ -734,7 +734,7 @@ def kennzahl_kacheln_html(zeilen, nk=2):
     for label, betrag, pct in zeilen:
         klasse, pfeil = _richtung_html(betrag, nk)
         teile.append(f'<div class="kz {klasse}"><div class="kz-l">{html.escape(label)}</div>'
-                     f'<div class="kz-e"><span aria-hidden="true">{pfeil}</span> {FMT.eur(betrag, nk, vz=True)}</div>'
+                     f'<div class="kz-e"><span aria-hidden="true">{pfeil}</span> <span class="kz-n">{FMT.eur(betrag, nk, vz=True)}</span></div>'
                      f'<div class="kz-p">{FMT.pct(pct, 2, vz=True)}</div></div>')
     return f'<div class="kz-grid">{"".join(teile)}</div>'
 

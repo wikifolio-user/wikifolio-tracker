@@ -741,9 +741,10 @@ CSS_BASIS = """
         .pt-stark { font-size: 0.95rem; }
         .pt td, .pt thead th { padding: 10px 8px; }
         .pt-wrap { overflow-x: visible; }
-        /* Tabellen ohne Fokus-Spalte (z. B. "Qualität × Kurs") sind breiter als das Handy - sie scrollen
+        /* Tabellen ohne Fokus-Umschalter (z. B. "Qualität × Kurs", Wochenveraenderung) koennen breiter als das
+           Handy sein - sie scrollen
            in ihrem Rahmen, sonst verschiebt sich die ganze Seite seitlich (UX 10/2026) */
-        .pt-wrap:has(> table.pt-kompakt) { overflow-x: auto; }
+        .pt-wrap:not(:has(> table[class*="pt-fokus-"])) { overflow-x: auto; }
     }
 
     /* ---------- ALLGEMEINE LADEANZEIGE (jede Ansicht) ----------
@@ -1373,7 +1374,10 @@ CSS_RESPONSIV = """
 
     /* --- Touch: "Kurse aktualisieren" auf der Startseite mind. 44 px (gemessen: 34 px auf iPad/quer) */
     @media (pointer: coarse) {
-        .st-key-nav_menue .st-key-nav_refresh button { min-height: 44px !important; }
+        html body .st-key-nav_menue .st-key-nav_refresh button { min-height: 44px !important; }
+        /* "?" an Beschriftungen ohne Feld (st.caption(help=...)) - gleiche 44-px-Flaeche wie an Feldern */
+        button[aria-label="Help"] { position: relative; }
+        button[aria-label="Help"]::before { content: ""; position: absolute; inset: -14px -14px; }
         /* Mehrfachauswahl: das "x" zum Entfernen eines gewaehlten Werts war 16 x 8 px */
         [data-testid="stMultiSelect"] [data-baseweb="tag"] { min-height: 32px; }
         [data-testid="stMultiSelect"] [data-baseweb="tag"] [role="presentation"],
@@ -1423,8 +1427,11 @@ CSS_RESPONSIV = """
           background: rgba(255, 255, 255, 0.025); }
     .kz-l { font-size: 0.78rem; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.5px; }
     .kz-e, .kz-p { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
-                   font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .kz-e { font-size: 0.92rem; margin-top: 2px; }
+                   font-weight: 700; white-space: nowrap; }
+    /* Betrag waechst/schrumpft mit der Kachelbreite (bei 320 px wurde "+12.066,50 €" abgeschnitten); reicht es
+       trotzdem nicht, bricht er hinter dem Pfeil um statt abgeschnitten zu werden */
+    .kz-e { font-size: clamp(0.78rem, 4.6cqi, 0.92rem); margin-top: 2px; white-space: normal; }
+    .kz-e .kz-n { white-space: nowrap; }
     .kz-p { font-size: 0.85rem; opacity: 0.92; }
     .kz.up .kz-e, .kz.up .kz-p { color: var(--up); }
     .kz.down .kz-e, .kz.down .kz-p { color: var(--down); }
