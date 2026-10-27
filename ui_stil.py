@@ -910,27 +910,10 @@ CSS_BASIS = """
     /* Titel in der Kopfzeile senkrecht mittig (wie links), auch wenn der Block gestreckt wird */
     .st-key-depot_kopf_links [data-testid="stMarkdownContainer"],
     .st-key-depot_kopf_rechts [data-testid="stMarkdownContainer"] { display: flex; align-items: center; }
-    /* Depot | Kurse nebeneinander: die jeweils letzte Kachel fuellt die Spalte bis unten, beide Spalten
-       enden auf derselben Hoehe (die Fusszeile rutscht ans Kachelende) */
+    /* Depot | Kurse nebeneinander: beide Spalten oben buendig, jede so hoch wie ihr Inhalt (UX 10/2026: das
+       Strecken der Kurskachel auf die Hoehe der Depot-Spalte liess eine grosse leere Flaeche) */
     @media (min-width: 820px) {
-        .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
-        /* Spalte -> (Fragment-Huelle) -> letztes Element waechst bis zum Spaltenende */
-        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"],
-        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"]
-            > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] { height: 100%; }
-        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > :last-child,
-        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"]
-            > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] > :last-child {
-            flex: 1 1 auto; }
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child > [data-testid="stMarkdown"],
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child > [data-testid="stMarkdown"] > div,
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child [data-testid="stMarkdownContainer"] {
-            height: 100%; margin: 0 !important; }
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child :is(.hero, .quote) {
-            height: 100%; margin-top: 0 !important; margin-bottom: 0 !important; box-sizing: border-box;
-            display: flex; flex-direction: column; }
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child :is(.hero, .quote) .card-footnote {
-            margin-top: auto; }
+        .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"] { align-items: flex-start !important; }
     }
     /* Depot | Kurse: nebeneinander erst ab 820 px, darunter untereinander */
     @media (max-width: 819px) {
@@ -1397,6 +1380,46 @@ CSS_RESPONSIV = """
         /* Code-Feld "Kopieren" (Zinsrechner) */
         [data-testid="stCode"] button { min-width: 44px !important; min-height: 44px !important; }
     }
+
+    /* --- Unsichtbare Bausteine (reine <style>-Bloecke, 0-px-Skript-Rahmen) belegten je einen Block-Abstand:
+       oben in jeder Ansicht ~45 px Leerraum (am Handy quer ein Achtel der Hoehe). Abstand zuruecknehmen. */
+    [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:first-child:last-child),
+    [data-testid="stElementContainer"]:has(> iframe[height="0"]) { margin-bottom: -0.7rem; }
+
+    /* --- DEPOT-KACHELN: Wert, Gewinn/Verlust, Kennzahl-Kacheln, weitere Zeitraeume (app.depot_kachel_html) --- */
+    .hero, .quote { container-type: inline-size; }
+    .gv { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 6px;
+          font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .gv .gv-eur { font-size: 1.05rem; font-weight: 700; }
+    .gv .gv-pct { font-size: 0.98rem; font-weight: 700; }
+    .gv .gv-text { font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 0.82rem; font-weight: 500;
+                   color: var(--label); }
+    .gv.up .gv-eur, .gv.up .gv-pct, .gv.up .gv-pfeil { color: var(--up); }
+    .gv.down .gv-eur, .gv.down .gv-pct, .gv.down .gv-pfeil { color: var(--down); }
+    .gv.flat .gv-eur, .gv.flat .gv-pct, .gv.flat .gv-pfeil { color: var(--label); }
+    .kz-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    @container (min-width: 520px) { .kz-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    .kz { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; min-width: 0;
+          background: rgba(255, 255, 255, 0.025); }
+    .kz-l { font-size: 0.78rem; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.5px; }
+    .kz-e, .kz-p { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+                   font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .kz-e { font-size: 0.92rem; margin-top: 2px; }
+    .kz-p { font-size: 0.85rem; opacity: 0.92; }
+    .kz.up .kz-e, .kz.up .kz-p { color: var(--up); }
+    .kz.down .kz-e, .kz.down .kz-p { color: var(--down); }
+    .kz.flat .kz-e, .kz.flat .kz-p { color: var(--label); }
+    details.mehr { margin-top: 10px; }
+    details.mehr > summary { cursor: pointer; list-style: none; font-size: 0.85rem; font-weight: 600;
+                             color: var(--label); padding: 10px 2px; min-height: 44px; box-sizing: border-box;
+                             display: flex; align-items: center; gap: 8px; }
+    details.mehr > summary::-webkit-details-marker { display: none; }
+    details.mehr > summary::before { content: "▸"; transition: transform .15s ease; }
+    details.mehr[open] > summary::before { transform: rotate(90deg); }
+    details.mehr .perf-table { margin-top: 0; }
+    .abschnitt.klein { font-size: 0.76rem; opacity: 0.85; margin-top: 10px !important; }
+    .hero.kurz { margin-bottom: 8px; }
+    .kurz-stand { font-weight: 500; letter-spacing: 0.3px; text-transform: none; color: var(--label); margin-left: 6px; }
 
     /* --- Titel in der Kopfleiste: ganze Woerter, nie "Vermögensaufba / u" (Umbruch mitten im Wort bei 320 px) */
     .nav-titel { overflow-wrap: normal !important; word-break: normal !important; hyphens: auto; }

@@ -691,6 +691,89 @@ def gesamt_perioden_berechnen(beitraege, labels):
     return erg
 
 
+# --- DEPOT-KACHELN (UX 10/2026) ---
+# Oben steht, was zaehlt: Wert und Gewinn/Verlust seit Kauf (EUR und %). Darunter vier Kennzahl-Kacheln
+# Tag / Woche / Monat / Jahr, die uebrigen Zeitraeume (3/6/9 Monate, lfd. Jahr, Vortag, Hoechststand) sind
+# aufklappbar. Gewinn/Verlust nie nur ueber Farbe: immer Pfeil UND Vorzeichen.
+KERN_ZEITRAEUME = ("Tag", "Woche", "Monat", "Jahr")
+ALLE_ZEITRAEUME = ("Tag", "Woche", "Monat", "3 Monate", "6 Monate", "9 Monate", "Lfd. Jahr", "Jahr")
+
+
+def zeitraeume_teilen(zeilen):
+    """[(label, betrag, pct)] -> (kern, rest). Kern: Tag, Woche, Monat, Jahr - fehlt das Jahr, vertritt es
+    die Zeile "seit TT.MM.JJJJ" (junge Produkte). "seit Kauf" steht in der Kopfzeile der Kachel."""
+    kern, rest = [], []
+    for z in zeilen:
+        lbl = z[0].rstrip("*")
+        if lbl == "seit Kauf":
+            continue
+        (kern if lbl in KERN_ZEITRAEUME or lbl.startswith("seit ") else rest).append(z)
+    return kern, rest
+
+
+def _richtung_html(betrag, nk):
+    r = FMT.richtung(betrag, nk)
+    return {"up": "up", "down": "down"}.get(r, "flat"), FMT.PFEIL[r]
+
+
+def gv_zeile_html(betrag, pct, text="seit Kauf", nk=2):
+    """Gewinn/Verlust-Zeile unter dem Wert: '▲ +21.592,90 € · +49,07 % seit Kauf'."""
+    klasse, pfeil = _richtung_html(betrag, nk)
+    return (f'<div class="gv {klasse}"><span class="gv-pfeil" aria-hidden="true">{pfeil}</span>'
+            f'<span class="gv-eur">{FMT.eur(betrag, nk, vz=True)}</span>'
+            f'<span class="gv-pct">{FMT.pct(pct, 2, vz=True)}</span>'
+            f'<span class="gv-text">{html.escape(text)}</span></div>')
+
+
+def kennzahl_kacheln_html(zeilen, nk=2):
+    """Kennzahl-Kacheln je Zeitraum: Beschriftung, Betrag mit Pfeil, Prozent. Das Raster richtet sich nach
+    der Kachelbreite (2 je Zeile, ab ~520 px Kachelbreite 4) - per Container-Abfrage, siehe ui_stil."""
+    if not zeilen:
+        return ""
+    teile = []
+    for label, betrag, pct in zeilen:
+        klasse, pfeil = _richtung_html(betrag, nk)
+        teile.append(f'<div class="kz {klasse}"><div class="kz-l">{html.escape(label)}</div>'
+                     f'<div class="kz-e"><span aria-hidden="true">{pfeil}</span> {FMT.eur(betrag, nk, vz=True)}</div>'
+                     f'<div class="kz-p">{FMT.pct(pct, 2, vz=True)}</div></div>')
+    return f'<div class="kz-grid">{"".join(teile)}</div>'
+
+
+def zeitraum_zeilen_html(zeilen, nk=2, kopfzeile=None, fusszeile=""):
+    """Weitere Zeitraeume als ruhige Zeilen (Beschriftung | Betrag | Prozent). kopfzeile: neutrale
+    Referenzzeile (label, wert_html), z. B. der Vortageskurs; fusszeile: fertiges Zeilen-HTML."""
+    h = ""
+    if kopfzeile:
+        h += (f'<div class="perf-row"><span class="perf-label">{html.escape(kopfzeile[0])}</span>'
+              f'<span class="perf-vals"><span class="neutral">{kopfzeile[1]}</span></span></div>')
+    for label, betrag, pct in zeilen:
+        klasse, pfeil = _richtung_html(betrag, nk)
+        h += (f'<div class="perf-row"><span class="perf-label">{html.escape(label)}</span>'
+              f'<span class="perf-vals"><span class="{klasse}">{pfeil} {FMT.eur(betrag, nk, vz=True)}</span>'
+              f'<span class="{klasse}">{FMT.pct(pct, 2, vz=True)}</span></span></div>')
+    h += fusszeile
+    return f'<div class="perf-table">{h}</div>' if h else ""
+
+
+def depot_kachel_html(titel, wert, chips="", gv=None, zeilen=(), nk=2, kopfzeile=None, fusszeile="",
+                      fussnote="", klasse="hero", wert_klasse="hero-val", titel_klasse="hero-label"):
+    """Eine Kachel fuer Depot, Position oder Kurs.
+    wert: fertiger Text (z. B. FMT.eur(...)); gv: (betrag, pct[, text]) fuer die Gewinn/Verlust-Zeile;
+    zeilen: [(label, betrag, pct)] - Tag/Woche/Monat/Jahr als Kacheln, der Rest aufklappbar."""
+    kern, rest = zeitraeume_teilen(zeilen)
+    mehr = zeitraum_zeilen_html(rest, nk, kopfzeile, fusszeile)
+    anzahl = len(rest) + (1 if kopfzeile else 0) + (1 if fusszeile else 0)
+    return (f'<div class="{klasse}">'
+            f'<div class="{titel_klasse}">{titel}</div>'
+            f'<div class="price-line"><span class="{wert_klasse}">{wert}</span>{chips}</div>'
+            + (gv_zeile_html(*gv, nk=nk) if gv else "")
+            + kennzahl_kacheln_html(kern, nk)
+            + (f'<details class="mehr"><summary>Weitere Zeiträume ({anzahl})</summary>{mehr}</details>'
+               if mehr else "")
+            + (f'<div class="card-footnote">{fussnote}</div>' if fussnote else "")
+            + '</div>')
+
+
 def haenge_live_punkt_an(df, heute, kurs):
     """Live-Kurs als Punkt fuer HEUTE (Audit DEP-10): gibt es die Zeile schon, wird sie
     aktualisiert, sonst wird der Index um heute verlaengert - statt den gestrigen
@@ -1809,27 +1892,6 @@ def auswahl_kompakt(label, optionen, default=None, key=None, max_pills=6, **kw):
     return st.selectbox(label, optionen, index=idx, key=key, **kw)
 
 
-def tab_label(name, wkn="", max_len=16):
-    """Kuerzt Tab-Beschriftungen lesbar statt hart mitten im Wort.
-
-    - Klammerzusaetze entfallen (die WKN steht ohnehin in der Kachel)
-    - gekuerzt wird an der letzten Wortgrenze, mit Auslassungszeichen
-    - passt der Name gar nicht, wird die WKN genommen: kurz und eindeutig
-    """
-    text = re.sub(r"\s*\([^)]*\)?\s*$", "", (name or "").strip())
-    if not text:
-        return wkn or "?"
-    if len(text) <= max_len:
-        return text
-    gekuerzt = text[:max_len].rsplit(" ", 1)[0].rstrip(" ,-·")
-    # Wuerde der Wortschnitt zu viel wegnehmen (z.B. "MSCI Semiconductors" ->
-    # nur noch "MSCI"), lieber hart auf volle Laenge kuerzen: mehr Kontext als
-    # ein einzelnes Kuerzel, und immer noch besser als die WKN.
-    if len(gekuerzt) < max_len * 0.6:
-        gekuerzt = text[:max_len - 1].rstrip(" ,-·")
-    return gekuerzt + "…"
-
-
 def erstelle_ladeanzeige(platzhalter, phasen):
     """Eine EINZIGE, durchlaufende Ladeanzeige fuer den gesamten Seitenaufbau.
 
@@ -2236,6 +2298,40 @@ def _nutzer():
     return st.session_state.get("_nutzer")
 
 
+@st.cache_resource
+def _depot_kurzinfo_speicher():
+    """Je Benutzer die zuletzt in der Depot-Ansicht berechnete Summe - nur im Speicher des App-Prozesses.
+    Die Startseite zeigt sie an, ohne selbst Kurse abzurufen ("Nie die Daten direkt beim Login laden")."""
+    return {}
+
+
+def depot_kurzinfo_merken(info):
+    _depot_kurzinfo_speicher()[st.session_state.get("login_name") or "_"] = info
+
+
+def depot_kurzinfo_karte(jetzt):
+    """Kleine Depot-Karte ueber dem Menue: Gesamtwert, Gewinn/Verlust seit Kauf, Tag - aus dem Speicher.
+    Gibt es noch keinen Stand (erste Anmeldung seit dem Start der App), steht dort nur der Weg ins Depot."""
+    if not _sichtbar(ANSICHT_DEPOT):
+        return
+    info = _depot_kurzinfo_speicher().get(st.session_state.get("login_name") or "_")
+    with st.container(key="depot_kurz"):
+        if info:
+            tag = info.get("tag")
+            zeit = info.get("zeit")
+            stand = (zeit.strftime("%H:%M") if zeit and zeit.date() == jetzt.date()
+                     else zeit.strftime("%d.%m. %H:%M") if zeit else "")
+            st.markdown(
+                '<div class="hero gesamt kurz"><div class="hero-label">Depot gesamt'
+                + (f' <span class="kurz-stand">Stand {stand}&nbsp;Uhr</span>' if stand else '') + '</div>'
+                f'<div class="price-line"><span class="hero-val">{FMT.eur(info["wert"], 2)}</span></div>'
+                + gv_zeile_html(info["gv"], info["gv_pct"])
+                + (gv_zeile_html(tag[0], tag[1], text="heute") if tag else '')
+                + '</div>', unsafe_allow_html=True)
+        st.button("🏠 Zum Depot" if info else "🏠 Depot öffnen", key="nav_depot_kurz", width="stretch",
+                  on_click=_nav_waehle, args=(ANSICHT_DEPOT,))
+
+
 def _sichtbar(ansicht):
     """Darf der angemeldete Benutzer diese Ansicht sehen? Die Benutzerverwaltung
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
@@ -2396,6 +2492,7 @@ def navigation():
                       width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
             _kurslauf_fortschritt(stx)
             kursstand_details(stx, jetzt)
+            depot_kurzinfo_karte(jetzt)
             if _nutzer():
                 # klein, fest oben rechts in der Ecke
                 st.markdown("""<style>
@@ -5230,34 +5327,12 @@ def render_dashboard():
     # denselben Einstand (Audit DEP-01) - Euro und Prozent passen so zusammen.
     periods_depot.append(("seit Kauf", gewinn_real, rendite_real_pct))
 
-    def perf_zeilen_html(zeilen, nachkomma, kopfzeile=None, fusszeile=""):
-        """Rendert die Zeitraum-Zeilen INNERHALB einer Kachel: hairline-getrennt,
-        Betrag und Prozent rechtsbuendig nebeneinander, eingefaerbt nach Vorzeichen.
-        kopfzeile: optionales (label, wert_html) Tupel fuer eine neutrale
-        Referenzzeile ohne +/- Faerbung (z.B. der Vortageskurs) ganz oben.
-        fusszeile: fertiges Zeilen-HTML, das unten angehaengt wird (z.B. Höchststand)."""
-        html = ""
-        if kopfzeile:
-            k_label, k_wert = kopfzeile
-            html += (
-                f'<div class="perf-row"><span class="perf-label">{_h(k_label)}</span>'
-                f'<span class="perf-vals"><span class="neutral">{k_wert}</span></span></div>'
-            )
-        for label, diff, prozent in zeilen:
-            cls = "up" if round(diff, nachkomma) >= 0 else "down"
-            html += (
-                f'<div class="perf-row"><span class="perf-label">{_h(label)}</span>'
-                f'<span class="perf-vals">'
-                f'<span class="{cls}">{vz_zahl(diff, nachkomma)} €</span>'
-                f'<span class="{cls}">{vz_zahl(prozent, 2)} %</span>'
-                f'</span></div>'
-            )
-        html += fusszeile
-        return f'<div class="perf-table">{html}</div>' if html else ""
-
     # Positionsliste einmalig laden - wird sowohl von der Verwaltung unten
     # als auch von den Positionskacheln weiter unten genutzt.
     alle_positionen = lade_positionen()
+    # Normale Benutzer: KEINE Kachel der Admin-Hauptposition - nur ein eigener Sparplan
+    # erzeugt sie; alle gespeicherten Positionen sind "weitere" Positionen.
+    haupt_name, weitere_positionen = depot_aufteilung(alle_positionen, eigen)
 
     # ---------- POSITIONEN VERWALTEN (anlegen / aendern / loeschen) ----------
     def instrument_suchblock(prefix, label="WKN, ISIN oder Name suchen"):
@@ -5403,27 +5478,16 @@ def render_dashboard():
             f'<span class="down">{FMT.pct(hw_abstand_pct, 2)}</span></span></div>'
         )
 
-    kurs_karte = (
-        '<div class="quote">'
-        f'<div class="q-name">Hauptindizes Global · {config.WKN}</div>'
-        '<div class="price-line">'
-        f'<span class="q-price">{FMT.eur(aktueller_kurs, 2)}</span>'
-        f'{live_markup}'
-        f'{hw_status_chip}'
-        '</div>'
-        # Hoechststand als letzte Zeile der Zeitraum-Tabelle - dadurch steht er
-        # im selben Raster wie Vortag/Tag/Woche/Monat/Jahr statt in eigener Kachel.
-        + perf_zeilen_html(periods_kurs, 3,
-                           kopfzeile=("Vortag", f"{FMT.eur(vortag_kurs, 2)}"),
-                           fusszeile=hw_zeile)
-        + f'<div class="card-footnote">Lang &amp; Schwarz · Kurs vom {kurs_zeit_text}'
-        + (f' · Höchststand vom {high_watermark_datum}, ab dort '
-           f'{config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee' if hw_bekannt else '')
-        + '</div>'
-        + '</div>'
-    )
+    # Kurszeit steht in der Plakette ("Live" / "Stand 14:00") - die Fussnote wiederholt sie nicht mehr
+    kurs_karte = depot_kachel_html(
+        f"{_h(haupt_name)} · {_h(config.WKN)}", FMT.kurs(aktueller_kurs), chips=live_markup + hw_status_chip,
+        zeilen=periods_kurs, kopfzeile=("Vortag", FMT.kurs(vortag_kurs)), fusszeile=hw_zeile,
+        fussnote="Lang &amp; Schwarz · je Anteil"
+        + (f' · Höchststand vom {high_watermark_datum}, ab dort {config.PERFORMANCE_FEE_PCT:.0f} % Performance Fee'
+           if hw_bekannt else ''),
+        klasse="quote", wert_klasse="q-price", titel_klasse="q-name")
     # ---------- BEOBACHTETE WERTE: reine Kursanzeige, NICHT im Depot ----------
-    def beobachtungs_karte(eintrag, fortschritt=None):
+    def beobachtungs_karte(eintrag, fortschritt=None, im_depot=False):
         """Baut eine Kurskachel im selben Aufbau wie die Hauptkachel, aber fuer
         einen reinen Beobachtungswert. Höchststand wird hier aus der geladenen
         Historie bestimmt (kein persistenter State noetig) - fuer einen Wert,
@@ -5465,26 +5529,19 @@ def render_dashboard():
                 f'<span class="perf-vals"><span class="neutral">{FMT.eur(b_hoch, 2)}</span>'
                 f'{b_wert_html}</span></div>'
             )
-            b_fuss = (f'Lang &amp; Schwarz · Höchststand vom {b_hoch_datum} '
-                      f'(aus verfügbarer Kurshistorie) · nicht im Depot enthalten')
+            b_fuss = (f'Lang &amp; Schwarz · je Anteil · Höchststand vom {b_hoch_datum} '
+                      f'(aus verfügbarer Kurshistorie)')
         else:
-            b_fuss = 'Lang &amp; Schwarz · nicht im Depot enthalten'
+            b_fuss = 'Lang &amp; Schwarz · je Anteil'
+        if not im_depot:
+            b_fuss += ' · nicht im Depot enthalten'
 
-        return (
-            '<div class="quote">'
-            f'<div class="q-name">{_h(eintrag.get("name", ""))} · {_h(eintrag.get("wkn", ""))}</div>'
-            '<div class="price-line">'
-            f'<span class="q-price">{FMT.eur(b_kurs, 2)}</span>'
-            + kurs_pill(*kurs_status(kurs_zeitpunkt(eintrag["instrument_id"]), now_berlin, True)) +
-            '<span class="meta-chip">Beobachtung</span>'
-            '</div>'
-            + perf_zeilen_html(
-                b_perioden, 3,
-                kopfzeile=("Vortag", f"{FMT.eur(b_vortag, 2)}") if b_vortag else None,
-                fusszeile=b_hw_zeile)
-            + f'<div class="card-footnote">{b_fuss}</div>'
-            '</div>'
-        )
+        return depot_kachel_html(
+            f'{_h(eintrag.get("name", ""))} · {_h(eintrag.get("wkn", ""))}', FMT.kurs(b_kurs),
+            chips=kurs_pill(*kurs_status(kurs_zeitpunkt(eintrag["instrument_id"]), now_berlin, True))
+            + ('' if im_depot else '<span class="meta-chip">Beobachtung</span>'),
+            zeilen=b_perioden, kopfzeile=("Vortag", FMT.kurs(b_vortag)) if b_vortag else None,
+            fusszeile=b_hw_zeile, fussnote=b_fuss, klasse="quote", wert_klasse="q-price", titel_klasse="q-name")
 
     beobachtung = [e for e in lade_beobachtung() if e.get("instrument_id")]
 
@@ -5557,22 +5614,17 @@ def render_dashboard():
         f" · davon {_de_zahl(zusaetzliche_stueckzahl_sparplan, 4)} aus Sparplan"
         if zusaetzliche_stueckzahl_sparplan > 0 else ""
     )
-    richtung_gewinn = "up" if gewinn_real >= 0 else "down"
-    depot_karte = (
-        '<div class="hero">'
-        '<div class="hero-label">Depotwert</div>'
-        '<div class="price-line">'
-        f'<span class="hero-val">{fmt(depotwert_real_ist, 2)}</span>'
-        # Ø p.a. = eigene realisierte Rendite seit Kauf (Audit A-08) - dieselbe Zahl wie
-        # "Ø/Jahr" in der Vergleichstabelle. Die Prognoserate steht nur in den Prognosen.
-        + (f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
-           f'{" (hochgerechnet)" if rendite_pa_hochgerechnet else ""}</span>'
-           f'<span class="stat-chip-val">{FMT.pct(rendite_pa_real, 1)}</span></span>'
-           if rendite_pa_real is not None else '')
-        + '</div>'
-        f'{perf_zeilen_html(periods_depot, 2)}'
-        f'<div class="card-footnote">{_de_zahl(stueckzahl_real_ist + zusaetzliche_stueckzahl_sparplan, 4)} '
-        f'Anteile{sparplan_zusatz} · Einstand {fmt(einstand_aktiv, 2)}'
+    # Ø p.a. = eigene realisierte Rendite seit Kauf (Audit A-08) - dieselbe Zahl wie
+    # "Ø/Jahr" in der Vergleichstabelle. Die Prognoserate steht nur in den Prognosen.
+    pa_chip = (f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
+               f'{" (hochgerechnet)" if rendite_pa_hochgerechnet else ""}</span>'
+               f'<span class="stat-chip-val">{FMT.pct(rendite_pa_real, 1)}</span></span>'
+               if rendite_pa_real is not None else '')
+    depot_karte = depot_kachel_html(
+        f"{_h(haupt_name)} · {_h(config.WKN)}", fmt(depotwert_real_ist, 2), chips=pa_chip,
+        gv=(gewinn_real, rendite_real_pct), zeilen=periods_depot,
+        fussnote=f'{_de_zahl(stueckzahl_real_ist + zusaetzliche_stueckzahl_sparplan, 4)} '
+        f'Anteile{sparplan_zusatz} · Kurs {FMT.kurs(aktueller_kurs)} · Einstand {fmt(einstand_aktiv, 2)}'
         + (f' (Startkapital {fmt(startkapital_aktiv, 2)} + Sparraten {fmt(sparplan_eingezahlt, 2)})'
            if sparplan_eingezahlt > 0 else '')
         + (f' · {verkaeufe_ausgefuehrt} Entnahmen à {fmt(entnahme_rate, 2)} ausgezahlt ({fmt(ausgezahlt_ist, 2)}),'
@@ -5580,18 +5632,13 @@ def render_dashboard():
         + (' · ⚠️ Sparplan ohne echte Kurshistorie nicht eingerechnet' if sparplan_ohne_kurse else '')
         + (f' · {_h(fetched_source)}' if not is_live_data else '')
         + (' · ⚠️ Entnahmen nicht abgezogen (Kurshistorie fehlt – Verkaufskurse unbekannt)'
-           if df_chart.empty and entnahme_rate and entnahme_termine_liste else '')
-        + '</div>'
-        '</div>'
-    )
-    # Alle Positionskacheln werden gesammelt und weiter unten gemeinsam in
-    # einem horizontal wischbaren Container ausgegeben (Swipe statt langer
-    # Scrollstrecke - auf dem Smartphone deutlich angenehmer).
-    # (Label, HTML) je Position - das Label wird zur Tab-Beschriftung.
-    # Normale Benutzer: KEINE Kachel der Admin-Hauptposition - nur ein eigener Sparplan
-    # erzeugt sie; alle gespeicherten Positionen sind "weitere" Positionen.
-    haupt_name, weitere_positionen = depot_aufteilung(alle_positionen, eigen)
-    positions_karten = [(haupt_name, depot_karte)] if haupt_aktiv else []
+           if df_chart.empty and entnahme_rate and entnahme_termine_liste else ''))
+    # Alle Positionskacheln werden gesammelt und unter der Depot-Summe als aufklappbare Liste
+    # ausgegeben: (Name, Kachel-HTML, Kurzinfo) - die Kurzinfo (Wert, Gewinn seit Kauf in %) steht in
+    # der Zeile, die Kachel mit allen Zeitraeumen klappt auf (UX 10/2026: statt Reitern mit gekuerzten
+    # Namen wie "Hauptindizes…").
+    positions_karten = ([(haupt_name, depot_karte, (depotwert_real_ist, gewinn_real, rendite_real_pct))]
+                        if haupt_aktiv else [])
 
     # =================================================================
     # WEITERE POSITIONEN + GESAMTUEBERSICHT
@@ -5666,19 +5713,13 @@ def render_dashboard():
                 p_stueck = position_stueckzahl(pos)
                 p_einstand = float(pos.get("startkapital") or 0)
                 p_kaufdatum = datetime.date.fromisoformat(pos["kaufdatum"])
-                karte = (
-                    '<div class="hero">'
-                    f'<div class="hero-label">{_h(p_name)} · {_h(pos.get("wkn", ""))}</div>'
-                    '<div class="price-line">'
-                    f'<span class="hero-val">{fmt(p_einstand, 2)}</span>'
-                    '<span class="meta-chip">ohne Kursquelle</span>'
-                    '</div>'
-                    f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
-                    f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {FMT.eur(float(pos["kaufkurs"]), 2)} · '
-                    'Kursquelle-ID ergänzen (Position bearbeiten → Suche), um Kurse und Performance zu sehen</div>'
-                    '</div>'
-                )
-                positions_karten.append((p_name, karte))
+                karte = depot_kachel_html(
+                    f'{_h(p_name)} · {_h(pos.get("wkn", ""))}', fmt(p_einstand, 2),
+                    chips='<span class="meta-chip">ohne Kursquelle</span>',
+                    fussnote=f'{_de_zahl(p_stueck, 4)} Anteile · Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu '
+                    f'{FMT.kurs(float(pos["kaufkurs"]))} · Kursquelle-ID ergänzen (Position bearbeiten → Suche), '
+                    'um Kurse und Performance zu sehen')
+                positions_karten.append((p_name, karte, None))
                 depot_bestand.append({"name": p_name, "wkn": pos.get("wkn", ""), "instrument_id": None,
                                       "stueck": p_stueck, "kurs": None, "wert": 0.0, "einstand": p_einstand,
                                       "ohne_kurs": True})
@@ -5747,25 +5788,19 @@ def render_dashboard():
                                   "ist_wikifolio": ist_wikifolio(pos.get("wkn", ""), p_name),
                                   "hist": p_hist if p_hist is not None and not p_hist.empty else None})
 
-            karte = (
-                '<div class="hero">'
-                f'<div class="hero-label">{_h(pos.get("name", "Position"))} · {_h(pos.get("wkn", ""))}</div>'
-                '<div class="price-line">'
-                f'<span class="hero-val">{fmt(p_wert, 2)}</span>'
-                # wie bei der Hauptposition: erzielte Rendite seit Kauf, nicht die Prognoserate
-                # (die gehoert in die Prognosen - Audit A-08, 360°-Pruefung F-05)
-                + (f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
-                   f'{" (hochgerechnet)" if p_pa_hoch else ""}</span>'
-                   f'<span class="stat-chip-val">{FMT.pct(p_pa_ist, 1)}</span></span>'
-                   if p_pa_ist is not None else '') +
-                f'<span class="meta-chip">Kurs {FMT.eur(p_kurs, 2)}</span>'
-                '</div>'
-                f'{perf_zeilen_html(p_perioden_depot, 2)}'
-                f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
-                f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {FMT.eur(float(pos["kaufkurs"]), 2)}</div>'
-                '</div>'
-            )
-            positions_karten.append((p_name, karte))
+            # wie bei der Hauptposition: erzielte Rendite seit Kauf, nicht die Prognoserate
+            # (die gehoert in die Prognosen - Audit A-08, 360°-Pruefung F-05)
+            karte = depot_kachel_html(
+                f'{_h(pos.get("name", "Position"))} · {_h(pos.get("wkn", ""))}', fmt(p_wert, 2),
+                chips=(f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
+                       f'{" (hochgerechnet)" if p_pa_hoch else ""}</span>'
+                       f'<span class="stat-chip-val">{FMT.pct(p_pa_ist, 1)}</span></span>'
+                       if p_pa_ist is not None else ''),
+                gv=(p_gewinn, p_rendite), zeilen=p_perioden_depot,
+                fussnote=f'{_de_zahl(p_stueck, 4)} Anteile · Kurs {FMT.kurs(p_kurs)} · '
+                f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {FMT.kurs(float(pos["kaufkurs"]))} · '
+                f'Einstand {fmt(p_einstand, 2)}')
+            positions_karten.append((p_name, karte, (p_wert, p_gewinn, p_rendite)))
 
         except Exception as e:
             positionen_ok = False
@@ -5776,21 +5811,39 @@ def render_dashboard():
     # die echten Positionen (reales Kapital), dann die hypothetischen.
     prognose_optionen.extend(prognose_beobachtung_optionen)
 
-    # ---------- ZWEI SPALTEN (Audit UX): links das eigene Depot, rechts die Kurse ----------
-    # Auf breiten Bildschirmen liefen alle Kacheln ueber die volle Breite (Beschriftung und
-    # Wert ~1.000 px auseinander). Unter 640 px stapelt Streamlit die Spalten - auf dem
-    # Handy bleibt die Reihenfolge Depot -> Kurse.
-    # Eigener Container: die App verhindert Spaltenumbrueche global (Kachel-Raster), hier
-    # werden die beiden Spalten unter 820 px per CSS untereinander gestellt (siehe unten).
-    # Beide Spalten gleich breit und mit gleich hoher Kopfzeile (Titel | Auswahl) - die Kacheln
-    # darunter beginnen auf derselben Hoehe.
-    _spalte_depot, _spalte_kurse = st.container(key="depot_spalten").columns([1, 1], gap="large")
+    # ---------- KURS-AUSWAHL: nur eigene Positionen und Beobachtungswerte ----------
+    # (UX 10/2026) Frueher stand hier fuer JEDEN Benutzer die Kurskachel des fest eingestellten
+    # Zertifikats - auch bei leerem Depot. Jetzt: Hauptposition (falls vorhanden), jede weitere
+    # Position mit Kursquelle, danach die Beobachtungsliste. Ohne Werte gibt es keine Kurs-Spalte.
+    kurs_auswahl = []                 # (Anzeigename, Eintrag oder None fuer die Hauptposition, im Depot)
+    _ids = set()
+    if haupt_aktiv:
+        kurs_auswahl.append((haupt_name, None, True))
+        _ids.add(str(config.LS_INSTRUMENT_ID))
+    for _p in weitere_positionen:
+        if _p.get("instrument_id") and str(_p["instrument_id"]) not in _ids:
+            _ids.add(str(_p["instrument_id"]))
+            kurs_auswahl.append((_p.get("name") or _p.get("wkn") or "Position",
+                                 {"name": _p.get("name", ""), "wkn": _p.get("wkn", ""),
+                                  "instrument_id": _p["instrument_id"]}, True))
+    for _b in beobachtung:
+        if str(_b["instrument_id"]) not in _ids:
+            _ids.add(str(_b["instrument_id"]))
+            kurs_auswahl.append((_b.get("name") or _b.get("wkn") or "Wert", _b, False))
+
+    # ---------- ZWEI SPALTEN: links das eigene Depot, rechts die Kurse ----------
+    # Auf breiten Bildschirmen nebeneinander, unter 820 px untereinander (Depot zuerst, siehe ui_stil).
+    # Beide Spalten gleich breit und mit gleich hoher Kopfzeile (Titel | Auswahl).
+    if kurs_auswahl:
+        _spalte_depot, _spalte_kurse = st.container(key="depot_spalten").columns([1, 1], gap="large")
+    else:
+        _spalte_depot, _spalte_kurse = st.container(key="depot_spalten"), None
     _spalte_depot.__enter__()
     with st.container(key="depot_kopf_links"):
         st.markdown('<div class="abschnitt">🏠 Mein Depot</div>', unsafe_allow_html=True)
 
-    # ---------- GESAMTUEBERSICHT (nur sinnvoll ab 2 Positionen) ----------
-    if (1 if haupt_aktiv else 0) + len(weitere_positionen) >= 2:
+    # ---------- DEPOT GESAMT: Wert und Gewinn/Verlust zuerst (ab einer Position) ----------
+    if positions_karten and any(k[2] for k in positions_karten):
         gesamt_gewinn = gesamt_wert + gesamt_ausgezahlt - gesamt_einstand
         gesamt_rendite = (gesamt_gewinn / gesamt_einstand * 100) if gesamt_einstand else 0.0
 
@@ -5802,11 +5855,9 @@ def render_dashboard():
         # gekennzeichnet (Fussnote unten).
         gesamt_perioden = []
         teilweise_zeitraeume = False
-        for lbl, betrag, pct, teilweise in gesamt_perioden_berechnen(
-                gesamt_beitraege, ["Tag", "Woche", "Monat", "Jahr"]):
+        for lbl, betrag, pct, teilweise in gesamt_perioden_berechnen(gesamt_beitraege, ALLE_ZEITRAEUME):
             gesamt_perioden.append((f"{lbl}*" if teilweise else lbl, betrag, pct))
             teilweise_zeitraeume = teilweise_zeitraeume or teilweise
-        gesamt_perioden.append(("seit Kauf", gesamt_gewinn, gesamt_rendite))
 
         # Nur Positionen mit Kursquelle sind in der Summe enthalten - das muss
         # sichtbar sein, sonst wirkt eine unvollstaendige Summe wie die volle.
@@ -5816,7 +5867,7 @@ def render_dashboard():
         if anzahl_gezaehlt < anzahl_gesamt:
             positions_chip = f"{anzahl_gezaehlt} von {anzahl_gesamt} Positionen"
         else:
-            positions_chip = f"{anzahl_gesamt} Positionen"
+            positions_chip = f"{anzahl_gesamt} Position{'en' if anzahl_gesamt != 1 else ''}"
 
         hinweis = "" if positionen_ok else " · ⚠️ unvollständig, s. Warnungen oben"
         if anzahl_gezaehlt < anzahl_gesamt:
@@ -5825,34 +5876,30 @@ def render_dashboard():
             hinweis += " · * nur Positionen mit Kursdaten für diesen Zeitraum (Prozent auf deren Wert)"
         if sparplan_eingezahlt > 0:
             hinweis += f" · inkl. Sparraten {fmt(sparplan_eingezahlt, 2)}"
-        gesamt_karte = (
-            '<div class="hero gesamt">'
-            '<div class="hero-label">Depot gesamt</div>'
-            '<div class="price-line">'
-            f'<span class="hero-val">{fmt(gesamt_wert, 2)}</span>'
-            f'<span class="meta-chip">{positions_chip}</span>'
-            '</div>'
-            f'{perf_zeilen_html(gesamt_perioden, 2)}'
-            f'<div class="card-footnote">Einstand {fmt(gesamt_einstand, 2)}{hinweis}</div>'
-            '</div>'
-        )
-        st.markdown(gesamt_karte, unsafe_allow_html=True)
+        if gesamt_ausgezahlt > 0:
+            hinweis += f" · inkl. ausgezahlter Entnahmen {fmt(gesamt_ausgezahlt, 2)}"
+        st.markdown(depot_kachel_html(
+            "Depot gesamt", fmt(gesamt_wert, 2), chips=f'<span class="meta-chip">{positions_chip}</span>',
+            gv=(gesamt_gewinn, gesamt_rendite), zeilen=gesamt_perioden,
+            fussnote=f"Einstand {fmt(gesamt_einstand, 2)}{hinweis}", klasse="hero gesamt"),
+            unsafe_allow_html=True)
+        # Kurzinfo fuer die Startseite merken (nur Anzeige - dort wird nichts abgerufen)
+        depot_kurzinfo_merken({"wert": gesamt_wert, "gv": gesamt_gewinn, "gv_pct": gesamt_rendite,
+                               "tag": next(((b, p) for l, b, p in gesamt_perioden if l.rstrip("*") == "Tag"), None),
+                               "zeit": now_berlin})
 
-    # ---------- POSITIONSKACHELN (Detailansicht je Position) ----------
-    # Bei nur einer Position waere ein Swipe-Container sinnlos - dann normal
-    # rendern. Ab zwei Positionen: scroll-snap-Container, in dem jede Kachel
-    # die volle Breite einnimmt und beim Wischen sauber einrastet.
-    if len(positions_karten) > 1:
-        # st.tabs statt eines CSS-Swipe-Containers: auf iOS blockiert Streamlits
-        # eigenes Container-Styling horizontales Wischen zuverlaessig, Tabs
-        # funktionieren dagegen ueberall per Tap (und lassen sich bei vielen
-        # Positionen zusaetzlich seitlich scrollen).
-        tab_labels = [tab_label(lbl) for lbl, _ in positions_karten]
-        for tab, (_, karte_html) in zip(st.tabs(tab_labels), positions_karten):
-            with tab:
-                st.markdown(karte_html, unsafe_allow_html=True)
-    elif positions_karten:
-        st.markdown(positions_karten[0][1], unsafe_allow_html=True)
+    # ---------- POSITIONEN: Liste mit Kurzinfo, Details aufklappbar ----------
+    if positions_karten:
+        st.markdown('<div class="abschnitt klein">Positionen</div>', unsafe_allow_html=True)
+        for _i, (_name, _karte, _kurz) in enumerate(positions_karten):
+            if _kurz:
+                _w, _gv, _gvp = _kurz
+                _kl, _pf = _richtung_html(_gv, 2)
+                _titel = f"{_name} · {FMT.eur(_w, 2)} · {_pf} {FMT.pct(_gvp, 2, vz=True)}"
+            else:
+                _titel = f"{_name} · ohne Kursquelle"
+            with st.expander(_titel, expanded=False, key=f"pos_detail_{_i}"):
+                st.markdown(_karte, unsafe_allow_html=True)
     elif not alle_positionen:
         # ---------- LEERES DEPOT (normaler Benutzer ohne eigene Daten) ----------
         st.markdown(
@@ -5866,30 +5913,22 @@ def render_dashboard():
             positions_anlage_formular("leer")
 
     _spalte_depot.__exit__(None, None, None)
-    _spalte_kurse.__enter__()
-    # ---------- KURSE (Audit UX: nach dem eigenen Depot) ----------
-    # Zuerst steht das eigene Ergebnis (Depot gesamt, Positionen), danach die Kurse des
-    # Zertifikats und der beobachteten Werte - auf dem Handy war die Depotsumme vorher
-    # erst nach der kompletten Kurskachel zu sehen.
-    if beobachtung:
-        # EIGENES FRAGMENT: beim Umschalten wird NUR dieser Bereich neu
-        # gezeichnet, nicht das komplette Dashboard. Vorher lief bei jedem
-        # Wechsel der gesamte Aufbau erneut - inkl. Positionsliste, Benchmarks
-        # und aller Kacheln, was die spuerbare Wartezeit verursacht hat.
+    # ---------- KURSE (nach dem eigenen Depot) ----------
+    if kurs_auswahl:
+        _spalte_kurse.__enter__()
+
+        # EIGENES FRAGMENT: beim Umschalten wird NUR dieser Bereich neu gezeichnet, nicht das
+        # komplette Dashboard (Positionsliste, Benchmarks, alle Kacheln).
         @st.fragment
         def _render_kursansicht():
             _zugang_pruefen()      # nur Anmeldung - der Bereich wird auch in anderen Ansichten (verborgen) gebaut
-            # Die WKN wird aus den Beschriftungen entfernt - sie steht ohnehin
-            # in der Kachel darunter und macht die Buttons nur breiter.
+            # Die WKN wird aus den Beschriftungen entfernt - sie steht ohnehin in der Kachel darunter.
             def _kurzname(text, fallback=""):
                 ohne_wkn = re.sub(r"\s*\([^)]*\)\s*$", "", (text or "").strip())
                 return ohne_wkn or fallback or "Wert"
 
-            kurs_optionen = ["Hauptindizes Global"] + [
-                _kurzname(e.get("name"), e.get("wkn")) for e in beobachtung
-            ]
-            # Doppelte Namen eindeutig machen, sonst laesst sich die Auswahl
-            # nicht zuordnen (beide Widgets nutzen die Beschriftung als Schluessel).
+            kurs_optionen = [_kurzname(n) for n, _, _ in kurs_auswahl]
+            # Doppelte Namen eindeutig machen, sonst laesst sich die Auswahl nicht zuordnen.
             gesehen = {}
             for i, opt in enumerate(kurs_optionen):
                 if opt in gesehen:
@@ -5903,43 +5942,31 @@ def render_dashboard():
                 _k_titel, _k_wahl = st.columns([1, 1.6], vertical_alignment="center")
                 _k_titel.markdown('<div class="abschnitt">📈 Kurse</div>', unsafe_allow_html=True)
                 # immer ein Dropdown: Pills liefen in der halben Breite ueber den Rand
-                auswahl = _k_wahl.selectbox(
-                    "Wert wählen", kurs_optionen,
-                    key="kurs_ansicht_wahl_select", label_visibility="collapsed",
-                )
-
-            # Gemerkte Auswahl gibt es nicht mehr: auf den ersten Wert zurueckfallen.
+                auswahl = _k_wahl.selectbox("Wert wählen", kurs_optionen,
+                                            key="kurs_ansicht_wahl_select", label_visibility="collapsed")
             if auswahl not in kurs_optionen:
                 auswahl = kurs_optionen[0]
-
-            if auswahl == kurs_optionen[0]:
+            _, eintrag, im_depot = kurs_auswahl[kurs_optionen.index(auswahl)]
+            if eintrag is None:
                 st.markdown(kurs_karte, unsafe_allow_html=True)
                 return
 
-            eintrag = beobachtung[kurs_optionen.index(auswahl) - 1]
             platz = st.empty()
-
             fortschritt = fortschritt_anzeige(platz)
-
             try:
-                # Beide Schritte sind eigene Netzabrufe (bzw. Cache-Treffer) -
-                # der Fortschritt bildet echte Arbeitsschritte ab, nicht bloss
-                # eine Animation.
+                # Beide Schritte sind eigene Abrufe (bzw. Treffer im Kursdienst) - der Fortschritt
+                # bildet echte Arbeitsschritte ab, nicht bloss eine Animation.
                 fortschritt(15, f"Lade Kurs für {auswahl} …")
-                karte = beobachtungs_karte(eintrag, fortschritt=fortschritt)
+                karte = beobachtungs_karte(eintrag, fortschritt=fortschritt, im_depot=im_depot)
                 platz.empty()
                 st.markdown(karte, unsafe_allow_html=True)
             except Exception as e:
                 platz.empty()
-                st.error(f"⚠️ Beobachtungswert konnte nicht geladen werden: {e}")
+                st.error(f"⚠️ Kurs konnte nicht geladen werden: {e}")
                 notify_app_error(f"Beobachtung-{eintrag.get('wkn', '?')}", e)
 
         _render_kursansicht()
-    else:
-        with st.container(key="depot_kopf_rechts"):
-            st.markdown('<div class="abschnitt">📈 Kurse</div>', unsafe_allow_html=True)
-        st.markdown(kurs_karte, unsafe_allow_html=True)
-    _spalte_kurse.__exit__(None, None, None)
+        _spalte_kurse.__exit__(None, None, None)
 
 
 
@@ -6568,7 +6595,7 @@ def render_dashboard():
                     monatlich = (((1 + rendite_pa_real / 100) ** (1 / 12) - 1) * 100
                                  if rendite_pa_real is not None else None)
                     performance_liste_haupt.append({
-                        "Wert": f"Hauptindizes Global ({config.WKN})",
+                        "Wert": f"{haupt_name} ({config.WKN})",
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": gewinn_real,
                         "_q": pct_ueber_tage(kurs_reihe, 91),
                         "_h": pct_ueber_tage(kurs_reihe, 182),
@@ -6627,14 +6654,14 @@ def render_dashboard():
                         f"{fmt(startkapital_aktiv, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
                         "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
                     )
-                    zeige_chart_legende_liste([("Eingezahlt", "⚪"), (f"Depotwert Hauptindizes Global ({config.WKN})", "🟢")])
+                    zeige_chart_legende_liste([("Eingezahlt", "⚪"), (f"Depotwert {haupt_name} ({config.WKN})", "🟢")])
                     pills_auswahl(benchmark_series.keys(), key="benchmark_pills")
 
                 fig_wealth = go.Figure()
                 fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Eingezahlt"], name="Eingezahlt", line=dict(color="#71717A", width=1.5, dash="dash")))
                 fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Real"], name="Depotwert", line=dict(color="#00C853", width=2.5)))
 
-                legende_eintraege = [("Eingezahlt", "#71717A"), (f"Depotwert Hauptindizes Global ({config.WKN})", "#00C853")]
+                legende_eintraege = [("Eingezahlt", "#71717A"), (f"Depotwert {haupt_name} ({config.WKN})", "#00C853")]
                 for label, s in benchmark_series.items():
                     if label not in ausgewaehlte_benchmarks:
                         continue
@@ -6706,11 +6733,11 @@ def render_dashboard():
                     name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash"),
                 ))
                 fig_v2.add_trace(go.Scatter(
-                    x=eigene_reihe_v2.index, y=eigene_reihe_v2, name=f"Hauptindizes Global ({config.WKN})",
+                    x=eigene_reihe_v2.index, y=eigene_reihe_v2, name=f"{haupt_name} ({config.WKN})",
                     line=dict(color="#00C853", width=2.5),
                 ))
                 benchmark_colors_v2 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
-                legende_eintraege_v2 = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
+                legende_eintraege_v2 = [("Startkapital", "#71717A"), (f"{haupt_name} ({config.WKN})", "#00C853")]
                 for i, (label, s) in enumerate(benchmark_series_v2.items()):
                     if label not in ausgewaehlte_v2:
                         continue
@@ -6734,7 +6761,7 @@ def render_dashboard():
                         eigene_reihe_v2.iloc[0], eigene_reihe_v2.iloc[-1], config.VERGLEICH2_START_DATUM, heute_date
                     )
                     performance_liste_v2.append({
-                        "Wert": f"Hauptindizes Global ({config.WKN})",
+                        "Wert": f"{haupt_name} ({config.WKN})",
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                         "_q": pct_ueber_tage(eigene_reihe_v2, 91),
                         "_h": pct_ueber_tage(eigene_reihe_v2, 182),
@@ -6776,7 +6803,7 @@ def render_dashboard():
                         "eigentlichen Kaufdatum deines Zertifikats - zeigt die reine "
                         "Performance seit Jahresanfang im direkten Vergleich."
                     )
-                    zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
+                    zeige_chart_legende_liste([("Startkapital", "⚪"), (f"{haupt_name} ({config.WKN})", "🟢")])
                     pills_auswahl(benchmark_series_v2.keys(), key="benchmark_v2_pills")
 
                 st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
@@ -6840,11 +6867,11 @@ def render_dashboard():
                 ))
                 fig_v3.add_trace(go.Scatter(
                     x=eigene_reihe_v3.index, y=eigene_reihe_v3,
-                    name=f"Hauptindizes Global ({config.WKN})",
+                    name=f"{haupt_name} ({config.WKN})",
                     line=dict(color="#00C853", width=2.5),
                 ))
                 benchmark_colors_v3 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
-                legende_eintraege_v3 = [("Startkapital", "#71717A"), (f"Hauptindizes Global ({config.WKN})", "#00C853")]
+                legende_eintraege_v3 = [("Startkapital", "#71717A"), (f"{haupt_name} ({config.WKN})", "#00C853")]
                 for i, (label, s) in enumerate(benchmark_series_v3.items()):
                     if label not in ausgewaehlte_v3:
                         continue
@@ -6869,7 +6896,7 @@ def render_dashboard():
                         roh_eigen_v3.iloc[0], roh_eigen_v3.iloc[-1], start_datum_eigen_v3, heute_date
                     )
                     performance_liste_v3.append({
-                        "Wert": f"Hauptindizes Global ({config.WKN})",
+                        "Wert": f"{haupt_name} ({config.WKN})",
                         "_perf": gesamt, "_monatlich": monatlich, "_jaehrlich": jaehrlich, "_euro": diff_euro,
                         "_q": pct_ueber_tage(roh_eigen_v3, 91),
                         "_h": pct_ueber_tage(roh_eigen_v3, 182),
@@ -6918,7 +6945,7 @@ def render_dashboard():
                             "Vergleichswerte selbst laufen trotzdem über den vollen Zeitraum seit "
                             f"{config.VERGLEICH3_START_DATUM.strftime('%d.%m.%Y')}."
                         )
-                    zeige_chart_legende_liste([("Startkapital", "⚪"), (f"Hauptindizes Global ({config.WKN})", "🟢")])
+                    zeige_chart_legende_liste([("Startkapital", "⚪"), (f"{haupt_name} ({config.WKN})", "🟢")])
                     pills_auswahl(benchmark_series_v3.keys(), key="benchmark_v3_pills")
 
                 st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
