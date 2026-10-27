@@ -401,36 +401,33 @@ def pruefe_anmeldung(cfg, daten, name, passwort):
 # Anmeldung
 # ---------------------------------------------------------------------------
 LOGIN_CSS = """<style>
-.st-key-login_box { max-width: 420px; margin: 8vh auto 0; padding: 22px 20px; border-radius: 18px;
-                    background: linear-gradient(180deg, #242527, #191A1B); border: 1px solid var(--rand, rgba(255, 255, 255, 0.55));
-                    box-shadow: 0 14px 34px rgba(11, 11, 11, 0.45); }
-.login-titel { font-size: 1.4rem; font-weight: 800; color: #fff; margin-bottom: 2px; }
-.login-text { font-size: .85rem; color: #BCBFC2; margin-bottom: 14px; }
-/* Beschriftung ueber den Feldern */
+/* Anmeldung im Premium-Glass-Design: Logo wie im Menue darueber, darunter eine Glas-Karte.
+   Knopf und Felder kommen aus dem gemeinsamen Glas-Stil (ui_stil GLAS) - hier nur Karte und Abstaende. */
+.login-kopf { margin: 6vh 0 22px; }
+.login-kopf .nav-kopf { margin-top: 0; }
+.st-key-login_box { max-width: 420px; margin: 0 auto; padding: 24px; border-radius: 24px;
+    background: var(--karte, linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)));
+    border: 1px solid var(--rand, rgba(255, 255, 255, 0.12));
+    -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: var(--karte-schatten, 0 10px 40px -12px rgba(0, 0, 0, 0.6)); gap: 16px !important; }
+.login-titel { font-family: var(--g-schrift, 'Inter', sans-serif); font-size: 1.35rem; font-weight: 650;
+    letter-spacing: -0.02em; color: var(--text, #E8ECF6); margin-bottom: 8px; }
 .st-key-login_box [data-testid="stTextInput"] label p {
-    font-size: .95rem !important; font-weight: 700 !important; color: #DFE0E2 !important; }
-/* Eingabefelder: heller Kasten mit deutlichem Rahmen */
-.st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] {
-    background: #191A1B !important; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important;
-    border-radius: 12px !important; min-height: 52px; transition: border-color .15s, box-shadow .15s; }
+    font-size: .85rem !important; font-weight: 600 !important; color: var(--label, #A9B1C4) !important; }
+.st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] { min-height: 52px; }
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] > div,
-.st-key-login_box [data-testid="stTextInput"] [data-baseweb="base-input"] {
-    background: transparent !important; }
+.st-key-login_box [data-testid="stTextInput"] [data-baseweb="base-input"] { background: transparent !important; }
 .st-key-login_box [data-testid="stTextInput"] input {
-    background: transparent !important; color: #ffffff !important;
-    font-size: 16px !important; padding: 12px 14px !important; caret-color: #7C9CFF; }
-.st-key-login_box [data-testid="stTextInput"] input::placeholder { color: #919399 !important; opacity: 1; }
-/* aktives Feld: blauer Rahmen + Leuchten */
-.st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"]:focus-within {
-    border-color: #7C9CFF !important; box-shadow: 0 0 0 3px rgba(124, 156, 255, 0.35) !important; }
-.st-key-login_box [data-testid="stTextInput"] button { background: transparent !important; color: #CDCED0 !important; }
+    background: transparent !important; color: var(--text, #E8ECF6) !important;
+    font-size: 16px !important; padding: 12px 14px !important; caret-color: var(--accent, #7C9CFF); }
+.st-key-login_box [data-testid="stTextInput"] input::placeholder { color: var(--muted, #8A93A8) !important; opacity: 1; }
+.st-key-login_box [data-testid="stTextInput"] button { background: transparent !important; color: var(--label, #A9B1C4) !important; }
 .st-key-login_box [data-testid="InputInstructions"] { display: none; }
-/* Anmelden-Knopf: farbig und gross */
-.st-key-login_box [data-testid="stFormSubmitButton"] button {
-    background: #7C9CFF !important; border: none !important; color: #fff !important;
-    min-height: 52px; border-radius: 12px !important; margin-top: 6px; }
-.st-key-login_box [data-testid="stFormSubmitButton"] button p { font-size: 1.05rem !important; font-weight: 700 !important; }
-.st-key-login_box [data-testid="stFormSubmitButton"] button:active { background: #7C9CFF !important; }
+/* das Formular liegt schon in der Glas-Karte - kein zweiter Rahmen */
+html body .st-key-login_box [data-testid="stForm"] { border: none !important; background: transparent !important;
+    box-shadow: none !important; padding: 0 !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button { min-height: 52px !important; margin-top: 8px; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button p { font-size: 1rem !important; }
 </style>"""
 
 
@@ -511,11 +508,13 @@ def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=No
         st.warning("Deine Sitzung ist abgelaufen oder dein Zugang wurde geändert – bitte neu anmelden.")
 
     ip = _client_ip(st)
-    st.markdown(LOGIN_CSS, unsafe_allow_html=True)
+    import ui_stil as UI                                  # Glas-Stil und Logo wie nach der Anmeldung
+    st.markdown(UI.CSS_NAV + LOGIN_CSS, unsafe_allow_html=True)
+    st.markdown('<div class="login-kopf"><div class="nav-kopf"><div class="nav-logo"><span class="nav-lauf">FINANZ '
+                '<span>DASHBOARD</span></span></div><div class="nav-credit">created by MarsTech</div></div></div>',
+                unsafe_allow_html=True)
     with st.container(key="login_box"):
-        st.markdown('<div class="login-titel">🔐 Anmelden</div>'
-                    '<div class="login-text">Finanz Dashboard · bitte Benutzername und Passwort eingeben</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="login-titel">Anmelden</div>', unsafe_allow_html=True)
         if ip:
             rest = sperre_rest([f"ip:{ip}"])
             if rest > 0:
@@ -526,7 +525,7 @@ def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=No
                                  placeholder="Benutzername eingeben")
             pw = st.text_input("🔑 Passwort", type="password", autocomplete="current-password",
                                placeholder="Passwort eingeben")
-            los = st.form_submit_button("Anmelden", width="stretch")
+            los = st.form_submit_button("Anmelden", width="stretch", type="primary")
         if los:
             n = _norm(name)
             schluessel = _schluessel(n, ip)
