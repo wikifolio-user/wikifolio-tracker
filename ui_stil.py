@@ -278,13 +278,7 @@ CSS_BASIS = """
         font-size: 0.8rem !important;
         border-radius: 999px !important;
     }
-    /* Aktive Pille weiss hervorheben - gleiche Bildsprache wie beim Dropdown,
-       und Gruen/Rot bleiben den Kursveraenderungen vorbehalten. */
-    [data-testid="stButtonGroup"] button[aria-checked="true"],
-    [data-testid="stButtonGroup"] button[aria-pressed="true"] {
-        border-color: #FFFFFF !important;
-        box-shadow: 0 0 10px rgba(255,255,255,0.35) !important;
-    }
+    /* Aussehen der Pillen/Knoepfe: siehe GLAS am Ende von CSS_NAV */
     /* Dropdown-Variante (ab 4 Werten) ebenfalls schlanker */
     /* ---------- DROPDOWNS DEUTLICH ALS BEDIENELEMENT KENNZEICHNEN ----------
        Streamlits Standard-Selectbox sieht im dunklen Theme fast wie eine
@@ -1051,36 +1045,7 @@ CSS_BASIS = """
     [data-testid="stMultiSelect"] [data-tag] { background: var(--accent) !important; }
     [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * { color: #071224 !important; }
 
-    /* Auswahl-Pillen: gewaehlte Pille blau hinterlegt (wie "Automatisch" im Vorbild) */
-    [data-testid="stButtonGroup"] button {
-        background: var(--surface-2) !important; border: 1px solid var(--line) !important;
-        color: #D5DFEC !important; box-shadow: none !important;
-    }
-    [data-testid="stButtonGroup"] button:hover { border-color: var(--accent-rand) !important; }
-    [data-testid="stButtonGroup"] button[aria-checked="true"],
-    [data-testid="stButtonGroup"] button[aria-pressed="true"] {
-        background: var(--accent-soft) !important; border-color: var(--accent) !important;
-        color: var(--accent-hell) !important; box-shadow: none !important;
-    }
-    [data-testid="stButtonGroup"] button[aria-checked="true"] p,
-    [data-testid="stButtonGroup"] button[aria-pressed="true"] p { color: var(--accent-hell) !important; }
-
-    /* Knoepfe: sekundaer dunkel mit feinem Rahmen, primaer blau */
-    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button {
-        background: var(--surface-2) !important; border: 1px solid var(--line) !important;
-        border-radius: 12px !important; color: var(--text) !important;
-    }
-    [data-testid="stBaseButton-secondary"]:hover, [data-testid="stBaseButton-secondaryFormSubmit"]:hover,
-    [data-testid="stDownloadButton"] button:hover {
-        border-color: var(--accent-rand) !important; color: var(--accent-hell) !important;
-    }
-    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"] {
-        background: var(--accent) !important; border-color: var(--accent) !important; border-radius: 12px !important;
-    }
-    [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p,
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) p { color: #071224 !important; }
+    /* Pillen und Knoepfe (sekundaer/primaer): Glas-Optik - siehe GLAS am Ende von CSS_NAV */
 
     /* Reiter: blaue Markierung */
     [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p { color: var(--accent-hell) !important; }
@@ -1135,13 +1100,11 @@ CSS_NAV = """
 }
 .nav-logo .nav-lauf > span { font-weight: 300; }
 .nav-chip {
-    /* gleicher Tasten-Look wie die Kacheln: klarer Rand, 3D-Kante, kein Leuchten */
+    /* Glas-Pille wie die Knoepfe (GLAS) */
     display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 6px; padding: 7px 16px;
-    border-radius: 999px; font-size: 0.8rem; color: #FFFFFF; font-weight: 700;
-    border: 1px solid rgba(150, 188, 240, 0.55); background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%);
-    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    border-radius: 999px; font-size: 0.8rem; font-weight: 700;
 }
-.nav-chip b { color: #FFFFFF; font-weight: 700; }
+.nav-chip b { font-weight: 700; }
 .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
            box-shadow: 0 0 8px #16C784; animation: navpuls 2.4s ease-in-out infinite; }
 @keyframes navpuls { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
@@ -1193,12 +1156,7 @@ CSS_NAV = """
 /* Rand der Menue-Tasten pulsiert leicht: eigener Leuchtring (::after) ueber
    dem Rand - der eigentliche Rand ist per !important gesetzt und liesse sich
    nicht animieren */
-.st-key-nav_menue [data-testid="stButton"] button { border-color: rgba(255, 255, 255, 0.45) !important; }
-.st-key-nav_menue [data-testid="stButton"] button::after {
-    content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
-    border: 1px solid #FFFFFF;
-    animation: navrandpuls 2s ease-in-out infinite;
-}
+/* (frueher: pulsierender weisser Leuchtring um die Kacheln - ersetzt durch den Glas-Glow, siehe GLAS) */
 @keyframes navrandpuls {
     0%, 100% { opacity: 0.35; box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
     50%      { opacity: 1;    box-shadow: 0 0 5px rgba(255, 255, 255, 0.45); }
@@ -1214,21 +1172,10 @@ CSS_NAV = """
     .nav-wander, .nav-logo, .st-key-nav_menue [data-testid="stButton"] button::after { animation: none; }
 }
 
-/* Kacheln "Neon-Taste": dicke 3D-Kante (gestapelte Schatten), weisser
-   Neonrand, weiches Bodenleuchten unter der Taste - ruhig, ohne Bewegung */
+/* Menue-Kacheln: Groesse und Form - das Aussehen (Glas) steht unter GLAS */
 .st-key-nav_menue [data-testid="stButton"] button {
-    position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
+    position: relative; width: 100% !important; min-height: 58px !important; border-radius: 18px !important;
     padding: 8px 6px !important;
-    /* Blau-Design: Navy-Taste mit blau schimmernder Kante */
-    background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%) !important;
-    border: 1px solid rgba(150, 188, 240, 0.55) !important;
-    transform: translateY(-4px);
-    box-shadow:
-        0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 5px 0 #142031, 0 6px 0 #101A28,
-        0 18px 26px rgba(2, 8, 20, 0.7),
-        inset 0 1px 0 rgba(255, 255, 255, 0.22),
-        inset 0 -10px 16px rgba(0, 0, 0, 0.30) !important;
-    transition: transform .15s ease, box-shadow .15s ease;
 }
 .st-key-nav_menue [data-testid="stButton"] button > div { min-width: 0; max-width: 100%; }
 .st-key-nav_menue [data-testid="stButton"] button p {
@@ -1242,27 +1189,6 @@ CSS_NAV = """
 /* Zu lange Namen brechen um statt ueber den Kachelrand zu laufen (jede Breite) */
 .st-key-nav_menue [data-testid="stButton"] button p { white-space: normal !important; overflow-wrap: normal;
     text-overflow: clip !important; overflow: visible !important; }   /* zweizeilig zwischen Woertern (UX 10/2026: mind. 12,8 px) */
-/* Antippen/Hover: Taste hebt sich, Kante und Leuchten werden staerker */
-.st-key-nav_menue [data-testid="stButton"] button:hover,
-.st-key-nav_menue [data-testid="stButton"] button:focus-visible {
-    transform: translateY(-6px);
-    border-color: #8AB8FF !important;
-    box-shadow:
-        0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 5px 0 #142031, 0 6px 0 #101A28,
-        0 7px 0 #0D1624, 0 8px 0 #0A121E,
-        0 22px 30px rgba(2, 8, 20, 0.75),
-        0 0 10px rgba(91, 155, 255, 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.40),
-        inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
-}
-/* Druecken: Taste sinkt ein */
-.st-key-nav_menue [data-testid="stButton"] button:active {
-    transform: translateY(1px);
-    box-shadow:
-        0 1px 0 #1E2E44,
-        0 6px 12px rgba(2, 8, 20, 0.6),
-        inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
-}
 .st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.8rem !important; font-weight: 700 !important; }
 
 /* Aktualisieren: schlanke Neon-Pille */
@@ -1278,30 +1204,6 @@ CSS_NAV = """
 }
 .st-key-nav_menue .st-key-nav_refresh button {
     width: auto !important; min-height: 34px !important; padding: 2px 18px !important; border-radius: 999px !important;
-    transform: translateY(-2px) !important; border: 1px solid rgba(150, 188, 240, 0.55) !important;
-    background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%) !important;
-    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
-}
-.st-key-nav_menue .st-key-nav_refresh button:hover {
-    transform: translateY(-3px) !important; border-color: #8AB8FF !important;
-    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 10px rgba(91, 155, 255, 0.35) !important;
-}
-.st-key-nav_menue .st-key-nav_refresh button:active {
-    transform: translateY(1px) !important;
-    box-shadow: 0 1px 0 #282B31, 0 4px 8px rgba(0, 0, 0, 0.6), inset 0 2px 6px rgba(0, 0, 0, 0.55) !important;
-}
-
-/* ================= ALLE BUTTONS: weisser Neonrand ================= */
-[data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
-[data-testid="stDownloadButton"] button {
-    border: 1px solid rgba(255, 255, 255, 0.75) !important;
-    box-shadow: 0 0 5px rgba(255, 255, 255, 0.4), 0 0 14px rgba(255, 255, 255, 0.15) !important;
-    transition: box-shadow .15s ease, border-color .15s ease;
-}
-[data-testid="stButton"] button:hover, [data-testid="stFormSubmitButton"] button:hover,
-[data-testid="stDownloadButton"] button:hover {
-    border-color: #FFFFFF !important;
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.65), 0 0 22px rgba(255, 255, 255, 0.25) !important;
 }
 
 /* ================= IN EINER ANSICHT: Kopfleiste ================= */
@@ -1318,12 +1220,10 @@ CSS_NAV = """
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(3) { flex: 0 0 auto !important; }
 .st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
 .st-key-nav_leiste [data-testid="stButton"] button {
-    min-height: 44px !important; min-width: 44px !important; border-radius: 10px !important; padding: 4px 12px !important;
-    white-space: nowrap !important; background: #0E1826 !important;
-    border: 1px solid #2E4363 !important; box-shadow: none !important;
+    min-height: 44px !important; min-width: 44px !important; border-radius: 14px !important; padding: 4px 12px !important;
+    white-space: nowrap !important;
 }
-.st-key-nav_leiste [data-testid="stButton"] button:hover { border-color: rgba(91, 155, 255, 0.7) !important; }
-.st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; color: #FFFFFF !important; }
+.st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; }
 .nav-titel {
     font-size: 1.02rem; font-weight: 700; color: #FFFFFF; line-height: 1.2;
     overflow-wrap: anywhere; text-align: center; letter-spacing: 0.3px;
@@ -1343,6 +1243,108 @@ CSS_NAV = """
     .nav-titel { font-size: 0.92rem; }
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
+
+/* ================= GLAS (UX 10/2026): Knoepfe, Kacheln, Pillen im "Liquid Glass"-Stil =================
+   Statt dicker 3D-Tasten mit Neonrand: durchscheinende Glasflaeche mit Unschaerfe dahinter, Lichtkante oben,
+   weichem Glanz und blauem Glow - beim Darueberfahren/Antippen leuchtet der Glow staerker. Alle Farben kommen
+   aus Variablen; die helle Ansicht setzt nur andere Werte (ui_hell.WIDGETS). */
+:root {
+    --glas-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.05) 48%, rgba(255, 255, 255, 0.09) 100%);
+    --glas-rand: rgba(255, 255, 255, 0.22);
+    --glas-licht: rgba(255, 255, 255, 0.38);
+    --glas-tiefe: rgba(0, 0, 0, 0.18);
+    --glas-ring: rgba(0, 0, 0, 0);
+    --glas-schatten: 0 10px 28px rgba(2, 8, 20, 0.45);
+    --glas-glow: rgba(91, 155, 255, 0.22);
+    --glas-glow-stark: rgba(120, 175, 255, 0.55);
+    --glas-glanz: rgba(255, 255, 255, 0.20);
+    --glas-text: #F4F8FF;
+    --glas-aktiv-bg: linear-gradient(150deg, rgba(91, 155, 255, 0.42) 0%, rgba(91, 155, 255, 0.18) 100%);
+    --glas-aktiv-rand: rgba(150, 195, 255, 0.85);
+    --glas-aktiv-text: #FFFFFF;
+    --glas-primaer-bg: linear-gradient(150deg, #3B82F6 0%, #1D4ED8 100%);
+    --glas-primaer-text: #FFFFFF;
+}
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, .nav-chip):not(.st-key-logout_ecke *) {
+    background: var(--glas-bg) !important;
+    border: 1px solid var(--glas-rand) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(170%); backdrop-filter: blur(16px) saturate(170%);
+    box-shadow: inset 0 1px 0 var(--glas-licht), inset 0 -10px 18px var(--glas-tiefe), 0 0 0 1px var(--glas-ring),
+                var(--glas-schatten), 0 0 18px var(--glas-glow) !important;
+    color: var(--glas-text) !important;
+    transform: none !important;
+    transition: box-shadow .2s ease, border-color .2s ease, transform .15s ease, background .2s ease !important;
+    position: relative; isolation: isolate;
+}
+/* Glanz: weiches Licht oben links, wie bei gewoelbtem Glas (nicht bei "?"-Knoepfen - deren ::before ist die Tippflaeche) */
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button,
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *)::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+    background: radial-gradient(120% 70% at 18% 0%, var(--glas-glanz), transparent 62%);
+}
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *) :is(p, span, div) {
+    color: inherit !important;
+}
+/* Darueberfahren / Tastatur-Fokus: Glow wird kraeftig, Glas hebt sich leicht */
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *):is(:hover, :focus-visible):not(:disabled) {
+    border-color: var(--glas-aktiv-rand) !important;
+    box-shadow: inset 0 1px 0 var(--glas-licht), inset 0 -10px 18px var(--glas-tiefe), 0 0 0 1px var(--glas-ring),
+                var(--glas-schatten), 0 0 26px var(--glas-glow-stark) !important;
+    transform: translateY(-1px) !important;
+}
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *):active:not(:disabled) {
+    transform: scale(0.98) !important;
+}
+/* Gewaehlte Pille / Segment: blau getoentes Glas */
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] :is(button[aria-checked="true"], button[aria-pressed="true"],
+    button[data-testid$="Active"]):not(.st-key-logout_ecke *):not(.st-key-x) {
+    background: var(--glas-aktiv-bg) !important; border-color: var(--glas-aktiv-rand) !important;
+    color: var(--glas-aktiv-text) !important;
+    box-shadow: inset 0 1px 0 var(--glas-licht), 0 0 0 1px var(--glas-ring), var(--glas-schatten),
+                0 0 22px var(--glas-glow-stark) !important;
+}
+/* Hauptaktion (primaer): kraeftig blaues Glas mit weisser Schrift */
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *) {
+    background: var(--glas-primaer-bg) !important; border: 1px solid var(--glas-aktiv-rand) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(170%); backdrop-filter: blur(16px) saturate(170%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 10px 26px rgba(37, 99, 235, 0.35),
+                0 0 22px var(--glas-glow-stark) !important;
+    position: relative; isolation: isolate; transition: box-shadow .2s ease, transform .15s ease !important;
+}
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled),
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled) :is(p, span) {
+    color: var(--glas-primaer-text) !important;
+}
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):is(:hover, :focus-visible):not(:disabled) {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 12px 30px rgba(37, 99, 235, 0.45),
+                0 0 32px var(--glas-glow-stark) !important;
+    transform: translateY(-1px);
+}
+/* Deaktivierte Hauptaktion: mattes Glas statt Blau (sonst blasse Schrift auf Blau) */
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x) {
+    background: var(--glas-bg) !important; border-color: var(--glas-rand) !important; }
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x) :is(p, span) {
+    color: var(--glas-text) !important; }
+/* Deaktiviert: mattes Glas, kein Glow */
+html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [data-testid="stDownloadButton"],
+    [data-testid="stButtonGroup"]) button:disabled:not(.st-key-logout_ecke *):not(.st-key-x):not(.st-key-y) {
+    box-shadow: none !important; opacity: 0.55; transform: none !important;
+}
+/* Segment-Schalter: keine Flaeche hinter den Glas-Pillen */
+[data-testid="stButtonGroup"], [data-testid="stButtonGroup"] [role="radiogroup"],
+[data-testid="stButtonGroup"] div:not(button div) { background: transparent !important; box-shadow: none !important; }
+/* Kein Leuchtring mehr um die Menuekacheln */
+.st-key-nav_menue [data-testid="stButton"] button::after { content: none !important; }
 </style>
 """
 
