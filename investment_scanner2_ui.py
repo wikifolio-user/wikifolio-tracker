@@ -380,12 +380,12 @@ def _kaufplan(h, erg):
     else:
         st.info("Keine kaufbaren Positionen im gewählten Universum oder kein freies Kapital.")
     c = _spalten(2)
-    if c[0].button("↻ Aktuelle Kurse laden (ls-tc.de)", key=P + "live_btn", width="stretch",
-                   disabled=not m["orders"]):
+    if c[0].button("↻ Kurse laden", key=P + "live_btn", width="stretch", disabled=not m["orders"],
+                   help="Aktuelle Euro-Kurse aller Kaufpositionen von ls-tc.de laden"):
         with st.spinner("Lade aktuelle EUR-Kurse …"):
             st.session_state[P + "meldung_kurse"] = _kurse_laden(h, m["orders"])
         st.rerun()
-    c[1].download_button("↓ Kaufplan als CSV", E.kaufplan_csv(erg), "kaufplan.csv", "text/csv", key=P + "dl_kp",
+    c[1].download_button("↓ Kaufplan (CSV)", E.kaufplan_csv(erg), "kaufplan.csv", "text/csv", key=P + "dl_kp",
                          width="stretch", disabled=not m["orders"])
     mk = st.session_state.pop(P + "meldung_kurse", None)
     if mk:
