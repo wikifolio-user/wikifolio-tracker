@@ -2315,25 +2315,24 @@ def depot_kurzinfo_merken(info):
 
 def depot_kurzinfo_karte(jetzt):
     """Kleine Depot-Karte ueber dem Menue: Gesamtwert, Gewinn/Verlust seit Kauf, Tag - aus dem Speicher.
-    Gibt es noch keinen Stand (erste Anmeldung seit dem Start der App), steht dort nur der Weg ins Depot."""
+    Gibt es noch keinen Stand (erste Anmeldung seit dem Start der App), entfaellt sie. Ins Depot fuehrt die
+    Depot-Kachel im Menue darunter (ein eigener Knopf hier war doppelt)."""
     if not _sichtbar(ANSICHT_DEPOT):
         return
     info = _depot_kurzinfo_speicher().get(st.session_state.get("login_name") or "_")
-    with st.container(key="depot_kurz"):
-        if info:
-            tag = info.get("tag")
-            zeit = info.get("zeit")
-            stand = (zeit.strftime("%H:%M") if zeit and zeit.date() == jetzt.date()
-                     else zeit.strftime("%d.%m. %H:%M") if zeit else "")
-            st.markdown(
-                '<div class="hero gesamt kurz"><div class="hero-label">Depot gesamt'
-                + (f' <span class="kurz-stand">Stand {stand}&nbsp;Uhr</span>' if stand else '') + '</div>'
-                f'<div class="price-line"><span class="hero-val">{FMT.eur(info["wert"], 2)}</span></div>'
-                + gv_zeile_html(info["gv"], info["gv_pct"])
-                + (gv_zeile_html(tag[0], tag[1], text="heute") if tag else '')
-                + '</div>', unsafe_allow_html=True)
-        st.button("🏠 Zum Depot" if info else "🏠 Depot öffnen", key="nav_depot_kurz", width="stretch",
-                  on_click=_nav_waehle, args=(ANSICHT_DEPOT,))
+    if not info:
+        return
+    tag = info.get("tag")
+    zeit = info.get("zeit")
+    stand = (zeit.strftime("%H:%M") if zeit and zeit.date() == jetzt.date()
+             else zeit.strftime("%d.%m. %H:%M") if zeit else "")
+    st.markdown(
+        '<div class="hero gesamt kurz"><div class="hero-label">Depot gesamt'
+        + (f' <span class="kurz-stand">Stand {stand}&nbsp;Uhr</span>' if stand else '') + '</div>'
+        f'<div class="price-line"><span class="hero-val">{FMT.eur(info["wert"], 2)}</span></div>'
+        + gv_zeile_html(info["gv"], info["gv_pct"])
+        + (gv_zeile_html(tag[0], tag[1], text="heute") if tag else '')
+        + '</div>', unsafe_allow_html=True)
 
 
 def darstellung_modus():
@@ -2450,33 +2449,6 @@ def _kurslauf_fortschritt(stx):
     st.rerun()
 
 
-def kursstand_details(stx, jetzt):
-    """Ausklappbare Uebersicht: welchen Stand haben alle Kurse?"""
-    with st.expander("ℹ️ Kursstand aller Werte"):
-        if stx["aeltester"] is None:
-            st.caption("Noch keine Kurse im Speicher – sie werden beim ersten Aufruf einer Ansicht geladen.")
-            return
-        st.caption(f"Live-Kurse für {stx['instrumente']} Wertpapiere im Speicher – das sind die Werte, die die "
-                   "App gerade braucht: deine Depots, das Analyse-Depot, Vergleichswerte sowie Werte aus Builder "
-                   "und Planer. Neue kommen beim ersten Aufruf automatisch dazu. Die Ranglisten (Top 500 mit "
-                   "rund 12.500 Aktien, ETFs und über 10.000 wikifolios) rechnen die Agenten jede Nacht neu – "
-                   "ihren Stand zeigt jede Liste oben an.")
-        namen = {"live": "aktuelle Kurse", "historie": "Kursverläufe", "benchmark": "Vergleichsverläufe"}
-        st.markdown(" · ".join(f"**{n}** {namen.get(a, a)}" for a, n in sorted(
-            stx["anzahl"].items(), key=lambda x: list(namen).index(x[0]) if x[0] in namen else 9)))
-        teile = [f"Ältester Stand {_zeit_kurz(stx['aeltester'], jetzt)} Uhr",
-                 f"neuester {_zeit_kurz(stx['neuester'], jetzt)} Uhr"]
-        if stx["letzter_ende"] is not None:
-            teile.append(f"letzte Hintergrund-Aktualisierung {_zeit_kurz(stx['letzter_lauf'], jetzt)}–"
-                         f"{stx['letzter_ende'].strftime('%H:%M')} Uhr"
-                         + (f" ({stx['letzter_fehler']} Werte nicht erreichbar – sie behalten ihren "
-                            "letzten echten Kurs)" if stx["letzter_fehler"] else ""))
-        teile.append(f"nächste {naechster_termin(jetzt).strftime('%H:%M')} Uhr")
-        st.caption(" · ".join(teile) + f". Alle Kurse werden täglich ab {AKTUALISIERUNG_START} Uhr alle "
-                   f"{AKTUALISIERUNG_TAKT} Stunden automatisch im Hintergrund geladen; neu hinzukommende Werte "
-                   "sofort beim ersten Aufruf.")
-
-
 def navigation():
     """Startseite: Menue als Liste (untereinander, nach Gruppen). In einer
     Ansicht: schmale Kopfleiste mit "☰ Menü", Titel und Aktualisieren - der
@@ -2522,7 +2494,6 @@ def navigation():
             st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
                       width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
             _kurslauf_fortschritt(stx)
-            kursstand_details(stx, jetzt)
             depot_kurzinfo_karte(jetzt)
             if _nutzer():
                 # klein, fest oben rechts in der Ecke
