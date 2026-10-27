@@ -3803,16 +3803,26 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     _abschnitt("Baustein hinzufügen")
     leer = not any(a_.get("enabled") and a_.get("category") != "cash" for a_ in m["assets"])
     # Der Katalog (alle Werte mit Score) ist der aufwendigste Teil der Seite - er wird nur
-    # gezeichnet, wenn er gebraucht wird; der Schalter merkt sich die Wahl in der Sitzung.
-    if st.toggle("➕ Katalog und Suche öffnen", value=st.session_state.get("pl_add_offen", leer),
-                 key="pl_add_offen", help="Alle Werte der Watchlist mit Score und Analyse oder Suche per WKN/ISIN"):
-        weg_ = st.pills("Hinzufügen über", ["📋 Katalog", "🔎 WKN / ISIN"], default="📋 Katalog", key="pl_add_art")
-        if weg_ == "🔎 WKN / ISIN":
+    # gezeichnet, wenn er gebraucht wird; die Wahl bleibt fuer die Sitzung gemerkt.
+    offen = st.session_state.setdefault("pl_add_auf", leer)
+
+    def _umschalten():
+        st.session_state["pl_add_auf"] = not st.session_state.get("pl_add_auf")
+
+    if not offen:
+        st.button("➕ Baustein hinzufügen – ETF, Aktie oder wikifolio", key="pl_add_knopf", type="primary",
+                  width="stretch", on_click=_umschalten)
+        st.caption("Aus dem Katalog aller Watchlist-Werte (mit Score und Analyse) auswählen oder direkt per "
+                   "WKN / ISIN suchen.")
+    else:
+        c1, c2 = ([st.container()] * 2 if _smartphone() else st.columns([3, 1], vertical_alignment="center"))
+        weg_ = c1.pills("Hinzufügen über", ["📋 Aus dem Katalog", "🔎 Per WKN / ISIN"], default="📋 Aus dem Katalog",
+                        key="pl_add_art", label_visibility="collapsed") or "📋 Aus dem Katalog"
+        c2.button("✖ Schließen", key="pl_add_zu", width="stretch", on_click=_umschalten)
+        if weg_ == "🔎 Per WKN / ISIN":
             _suche_hinzufuegen(m, h)
         else:
             _katalog(m, h)
-    else:
-        st.caption("Zum Hinzufügen neuer ETFs, Aktien oder Wikifolios den Schalter einschalten.")
 
     with _klappe_mobil("🗑️ Baustein entfernen · Modell zurücksetzen"):
         _abschnitt("Baustein entfernen")
