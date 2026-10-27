@@ -4261,10 +4261,16 @@ def render_dashboard():
         if not dq and not dp:
             st.info("Noch keine Daten vorhanden – die Übersicht erscheint nach dem ersten Lauf der Agenten.")
             return
-        umfang_txt = st.pills("Umfang je Liste", ["Top 10", "Top 25", "Top 50"], default="Top 10",
-                              key="ue_umfang") or "Top 10"
+        # Umfang und Inhalt in einem Klappbereich (UX 10/2026: am Handy standen drei Auswahlgruppen mit ~500 px
+        # vor dem ersten Inhalt) - die Beschriftung zeigt die aktuelle Wahl
+        _u = st.session_state.get("ue_umfang") or "Top 10"
+        _t = st.session_state.get("ue_teile", UE_TEILE)
+        with st.expander(f"⚙️ Umfang & Inhalt · {_u} · {len(_t or [])} von {len(UE_TEILE)} Bereichen",
+                         key="ue_einstellungen"):
+            umfang_txt = st.pills("Umfang je Liste", ["Top 10", "Top 25", "Top 50"], default="Top 10",
+                                  key="ue_umfang") or "Top 10"
+            teile = st.pills("Inhalt", UE_TEILE, default=UE_TEILE, selection_mode="multi", key="ue_teile") or []
         umfang = int(umfang_txt.split()[1])
-        teile = st.pills("Inhalt", UE_TEILE, default=UE_TEILE, selection_mode="multi", key="ue_teile") or []
         try:
             stand = datetime.datetime.fromisoformat((dq or dp)["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
         except Exception:
@@ -6635,15 +6641,15 @@ def render_dashboard():
                     _start_hinweis = ""
                     if _daten_start is not None and _daten_start.date() != kaufdatum_aktiv:
                         _start_hinweis = f" · Kursdaten ab {_daten_start.strftime('%d.%m.%Y')}"
+                    # kurz sichtbar, die Rechenregeln hinter dem "?" (UX 10/2026: der lange Text stand am Handy
+                    # mit 8 Zeilen vor der Tabelle)
                     st.caption(
-                        f"📅 Eigene Position berechnet ab {kaufdatum_aktiv.strftime('%d.%m.%Y')} "
-                        f"(Kaufdatum, gegen eingesetztes Kapital){_start_hinweis}"
-                        + (f" · inkl. Sparraten (Einstand {fmt(einstand_aktiv, 0)})" if sparplan_eingezahlt > 0 else "")
-                        + (f" · inkl. ausgezahlter Entnahmen ({fmt(ausgezahlt_ist, 0)})" if ausgezahlt_ist > 0 else "")
-                        + " · 3–12 Mon.: Kursentwicklung"
-                        + " · Ø/Jahr erst ab 1 Jahr Laufzeit, Ø/Mon. ab 30 Tagen (sonst „–“)"
-                       
-                    )
+                        f"📅 Eigene Position ab Kaufdatum {kaufdatum_aktiv.strftime('%d.%m.%Y')}{_start_hinweis}",
+                        help="Berechnet ab dem Kaufdatum gegen das eingesetzte Kapital"
+                        + (f", inkl. Sparraten (Einstand {fmt(einstand_aktiv, 0)})" if sparplan_eingezahlt > 0 else "")
+                        + (f", inkl. ausgezahlter Entnahmen ({fmt(ausgezahlt_ist, 0)})" if ausgezahlt_ist > 0 else "")
+                        + ". 3–12 Mon.: reine Kursentwicklung. Ø/Jahr erst ab 1 Jahr Laufzeit, Ø/Mon. ab 30 Tagen "
+                        "(sonst „–“).")
                     performance_liste_haupt.sort(key=perf_sortierwert, reverse=True)   # DEP-08: ohne Ø/Jahr nach Gesamt
                     _fokus = kennzahl_umschalter("fokus_haupt", performance_liste_haupt)
                     st.markdown(

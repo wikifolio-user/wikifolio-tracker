@@ -36,7 +36,7 @@ STATE_PFAD = "state/depot_analyse.json"
 
 CSS = """
 <style>
-.da-chip { display:inline-block; padding:3px 10px; border-radius:999px; font-size:.75rem; font-weight:700;
+.da-chip { display:inline-block; padding:3px 10px; border-radius:12px; font-size:.75rem; font-weight:700;
   background:rgba(91,155,255,.16); color:#BFD6FF; border:1px solid rgba(91,155,255,.35); margin:0 6px 4px 0; }
 .da-chip.warn { background:#423523; color:#f4c67b; border-color:#6b5328; }
 .da-chip.neg { background:#3f1d22; color:#fca5a5; border-color:#7f1d1d; }

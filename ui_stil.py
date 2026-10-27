@@ -1232,14 +1232,15 @@ CSS_NAV = """
 .st-key-nav_menue [data-testid="stButton"] button > div { min-width: 0; max-width: 100%; }
 .st-key-nav_menue [data-testid="stButton"] button p {
     /* immer einzeilig: Schrift waechst/schrumpft mit der Bildschirmbreite */
-    font-size: clamp(0.7rem, 3.25vw, 0.95rem) !important; font-weight: 700 !important; line-height: 1.2 !important;
+    font-size: clamp(0.8rem, 3.4vw, 0.95rem) !important; font-weight: 700 !important; line-height: 1.2 !important;
     white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis;
     color: #FFFFFF !important; letter-spacing: 0.2px;
     text-shadow: none !important;     /* Schatten wuerde hinter Emojis dunkle Kaestchen erzeugen */
 }
 /* sehr schmale Telefone (iPhone SE 1. Gen., 320 px): lange Namen zweizeilig statt ueber den Rand */
 /* Zu lange Namen brechen um statt ueber den Kachelrand zu laufen (jede Breite) */
-.st-key-nav_menue [data-testid="stButton"] button p { white-space: normal !important; overflow-wrap: anywhere; }
+.st-key-nav_menue [data-testid="stButton"] button p { white-space: normal !important; overflow-wrap: normal;
+    text-overflow: clip !important; overflow: visible !important; }   /* zweizeilig zwischen Woertern (UX 10/2026: mind. 12,8 px) */
 /* Antippen/Hover: Taste hebt sich, Kante und Leuchten werden staerker */
 .st-key-nav_menue [data-testid="stButton"] button:hover,
 .st-key-nav_menue [data-testid="stButton"] button:focus-visible {
@@ -1328,10 +1329,10 @@ CSS_NAV = """
     text-shadow: none;
 }
 .nav-stand { display: flex; justify-content: center; margin: 6px 0 4px; }
-.nav-stand span { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.78rem;
-    color: var(--label, #9AA0A6); padding: 2px 10px; border: 1px solid rgba(150, 188, 240, 0.25); border-radius: 999px;
-    max-width: 100%; box-sizing: border-box; text-align: center; flex-wrap: wrap; }
-.nav-stand span > i { flex: 0 0 auto; }
+.nav-stand span { display: inline-block; font-size: 0.78rem; line-height: 1.5;
+    color: var(--label, #9AA0A6); padding: 2px 12px; border: 1px solid rgba(150, 188, 240, 0.25); border-radius: 14px;
+    max-width: 100%; box-sizing: border-box; text-align: center; }
+.nav-stand span > i { margin-right: 6px; vertical-align: 1px; }
 .nav-stand b { color: #FFFFFF; font-weight: 600; }
 .nav-stand i { width: 6px; height: 6px; border-radius: 50%; background: #16C784; display: inline-block; }
 @media (max-width: 700px) {
@@ -1391,6 +1392,19 @@ CSS_RESPONSIV = """
        oben in jeder Ansicht ~45 px Leerraum (am Handy quer ein Achtel der Hoehe). Abstand zuruecknehmen. */
     [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:first-child:last-child),
     [data-testid="stElementContainer"]:has(> iframe[height="0"]) { margin-bottom: -0.7rem; }
+
+    /* --- Knopf-Paare (z. B. Scanner 2.0 "Kurse laden" | "Kaufplan (CSV)"): gleich hoch, auch wenn einer umbricht */
+    .st-key-is2_aktionen [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
+    .st-key-is2_aktionen [data-testid="stColumn"] > [data-testid="stVerticalBlock"],
+    .st-key-is2_aktionen [data-testid="stElementContainer"],
+    .st-key-is2_aktionen :is([data-testid="stButton"], [data-testid="stDownloadButton"]),
+    .st-key-is2_aktionen :is([data-testid="stButton"], [data-testid="stDownloadButton"]) > div,
+    .st-key-is2_aktionen button { height: 100% !important; }
+
+    /* --- Seitentitel doppelt: Builder, Scanner, Depot-Analyse, Analyse-Depot wiederholten den Namen der Ansicht
+       direkt unter der Kopfleiste (dort steht er schon) - nur die Unterzeile bleibt */
+    .pb-kopf .pb-titel { display: none; }
+    .pb-kopf { margin-top: 0 !important; }
 
     /* --- DEPOT-KACHELN: Wert, Gewinn/Verlust, Kennzahl-Kacheln, weitere Zeitraeume (app.depot_kachel_html) --- */
     .hero, .quote { container-type: inline-size; }
