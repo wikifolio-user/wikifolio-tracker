@@ -18,7 +18,6 @@ Bereichs gefuellt - so zeigen sie immer den aktuellen Stand.
 
 Alle Zahlen: Szenariorechnung, keine Prognose, vor Steuern.
 """
-import contextlib
 import copy
 import datetime
 import hashlib
@@ -1011,11 +1010,9 @@ class _Bereich:
         self.titel, self.eingebettet, self.offen, self._ctx = titel, eingebettet, offen, None
 
     def __enter__(self):
-        if self.eingebettet:
-            self._ctx = st.expander(self.titel, expanded=self.offen)
-            return self._ctx.__enter__()
-        _phase(self.titel)
-        return None
+        # immer aufklappbar (auch in der Ansicht "Alle Bereiche") - die Seite zeigt so nur das Wichtigste
+        self._ctx = st.expander(self.titel, expanded=self.offen)
+        return self._ctx.__enter__()
 
     def __exit__(self, *args):
         if self._ctx is not None:
@@ -1352,8 +1349,9 @@ def _rahmen(m, eingebettet=False):
             ziel_platz = st.empty()          # wird nach den Entnahme-Eingaben gefuellt (aktuelle Werte)
 
         with _bereich("💸 Entnahme · optional" if eingebettet else
-                      "Phase 2 · Entnahme" + (" (gleichzeitig mit dem Aufbau)" if e.get("parallel", True)
-                                              else " (ab Ende des Aufbaus)"), eingebettet,
+                      "💸 Phase 2 · Entnahme" + ((" · eingeplant, gleichzeitig mit dem Aufbau" if e.get("parallel", True)
+                                                  else " · eingeplant, ab Ende des Aufbaus")
+                                                 if e.get("aktiv", True) else " · nicht eingeplant"), eingebettet,
                       offen=False):
             e["aktiv"] = st.toggle("Entnahme einplanen", value=bool(e.get("aktiv", True)), key=_k("en_aktiv"))
             if e["aktiv"]:
@@ -3377,17 +3375,15 @@ def _hoehe(zeilen):
 
 
 def _klappe_mobil(titel):
-    """Selten gebrauchte Einstellungen/Aktionen: auf dem Smartphone eingeklappt, sonst offen."""
-    return st.expander(titel) if _smartphone() else contextlib.nullcontext()
+    """Selten gebrauchte Einstellungen/Aktionen: eingeklappt (auf allen Geraeten - die Seite zeigt nur das
+    Wichtigste, der Rest ist aufklappbar)."""
+    return st.expander(titel)
 
 
 def _legende(text):
     """Lange Spalten- und Methodenerklaerung: auf dem Smartphone eingeklappt (die Seiten
-    werden dort sonst mehrere Bildschirme lang), sonst als Kleingedrucktes."""
-    if _smartphone():
-        with st.expander("ℹ️ Erklärung"):
-            st.caption(text)
-    else:
+    werden dort sonst mehrere Bildschirme lang) - auf allen Geraeten aufklappbar."""
+    with st.expander("ℹ️ Erklärung"):
         st.caption(text)
 
 
@@ -3586,27 +3582,27 @@ def _bausteine_analyse_anzeigen(m, h, bew):
     aktiv = [a for a in m["assets"] if a.get("enabled") and a["id"] in bew]
     if not aktiv:
         return
-    _abschnitt("🧠 Analyse der Bausteine")
-    st.caption("Score, Analysebox und Detailanalyse wie im Katalog „🌐 Alle Werte“ – Strategie "
-               f"„{(next(iter(bew.values()))['b'])['strategie']}“ (dort umstellbar). Gekennzeichnet: Fakt · Externe "
-               "Prognose · Modell/Annahme · Einschätzung.")
-    for a in sorted(aktiv, key=lambda x: -bew[x["id"]]["b"]["score_genau"]):
-        e = bew[a["id"]]
-        b, an = e["b"], e["a"]
-        with st.expander(f'{a["name"]} · Score {b["score"]} · {an["emoji"]} {an["urteil_text"]} · '
-                         f'{_pct(float(a.get("targetWeight") or 0) / 100)}'):
-            st.markdown(
-                f'<div class="sc-karte"><div class="sc-kopf"><span class="sc-name">{_esc(a["name"])}</span>'
-                f'<span class="sc-typ">{_esc(BW.KLASSEN[e["z"]["typ"]])}</span>'
-                f'<span class="sc-wert {_sc_farbe(b["score"])}">{b["score"]}<small>/100</small></span></div>'
-                f'<div class="sc-balken"><div class="sc-bg-{BW.ampel(b["score"])}" style="width:{b["score"]}%"></div>'
-                f'</div>{_sc_teile_html(b)}<div class="sc-meta">Datenqualität {b["datenqualitaet"]} · '
-                f'{b["abdeckung"] * 100:.0f} % der Kriterien · Quelle: {_esc(e["quelle"])}</div></div>'
-                + _analyse_box_html(an), unsafe_allow_html=True)
-            if st.toggle("🔬 Detailanalyse", key=_k(f"bs_det_{a['id']}")):
-                detail = _q_detail(h, e["z"])
-                _detailanalyse(AN.analysiere(e["z"], b, e["ctx"], detail=detail, stand=e["stand"],
-                                             q_stand=e["q_stand"]) if detail else an)
+    with st.expander(f"🧠 Analyse der Bausteine ({len(aktiv)})"):
+        st.caption("Score, Analysebox und Detailanalyse wie im Katalog „🌐 Alle Werte“ – Strategie "
+                   f"„{(next(iter(bew.values()))['b'])['strategie']}“ (dort umstellbar). Gekennzeichnet: Fakt · Externe "
+                   "Prognose · Modell/Annahme · Einschätzung.")
+        for a in sorted(aktiv, key=lambda x: -bew[x["id"]]["b"]["score_genau"]):
+            e = bew[a["id"]]
+            b, an = e["b"], e["a"]
+            with st.expander(f'{a["name"]} · Score {b["score"]} · {an["emoji"]} {an["urteil_text"]} · '
+                             f'{_pct(float(a.get("targetWeight") or 0) / 100)}'):
+                st.markdown(
+                    f'<div class="sc-karte"><div class="sc-kopf"><span class="sc-name">{_esc(a["name"])}</span>'
+                    f'<span class="sc-typ">{_esc(BW.KLASSEN[e["z"]["typ"]])}</span>'
+                    f'<span class="sc-wert {_sc_farbe(b["score"])}">{b["score"]}<small>/100</small></span></div>'
+                    f'<div class="sc-balken"><div class="sc-bg-{BW.ampel(b["score"])}" style="width:{b["score"]}%"></div>'
+                    f'</div>{_sc_teile_html(b)}<div class="sc-meta">Datenqualität {b["datenqualitaet"]} · '
+                    f'{b["abdeckung"] * 100:.0f} % der Kriterien · Quelle: {_esc(e["quelle"])}</div></div>'
+                    + _analyse_box_html(an), unsafe_allow_html=True)
+                if st.toggle("🔬 Detailanalyse", key=_k(f"bs_det_{a['id']}")):
+                    detail = _q_detail(h, e["z"])
+                    _detailanalyse(AN.analysiere(e["z"], b, e["ctx"], detail=detail, stand=e["stand"],
+                                                 q_stand=e["q_stand"]) if detail else an)
 
 def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     _abschnitt("Bausteine")
@@ -3760,37 +3756,38 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
                    "Rest bzw. Reserve" + (f"; Startkapital um {_de(kp['ueberzogen'], 2)} € überschritten"
                                           if kp.get("ueberzogen") else "") + ".")
     kpe = m.setdefault("kaufplan", {"betrag": float(start), "bruch": False})
-    runden = st.toggle("Gewichte immer auf ganze Stücke ausrichten", value=bool(kpe.get("runden")), key=_k("stk_runden"),
-                       help="Prozente = tatsächlich gekaufter Anteil (Stück × Kurs) für das Startkapital, der Rest der "
-                            "Stückelung geht in die Reserve. Gilt auch nach der automatischen Gewichtung – das Ziel "
-                            "wird dann bis auf die Rundung erreicht.")
-    if runden != bool(kpe.get("runden")):
-        kpe["runden"] = runden
-        st.rerun()
-    if not runden and st.button("🧮 Einmalig: Gewichte auf die Stückzahlen übernehmen", key=_k("stk_ueber"),
-                                width="stretch", disabled=bool(_auto_modus(m)) or not start or not investiert):
-        _, rest, res = _auf_stuecke(m, hist_assets, hist_korb)
-        st.session_state["planer_meldung"] = ("ok", f"Gewichte auf die Stückzahlen gesetzt – Rest {_de(rest, 1)} % "
-                                              + (f"in „{res}“." if res else "unverteilt (keine Reserve aktiv)."), [])
-        _neu_zeichnen()
-        st.rerun()
-    if not runden and _auto_modus(m):
-        st.caption("Die automatische Gewichtung ist aktiv – für Stückzahlen den Schalter oben einschalten, dann "
-                   "werden ihre Prozente jeweils auf ganze Stücke gerundet.")
-    if investiert > 0:
-        with st.expander("📦 Diese Stückzahlen als Musterdepot übernehmen", expanded=False):
-            _musterdepot_formular(h, kp, float(start), "bs")
-    ann_ok = st.checkbox("Eigene Annahmen dabei überschreiben (Bestätigung)", key=_k("ann_hist_ok"))
-    if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
-                 disabled=not ann_ok,
-                 help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
-                      "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J.; bei weniger als 1 Jahr "
-                      "Historie die Ø Monatsrendite aufs Jahr hochgerechnet, unter 1 Monat und ohne Kursdaten "
-                      "Standardwert der Kategorie)"):
-        n = E.annahmen_aus_historie(m, st.session_state.get("planer_historie") or {}, alle=True)
-        st.session_state["planer_meldung"] = ("ok", f"{n} Annahmen aus der bisherigen Rendite p.a. übernommen.", [])
-        _neu_zeichnen()
-        st.rerun()
+    with st.expander("⚙️ Stückzahlen, Musterdepot & Annahmen"):
+        runden = st.toggle("Gewichte immer auf ganze Stücke ausrichten", value=bool(kpe.get("runden")), key=_k("stk_runden"),
+                           help="Prozente = tatsächlich gekaufter Anteil (Stück × Kurs) für das Startkapital, der Rest der "
+                                "Stückelung geht in die Reserve. Gilt auch nach der automatischen Gewichtung – das Ziel "
+                                "wird dann bis auf die Rundung erreicht.")
+        if runden != bool(kpe.get("runden")):
+            kpe["runden"] = runden
+            st.rerun()
+        if not runden and st.button("🧮 Einmalig: Gewichte auf die Stückzahlen übernehmen", key=_k("stk_ueber"),
+                                    width="stretch", disabled=bool(_auto_modus(m)) or not start or not investiert):
+            _, rest, res = _auf_stuecke(m, hist_assets, hist_korb)
+            st.session_state["planer_meldung"] = ("ok", f"Gewichte auf die Stückzahlen gesetzt – Rest {_de(rest, 1)} % "
+                                                  + (f"in „{res}“." if res else "unverteilt (keine Reserve aktiv)."), [])
+            _neu_zeichnen()
+            st.rerun()
+        if not runden and _auto_modus(m):
+            st.caption("Die automatische Gewichtung ist aktiv – für Stückzahlen den Schalter oben einschalten, dann "
+                       "werden ihre Prozente jeweils auf ganze Stücke gerundet.")
+        if investiert > 0:
+            with st.expander("📦 Diese Stückzahlen als Musterdepot übernehmen", expanded=False):
+                _musterdepot_formular(h, kp, float(start), "bs")
+        ann_ok = st.checkbox("Eigene Annahmen dabei überschreiben (Bestätigung)", key=_k("ann_hist_ok"))
+        if st.button("📥 Alle Annahmen aus bisheriger Rendite p.a.", key=_k("ann_hist"), width="stretch",
+                     disabled=not ann_ok,
+                     help="Setzt auch selbst eingetragene Annahmen wieder auf die bisherige Rendite p.a. laut "
+                          "Kurshistorie zurück (5 J., sonst 3 J., sonst seit Start, sonst 1 J.; bei weniger als 1 Jahr "
+                          "Historie die Ø Monatsrendite aufs Jahr hochgerechnet, unter 1 Monat und ohne Kursdaten "
+                          "Standardwert der Kategorie)"):
+            n = E.annahmen_aus_historie(m, st.session_state.get("planer_historie") or {}, alle=True)
+            st.session_state["planer_meldung"] = ("ok", f"{n} Annahmen aus der bisherigen Rendite p.a. übernommen.", [])
+            _neu_zeichnen()
+            st.rerun()
     _meldung_zeigen()
     _legende("Spalten: Gew. % = Anteil · Stück / Kauf € / Real % = was für das Startkapital zum aktuellen Kurs "
                "wirklich gekauft wird (Kurs € = letzter Schlusskurs) · Soll € = Startkapital × Gewicht · "

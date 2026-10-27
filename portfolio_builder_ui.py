@@ -504,48 +504,58 @@ def _eingaben():
             c = st.columns(4, vertical_alignment="bottom")
             c[0].number_input("Anfangskapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f",
                               key="pb_anfangskapital")
-            c[1].number_input("Sonstiges Kapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f",
-                              key="pb_sonstiges_kapital",
-                              help="Zusätzlich verfügbares Kapital, z. B. Bonus oder Erbe – wird mit angelegt.")
-            c[2].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f",
+            c[1].number_input("Einzahlung €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f",
                               key="pb_einzahlung")
             stueck = st.session_state.get("pb_entnahme_art") == "stueck"
-            c[3].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme",
+            c[2].number_input("Entnahme €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.0f", key="pb_entnahme",
                               disabled=stueck,
                               help="Ergibt sich aus den Stückzahlen im Entnahmeplan (unten)." if stueck else
                                    "Fester Betrag je Monat – im Entnahmeplan (unten) siehst du, wie viele Stücke dafür "
                                    "je Position verkauft werden. Oder dort „Stückzahlen“ wählen.")
-        with st.container(key="pb_reihe2"):
-            c = st.columns(4, vertical_alignment="bottom")
-            c[0].number_input("Ausgaben €/Monat", 0.0, P.MAX_MONATLICH, step=10.0, format="%.0f", key="pb_ausgaben",
-                              help="Laufende Kosten und Gebühren (Depot, Sparplan, Beratung …).")
-            c[1].number_input("Rendite % p. a.", P.MIN_RENDITE, P.MAX_RENDITE, step=0.5, format="%.1f",
+            c[3].number_input("Rendite % p. a.", P.MIN_RENDITE, P.MAX_RENDITE, step=0.5, format="%.1f",
                               key="pb_rendite_pa",
                               help="Erwartete Rendite für Positionen ohne eigene Rendite und für nicht investiertes "
                                    "Geld. Eigene Werte je Position in der Spalte „Rendite % p. a.“ der Aufteilung.")
-            einheit = st.session_state.get("pb_laufzeit_einheit") or "Jahre"
-            c[2].number_input(f"Laufzeit ({einheit})", 1, P.MAX_MONATE if einheit == "Monate" else P.MAX_MONATE // 12,
-                              step=1, key="pb_laufzeit")
-            c[3].segmented_control("Laufzeit in", ["Jahre", "Monate"], key="pb_laufzeit_einheit",
-                                   on_change=_einheit_wechseln)
-        with st.container(key="pb_reihe3"):
-            c = st.columns([1, 1, 2], vertical_alignment="bottom")
-            c[0].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f",
-                              key="pb_zielvermoegen",
-                              help="Netto-Vermögen am Ende der Laufzeit (nach Abzug von Kreditschulden). 0 = kein Ziel.")
-            c[1].toggle("Automatisch aufs Ziel", key="pb_auto_ziel",
-                        help="Gewichte automatisch: verteilt die Prozente so, dass die Portfolio-Rendite genau die fürs Ziel nötige "
-                             "Rendite ergibt – Beträge und Stücke rechnen sich daraus.")
-            ziel_spalte = c[2]
-        with st.container(key="pb_reihe4"):
+        with st.container(key="pb_reihe2"):
             c = st.columns(4, vertical_alignment="bottom")
-            c[0].number_input("Kredit €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_kredit_summe",
-                              help="Wird mit angelegt und als Schuld wieder abgezogen – zählt also nicht doppelt.")
-            c[1].number_input("Kreditzins % p. a.", 0.0, P.MAX_KREDITZINS, step=0.1, format="%.2f",
-                              key="pb_kredit_zins_pa")
-            c[2].number_input("Kreditrate €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.2f",
-                              key="pb_kredit_rate", help="Zins + Tilgung. Wird aus dem monatlichen Cashflow bezahlt.")
-            return c[3], ziel_spalte
+            einheit = st.session_state.get("pb_laufzeit_einheit") or "Jahre"
+            c[0].number_input(f"Laufzeit ({einheit})", 1, P.MAX_MONATE if einheit == "Monate" else P.MAX_MONATE // 12,
+                              step=1, key="pb_laufzeit")
+            c[1].segmented_control("Laufzeit in", ["Jahre", "Monate"], key="pb_laufzeit_einheit",
+                                   on_change=_einheit_wechseln)
+        # seltener gebraucht: aufklappbar - offen, sobald dort etwas eingetragen ist
+        s_ = st.session_state
+        gesetzt = [t for t, k in (("Ziel", "pb_zielvermoegen"), ("Kredit", "pb_kredit_summe"),
+                                  ("sonstiges Kapital", "pb_sonstiges_kapital"), ("Ausgaben", "pb_ausgaben"))
+                   if float(s_.get(k) or 0) > 0]
+        with st.expander("🎯 Ziel, Kredit & weitere Angaben" + (f" · {', '.join(gesetzt)}" if gesetzt else ""),
+                         expanded=bool(gesetzt)):
+            with st.container(key="pb_reihe3"):
+                c = st.columns([1, 1, 2], vertical_alignment="bottom")
+                c[0].number_input("Zielvermögen €", 0.0, P.MAX_KAPITAL, step=10000.0, format="%.0f",
+                                  key="pb_zielvermoegen",
+                                  help="Netto-Vermögen am Ende der Laufzeit (nach Abzug von Kreditschulden). 0 = kein Ziel.")
+                c[1].toggle("Automatisch aufs Ziel", key="pb_auto_ziel",
+                            help="Gewichte automatisch: verteilt die Prozente so, dass die Portfolio-Rendite genau die fürs Ziel nötige "
+                                 "Rendite ergibt – Beträge und Stücke rechnen sich daraus.")
+                ziel_spalte = c[2]
+            with st.container(key="pb_reihe4"):
+                c = st.columns(4, vertical_alignment="bottom")
+                c[0].number_input("Kredit €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f", key="pb_kredit_summe",
+                                  help="Wird mit angelegt und als Schuld wieder abgezogen – zählt also nicht doppelt.")
+                c[1].number_input("Kreditzins % p. a.", 0.0, P.MAX_KREDITZINS, step=0.1, format="%.2f",
+                                  key="pb_kredit_zins_pa")
+                c[2].number_input("Kreditrate €/Monat", 0.0, P.MAX_MONATLICH, step=50.0, format="%.2f",
+                                  key="pb_kredit_rate", help="Zins + Tilgung. Wird aus dem monatlichen Cashflow bezahlt.")
+                kredit_spalte = c[3]
+            with st.container(key="pb_reihe5"):
+                c = st.columns(4, vertical_alignment="bottom")
+                c[0].number_input("Sonstiges Kapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f",
+                                  key="pb_sonstiges_kapital",
+                                  help="Zusätzlich verfügbares Kapital, z. B. Bonus oder Erbe – wird mit angelegt.")
+                c[1].number_input("Ausgaben €/Monat", 0.0, P.MAX_MONATLICH, step=10.0, format="%.0f", key="pb_ausgaben",
+                                  help="Laufende Kosten und Gebühren (Depot, Sparplan, Beratung …).")
+        return kredit_spalte, ziel_spalte
 
 
 def _ziel_hinweis(spalte, r, z):
@@ -598,8 +608,8 @@ def _hinzufuegen(h, r):
     mit Kurs und dem bis 100 % freien Gewicht als Vorschlag."""
     e = r["eingaben"]
     ver = st.session_state.get("pb_add_ver", 0)
-    with st.container(border=True, key="pb_add"):
-        st.markdown('<div class="pb-karte-t">➕ Wert hinzufügen</div>', unsafe_allow_html=True)
+    offen = not e["positionen"] or bool(st.session_state.get("pb_meldung"))
+    with st.expander("➕ Wert hinzufügen (Aktien, ETFs, wikifolios)", expanded=offen), st.container(key="pb_add"):
         art_wahl = st.segmented_control("Art", list(ART_FILTER), default="Alle", key="pb_add_art",
                                         label_visibility="collapsed") or "Alle"
         art = ART_FILTER[art_wahl]
@@ -794,13 +804,6 @@ def _tabelle(h, r):
         summe = pos["summe_gewicht"]
         ok = abs(summe - 100.0) < 0.05
         st.markdown('<div class="pb-karte-t">Portfolio-Aufteilung</div>', unsafe_allow_html=True)
-        with st.container(key="pb_reihe_basis"):
-            st.selectbox("Rendite-Vorschlag aus", list(P.BASEN), format_func=P.BASEN.get, key="pb_rendite_basis",
-                         help="Grundlage der automatisch vorgeschlagenen Rendite je Wert: die Entwicklung der letzten "
-                              "12 Monate (so zeigt wikifolio die Jahresperformance) oder der längste vorhandene "
-                              "Zeitraum pro Jahr (ruhiger, für lange Laufzeiten). Werte jünger als ein Jahr: die "
-                              "Entwicklung der letzten 9/6/3 Monate, nicht hochgerechnet. Selbst eingetragene "
-                              "Renditen bleiben unverändert.")
         arten = [p.get("art", "sonstig") for p in e["positionen"]]
         # ohne eigene Angabe gilt die allgemeine Rendite - die steht dann auch in der Zelle (statt "None")
         renditen = [round(P.position_rendite(e, p), 2) for p in e["positionen"]]
@@ -872,45 +875,54 @@ def _tabelle(h, r):
             st.markdown(f'<div class="pb-hinweis"><span class="pb-status warn">Noch nicht eingerechnet</span> '
                         f'{_esc(" · ".join(offen))} – „⚖️ Rebalancing“ berechnet alle Werte neu.</div>',
                         unsafe_allow_html=True)
-        with st.container(key="pb_reihe_rebal"):
-            # Handy: Auswahl und Knopf untereinander (nebeneinander waere die Auswahl unlesbar schmal)
-            r1, r2 = (st.container(), st.container()) if _smartphone() else st.columns([2, 1],
-                                                                                    vertical_alignment="bottom")
-            # "Automatisch aufs Ziel" verteilt ohnehin selbst - dort nur diese Methode
-            methoden = ["ziel"] if auto else [m for m in P.REBALANCING if m != "ziel" or e["zielvermoegen"] > 0]
-            methode = r1.selectbox("Rebalancing", methoden, format_func=P.REBALANCING.get,
-                                   key=f"pb_rebal_{int(auto)}",
-                                   help="Wie die Prozente neu verteilt werden (zusammen 100 %):\n\n"
-                                        "- **Gewichte behalten, 0 % ergänzen**: die Verhältnisse bleiben, Werte mit "
-                                        "0 % bekommen den durchschnittlichen Anteil\n"
-                                        "- **Alle gleich gewichten**: jeder Wert gleich viel\n"
-                                        "- **Aufs Zielvermögen**: nach erwarteter Rendite, so dass das Ziel erreicht "
-                                        "wird\n\nFehlende Kurse werden vorher geholt; Betrag und Stück rechnen sich "
-                                        "danach aus Kapital und Kurs.")
-            if r2.button("⚖️ Rebalancing", key="pb_rebal_btn", type="primary", width="stretch",
-                         disabled=not e["positionen"]):
-                _rebalancing(h, e, methode)
+        offen = bool(e["positionen"]) and bool(null or ohne_kurs or not ok)
+        with st.expander("⚙️ Rebalancing, Rendite-Basis & Kurse", expanded=offen):
+            with st.container(key="pb_reihe_basis"):
+                st.selectbox("Rendite-Vorschlag aus", list(P.BASEN), format_func=P.BASEN.get, key="pb_rendite_basis",
+                             help="Grundlage der automatisch vorgeschlagenen Rendite je Wert: die Entwicklung der letzten "
+                                  "12 Monate (so zeigt wikifolio die Jahresperformance) oder der längste vorhandene "
+                                  "Zeitraum pro Jahr (ruhiger, für lange Laufzeiten). Werte jünger als ein Jahr: die "
+                                  "Entwicklung der letzten 9/6/3 Monate, nicht hochgerechnet. Selbst eingetragene "
+                                  "Renditen bleiben unverändert.")
+            with st.container(key="pb_reihe_rebal"):
+                # Handy: Auswahl und Knopf untereinander (nebeneinander waere die Auswahl unlesbar schmal)
+                r1, r2 = (st.container(), st.container()) if _smartphone() else st.columns([2, 1],
+                                                                                        vertical_alignment="bottom")
+                # "Automatisch aufs Ziel" verteilt ohnehin selbst - dort nur diese Methode
+                methoden = ["ziel"] if auto else [m for m in P.REBALANCING if m != "ziel" or e["zielvermoegen"] > 0]
+                methode = r1.selectbox("Rebalancing", methoden, format_func=P.REBALANCING.get,
+                                       key=f"pb_rebal_{int(auto)}",
+                                       help="Wie die Prozente neu verteilt werden (zusammen 100 %):\n\n"
+                                            "- **Gewichte behalten, 0 % ergänzen**: die Verhältnisse bleiben, Werte mit "
+                                            "0 % bekommen den durchschnittlichen Anteil\n"
+                                            "- **Alle gleich gewichten**: jeder Wert gleich viel\n"
+                                            "- **Aufs Zielvermögen**: nach erwarteter Rendite, so dass das Ziel erreicht "
+                                            "wird\n\nFehlende Kurse werden vorher geholt; Betrag und Stück rechnen sich "
+                                            "danach aus Kapital und Kurs.")
+                if r2.button("⚖️ Rebalancing", key="pb_rebal_btn", type="primary", width="stretch",
+                             disabled=not e["positionen"]):
+                    _rebalancing(h, e, methode)
+                    st.rerun()
+            gemeldet = st.session_state.pop("pb_meldung_rebal", None)
+            if gemeldet is not None:
+                st.toast("⚖️ Alle Werte neu berechnet – zusammen 100 %"
+                         + (f" · ohne Kurs (bitte eintragen): {', '.join(gemeldet[:3])}" if gemeldet else ""))
+            c1, c3 = st.columns([1, 1], vertical_alignment="center")
+            c1.toggle("Nur ganze Stücke", key="pb_nur_ganze_stuecke",
+                      help="Stückzahlen abrunden; der Rest bleibt als Cash im Portfolio.")
+            mit_kennung = any(p.get("wkn") or p.get("isin") or p.get("instrument_id") for p in e["positionen"])
+            if c3.button("🔄 Kurse aktualisieren", key="pb_kurse_btn", width="stretch", disabled=not mit_kennung,
+                         help="Aktuelle Kurse (ls-tc.de) für alle Werte mit WKN/ISIN – die Gewichte bleiben, "
+                              "die Stückzahlen passen sich an."):
+                with st.spinner("Lade Kurse …"):
+                    anzahl, fehlt = kurse_aktualisieren(h)
+                st.session_state["pb_meldung_kurse"] = (anzahl, fehlt)
                 st.rerun()
-        gemeldet = st.session_state.pop("pb_meldung_rebal", None)
-        if gemeldet is not None:
-            st.toast("⚖️ Alle Werte neu berechnet – zusammen 100 %"
-                     + (f" · ohne Kurs (bitte eintragen): {', '.join(gemeldet[:3])}" if gemeldet else ""))
-        c1, c3 = st.columns([1, 1], vertical_alignment="center")
-        c1.toggle("Nur ganze Stücke", key="pb_nur_ganze_stuecke",
-                  help="Stückzahlen abrunden; der Rest bleibt als Cash im Portfolio.")
-        mit_kennung = any(p.get("wkn") or p.get("isin") or p.get("instrument_id") for p in e["positionen"])
-        if c3.button("🔄 Kurse aktualisieren", key="pb_kurse_btn", width="stretch", disabled=not mit_kennung,
-                     help="Aktuelle Kurse (ls-tc.de) für alle Werte mit WKN/ISIN – die Gewichte bleiben, "
-                          "die Stückzahlen passen sich an."):
-            with st.spinner("Lade Kurse …"):
-                anzahl, fehlt = kurse_aktualisieren(h)
-            st.session_state["pb_meldung_kurse"] = (anzahl, fehlt)
-            st.rerun()
-        gemeldet = st.session_state.pop("pb_meldung_kurse", None)
-        if gemeldet:
-            anzahl, fehlt = gemeldet
-            st.toast(f"{anzahl} Kurs{'e' if anzahl != 1 else ''} aktualisiert"
-                     + (f" · ohne Kurs: {', '.join(fehlt[:3])}" if fehlt else ""))
+            gemeldet = st.session_state.pop("pb_meldung_kurse", None)
+            if gemeldet:
+                anzahl, fehlt = gemeldet
+                st.toast(f"{anzahl} Kurs{'e' if anzahl != 1 else ''} aktualisiert"
+                         + (f" · ohne Kurs: {', '.join(fehlt[:3])}" if fehlt else ""))
         texte = (["🎯 Prozente, Beträge und Stücke werden aufs Zielvermögen berechnet – Rendite je Position "
                   "oder das Ziel ändern."] if auto else
                  ["Prozent, Betrag oder Stück ändern – die anderen Werte rechnen sich sofort mit."])
@@ -1060,9 +1072,8 @@ def _positionen_tabelle(r, h=None):
     anteile = P.anteile_nach_art(r["eingaben"])
     namen = dict(P.ARTEN, cash="Cash")
     nach_art = " · ".join(f"{namen.get(k, k)} {pct(v)}" for k, v in sorted(anteile.items(), key=lambda x: -x[1]))
-    with st.container(border=True):
-        st.markdown('<div class="pb-karte-t">Positionen</div>'
-                    '<div class="pb-wrap" tabindex="0" role="region" aria-label="Positionen (seitlich scrollbar)">'
+    with st.expander(f"📋 Positionen mit Bewertung ({len(pos['zeilen'])})"):
+        st.markdown('<div class="pb-wrap" tabindex="0" role="region" aria-label="Positionen (seitlich scrollbar)">'
                     '<table class="pb-tab"><thead><tr><th>Position</th><th title="Score 0–100 relativ zur Anlageklasse '
                     '(wie im Katalog „Alle Werte“): 🟢 attraktiv · 🟡 mit Einschränkungen · 🔴 eher nicht">'
                     'Bewertung</th><th>Anteil</th><th>Stück</th><th class="kurs">Kurs</th>'
@@ -1081,8 +1092,9 @@ def _positionen_tabelle(r, h=None):
 def _entnahmeplan(r):
     """Entnahme als fester Betrag oder ueber den Verkauf von Stuecken je Position und Monat."""
     e, pos = r["eingaben"], r["positionen"]
-    with st.container(border=True, key="pb_entnahmeplan"):
-        st.markdown('<div class="pb-karte-t">Entnahmeplan</div>', unsafe_allow_html=True)
+    aktiv = e["entnahme_art"] == "stueck" or float(e.get("entnahme") or 0) > 0
+    with st.expander("💸 Entnahmeplan" + (" · aktiv" if aktiv else " · keine Entnahme"), expanded=aktiv), \
+            st.container(key="pb_entnahmeplan"):
         st.radio("Entnahme als", list(P.ENTNAHME_ARTEN), format_func=P.ENTNAHME_ARTEN.get, key="pb_entnahme_art",
                  horizontal=True, help="€-Betrag: fester Betrag je Monat (oben), verkauft wird anteilig nach Wert. "
                                        "Stückzahlen: je Position festlegen, wie viele Stücke pro Monat verkauft "

@@ -62,6 +62,7 @@ STATE_TOP50 = "state/top50.json"
 STATE_IDS = "state/top50_ids.json"
 STATE_WIKIFOLIOS = "state/top50_wikifolios.json"
 STATE_ETFS = "state/top50_etfs.json"           # automatisch gefundene ETFs (woechentlich)
+STATE_DIVIDENDEN = "state/top50_dividenden.json"   # je Yahoo-Symbol: Dividendenrendite + Auszahlungsrhythmus
 STATE_INDIZES = "state/top50_indizes.json"     # Mitgliederlisten der US-Indizes
 STATE_YAHOO = "state/top50_yahoo.json"         # Symbol-Zuordnung + letzte Dividendenrenditen
 STATE_VERLAUF = "state/top50_verlauf.json"     # Tagesstaende der Ranglisten (Wochenvergleich)
@@ -594,6 +595,23 @@ def dividendenrendite(chart):
     return round(rendite, 2)
 
 
+def ausschuettungs_rhythmus(chart):
+    """Wie oft zahlt der Wert Dividende? Aus den Zahlungsterminen der letzten gut zwei Jahre (mittlerer
+    Abstand zwischen zwei Zahlungen). -> einer aus RHYTHMEN oder None (keine Zahlung im letzten Jahr)."""
+    if not chart or not chart.get("reihe") or not chart.get("divs"):
+        return None
+    letzter_tag = chart["reihe"][-1][0]
+    tage = sorted({t for t, b in chart["divs"] if b and 0 <= (letzter_tag - t).days < 2 * 365 + 60})
+    if not tage or (letzter_tag - tage[-1]).days >= DIV_FENSTER_TAGE + 35:
+        return None                                   # im letzten Jahr nichts gezahlt
+    if len(tage) < 2:
+        return "jährlich"
+    abstaende = sorted((b - a).days for a, b in zip(tage, tage[1:]))
+    mitte = abstaende[len(abstaende) // 2]
+    return ("monatlich" if mitte <= 45 else "alle 2 Monate" if mitte <= 75 else "quartalsweise" if mitte <= 135
+            else "halbjährlich" if mitte <= 240 else "jährlich")
+
+
 def yahoo_symbol_suchen(begriff, land="", endung=None):
     """Sucht das Yahoo-Symbol der Heimatboerse zu ISIN oder Name. endung
     erzwingt eine Boerse (".T", ".L" ...; "" = US-Listing)."""
@@ -1051,13 +1069,13 @@ def lade_indexwert(ticker, name, boerse, standort, ymap):
                 gemerkt[standard] = gefunden
                 symbol = gefunden
     if chart is None:
-        return symbol, None, None, name
+        return symbol, None, None, name, None
     fx = fx_reihe(chart["waehrung"])
     if fx is False or (fx and fx_ist_ersatz(chart["waehrung"])):
-        return symbol, None, None, name                # Waehrung nicht (historisch) umrechenbar
+        return symbol, None, None, name, None          # Waehrung nicht (historisch) umrechenbar
     reihe = in_euro(chart["reihe"], fx) if fx else chart["reihe"]
     anzeige = schoener_name(chart["name"] or name)
-    return symbol, bereinigen(reihe), dividendenrendite(chart), anzeige
+    return symbol, bereinigen(reihe), dividendenrendite(chart), anzeige, ausschuettungs_rhythmus(chart)
 
 
 def lade_dividende_isin(isin, name, ymap):
@@ -1669,6 +1687,18 @@ def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
     log.info(f"Grosser Katalog: {sum(len(z) for z in teile.values())} Werte")
 
 
+def dividenden_speichern(perf_je_id, jetzt):
+    """Rendite und Auszahlungsrhythmus aller Dividendenzahler je Yahoo-Symbol - die App ergaenzt damit
+    die Top-500-Qualitaetslisten (gleiche Symbole wie der Qualitaets-Agent)."""
+    werte = {uid[2:]: [round(p["_div"], 2), p.get("_rhythmus")] for uid, p in perf_je_id.items()
+             if str(uid).startswith("Y:") and p and (p.get("_div") or 0) > 0}
+    if werte:
+        speichere_state(STATE_DIVIDENDEN, {"stand": jetzt.isoformat(timespec="minutes"), "werte": werte},
+                        "top50: dividenden [skip ci]")
+    log.info(f"Dividenden: {len(werte)} Zahler, Rhythmus bekannt fuer "
+             f"{sum(1 for v in werte.values() if v[1])}")
+
+
 def schon_aktuell(top50, heute):
     """Liegen die Ranglisten von heute schon vor? (mehrere Ausloeser je Tag - nur der erste rechnet)"""
     try:
@@ -1767,13 +1797,14 @@ def main():
         with ThreadPoolExecutor(YAHOO_PARALLEL) as pool:
             geladen = list(pool.map(lambda e: lade_indexwert(*e[:4], ymap), liste))
         ohne = 0
-        for (ticker, name, *_), (symbol, reihe, div, anzeige) in zip(liste, geladen):
+        for (ticker, name, *_), (symbol, reihe, div, anzeige, rhythmus) in zip(liste, geladen):
             uid = f"Y:{symbol}"
             mitglieder[key].append((uid, anzeige, symbol, ""))
             if uid not in perf_je_id:
                 p = performance(reihe or [], heute)
                 if p:
                     p["_div"] = div
+                    p["_rhythmus"] = rhythmus if div else None
                 perf_je_id[uid] = p
             if not reihe:
                 ohne += 1
@@ -1782,6 +1813,21 @@ def main():
         log.info(f"{kat['titel']}: {len(liste) - ohne} von {len(liste)} mit Kursdaten")
     if repr(index_cache) != index_cache_vorher:
         speichere_state(STATE_INDIZES, index_cache, "top50: indexlisten [skip ci]")
+
+    # 4b) Dividenden-Aktien: ALLE Aktien der Laenderlisten, die im letzten Jahr Dividende gezahlt haben
+    for key, kat in KATEGORIEN.items():
+        if kat["quelle"] != "alle_dividenden":
+            continue
+        gesehen, liste = set(), []
+        for k2 in index_keys:
+            for m in mitglieder.get(k2, []):
+                p = perf_je_id.get(m[0]) or {}
+                if m[0] not in gesehen and (p.get("_div") or 0) > 0:
+                    gesehen.add(m[0])
+                    liste.append(m)
+        mitglieder[key] = liste
+        log.info(f"{kat['titel']}: {len(liste)} Aktien mit Dividende (automatisch aus allen Laenderlisten)")
+    dividenden_speichern(perf_je_id, jetzt)
 
     # 5) Dividendenrendite der ls-tc-Aktien in Kategorien mit "dividende"
     div_cache = ymap.setdefault("div", {})
@@ -1832,6 +1878,8 @@ def main():
             z = {"name": name, "wkn": wkn, "perf": p.get(schluessel)}
             if kat.get("dividende"):
                 z["div"] = p.get("_div")
+                if p.get("_rhythmus"):
+                    z["rhythmus"] = p["_rhythmus"]
             return z
 
         top, mit_daten, lang = {}, {}, {}
@@ -1840,7 +1888,8 @@ def main():
             p = e[4]
             perf = p.get(schluessel)
             return [str(e[1])[:40], e[2], round(perf, 2) if perf is not None else None,
-                    round(p["_div"], 2) if kat.get("dividende") and p.get("_div") is not None else None]
+                    round(p["_div"], 2) if kat.get("dividende") and p.get("_div") is not None else None,
+                    p.get("_rhythmus") if kat.get("dividende") else None]
 
         for schluessel, _, _ in ZEITRAEUME:
             mit_wert = [e for e in eintraege if e[4].get(schluessel) is not None]
@@ -1867,14 +1916,14 @@ def main():
             "mit_daten": mit_daten,
             "top": top,
             "dividende": bool(kat.get("dividende")),
-            "kennung": "Symbol" if kat["quelle"] in ("index", "yahoo") else "WKN",
+            "kennung": "Symbol" if kat["quelle"] in ("index", "yahoo", "alle_dividenden") else "WKN",
         }
         if key in quellen_hinweis:
             neu["quellen"] = quellen_hinweis[key]
         # Yahoo gesperrt/ausgefallen: lieber die Rangliste vom Vortag zeigen als
         # eine, der die Haelfte der Werte fehlt
         alt = (vorher.get("kategorien") or {}).get(key)
-        if (kat["quelle"] in ("index", "yahoo") and alt and alt.get("aktiv", 0) > neu["aktiv"]
+        if (kat["quelle"] in ("index", "yahoo", "alle_dividenden") and alt and alt.get("aktiv", 0) > neu["aktiv"]
                 and neu["aktiv"] < 0.5 * max(neu["im_universum"], 1)):
             log.warning(f"{kat['titel']}: nur {neu['aktiv']} Werte geladen - behalte Vortagesliste.")
             alt["veraltet_seit"] = alt.get("veraltet_seit") or vorher.get("stand")

@@ -159,47 +159,6 @@ AKTIEN = [
 ]
 
 # ---------------------------------------------------------------------------
-# DIVIDENDEN-AKTIEN: bekannte Hochdividendenwerte und Dividenden-Aristokraten.
-# Hinweis: die Ranglisten messen die KURS-Performance - ausgeschuettete
-# Dividenden sind darin NICHT enthalten (die Kursquelle liefert keine
-# Dividendendaten). Die Liste waehlt die Werte aus, die Rangfolge ergibt
-# sich aus der Kursentwicklung.
-# ---------------------------------------------------------------------------
-DIVIDENDEN = [
-    ("DE0008404005", "Allianz"), ("DE0008430026", "Münchener Rück"),
-    ("DE0008402215", "Hannover Rück"), ("DE000TLX1005", "Talanx"), ("DE000BASF111", "BASF"),
-    ("DE0007100000", "Mercedes-Benz"), ("DE0005190003", "BMW"),
-    ("DE0005557508", "Deutsche Telekom"), ("DE0005552004", "DHL Group"),
-    ("DE000ENAG999", "E.ON"), ("DE000PAH0038", "Porsche SE"), ("DE0007664039", "Volkswagen Vz"),
-    ("DE000A0Z2ZZ5", "freenet"), ("DE000DWS1007", "DWS Group"),
-    ("FR0000120271", "TotalEnergies"), ("GB00BP6MXD84", "Shell"), ("GB0007980591", "BP"),
-    ("GB0002875804", "British American Tobacco"), ("GB0004544929", "Imperial Brands"),
-    ("GB00B10RZP78", "Unilever"), ("CH0038863350", "Nestlé"), ("CH0012005267", "Novartis"),
-    ("CH0012032048", "Roche Genussschein"), ("CH0011075394", "Zurich Insurance"),
-    ("CH0126881561", "Swiss Re"), ("FR0000120578", "Sanofi"), ("FR0000120628", "AXA"),
-    ("IT0003128367", "Enel"), ("IT0003132476", "Eni"), ("IT0000072618", "Intesa Sanpaolo"),
-    ("ES0144580Y14", "Iberdrola"), ("FR0010208488", "Engie"), ("FR0000133308", "Orange"),
-    ("GB0005603997", "Legal & General"), ("GB00BPQY8M80", "Aviva"),
-    ("GB00BDR05C01", "National Grid"), ("GB0007188757", "Rio Tinto"),
-    ("NO0010096985", "Equinor"), ("ES0178430E18", "Telefónica"),
-    ("US7561091049", "Realty Income"), ("US02209S1033", "Altria"),
-    ("US7181721090", "Philip Morris"), ("US92343V1044", "Verizon"), ("US00206R1023", "AT&T"),
-    ("US7170811035", "Pfizer"), ("US00287Y1091", "AbbVie"), ("US4781601046", "Johnson & Johnson"),
-    ("US1912161007", "Coca-Cola"), ("US7134481081", "PepsiCo"), ("US7427181091", "Procter & Gamble"),
-    ("US88579Y1010", "3M"), ("US4592001014", "IBM"), ("US1667641005", "Chevron"),
-    ("US30231G1022", "Exxon Mobil"), ("CA29250N1050", "Enbridge"), ("CA87807B1076", "TC Energy"),
-    ("US56035L1044", "Main Street Capital"), ("US04010L1035", "Ares Capital"),
-    ("US92936U1097", "W. P. Carey"), ("US4943681035", "Kimberly-Clark"),
-    ("US3703341046", "General Mills"), ("US87612E1064", "Target"), ("US5801351017", "McDonald's"),
-    ("US4370761029", "Home Depot"), ("US8825081040", "Texas Instruments"),
-    ("US11135F1012", "Broadcom"), ("IE00BTN1Y115", "Medtronic"), ("US9113121068", "UPS"),
-    ("US2605571031", "Dow"), ("NL0009434992", "LyondellBasell"),
-    ("US7443201022", "Prudential Financial"), ("US59156R1086", "MetLife"),
-    ("US26441C2044", "Duke Energy"), ("US8425871071", "Southern Co"),
-    ("US25746U1097", "Dominion Energy"),
-]
-
-# ---------------------------------------------------------------------------
 # ETFs inkl. Hebel-ETFs (Leverage)
 # ---------------------------------------------------------------------------
 ETFS = [
@@ -347,8 +306,9 @@ KATEGORIEN = {
                    "boersenwert": (2e8, 2e9), "dividende": True},
     "em":         {"titel": "Schwellenländer (inkl. Nebenwerte)", "quelle": "yahoo", "regionen": REGIONEN_EM,
                    "boersenwert": (3e8, None), "dividende": True},
-    "dividenden": {"titel": "Dividenden-Aktien",    "quelle": DIVIDENDEN, "kategorien_ls": {"Aktie"},
-                   "dividende": True},
+    # alle Aktien der Laenderlisten mit Dividende im letzten Jahr (keine feste Liste mehr)
+    "dividenden": {"titel": "Dividenden-Aktien (alle Zahler)", "quelle": "alle_dividenden",
+                   "kategorien_ls": {"Aktie"}, "dividende": True},
     "etf":        {"titel": "ETFs & Hebel-ETFs",    "quelle": ETFS,
                    "kategorien_ls": {"ETF", "ETC", "ETN", "ETP", "Fonds"}},
     "wikifolios": {"titel": "wikifolios",           "quelle": "auto",     "kategorien_ls": {"Wikifolio"}},

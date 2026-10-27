@@ -19,6 +19,9 @@ NACHHALTIG = [  # Ausschuettungsquote: (Schluessel, Titel, bis % inkl.)
     ("ungedeckt", "nicht vom Gewinn gedeckt (> 100 %)", None),
 ]
 
+# Auszahlungsrhythmus (vom Top-50-Agenten aus den Zahlungsterminen ermittelt)
+RHYTHMEN = ("monatlich", "alle 2 Monate", "quartalsweise", "halbjährlich", "jährlich")
+
 # Filter in der Watchlist (Titel -> Bedingung auf div/div_q)
 FILTER = {
     "Alle": None,

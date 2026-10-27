@@ -314,7 +314,7 @@ def _uebersicht(h, a):
 
     s = k.get("score")
     rendite = k.get("rendite")
-    _kpis([("Depotwert", D.eur(k["gesamt"]), f'davon Liquidität {D.eur(k["cash"])}' if k["cash"] else
+    kacheln = [("Depotwert", D.eur(k["gesamt"]), f'davon Liquidität {D.eur(k["cash"])}' if k["cash"] else
             f'{k["anzahl"]} Positionen mit Kurs'),
            ("Gesamtrendite", f'<span class="{_vz_css(k.get("gv"))}">{D.eur(k.get("gv"))}</span>',
             (D.pct(rendite, 1, True) + " seit Kauf (inkl. Auszahlungen)"
@@ -331,32 +331,39 @@ def _uebersicht(h, a):
            ("Größte Position", D.pct(k["groesste"][1]) if k.get("groesste") else "–",
             _e(k["groesste"][0]) if k.get("groesste") else ""),
            ("Laufende Kosten", D.eur(k.get("kosten")),
-            f'p. a. · TER bekannt für {D.pct(k.get("kosten_abdeckung"), 0)} der Fonds')])
+            f'p. a. · TER bekannt für {D.pct(k.get("kosten_abdeckung"), 0)} der Fonds')]
+    _kpis(kacheln[:4])                       # das Wichtigste sichtbar, der Rest aufklappbar
+    with st.expander("📈 Weitere Kennzahlen: Dividende, Diversifikation, größte Position, Kosten"):
+        _kpis(kacheln[4:])
     if k["ohne_kurs"]:
         st.warning("Ohne Kurs und daher nicht bewertet: " + ", ".join(p["name"] for p in k["ohne_kurs"])
                    + ". Kursquelle unter „Depot verwalten“ ergänzen.")
 
-    c1, c2 = (st.container(), st.container()) if B._smartphone() else st.columns(2)
-    with c1, st.container(border=True):
-        _titel("Depot-Score – Teilbewertungen")
+    warn = a["warn"]
+    with st.container(border=True):
+        _titel("Hinweise & Warnungen" + (f" ({len(warn)})" if warn else ""))
+        if not warn:
+            st.caption("Keine relevanten Hinweise.")
+
+        def _warnung(w):
+            st.markdown(f'<div class="da-box {STUFE_CSS.get(w["stufe"], "")}"><b>{_e(w["typ"])}</b>{_e(w["text"])}'
+                        '</div>', unsafe_allow_html=True)
+        for w in warn[:3]:
+            _warnung(w)
+        if len(warn) > 3:
+            with st.expander(f"{len(warn) - 3} weitere Hinweise"):
+                for w in warn[3:]:
+                    _warnung(w)
+
+    with st.expander("🧮 Depot-Score – Teilbewertungen"):
         t = k.get("teile") or {}
         _tabelle([("Bereich", "nm"), ("Gewicht", "r"), ("Punkte", "r"), ("", "")],
                  [[_e(n), f"{g} %", D.de(t.get(key), 0) if t.get(key) is not None else
                    '<span class="da-m">keine Daten</span>', _bahn(t.get(key))] for key, n, g in D.SCORE_GEWICHTE],
                  breit=False)
         st.caption("Fehlende Teilbewertungen zählen nicht – der Score wird über die vorhandenen Teile gerechnet.")
-    with c2, st.container(border=True):
-        _titel("Hinweise & Warnungen")
-        if not a["warn"]:
-            st.caption("Keine relevanten Hinweise.")
-        for w in a["warn"][:10]:
-            st.markdown(f'<div class="da-box {STUFE_CSS.get(w["stufe"], "")}"><b>{_e(w["typ"])}</b>{_e(w["text"])}'
-                        '</div>', unsafe_allow_html=True)
-        if len(a["warn"]) > 10:
-            st.caption(f"+ {len(a['warn']) - 10} weitere")
 
-    with st.container(border=True):
-        _titel("Verteilung")
+    with st.expander("📊 Verteilung & Zielstruktur laut Profil"):
         st.session_state.setdefault(P + "vert", "Anlageklasse")
         dim = st.pills("Aufteilung nach", list(k.get("verteilung") or {}), key=P + "vert") or "Anlageklasse"
         vert = (k.get("verteilung") or {}).get(dim) or {}
@@ -387,11 +394,11 @@ def _uebersicht(h, a):
                   ("Priorität", "")], zeilen)
         st.caption("Details, Begründung, Chancen und Risiken je Position im Reiter „🔍 Positionen“.")
         if k.get("ueberschneidungen"):
-            _titel("ETF-Überschneidungen (nach Index-Familie)")
-            for u in k["ueberschneidungen"]:
-                st.markdown(f'<div class="da-box {"warn" if u["stark"] else ""}"><b>{_e(u["a"])} / {_e(u["b"])}</b>'
-                            f'{_e(u["grund"])} – zusammen {D.pct(u["gewicht"])} des Depots</div>',
-                            unsafe_allow_html=True)
+            with st.expander(f"ETF-Überschneidungen nach Index-Familie ({len(k['ueberschneidungen'])})"):
+                for u in k["ueberschneidungen"]:
+                    st.markdown(f'<div class="da-box {"warn" if u["stark"] else ""}"><b>{_e(u["a"])} / {_e(u["b"])}</b>'
+                                f'{_e(u["grund"])} – zusammen {D.pct(u["gewicht"])} des Depots</div>',
+                                unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------- Positionen (Detail)

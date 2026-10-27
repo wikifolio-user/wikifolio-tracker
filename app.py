@@ -4212,7 +4212,8 @@ def render_dashboard():
                                     break
                                 if z[1] not in gesehen:
                                     gesehen.add(z[1])
-                                    kurz.append({"name": z[0], "wkn": z[1], "perf": z[2], "div": z[3]})
+                                    kurz.append({"name": z[0], "wkn": z[1], "perf": z[2], "div": z[3],
+                                                 "rhythmus": z[4] if len(z) > 4 else None})
                             return kurz
                         kat = dict(kat, top={zr: _verlaengern(kat.get("top", {}).get(zr), lang["top"].get(zr))
                                              for zr in set(kat.get("top", {})) | set(lang["top"])})
@@ -4257,10 +4258,11 @@ def render_dashboard():
                 farbe = "pt-up" if wert >= 0 else "pt-down"
                 return f'<td class="pt-num pt-stark {farbe}">{vz_zahl(wert, 2)} %</td>'
 
-            def _div(wert):
+            def _div(wert, rhythmus=None):
                 if not wert:
                     return '<td class="pt-num">–</td>'
-                return f'<td class="pt-num pt-stark pt-up">{_de_zahl(wert, 2)} %</td>'
+                unter = f'<span class="pt-sub">{html.escape(rhythmus)}</span>' if rhythmus else ""
+                return f'<td class="pt-num pt-stark pt-up">{_de_zahl(wert, 2)} %{unter}</td>'
 
             vergleich = (kat.get("vergleich") or {}).get(zr_key)
             mit_trend = vergleich is not None
@@ -4271,9 +4273,9 @@ def render_dashboard():
                     t, art = _trend(e.get("vor"), rang)
                     trend_td = f'<td class="pt-num" style="color:{TREND_FARBE[art]};font-weight:700">{t}</td>'
                 if nach_div:
-                    werte = _div(e.get("div")) + _pct(e.get("perf"))
+                    werte = _div(e.get("div"), e.get("rhythmus")) + _pct(e.get("perf"))
                 else:
-                    werte = _pct(e.get("perf")) + (_div(e.get("div")) if mit_div else "")
+                    werte = _pct(e.get("perf")) + (_div(e.get("div"), e.get("rhythmus")) if mit_div else "")
                 zeilen += (
                     f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">'
                     f'<td class="pt-num pt-seit">{rang}</td>{trend_td}'
@@ -4304,7 +4306,9 @@ def render_dashboard():
                 st.caption(
                     "Performance = reine Kursentwicklung ohne Dividenden, Gebühren oder Steuern. "
                     "**Div.-Rendite** = Ausschüttungen der letzten 12 Monate geteilt durch den "
-                    "aktuellen Kurs (laufende Rendite, Quelle Yahoo Finance). Sonderdividenden "
+                    "aktuellen Kurs (laufende Rendite, Quelle Yahoo Finance); darunter der Auszahlungsrhythmus "
+                    "(monatlich, quartalsweise, halbjährlich, jährlich) aus den Zahlungsterminen der letzten zwei "
+                    "Jahre. Sonderdividenden "
                     "zählen mit; Werte über 30 % werden als unplausibel ausgeblendet. "
                     "Werte ohne Kurs seit mehr als 10 Tagen gelten als inaktiv und fehlen. "
                     "Vergangene Performance ist kein Hinweis auf künftige Entwicklung."
@@ -4401,11 +4405,11 @@ def render_dashboard():
         ("moat", "Moat*", str, _qc_label(("stark",), ("gering",))),
         ("mgmt", "Management*", str, _qc_label(("gut",), ("schwach",))),
         ("bew", "Bewertung", str, _qc_label(("günstig",), ("teuer",))),
-        ("div", "Dividende", _qf_pct(2, False), _qc_schwelle(3, -1)),
-        ("div_q", "Ausschüttungsquote", _qf_pct(0, False), _qc_schwelle(60, 100, True)),
-        ("risiko", "Risiko", str, _qc_label(("niedrig",), ("hoch",))),
         # Dividendenrendite (letzte 12 Monate): grün ab 3 %, keine Rotfärbung - keine Dividende ist kein Mangel
         ("div", "Dividende", _qf_pct(2, False), _qc_schwelle(3, -1)),
+        ("aus", "Ausschüttung", lambda x: x or "–", lambda x: ""),
+        ("div_q", "Ausschüttungsquote", _qf_pct(0, False), _qc_schwelle(60, 100, True)),
+        ("risiko", "Risiko", str, _qc_label(("niedrig",), ("hoch",))),
         ("mcap", "Mkap. Mrd €", _qf_zahl(), lambda x: ""),
     ]
     Q_KLASSE_CSS = {"prio": "q-prio", "beobachten": "q-beob", "nicht": "q-nicht"}
@@ -4726,6 +4730,11 @@ def render_dashboard():
         st.caption("Sektor und Branche aus der Yahoo-Branchenangabe (11 Sektoren). „Sonstige“ = keine "
                    "Branchenangabe. Filter oben: „Firmen-Kategorie“.")
 
+    def _div_rhythmen():
+        """{Yahoo-Symbol: Auszahlungsrhythmus} aus dem Top-50-Agenten (gleiche Symbole wie der Qualitaets-Agent)."""
+        d = gh_read_taeglich("state/top50_dividenden.json", None) or {}
+        return {s_: v[1] for s_, v in (d.get("werte") or {}).items() if isinstance(v, list) and len(v) > 1 and v[1]}
+
     def _render_qualitaet():
         nonlocal daten_q
         daten = gh_read_taeglich("state/qualitaet.json", None)
@@ -4755,6 +4764,7 @@ def render_dashboard():
             str(_ss.get("q_sektor") or "").split(" ", 1)[-1] if _ss.get("q_sektor") not in (None, "Alle Sektoren") else "",
             _ss.get("q_klasse") if _ss.get("q_klasse") not in (None, ansichten[0]) else "",
             f"Dividende {_ss.get('q_div_filter')}" if _ss.get("q_div_filter") not in (None, "Alle") else "",
+            f"Ausschüttung {_ss.get('q_div_rhythmus')}" if _ss.get("q_div_rhythmus") not in (None, "Alle") else "",
             "nachhaltig" if _ss.get("q_div_nachhaltig") else "",
             "nach Dividende sortiert" if _ss.get("q_sortierung") == "Dividendenrendite" else "") if x)
         with st.expander(f"🔎 Filter: {_filter_titel}", expanded=False, key="q_filter_exp"):
@@ -4810,10 +4820,17 @@ def render_dashboard():
             div_filter = st.selectbox("Dividende", list(DV.FILTER), key="q_div_filter") or "Alle"
             nur_nachhaltig = st.toggle("Nur nachhaltige Dividende", key="q_div_nachhaltig",
                                        help="Ausschüttungsquote höchstens 80 % des Gewinns")
+            rhythmen = _div_rhythmen()
+            rh_filter = st.selectbox("Ausschüttung", ["Alle"] + list(DV.RHYTHMEN), key="q_div_rhythmus",
+                                     help="Wie oft die Dividende gezahlt wird – ermittelt aus den Zahlungsterminen "
+                                          "der letzten zwei Jahre (Yahoo Finance)") or "Alle"
+            if rh_filter != "Alle" and not rhythmen:
+                st.info("Der Auszahlungsrhythmus wird beim nächsten nächtlichen Lauf der Ranglisten ermittelt – "
+                        "bis dahin findet dieser Filter keine Werte.")
             sortierung = st.pills("Sortieren nach", ["Punkte", "Dividendenrendite"], default="Punkte",
                                   key="q_sortierung") or "Punkte"
             nach_div = sortierung == "Dividendenrendite"
-            gefiltert = bool(sektor or div_filter != "Alle" or nur_nachhaltig or nach_div)
+            gefiltert = bool(sektor or div_filter != "Alle" or nur_nachhaltig or nach_div or rh_filter != "Alle")
             if gefiltert and not mitglieder_alle:
                 st.warning("Die Gesamtdaten sind gerade nicht lesbar – Filter bitte später erneut versuchen.")
                 sektor, gefiltert = None, False
@@ -4821,7 +4838,8 @@ def render_dashboard():
                 werte = {**werte, **{s_: alle_q[s_] for s_ in mitglieder_alle}}
                 im_sektor = [s_ for s_ in mitglieder_alle
                              if (not sektor or BR.sektor(alle_q[s_].get("br")) == sektor)
-                             and DV.passt(alle_q[s_], div_filter, nur_nachhaltig)]
+                             and DV.passt(alle_q[s_], div_filter, nur_nachhaltig)
+                             and (rh_filter == "Alle" or rhythmen.get(s_) == rh_filter)]
 
                 def rang_sek(liste):
                     if nach_div:
@@ -4833,6 +4851,8 @@ def render_dashboard():
                                       for kl in Q_KLASSEN},
                            klassen={kl: sum(1 for s_ in im_sektor if werte[s_]["klasse"] == kl) for kl in Q_KLASSEN})
             a_wahl = st.pills("Einordnung", ansichten, default=ansichten[0], key="q_klasse") or ansichten[0]
+        if rhythmen:
+            werte = {s_: (dict(w, aus=rhythmen[s_]) if s_ in rhythmen else w) for s_, w in werte.items()}
         if mitglieder_alle:
             with st.expander("🏷️ Firmen-Kategorien im Überblick"):
                 _q_sektoren_tabelle(alle_q, mitglieder_alle)
@@ -4851,6 +4871,7 @@ def render_dashboard():
         kl = kat["klassen"]
         _filter_txt = " · ".join(x for x in (f"Sektor {sektor}" if sektor else "",
                                              f"Dividende {div_filter}" if div_filter != "Alle" else "",
+                                             f"Ausschüttung {rh_filter}" if rh_filter != "Alle" else "",
                                              "nachhaltig" if nur_nachhaltig else "",
                                              "sortiert nach Dividendenrendite" if nach_div else "") if x)
         basis_txt = (f"Aktien der Auswahl ({_filter_txt})" if gefiltert else
