@@ -947,6 +947,13 @@ st.markdown("""
     [data-testid="stNumberInputStepUp"] svg, [data-testid="stNumberInputStepDown"] svg {
         width: 20px !important; height: 20px !important;
     }
+    /* Handy: die Zahlenfelder sind durch die grossen +/- Tasten 46 px hoch - Auswahlfelder daneben
+       gleich hoch, sonst wirken sie in einer Reihe kleiner und versetzt */
+    @media (max-width: 700px), (pointer: coarse) {
+        [data-testid="stSelectbox"] > div:last-child,
+        [data-testid="stSelectbox"] > div:last-child > div { min-height: 46px !important; }
+        [data-testid="stSelectbox"] > div:last-child > div { display: flex; align-items: center; }
+    }
     /* Tabs ruhiger, ohne dicke gruene Unterstreichung */
     [data-testid="stTabs"] button { font-size: 0.8rem !important; letter-spacing: 0.3px; }
     /* Tab-Leiste bei vielen Positionen horizontal scrollbar halten, statt
@@ -3120,6 +3127,10 @@ LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUI
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
+# Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
+OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
+              "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2}
+
 NAV_CSS = """
 <style>
 /* ================= STARTSEITE: Neon-Weiss ================= */
@@ -3353,8 +3364,11 @@ NAV_CSS = """
     overflow-wrap: anywhere; text-align: center; letter-spacing: 0.3px;
     text-shadow: none;
 }
-.nav-stand { font-size: 0.8rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
-.nav-stand b { color: #FFFFFF; }
+.nav-stand { display: flex; justify-content: center; margin: 6px 0 4px; }
+.nav-stand span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--label, #9AA0A6);
+    padding: 2px 10px; border: 1px solid rgba(150, 188, 240, 0.25); border-radius: 999px; white-space: nowrap; }
+.nav-stand b { color: #FFFFFF; font-weight: 600; }
+.nav-stand i { width: 6px; height: 6px; border-radius: 50%; background: #16C784; display: inline-block; }
 @media (max-width: 700px) {
     .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
     .st-key-nav_menue [data-testid="stButton"] button { min-height: 58px !important; }
@@ -3631,10 +3645,7 @@ def kursstand_text(stx, jetzt):
     """Kurzer Stand aller Kurse fuer Kopf/Startseite."""
     if stx["aeltester"] is None:
         return "Kurse werden beim ersten Aufruf geladen"
-    t = f"Kurse vom <b>{_zeit_kurz(stx['aeltester'], jetzt)} Uhr</b> · {stx['werte']} Werte"
-    if stx["letzter_fehler"]:
-        t += f" · {stx['letzter_fehler']} ohne Aktualisierung"
-    return t
+    return f"Kurse vom <b>{_zeit_kurz(stx['aeltester'], jetzt)}&nbsp;Uhr</b>"
 
 
 KURSLAUF_WARTEN_MAX_SEK = 180
@@ -3669,13 +3680,14 @@ def kursstand_details(stx, jetzt):
         if stx["aeltester"] is None:
             st.caption("Noch keine Kurse im Speicher – sie werden beim ersten Aufruf einer Ansicht geladen.")
             return
-        namen = {"live": "Aktuelle Kurse (Aktien, ETFs, wikifolios)", "historie": "Kursverläufe (Charts)",
-                 "benchmark": "Vergleichswerte (Verläufe)"}
-        zeilen = [f"<tr><td>{namen.get(a, a)}</td><td style='text-align:right'>{n}</td></tr>"
-                  for a, n in sorted(stx["anzahl"].items(), key=lambda x: list(namen).index(x[0])
-                                     if x[0] in namen else 9)]
-        st.markdown("<table class='pt'><tr><th>Daten</th><th style='text-align:right'>Werte</th></tr>"
-                    + "".join(zeilen) + "</table>", unsafe_allow_html=True)
+        st.caption(f"Live-Kurse für {stx['instrumente']} Wertpapiere im Speicher – das sind die Werte, die die "
+                   "App gerade braucht: deine Depots, das Analyse-Depot, Vergleichswerte sowie Werte aus Builder "
+                   "und Planer. Neue kommen beim ersten Aufruf automatisch dazu. Die Ranglisten (Top 500 mit "
+                   "rund 12.500 Aktien, ETFs und über 10.000 wikifolios) rechnen die Agenten jede Nacht neu – "
+                   "ihren Stand zeigt jede Liste oben an.")
+        namen = {"live": "aktuelle Kurse", "historie": "Kursverläufe", "benchmark": "Vergleichsverläufe"}
+        st.markdown(" · ".join(f"**{n}** {namen.get(a, a)}" for a, n in sorted(
+            stx["anzahl"].items(), key=lambda x: list(namen).index(x[0]) if x[0] in namen else 9)))
         teile = [f"Ältester Stand {_zeit_kurz(stx['aeltester'], jetzt)} Uhr",
                  f"neuester {_zeit_kurz(stx['neuester'], jetzt)} Uhr"]
         if stx["letzter_ende"] is not None:
@@ -3701,8 +3713,8 @@ def navigation():
     dienst = kurs_dienst_bereit()
     stx = dienst.status()
     laeuft = stx["laeuft"]
-    stand_html = (f'<div class="nav-stand">{kursstand_text(stx, jetzt)} · '
-                  f'nächste Aktualisierung {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div>')
+    stand_html = (f'<div class="nav-stand"><span><i></i>{kursstand_text(stx, jetzt)} · '
+                  f'nächste {naechster_termin(jetzt).strftime("%H:%M")}&nbsp;Uhr</span></div>')
     hilfe = ("Die Kurse werden gerade im Hintergrund geladen – der Knopf ist bis zum Ende gesperrt." if laeuft else
              f"Alle Kurse jetzt im Hintergrund neu laden (sonst automatisch täglich ab {AKTUALISIERUNG_START} Uhr "
              f"alle {AKTUALISIERUNG_TAKT} Stunden)")
@@ -3725,8 +3737,8 @@ def navigation():
             st.markdown(
                 '<div class="nav-kopf"><div class="nav-logo"><span class="nav-lauf">FINANZ <span>DASHBOARD</span></span></div>'
                 '<div class="nav-credit">created by MarsTech</div>'
-                f'<div class="nav-chip"><span class="nav-dot"></span>{kursstand_text(stx, jetzt)}'
-                f' · nächste {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div></div>',
+                f'<div class="nav-chip"><span class="nav-dot"></span><span>{kursstand_text(stx, jetzt)}'
+                f' · nächste {naechster_termin(jetzt).strftime("%H:%M")}&nbsp;Uhr</span></div></div>',
                 unsafe_allow_html=True)
             st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
                       width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
@@ -3842,7 +3854,8 @@ def navigation():
                     unsafe_allow_html=True)
         c3.button("⏳" if laeuft else "🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren,
                   disabled=laeuft)
-    st.markdown(stand_html, unsafe_allow_html=True)
+    if aktiv not in OHNE_KURSE:              # Ansichten ohne Live-Kurse: dort zeigt jede Liste ihren eigenen Stand
+        st.markdown(stand_html, unsafe_allow_html=True)
     _kurslauf_fortschritt(stx)
     return aktiv
 
@@ -4821,7 +4834,7 @@ def render_dashboard():
             nur_nachhaltig = st.toggle("Nur nachhaltige Dividende", key="q_div_nachhaltig",
                                        help="Ausschüttungsquote höchstens 80 % des Gewinns")
             rhythmen = _div_rhythmen()
-            rh_filter = st.selectbox("Ausschüttung", ["Alle"] + list(DV.RHYTHMEN), key="q_div_rhythmus",
+            rh_filter = st.selectbox("Ausschüttung", ["Alle"] + list(getattr(DV, "RHYTHMEN", ("monatlich", "alle 2 Monate", "quartalsweise", "halbjährlich", "jährlich"))), key="q_div_rhythmus",
                                      help="Wie oft die Dividende gezahlt wird – ermittelt aus den Zahlungsterminen "
                                           "der letzten zwei Jahre (Yahoo Finance)") or "Alle"
             if rh_filter != "Alle" and not rhythmen:
@@ -5809,9 +5822,9 @@ def render_dashboard():
     @st.fragment
     def _render_top50():
         _zugang_pruefen("🏆 Watchlist Top 50")
-        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🏅 ETF- & wikifolio-Score", "🧭 Qualität × Kurs",
-                                 "📈 Performance", "🧩 Wikifolios", "🗂️ Gesamtübersicht"],
-                       default="⭐ Qualitäts-Score", key="top50_art") or "⭐ Qualitäts-Score"
+        art = st.pills("Liste", ["🗂️ Gesamtübersicht", "⭐ Qualitäts-Score", "🏅 ETF- & wikifolio-Score",
+                                 "🧭 Qualität × Kurs", "📈 Performance", "🧩 Wikifolios"],
+                       default="🗂️ Gesamtübersicht", key="top50_art") or "🗂️ Gesamtübersicht"
         if art == "🏅 ETF- & wikifolio-Score":
             try:
                 _render_klassen_score()
