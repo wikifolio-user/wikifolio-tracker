@@ -14,6 +14,7 @@ import scanner as S
 from portfolio_builder_ui import _smartphone
 import formate as FMT
 import ui_stil as UI
+import schritte
 
 PROFIL_TITEL = {"niedrig": "Niedrig", "mittel": "Mittel", "hoch": "Hoch", "eigene": "Eigene",
                 S.FAVORITEN: "Favoriten"}
@@ -779,8 +780,9 @@ def seite(h):
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Investment-<span>Scanner</span></div>'
                 '<div class="pb-unter">Aktien · ETFs · wikifolios → Musterdepot für dein Ziel</div></div>',
                 unsafe_allow_html=True)
+    schritte.leiste(st, "scanner", spaeter=() if st.session_state.get("pb_scan_erg") is not None else (4,))
     with st.container(border=True, key="pb_scan_eckdaten"):
-        st.markdown('<div class="pb-karte-t">Eckdaten</div>', unsafe_allow_html=True)
+        schritte.titel(st, "scanner", 1)
         _eckdaten(e)
     render(h, S.scanner_eingaben(e), lambda: B._katalog(h), (h or {}).get("zum_builder"))
     art, _ = B._automatisch_speichern(h, e)
@@ -791,7 +793,7 @@ def seite(h):
 def render(h, e, katalog_fn, zum_builder=None):
     """Scanner-Karte. e = bereinigte Builder-Eingaben, katalog_fn() = Builder-Katalog."""
     with st.container(border=True, key="pb_scanner"):
-        st.markdown('<div class="pb-karte-t">Risikoprofil & Regeln</div>', unsafe_allow_html=True)
+        schritte.titel(st, "scanner", 2, "Risikoprofil & Regeln")
         st.caption("Durchsucht Aktien (mit Fundamentaldaten), ETFs und wikifolios aus den Daten der Watchlist, bewertet "
                    "sie, stellt ein Musterdepot zusammen und simuliert dein Ziel mit den Eckdaten oben.")
         _einstellungen(e, katalog_fn)
@@ -799,6 +801,7 @@ def render(h, e, katalog_fn, zum_builder=None):
         keine_favoriten = e["scan_profil"] == S.FAVORITEN and not e["scan_favoriten"]
         erg = st.session_state.get("pb_scan_erg")
         veraltet = erg is not None and st.session_state.get("pb_scan_sig") != sig
+        schritte.titel(st, "scanner", 3)
         if st.button("🔍 Scannen & Musterdepot berechnen" if erg is None else "🔄 Neu berechnen",
                      key="pb_scan_los", type="primary" if erg is None or veraltet else "secondary", width="stretch",
                      disabled=keine_favoriten):
@@ -819,6 +822,7 @@ def render(h, e, katalog_fn, zum_builder=None):
         if veraltet:
             st.info("Eingaben geändert – „Neu berechnen“, damit das Ergebnis dazu passt.")
         kapital = erg["start"]
+        schritte.titel(st, "scanner", 4)
         tabs = st.tabs(["📦 Musterdepot", "🏆 Top-Investments", "📈 Prognose", "💸 Entnahme", "⚠️ Risiken",
                         "🧭 Plan", "ℹ️ Daten"])
         with tabs[0]:

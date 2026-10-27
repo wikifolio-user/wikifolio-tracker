@@ -12,6 +12,7 @@ import investment_scanner2 as E
 import portfolio_builder_ui as B
 import scanner as S
 import formate as FMT
+import schritte
 
 P = "is2_"                                         # Schluessel-Praefix in st.session_state
 TOP_N = {"Top 50": 50, "Top 100": 100, "Top 250": 250, "Top 500": 500}
@@ -222,7 +223,7 @@ def _score_chip(v):
 
 # ---------------------------------------------------------------- Eingaben
 def _eingaben():
-    _karte_titel("Kapital & Anlageziel", "01")
+    schritte.titel(st, "scanner2", 1, "Kapital & Anlageziel")
     c = _spalten(4)
     c[0].number_input("Neues Anfangskapital €", 0.0, 1e9, step=100.0, format="%.0f", key=P + "capital")
     c[1].number_input("Zielwert Gesamtdepot €", 0.0, 1e10, step=500.0, format="%.0f", key=P + "goal")
@@ -250,7 +251,7 @@ def _eingaben():
 
 
 def _anlageklassen(katalog):
-    _karte_titel("Anlageklassen & Auswahl", "02")
+    schritte.titel(st, "scanner2", 2, "Anlageklassen & Auswahl")
     vorhanden = [t for t in E.TYPES if any(a["type"] == t for a in katalog)]
     if st.session_state.get(P + "typen") is None:
         st.session_state[P + "typen"] = list(vorhanden)
@@ -268,7 +269,7 @@ def _anlageklassen(katalog):
 
 
 def _daten(katalog, stand):
-    _karte_titel("Daten & Gesamtdepot", "03")
+    schritte.titel(st, "scanner2", 3, "Daten & Gesamtdepot")
     n_live = len(st.session_state.get(P + "live") or {})
     st.caption(f"{len(katalog):,} Wertpapiere aus den Top-500-/Watchlist-Daten · Tagesschluss vom {stand or '–'}"
                .replace(",", ".") + (f" · {n_live} aktuelle Kurse von ls-tc.de" if n_live else "")
@@ -306,7 +307,7 @@ def _daten(katalog, stand):
 
 
 def _entnahme():
-    _karte_titel("Geld entnehmen", "04")
+    schritte.titel(st, "scanner2", 4, "Geld entnehmen")
     c = _spalten(4)
     c[0].number_input("Auszahlung sofort €", 0.0, 1e9, step=100.0, format="%.0f", key=P + "take_now")
     c[1].number_input("Auszahlung je Monat €", 0.0, 1e7, step=50.0, format="%.0f", key=P + "take_monthly")
@@ -319,7 +320,7 @@ def _entnahme():
 
 # ---------------------------------------------------------------- Ergebnis
 def _ergebnis(erg):
-    _karte_titel("Ergebnis")
+    schritte.titel(st, "scanner2", 5, "Ergebnis")
     m = erg["plans"][erg["active"]]
     r = m["neededRate"]
     _kpis((("Depotwert zu Beginn", _eur(m["deposit"]), "nach Sofortentnahme und Gebühren"),
@@ -365,7 +366,7 @@ def _strategien(erg):
 
 def _kaufplan(h, erg):
     m, inp = erg["plans"][erg["active"]], erg["inp"]
-    _karte_titel(f"Kaufplan · {E.PROFILES[erg['active']]['name']}")
+    schritte.titel(st, "scanner2", 6, f"Kaufplan · {E.PROFILES[erg['active']]['name']}")
     _kpis((("Kaufpositionen", str(len(m["orders"])), ""), ("Käufe", _eur(m["investedNew"]), ""),
            ("Freies Kapital danach", _eur(m["cash"]),
             f"{_pct(m['cash'] / m['deposit'] * 100 if m['deposit'] else 0)} des Gesamtdepots"),
@@ -509,6 +510,7 @@ def _seite(h):
     k1, k2 = st.columns([3, 2] if B._smartphone() else [4, 1], vertical_alignment="center")
     k1.markdown(f'<span class="is2-chip {"" if katalog else "warn"}">{chip.upper()}</span>', unsafe_allow_html=True)
     k2.button("↺ Zurücksetzen", key=P + "reset", width="stretch", on_click=_zuruecksetzen, args=(null,))
+    schritte.leiste(st, "scanner2")
     for teil in (_eingaben, lambda: _anlageklassen(katalog), lambda: _daten(katalog, stand), _entnahme):
         with st.container(border=True):
             teil()

@@ -16,6 +16,7 @@ import scanner as S
 import scanner_ui as SCANNER_DATA
 import investment_scanner_pro_engine as E
 import formate as FMT
+import schritte
 
 
 PROFILES = {'Defensiv': 'niedrig', 'Ausgewogen': 'mittel', 'Wachstum': 'hoch'}
@@ -135,6 +136,8 @@ def seite(h):
     st.info('Datenquelle: gespeicherte echte Watchlist-/Ranking-Daten aus diesem GitHub-Projekt; '
             'Kurse auf Abruf über die bestehende LS-TC-Anbindung. Nicht jeder Wert ist dort handelbar. '
             'Bei fehlenden Kursen werden keine Käufe erfunden.', icon='ℹ️')
+    schritte.leiste(st, "scanner_pro", spaeter=() if st.session_state.get('isp_result') is not None else (3, 4))
+    schritte.titel(st, "scanner_pro", 1, "Bestand importieren (optional)")
 
     with st.expander('Eigenes Bestandsdepot optional importieren (CSV)', expanded=False):
         uploaded = st.file_uploader('Bestandsdepot mit Stueck und KursEUR', type=['csv'], key='isp_depot_csv')
@@ -149,7 +152,7 @@ def seite(h):
         st.error(f'Bestandsdepot kann nicht eingelesen werden: {ex}')
         return
     with st.form('isp_form'):
-        st.markdown('#### Kapital, Ziel und Entnahmen')
+        schritte.titel(st, "scanner_pro", 2, "Kapital, Ziel und Entnahmen")
         # neu angelegte Benutzer (h["null"]): nichts vorbelegt, Regeln ohne Einschraenkung
         null = bool((h or {}).get('null'))
         c = _spalten(12, 3)                    # ein Raster: Desktop 3, Handy 2 Felder je Zeile
@@ -197,7 +200,7 @@ def seite(h):
                f"{res['anzahl']['etf']} ETFs, {res['anzahl']['wikifolio']} wikifolios mit Daten im Universum")
     for note in d['hinweise'][:8]:
         st.caption('• ' + note)
-    st.markdown('#### Kaufplan zum Gesamtdepot')
+    schritte.titel(st, "scanner_pro", 3, "Kaufplan zum Gesamtdepot")
     require_live = st.toggle('Für Neukäufe nur frisch abgerufene EUR-Kurse verwenden (empfohlen)',
                              value=True, key='isp_strict')
     c = _spalten(2)
@@ -242,7 +245,7 @@ def seite(h):
     if plan['nicht_im_modell']:
         st.info(f"{len(plan['nicht_im_modell'])} vorhandene Depotposition(en) liegen außerhalb des Musterdepots. "
                 'Sie bleiben erhalten und werden bei der Depot-Gesamtsumme mitgezählt (kein automatischer Verkauf).')
-    st.markdown('#### Sofortige und laufende Entnahmen')
+    schritte.titel(st, "scanner_pro", 4, "Sofortige und laufende Entnahmen")
     if e['sofort'] > 0:
         c = _spalten(3)
         c[0].metric('Sofort auszahlbar (Modell)', euro(one['auszahlung']))

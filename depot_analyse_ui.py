@@ -19,6 +19,7 @@ import depot_analyse as D
 import dividenden as DV
 import portfolio_builder_ui as B
 import ui_stil as UI
+import schritte
 
 P = "da_"
 REITER = ["📊 Übersicht", "🔍 Positionen", "🧪 Simulator", "🧭 Szenarien", "💬 Assistent", "⚙️ Daten & Profil"]
@@ -1143,6 +1144,8 @@ def _seite(h):
     ad_n = len(_analyse_depot(h)["positionen"])
     if P + "quelle" not in st.session_state:
         st.session_state[P + "quelle"] = "analyse" if ad_n else "depot"
+    schritte.leiste(st, "analyse")
+    schritte.titel(st, "analyse", 1)
     st.radio("Welches Depot analysieren?", ["depot", "analyse"], key=P + "quelle", horizontal=True,
              format_func={"depot": "🏠 Mein Depot", "analyse": f"📥 Analyse-Depot ({ad_n} Positionen)"}.get,
              on_change=lambda: [st.session_state.pop(k_, None) for k_ in (P + "soll", P + "neu", P + "opt")])
@@ -1163,7 +1166,9 @@ def _seite(h):
     if st.session_state.get(P + "reiter_neu"):
         st.session_state[P + "reiter"] = st.session_state.pop(P + "reiter_neu")
     st.session_state.setdefault(P + "reiter", REITER[0])
+    schritte.titel(st, "analyse", 2)
     reiter = st.pills("Bereich", REITER, key=P + "reiter", label_visibility="collapsed") or REITER[0]
+    schritte.titel(st, "analyse", 3, reiter.split(" ", 1)[-1])
     {REITER[0]: _uebersicht, REITER[1]: _positionen, REITER[2]: _simulator, REITER[3]: _szenarien,
      REITER[4]: _assistent, REITER[5]: _daten}[reiter](h, a)
     st.caption("Keine Anlageberatung. Scores und Empfehlungen sind regelbasierte Auswertungen der genannten Daten; "

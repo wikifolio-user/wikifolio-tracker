@@ -22,6 +22,7 @@ import math
 import re
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 import ui_stil as UI
+import schritte
 
 INTERVALLE = {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich", 12: "jährlich"}
 ZIEL_FELDER = {"e": "Endkapital", "a": "Anfangskapital", "s": "Sparrate", "dy": "Dynamik", "z": "Zinssatz",
@@ -1044,8 +1045,10 @@ FORM_CSS = """<style>
 </style>"""
 
 
-def _kopf(symbol, titel, text=""):
-    return (f'<div class="zr-kopf" style="margin-top:18px"><span class="zr-symbol">{symbol}</span><div>'
+def _kopf(symbol, titel, text="", schritt=None):
+    """schritt = (Fuehrung, Nr.): leuchtende Schritt-Nummer statt Symbol (schritte.py)."""
+    zeichen = schritte.nummer_html(*schritt) if schritt else f'<span class="zr-symbol">{symbol}</span>'
+    return (f'<div class="zr-kopf" style="margin-top:18px">{zeichen}<div>'
             f'<div class="zr-titel">{titel}</div>' + (f'<div class="zr-text">{text}</div>' if text else "")
             + "</div></div>")
 
@@ -1167,11 +1170,13 @@ def render(basis_url="", gespeichert=None, null=False):
         st.session_state["zr_init"] = True
 
     st.markdown(FORM_CSS, unsafe_allow_html=True)
+    schritte.leiste(st, "zins")
     form = st.container(key="zr_form")
 
-    def karte(schluessel, symbol, titel, text=""):
+    def karte(schluessel, symbol, titel, text="", nr=None):
         k_ = form.container(border=True, key=f"zr_karte_{schluessel}")
-        k_.markdown(f'<div class="zr-kopf"><span class="zr-symbol">{symbol}</span><div><div class="zr-titel">{titel}</div>'
+        zeichen = schritte.nummer_html("zins", nr) if nr else f'<span class="zr-symbol">{symbol}</span>'
+        k_.markdown(f'<div class="zr-kopf">{zeichen}<div><div class="zr-titel">{titel}</div>'
                     + (f'<div class="zr-text">{text}</div>' if text else "") + "</div></div>",
                     unsafe_allow_html=True)
         return k_
@@ -1182,7 +1187,7 @@ def render(basis_url="", gespeichert=None, null=False):
                   '<span>⌄ antippen = auswählen</span><span>⚡ Ergebnis sofort</span></div>', unsafe_allow_html=True)
 
     # 1) Was berechnen?
-    k_ziel = karte("ziel", "🎯", "Was soll berechnet werden?", "Die gewählte Größe wird aus allen anderen Angaben ermittelt")
+    k_ziel = karte("ziel", "🎯", "Was soll berechnet werden?", "Die gewählte Größe wird aus allen anderen Angaben ermittelt", 1)
     calc = k_ziel.selectbox("Gesuchte Größe", list(ZIEL_FELDER), format_func=ZIEL_FELDER.get, key="zr_calc")
     p = {"calc": calc}
     if calc == "e":
@@ -1213,7 +1218,7 @@ def render(basis_url="", gespeichert=None, null=False):
         return float(spalte.number_input(label, mini, maxi, step=step, format=fmt, key=f"zr_{feld}", help=hilfe))
 
     # 2) Kapital & Einzahlungen
-    k_ein = karte("ein", "💰", "Kapital & Einzahlungen", "Startbetrag und regelmäßige Sparrate")
+    k_ein = karte("ein", "💰", "Kapital & Einzahlungen", "Startbetrag und regelmäßige Sparrate", 2)
     p["a"] = zahl("a", "Anfangskapital (€)", 0.0, 1e10, 1000.0, spalte=k_ein)
     c1, c2 = k_ein.columns(2)
     p["s"] = zahl("s", "Sparrate (€)", 0.0, 1e9, 25.0, spalte=c1)
@@ -1226,7 +1231,7 @@ def render(basis_url="", gespeichert=None, null=False):
                               format_func={"v": "vorschüssig – am Monatsanfang", "n": "nachschüssig – am Monatsende"}.get)
 
     # 3) Verzinsung
-    k_zins = karte("zins", "📈", "Verzinsung", "Zinssatz, Gutschrift und Steuer")
+    k_zins = karte("zins", "📈", "Verzinsung", "Zinssatz, Gutschrift und Steuer", 3)
     c7, c8 = k_zins.columns(2)
     p["z"] = zahl("z", "Zinssatz (% p.a.)", -99.0, 100.0, 0.25, "%.3f", spalte=c7)
     p["zp"] = c8.selectbox("Gutschrift", list(INTERVALLE), format_func=INTERVALLE.get, key="zr_zp",
@@ -1246,7 +1251,7 @@ def render(basis_url="", gespeichert=None, null=False):
                                          help="Sparerpauschbetrag: 1.000 € (Ehepaare 2.000 €)"))
 
     # 4) Laufzeit
-    k_zeit = karte("zeit", "⏳", "Laufzeit", "Ab wann und wie lange")
+    k_zeit = karte("zeit", "⏳", "Laufzeit", "Ab wann und wie lange", 4)
     sd_wert = startdatum({"sd": st.session_state.get("zr_sd"), "am": st.session_state.get("zr_am")})
     if "zr_sd_d" not in st.session_state:
         st.session_state["zr_sd_d"] = sd_wert
@@ -1269,7 +1274,7 @@ def render(basis_url="", gespeichert=None, null=False):
     p["fe"] = c12.selectbox("in ", ["j", "m"], key="zr_fe", format_func={"j": "Jahren", "m": "Monaten"}.get)
 
     # 5) Plaene
-    k_plan = karte("plan", "🗓️", "Pläne in Phasen (optional)", "Sparrate oder Entnahme je Zeitraum unterschiedlich")
+    k_plan = karte("plan", "🗓️", "Pläne in Phasen (optional)", "Sparrate oder Entnahme je Zeitraum unterschiedlich", 5)
     with k_plan:
         p["sp"] = _phasen_editor(st, pd, "sp", "📥 Sparplan in Phasen (statt fester Sparrate)",
                                  "Z. B. 2 Jahre 200 €/Monat, danach 3 Jahre 500 €/Monat – ersetzt Sparrate, Intervall "
@@ -1325,7 +1330,7 @@ def render(basis_url="", gespeichert=None, null=False):
             + (f' · Entnahmen {_de(r["entnommen"])} €' if r.get("entnommen") else "")
             + (f' · Endkapital {_de(r["end"])} €' if calc != "e" else "") + ' · Details unten ↓</div></div>',
             unsafe_allow_html=True)
-    st.markdown(_kopf("📊", "Ergebnis"), unsafe_allow_html=True)
+    st.markdown(_kopf("📊", "Ergebnis", schritt=("zins", 6)), unsafe_allow_html=True)
     if calc == "e":
         st.metric("Endkapital inkl. Zinsen", f"{_de(r['end'])} €")
     elif calc == "n":

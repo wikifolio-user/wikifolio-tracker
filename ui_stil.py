@@ -1419,6 +1419,43 @@ html body [data-testid="stExpander"][data-testid="stExpander"] { border: none !i
 html body [data-testid="stExpander"] summary { border-radius: 19px !important; }
 html body [data-testid="stExpander"] summary:hover, html body [data-testid="stExpander"] summary:hover p {
     background-color: transparent !important; }
+
+/* ================= SCHRITTE: Schritt-fuer-Schritt-Fuehrung (schritte.py) =================
+   Oben eine Leiste mit nummerierten Glas-Kapseln, an den Abschnitten eine leuchtende Nummer mit Hinweis. */
+.sf-leiste { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 2px 0 14px; }
+.sf-leiste .sf-kopf { flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; letter-spacing: 1.2px;
+    text-transform: uppercase; color: var(--label); margin-right: 4px; }
+.sf-leiste a.sf-s, .sf-leiste a.sf-s:visited { display: inline-flex; align-items: center; gap: 8px; min-height: 36px;
+    padding: 3px 14px 3px 4px; border-radius: 999px; text-decoration: none !important; color: var(--text) !important;
+    background: var(--glas-bg); border: 1px solid var(--rand); box-shadow: var(--rand-glow);
+    font-size: 0.85rem; font-weight: 600; white-space: nowrap; transition: box-shadow .2s ease, transform .15s ease; }
+.sf-leiste span.sf-s { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 3px 14px 3px 4px;
+    border-radius: 999px; border: 1px dashed var(--rand); color: var(--label); font-size: 0.85rem; font-weight: 600;
+    white-space: nowrap; opacity: 0.7; }
+.sf-leiste span.sf-s b { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+    border-radius: 50%; font-weight: 800; font-size: 0.85rem; border: 1px solid var(--rand); color: var(--label); }
+.sf-leiste a.sf-s:hover { box-shadow: 0 0 16px var(--glas-glow-stark); transform: translateY(-1px); }
+.sf-leiste a.sf-s b, .sf-nr { display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; font-weight: 800; font-size: 0.85rem;
+    color: var(--glas-primaer-text); background: var(--glas-primaer-bg);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), 0 0 12px rgba(10, 132, 255, 0.55); }
+/* Rechner-Karten (Zins/Abfindung): Nummer in Groesse des frueheren Symbols */
+.zr-kopf .sf-nr.sf-klein { width: 34px; height: 34px; font-size: 1rem; margin: 0; flex: 0 0 34px; scroll-margin-top: 90px; }
+/* kleine Nummer in vorhandenen Abschnittsueberschriften */
+.sf-nr.sf-klein { width: 22px; height: 22px; font-size: 0.72rem; margin-right: 8px; vertical-align: 1px;
+    letter-spacing: 0; text-shadow: none; scroll-margin-top: 90px; }
+.sf-titel { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0 8px; scroll-margin-top: 90px; }
+.sf-titel .sf-nr { width: 32px; height: 32px; font-size: 0.95rem; margin-top: 1px; }
+.sf-titel .sf-name { font-size: 1.02rem; font-weight: 700; color: var(--text); line-height: 1.3; }
+.sf-titel .sf-was { font-size: 0.84rem; color: var(--label); line-height: 1.35; margin-top: 2px; }
+/* Handy: Leiste als waagerecht wischbare Reihe statt mehrerer Zeilen */
+@media (max-width: 640px) {
+    .sf-leiste { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 4px 2px 6px;
+                 margin-left: -2px; margin-right: -2px; scroll-snap-type: x proximity; }
+    .sf-leiste::-webkit-scrollbar { display: none; }
+    .sf-leiste .sf-kopf { display: none; }
+    .sf-leiste a.sf-s { scroll-snap-align: start; }
+}
 html body .st-key-nav_leiste { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(11, 11, 11, 0.45), var(--rand-glow); }
 </style>
 """

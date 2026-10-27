@@ -15,6 +15,7 @@ import streamlit as st
 import portfolio_builder as P
 import formate as FMT
 import ui_stil as UI
+import schritte
 
 try:
     import nutzerdaten as N
@@ -501,7 +502,7 @@ def _eingaben():
     """Eingabefelder in festen Reihen; vertical_alignment="bottom" haelt die Felder auf einer Linie,
     auch wenn ein Label umbricht (Handy: 2 je Reihe)."""
     with st.container(border=True):
-        st.markdown('<div class="pb-karte-t">Kapital &amp; Finanzierung</div>', unsafe_allow_html=True)
+        schritte.titel(st, "builder", 1, "Kapital & Finanzierung")
         with st.container(key="pb_reihe1"):
             c = st.columns(4, vertical_alignment="bottom")
             c[0].number_input("Anfangskapital €", 0.0, P.MAX_KAPITAL, step=1000.0, format="%.0f",
@@ -611,6 +612,7 @@ def _hinzufuegen(h, r):
     e = r["eingaben"]
     ver = st.session_state.get("pb_add_ver", 0)
     offen = not e["positionen"] or bool(st.session_state.get("pb_meldung"))
+    schritte.titel(st, "builder", 2, "Werte hinzufügen")
     with st.expander("➕ Wert hinzufügen (Aktien, ETFs, wikifolios)", expanded=offen), st.container(key="pb_add"):
         art_wahl = st.segmented_control("Art", list(ART_FILTER), default="Alle", key="pb_add_art",
                                         label_visibility="collapsed") or "Alle"
@@ -805,7 +807,7 @@ def _tabelle(h, r):
     with st.container(border=True):
         summe = pos["summe_gewicht"]
         ok = abs(summe - 100.0) < 0.05
-        st.markdown('<div class="pb-karte-t">Portfolio-Aufteilung</div>', unsafe_allow_html=True)
+        schritte.titel(st, "builder", 3, "Portfolio-Aufteilung")
         arten = [p.get("art", "sonstig") for p in e["positionen"]]
         # ohne eigene Angabe gilt die allgemeine Rendite - die steht dann auch in der Zelle (statt "None")
         renditen = [round(P.position_rendite(e, p), 2) for p in e["positionen"]]
@@ -1255,6 +1257,7 @@ def render(h):
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Portfolio Builder <span>2.0</span></div>'
                 '<div class="pb-unter">Alles auf einer Seite · Änderungen wirken sofort</div></div>',
                 unsafe_allow_html=True)
+    schritte.leiste(st, "builder")
     kpi_platz = st.empty()
     kredit_spalte, ziel_spalte = _eingaben()
     e = _aus_widgets()
@@ -1292,6 +1295,7 @@ def render(h):
     _tabelle(h, r)
     with kpi_platz.container():
         _kpis(r)
+    schritte.titel(st, "builder", 4, "Ergebnis prüfen")
     _diagramme(r)
     _positionen_tabelle(r, h)
     _entnahmeplan(r)

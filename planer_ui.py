@@ -5786,8 +5786,8 @@ def render(h):
              "keine Erwartung und keine Anlageempfehlung.")
 
     with st.container(key="pl_nav_ansicht"):
-        # Smartphone: gefuehrter Ablauf als Start - "Alle Bereiche" ist dort sehr lang
-        standard = ANSICHTEN[0] if _smartphone() else ANSICHTEN[1]
+        # Start immer im gefuehrten Ablauf (Schritt fuer Schritt); "Alle Bereiche" bleibt fuer Erfahrene waehlbar
+        standard = ANSICHTEN[0]
         ansicht = st.pills("Ansicht", ANSICHTEN, default=standard, key="pl_ansicht",
                            help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
                                 "(für Erfahrene) – beide arbeiten mit demselben Modell.") or standard

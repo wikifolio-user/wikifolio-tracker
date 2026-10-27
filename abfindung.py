@@ -11,6 +11,7 @@ insgesamt anfaellt (Einkommensteuer, Soli, Kirchensteuer):
 Ergebnis auch als PDF (eigener kleiner PDF-Schreiber, keine Zusatzpakete noetig).
 """
 import datetime
+import schritte
 import math
 
 STEUERJAHR = 2026                # Standard-Auszahlungsjahr (im Rechner waehlbar)
@@ -1153,11 +1154,12 @@ def render(gespeichert=None, null=False):
     st.caption("Szenariorechnung · keine Steuer- oder Rechtsberatung")
     st.markdown('<div class="zr-hilfe"><span><i class="zr-muster"></i> hier eintippen</span>'
                 '<span><i class="zr-muster calc"></i> wird berechnet</span></div>', unsafe_allow_html=True)
+    schritte.leiste(st, "abfindung_netto")
     form = st.container(key="abf_form")
 
     # 1) Abfindung
     k1_ = form.container(border=True, key="abf_karte_summe")
-    k1_.markdown(_zr._kopf("1", "Abfindung", "Bruttobetrag laut Aufhebungsvertrag / Vergleich").replace(
+    k1_.markdown(_zr._kopf("1", "Abfindung", "Bruttobetrag laut Aufhebungsvertrag / Vergleich", ("abfindung_netto", 1)).replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     abf = k1_.number_input("💶 Abfindungssumme brutto (€)", 0.0, 1e8, **_start(st, "abf_summe", 50000.0), step=1000.0, format="%.0f",
                            key="abf_summe")
@@ -1171,7 +1173,7 @@ def render(gespeichert=None, null=False):
 
     # 2) Einkommen
     k2_ = form.container(border=True, key="abf_karte_einkommen")
-    k2_.markdown(_zr._kopf("2", "Einkommen ohne Abfindung", f"Im Auszahlungsjahr {j1} und im Jahr danach ({j2})").replace(
+    k2_.markdown(_zr._kopf("2", "Einkommen ohne Abfindung", f"Im Auszahlungsjahr {j1} und im Jahr danach ({j2})", ("abfindung_netto", 2)).replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     brutto = float(k2_.number_input(f"Jahresbrutto {j1} (€)", 0.0, 1e8, **_start(st, "abf_brutto", 60000.0),
                                     step=1000.0, format="%.0f", key="abf_brutto",
@@ -1198,7 +1200,7 @@ def render(gespeichert=None, null=False):
 
     # 3) Steuerliche Angaben
     k3_ = form.container(border=True, key="abf_karte_steuer")
-    k3_.markdown(_zr._kopf("3", "Steuerliche Angaben", "Veranlagung, Kirche, Fünftelregelung").replace(
+    k3_.markdown(_zr._kopf("3", "Steuerliche Angaben", "Veranlagung, Kirche, Fünftelregelung", ("abfindung_netto", 3)).replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     veranl = k3_.selectbox("Veranlagung", ["Einzeln", "Zusammen (Splitting)"], key="abf_veranl",
                            help="Bei Zusammenveranlagung das Einkommen beider Partner eintragen.")
@@ -1210,7 +1212,7 @@ def render(gespeichert=None, null=False):
 
     # 4) optional
     k4_ = form.container(border=True, key="abf_karte_optional")
-    k4_.markdown(_zr._kopf("4", "Optional: Steuer senken", "Nur ausfüllen, wenn es auf dich zutrifft").replace(
+    k4_.markdown(_zr._kopf("4", "Optional: Steuer senken", "Nur ausfüllen, wenn es auf dich zutrifft", ("abfindung_netto", 4)).replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     with k4_.expander("🛠️ Arbeitslosengeld, Werbungskosten, Rente, bAV", expanded=False):
         alg1 = float(st.number_input(f"Arbeitslosengeld {j1} (€)", 0.0, 1e6, **_start(st, "abf_alg1", 0.0), step=500.0, format="%.0f",
@@ -1236,7 +1238,7 @@ def render(gespeichert=None, null=False):
     with k4_:
         gest = _gestaltungen_eingabe(st)
 
-    st.markdown('<div class="abf-ergebnis-kopf">📊 Ergebnis</div>', unsafe_allow_html=True)
+    schritte.titel(st, "abfindung_netto", 5)
 
     e = {"gest": gest, "abfindung": float(abf), "jahr1": j1, "zve1": float(zve1), "zve2": zve2,
          "splitting": veranl.startswith("Zusammen"),

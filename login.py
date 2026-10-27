@@ -42,6 +42,7 @@ import threading
 import time
 
 import nutzerdaten
+import schritte
 
 PFAD_BENUTZER = "state/benutzer.json"
 ITERATIONEN = 200_000
@@ -741,6 +742,8 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
         st.session_state["rechte_meldung"] = f"✅ Rechte von „{nn}“ gespeichert ({len(auswahl)}/{len(ansichten)})"
         return True
 
+    schritte.leiste(st, "benutzer", [1, 2] if benutzer else [1])
+    schritte.titel(st, "benutzer", 1)
     with st.expander("➕ Neuen Benutzer anlegen", expanded=not benutzer):
         with st.form("neu_benutzer", clear_on_submit=True):
             c1, c2 = st.columns(2)
@@ -789,6 +792,7 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
     for ordner_, namen_ in nutzerdaten.slug_kollisionen(benutzer).items():
         st.error(f"⚠️ Diese Benutzer teilen sich einen Datenordner ({ordner_}) und sehen gegenseitig ihre "
                  f"Daten: {', '.join(namen_)}. Bitte alle bis auf einen löschen und neu anlegen.")
+    schritte.titel(st, "benutzer", 2)
     for nn in sorted(benutzer):
         u = benutzer[nn] if isinstance(benutzer[nn], dict) else {}
         aktiv = u.get("aktiv", True)
