@@ -129,12 +129,12 @@ CSS = """
 /* lange Hinweise duerfen umbrechen (sonst laufen sie auf dem Handy seitlich aus dem Bild) */
 .pl-badge.pl-warn, .pl-badge.pl-info { white-space: normal; border-radius: 10px; }
 .pl-warn { background: rgba(245, 185, 66, 0.14); color: #F5B942; border: 1px solid rgba(245, 185, 66, 0.4); }
-.pl-info { background: rgba(76, 154, 255, 0.12); color: #8DBBFF; border: 1px solid rgba(76, 154, 255, 0.35); }
+.pl-info { background: rgba(10, 132, 255, 0.12); color: #409CFF; border: 1px solid rgba(10, 132, 255, 0.35); }
 .pl-gut { color: #16C784; } .pl-schlecht { color: #EA3943; }
 .q-kpi-v span.pl-gut, .q-kpi-v span.pl-schlecht { font-size: inherit; font-weight: 800; }
 .q-kpi-v span.pl-gut { color: #16C784; } .q-kpi-v span.pl-schlecht { color: #EA3943; }
 .pl-sub { font-size: 0.8rem; color: var(--label, #8A9099); font-weight: 600; }
-.pl-zeile { font-size: 0.8rem; color: #D6D9DE; margin: 2px 0 12px 2px; line-height: 1.5; }
+.pl-zeile { font-size: 0.8rem; color: #D9DADB; margin: 2px 0 12px 2px; line-height: 1.5; }
 .q-kpi-v.pl-klein { font-size: 1.05rem; }
 /* ---- Planer: einheitliche Eingabefelder ----
    Auswahlfelder sehen hier aus wie die Zahlenfelder (gleiche Beschriftung, gleiche Hoehe, dezenter
@@ -146,7 +146,7 @@ CSS = """
     color: rgba(250, 250, 250, 0.85) !important; }
 [data-testid="stSelectbox"] label { margin: 0 0 4px 0 !important; }
 [data-testid="stSelectbox"] > div, [data-testid="stSelectbox"] [data-baseweb="select"] {
-    outline: 1px solid rgba(255, 255, 255, 0.22) !important; box-shadow: none !important; animation: none !important;
+    outline: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; box-shadow: none !important; animation: none !important;
     border-radius: 8px !important; }
 [data-testid="stSelectbox"] > div:hover, [data-testid="stSelectbox"] > div:focus-within {
     outline-color: rgba(255, 255, 255, 0.6) !important; box-shadow: none !important; }
@@ -186,23 +186,23 @@ CSS = """
 @media (max-width: 700px) { .q-kpis.pl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
                             .pl-kpis .q-kpi-v { font-size: 1.12rem; } }
 .pt.ue td.pt-wert.ue-fix { min-width: 110px; max-width: 170px; }
-.pl-formhinweis { font-size: 0.8rem; color: #D6D9DE; background: rgba(76, 154, 255, 0.10);
-                  border: 1px solid rgba(76, 154, 255, 0.35); border-radius: 8px; padding: 7px 10px; margin: 4px 0 8px; }
+.pl-formhinweis { font-size: 0.8rem; color: #D9DADB; background: rgba(10, 132, 255, 0.1);
+                  border: 1px solid rgba(10, 132, 255, 0.35); border-radius: 8px; padding: 7px 10px; margin: 4px 0 8px; }
 /* Formular-Buttons klar beschriftet und farbig statt weisser Flaeche */
 [data-testid="stFormSubmitButton"] button {
-    background: #16305A !important; border: 1px solid rgba(255, 255, 255, 0.8) !important; min-height: 44px;
+    background: #36373A !important; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; min-height: 44px;
     box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.18) !important;
 }
 [data-testid="stFormSubmitButton"] button, [data-testid="stFormSubmitButton"] button * {
     color: #FFFFFF !important; font-weight: 700 !important;
 }
 [data-testid="stColumn"]:nth-child(2) [data-testid="stFormSubmitButton"] button {
-    background: #1C1F26 !important; border: 1px solid rgba(255, 255, 255, 0.6) !important;
+    background: #202022 !important; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important;
 }
 [data-testid="stFormSubmitButton"] button:hover { filter: brightness(1.2); }
 @media (max-width: 700px) { .pl-zeile { font-size: 0.84rem; } }
 /* Transparente Rangliste (bewertung.py) */
-.sc-karte { border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 10px 12px 8px;
+.sc-karte { border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 12px; padding: 10px 12px 8px;
             margin: 0 0 10px; background: rgba(255, 255, 255, 0.03); }
 .sc-kopf { display: flex; align-items: center; gap: 8px; }
 .sc-platz { font-weight: 900; font-size: 0.95rem; width: 26px; height: 26px; border-radius: 50%;
@@ -218,30 +218,30 @@ CSS = """
 .sc-balken > div { height: 100%; border-radius: 4px; }
 .sc-gruen { color: #16C784; } .sc-gelb { color: #F5B942; } .sc-rot { color: #EA3943; } .sc-grau { color: #8A9099; }
 .sc-bg-gruen { background: #16C784; } .sc-bg-gelb { background: #F5B942; } .sc-bg-rot { background: #EA3943; }
-.sc-bg-grau { background: #5A606B; }
+.sc-bg-grau { background: #5F6166; }
 .sc-teil { display: grid; grid-template-columns: minmax(0, 9.5em) 1fr 2.2em 3.2em; gap: 6px; align-items: center;
-           font-size: 0.8rem; color: #D6D9DE; margin: 2px 0; }
+           font-size: 0.8rem; color: #D9DADB; margin: 2px 0; }
 .sc-teil .sc-mini { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .sc-teil .sc-mini > div { height: 100%; }
 .sc-teil .sc-zahl { text-align: right; font-weight: 800; }
 .sc-teil .sc-beitrag { text-align: right; color: #8A9099; font-size: 0.8rem; }
-.sc-warum { font-size: 0.8rem; color: #D6D9DE; margin: 8px 0 4px; line-height: 1.45; }
+.sc-warum { font-size: 0.8rem; color: #D9DADB; margin: 8px 0 4px; line-height: 1.45; }
 .sc-pm { font-size: 0.8rem; line-height: 1.45; margin: 2px 0; }
 .sc-pm .sc-plus { color: #9BE8C6; } .sc-pm .sc-minus { color: #F5A3A8; }
 .sc-meta { font-size: 0.8rem; color: #8A9099; margin-top: 4px; }
-.sc-formel { font-size: 0.8rem; color: #D6D9DE; background: rgba(76, 154, 255, 0.08);
-             border: 1px solid rgba(76, 154, 255, 0.3); border-radius: 8px; padding: 6px 10px; margin: 6px 0 10px; }
+.sc-formel { font-size: 0.8rem; color: #D9DADB; background: rgba(10, 132, 255, 0.08);
+             border: 1px solid rgba(10, 132, 255, 0.3); border-radius: 8px; padding: 6px 10px; margin: 6px 0 10px; }
 @media (max-width: 700px) { .sc-teil { grid-template-columns: minmax(0, 7.5em) 1fr 2.2em 3em; } }
-.an-box { border-left: 3px solid rgba(76, 154, 255, 0.6); background: rgba(76, 154, 255, 0.05);
+.an-box { border-left: 3px solid rgba(10, 132, 255, 0.6); background: rgba(10, 132, 255, 0.05);
           border-radius: 0 10px 10px 0; padding: 7px 10px; margin: 2px 0 10px; }
-.an-zeile { font-size: 0.8rem; color: #D6D9DE; line-height: 1.45; margin: 3px 0; }
+.an-zeile { font-size: 0.8rem; color: #D9DADB; line-height: 1.45; margin: 3px 0; }
 .an-zeile b { color: #FFFFFF; }
 .an-tag { display: inline-block; font-size: 0.8rem; font-weight: 800; padding: 1px 6px; border-radius: 999px;
           margin-right: 5px; letter-spacing: 0.3px; text-transform: uppercase; vertical-align: 1px; }
 .an-fakt { background: rgba(22, 199, 132, 0.14); color: #6EE7B7; }
 .an-prognose { background: rgba(245, 185, 66, 0.16); color: #F5B942; }
-.an-modell { background: rgba(167, 139, 250, 0.16); color: #C4B5FD; }
-.an-einschaetzung { background: rgba(76, 154, 255, 0.16); color: #8DBBFF; }
+.an-modell { background: rgba(64, 156, 255, 0.16); color: #409CFF; }
+.an-einschaetzung { background: rgba(10, 132, 255, 0.16); color: #409CFF; }
 .an-urteil { font-size: 0.95rem; font-weight: 800; color: #FFFFFF; margin: 4px 0 2px; }
 </style>
 """
@@ -1707,12 +1707,12 @@ WZ_CSS = """
 .wz-stepper { display: flex; gap: 6px; margin: 4px 0 6px; }
 .wz-step { flex: 1 1 0; min-width: 0; text-align: center; font-size: 0.8rem; color: #8A9099; font-weight: 700; }
 .wz-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 3px; display: flex; align-items: center;
-          justify-content: center; font-size: 0.8rem; font-weight: 900; border: 1.5px solid rgba(255,255,255,0.25);
-          color: #D6D9DE; background: transparent; }
-.wz-step.ok .wz-dot { background: rgba(91,155,255,0.18); border-color: #5B9BFF; color: #8AB8FF; }
+          justify-content: center; font-size: 0.8rem; font-weight: 900; border: 1.5px solid var(--rand, rgba(255, 255, 255, 0.55));
+          color: #D9DADB; background: transparent; }
+.wz-step.ok .wz-dot { background: rgba(10, 132, 255, 0.18); border-color: #0A84FF; color: #409CFF; }
 .wz-step.warn .wz-dot { background: rgba(245,185,66,0.15); border-color: #F5B942; color: #F5B942; }
 .wz-step.fehler .wz-dot { background: rgba(234,57,67,0.15); border-color: #EA3943; color: #EA3943; }
-.wz-step.aktiv .wz-dot { box-shadow: 0 0 0 3px rgba(76,154,255,0.45); border-color: #4C9AFF; }
+.wz-step.aktiv .wz-dot { box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.45); border-color: #0A84FF; }
 .wz-step.aktiv { color: #FFFFFF; }
 .wz-lbl { display: block; line-height: 1.2; overflow-wrap: break-word; hyphens: manual; }
 .wz-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -1723,14 +1723,14 @@ WZ_CSS = """
                                     clip: rect(0 0 0 0); white-space: nowrap; }
 }
 .wz-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 2px 0 10px; }
-.wz-bar > div { height: 100%; background: linear-gradient(90deg, #3B7BE8, #8AB8FF); border-radius: 3px; }
-.wz-kopf { border: 1px solid rgba(76,154,255,0.35); background: rgba(76,154,255,0.06); border-radius: 12px;
+.wz-bar > div { height: 100%; background: linear-gradient(90deg, #0A84FF, #409CFF); border-radius: 3px; }
+.wz-kopf { border: 1px solid rgba(10, 132, 255, 0.35); background: rgba(10, 132, 255, 0.06); border-radius: 12px;
            padding: 10px 14px; margin: 4px 0 12px; }
-.wz-kopf .wz-nr { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; color: #8DBBFF; font-weight: 800; }
+.wz-kopf .wz-nr { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; color: #409CFF; font-weight: 800; }
 .wz-kopf .wz-t { font-size: 1.05rem; font-weight: 900; color: #FFFFFF; margin: 1px 0 2px; }
-.wz-kopf .wz-d { font-size: 0.8rem; color: #C9CDD3; line-height: 1.45; }
-.wz-check { font-size: 0.82rem; color: #D6D9DE; margin: 3px 0; line-height: 1.4; }
-.wz-vs { border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,0.025); }
+.wz-kopf .wz-d { font-size: 0.8rem; color: #CCCED0; line-height: 1.45; }
+.wz-check { font-size: 0.82rem; color: #D9DADB; margin: 3px 0; line-height: 1.4; }
+.wz-vs { border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,0.025); }
 .wz-vs-t { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 800; color: #FFFFFF;
            margin-bottom: 4px; }
 .wz-vs-k { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
@@ -1738,7 +1738,7 @@ WZ_CSS = """
 .wz-vs-k b { display: block; font-size: 0.92rem; color: #FFFFFF; }
 .wz-liste { margin: 2px 0 8px; }
 .wz-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 0.8rem;
-          color: #C9CDD3; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+          color: #CCCED0; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
 .wz-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wz-row span i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
 .wz-row b { color: #FFFFFF; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -1746,12 +1746,12 @@ WZ_CSS = """
 .wz-vs-u { font-size: 0.8rem; letter-spacing: 1.1px; text-transform: uppercase; color: #8A9099; font-weight: 800;
            margin: 10px 0 2px; }
 .wz-mehr { font-size: 0.8rem; color: #8A9099; padding-top: 4px; }
-.wz-hinweis { font-size: 0.8rem; color: #8DBBFF; background: rgba(76,154,255,0.08); border-radius: 8px;
+.wz-hinweis { font-size: 0.8rem; color: #409CFF; background: rgba(10, 132, 255, 0.08); border-radius: 8px;
               padding: 5px 8px; margin: 4px 0 8px; }
 .wz-hinweis.wz-rot { color: #F5A3A8; background: rgba(234,57,67,0.1); }
-.wz-leer { border: 1px dashed rgba(255,255,255,0.25); border-radius: 12px; padding: 14px; text-align: center;
-           color: #C9CDD3; font-size: 0.84rem; margin: 6px 0 10px; }
-.st-key-pl_wz_weiter button { background: #16305A !important; border: 1px solid #4C9AFF !important; min-height: 46px; }
+.wz-leer { border: 1px dashed var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 12px; padding: 14px; text-align: center;
+           color: #CCCED0; font-size: 0.84rem; margin: 6px 0 10px; }
+.st-key-pl_wz_weiter button { background: #36373A !important; border: 1px solid #0A84FF !important; min-height: 46px; }
 .st-key-pl_wz_weiter button, .st-key-pl_wz_weiter button * { color: #FFFFFF !important; font-weight: 800 !important; }
 .st-key-pl_wz_ziel button { border: 1px solid #F5B942 !important; }
 @media (max-width: 700px) { .wz-lbl { font-size: 0.8rem; } .wz-dot { width: 24px; height: 24px; } }
@@ -5786,8 +5786,8 @@ def render(h):
              "keine Erwartung und keine Anlageempfehlung.")
 
     with st.container(key="pl_nav_ansicht"):
-        # Smartphone: gefuehrter Ablauf als Start - "Alle Bereiche" ist dort sehr lang
-        standard = ANSICHTEN[0] if _smartphone() else ANSICHTEN[1]
+        # Start immer im gefuehrten Ablauf (Schritt fuer Schritt); "Alle Bereiche" bleibt fuer Erfahrene waehlbar
+        standard = ANSICHTEN[0]
         ansicht = st.pills("Ansicht", ANSICHTEN, default=standard, key="pl_ansicht",
                            help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
                                 "(für Erfahrene) – beide arbeiten mit demselben Modell.") or standard

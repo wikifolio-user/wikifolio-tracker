@@ -19,6 +19,7 @@ import depot_analyse as D
 import dividenden as DV
 import portfolio_builder_ui as B
 import ui_stil as UI
+import schritte
 
 P = "da_"
 REITER = ["📊 Übersicht", "🔍 Positionen", "🧪 Simulator", "🧭 Szenarien", "💬 Assistent", "⚙️ Daten & Profil"]
@@ -37,37 +38,37 @@ STATE_PFAD = "state/depot_analyse.json"
 CSS = """
 <style>
 .da-chip { display:inline-block; padding:3px 10px; border-radius:12px; font-size:.75rem; font-weight:700;
-  background:rgba(91,155,255,.16); color:#BFD6FF; border:1px solid rgba(91,155,255,.35); margin:0 6px 4px 0; }
+  background:rgba(10, 132, 255, 0.16); color:#409CFF; border:1px solid rgba(10, 132, 255, 0.35); margin:0 6px 4px 0; }
 .da-chip.warn { background:#423523; color:#f4c67b; border-color:#6b5328; }
 .da-chip.neg { background:#3f1d22; color:#fca5a5; border-color:#7f1d1d; }
 .da-chip.pos { background:#163a2c; color:#86efac; border-color:#166534; }
 .da-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
-.da-k .k { border:1px solid var(--line,#22344C); border-radius:12px; padding:10px 12px; background:var(--surface-2,#0E1826); }
-.da-k .l { color:#9AA9BF; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
+.da-k .k { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:12px; padding:10px 12px; background:var(--surface-2,#191A1B); }
+.da-k .l { color:#A9ACB0; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
 .da-k .w { font-size:1.18rem; font-weight:800; margin-top:2px; }
-.da-k .s { color:#9AA9BF; font-size:.78rem; margin-top:2px; }
+.da-k .s { color:#A9ACB0; font-size:.78rem; margin-top:2px; }
 @media (max-width: 760px) { .da-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }
-.da-pos { color:#4ade80; } .da-neg { color:#f87171; } .da-warn { color:#f4c67b; } .da-m { color:#9AA9BF; font-size:.78rem; }
+.da-pos { color:#4ade80; } .da-neg { color:#f87171; } .da-warn { color:#f4c67b; } .da-m { color:#A9ACB0; font-size:.78rem; }
 .da-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 table.da { display:table !important; width:100%; border-collapse:separate; border-spacing:0; font-size:.84rem; }
-table.da th { text-align:left; color:#9AA9BF; font-size:.75rem; letter-spacing:.4px; text-transform:uppercase;
-  padding:6px 8px; border-bottom:1px solid var(--line,#22344C); white-space:nowrap; }
-table.da td { padding:6px 8px; border-bottom:1px solid #16243A; vertical-align:top; }
+table.da th { text-align:left; color:#A9ACB0; font-size:.75rem; letter-spacing:.4px; text-transform:uppercase;
+  padding:6px 8px; border-bottom:1px solid var(--line,#353739); white-space:nowrap; }
+table.da td { padding:6px 8px; border-bottom:1px solid #26282A; vertical-align:top; }
 table.da .r { text-align:right; white-space:nowrap; }
 table.da td.nm { min-width:150px; }
 .da-wrap.breit table.da { min-width:560px; }
-.da-bahn { height:8px; border-radius:4px; background:#16243A; overflow:hidden; min-width:60px; }
-.da-bahn > div { height:100%; background:var(--accent,#5B9BFF); }
+.da-bahn { height:8px; border-radius:4px; background:#26282A; overflow:hidden; min-width:60px; }
+.da-bahn > div { height:100%; background:var(--accent,#0A84FF); }
 .da-score { display:inline-block; min-width:38px; text-align:center; padding:1px 6px; border-radius:8px;
-  font-weight:800; background:#16243A; }
+  font-weight:800; background:#26282A; }
 .da-score.g { background:#163a2c; color:#86efac; } .da-score.m { background:#3a3418; color:#fde68a; }
-.da-score.s { background:#3f1d22; color:#fca5a5; } .da-score.na { color:#9AA9BF; }
-.da-box { border:1px solid var(--line,#22344C); border-left:3px solid var(--accent,#5B9BFF); border-radius:10px;
-  padding:10px 12px; margin:6px 0; background:var(--surface-2,#0E1826); }
+.da-score.s { background:#3f1d22; color:#fca5a5; } .da-score.na { color:#A9ACB0; }
+.da-box { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-left:3px solid var(--accent,#0A84FF); border-radius:10px;
+  padding:10px 12px; margin:6px 0; background:var(--surface-2,#191A1B); }
 .da-box.warn { border-left-color:#f4c67b; } .da-box.neg { border-left-color:#f87171; } .da-box.pos { border-left-color:#4ade80; }
 .da-box b { display:block; margin-bottom:2px; }
-.da-sim { border:1px dashed #5B9BFF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#BFD6FF;
-  background:rgba(91,155,255,.08); font-size:.85rem; }
+.da-sim { border:1px dashed #0A84FF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#409CFF;
+  background:rgba(10, 132, 255, 0.08); font-size:.85rem; }
 </style>
 """
 
@@ -1143,6 +1144,8 @@ def _seite(h):
     ad_n = len(_analyse_depot(h)["positionen"])
     if P + "quelle" not in st.session_state:
         st.session_state[P + "quelle"] = "analyse" if ad_n else "depot"
+    schritte.leiste(st, "analyse")
+    schritte.titel(st, "analyse", 1)
     st.radio("Welches Depot analysieren?", ["depot", "analyse"], key=P + "quelle", horizontal=True,
              format_func={"depot": "🏠 Mein Depot", "analyse": f"📥 Analyse-Depot ({ad_n} Positionen)"}.get,
              on_change=lambda: [st.session_state.pop(k_, None) for k_ in (P + "soll", P + "neu", P + "opt")])
@@ -1163,7 +1166,9 @@ def _seite(h):
     if st.session_state.get(P + "reiter_neu"):
         st.session_state[P + "reiter"] = st.session_state.pop(P + "reiter_neu")
     st.session_state.setdefault(P + "reiter", REITER[0])
+    schritte.titel(st, "analyse", 2)
     reiter = st.pills("Bereich", REITER, key=P + "reiter", label_visibility="collapsed") or REITER[0]
+    schritte.titel(st, "analyse", 3, reiter.split(" ", 1)[-1])
     {REITER[0]: _uebersicht, REITER[1]: _positionen, REITER[2]: _simulator, REITER[3]: _szenarien,
      REITER[4]: _assistent, REITER[5]: _daten}[reiter](h, a)
     st.caption("Keine Anlageberatung. Scores und Empfehlungen sind regelbasierte Auswertungen der genannten Daten; "

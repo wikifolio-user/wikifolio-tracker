@@ -11,6 +11,7 @@ insgesamt anfaellt (Einkommensteuer, Soli, Kirchensteuer):
 Ergebnis auch als PDF (eigener kleiner PDF-Schreiber, keine Zusatzpakete noetig).
 """
 import datetime
+import schritte
 import math
 
 STEUERJAHR = 2026                # Standard-Auszahlungsjahr (im Rechner waehlbar)
@@ -1097,19 +1098,19 @@ ABF_CSS = """<style>
 @media (max-width: 640px) {
   .st-key-abf_form [data-testid="stHorizontalBlock"] > div { flex: 1 1 100% !important; }
 }
-.st-key-abf_form .zr-symbol { border-radius: 50%; background: #3987e5; color: #fff; font-weight: 800;
+.st-key-abf_form .zr-symbol { border-radius: 50%; background: #0A84FF; color: #fff; font-weight: 800;
                               font-size: 1.05rem; width: 34px; height: 34px; flex-basis: 34px; }
-.st-key-abf_form [data-testid="stExpander"] details { border-color: #3a4152 !important; }
+.st-key-abf_form [data-testid="stExpander"] details { border-color: var(--rand, rgba(255, 255, 255, 0.55)) !important; }
 .st-key-abf_form [data-testid="stCheckbox"] label p { font-size: .88rem !important; color: #e8e6df !important; }
 .st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipIcon"],
 .st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"],
 .st-key-abf_form [data-testid="stSelectbox"] > div:has([data-testid="stTooltipIcon"]):not(:has([data-baseweb="select"])) {
     outline: none !important; background: transparent !important; box-shadow: none !important; border: none !important; }
-.abf-oben { border: 1px solid rgba(91,155,255,.45); border-radius: 14px; padding: 10px 14px; margin: 4px 0 10px;
-  background: linear-gradient(135deg, rgba(91,155,255,.16), rgba(91,155,255,.04)); }
-.abf-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
+.abf-oben { border: 1px solid rgba(10, 132, 255, 0.45); border-radius: 14px; padding: 10px 14px; margin: 4px 0 10px;
+  background: linear-gradient(135deg, rgba(10, 132, 255, 0.16), rgba(10, 132, 255, 0.04)); }
+.abf-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #A9ACB0; }
 .abf-oben-w { font-size: 1.3rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
-.abf-oben-s { font-size: .8rem; color: #BFD0E6; }
+.abf-oben-s { font-size: .8rem; color: #D1D2D4; }
 [data-testid="stMetricLabel"] p { overflow-wrap: normal !important; word-break: normal !important; hyphens: auto; }
 .abf-ergebnis-kopf { margin: 22px 0 10px; padding: 10px 14px; border-radius: 12px; font-size: 1.1rem;
                      font-weight: 800; color: #fff; background: linear-gradient(90deg, rgba(22,199,132,.22), transparent);
@@ -1121,7 +1122,7 @@ ABF_FJ_CSS = """<style>
 .abf-schritt { font-size: .88rem; color: #d6d4cc; margin: 10px 0 6px; }
 .abf-fazit { margin: 4px 0 8px; padding: 10px 12px; border-radius: 10px; font-size: .9rem; color: #e8e6df;
              background: rgba(22,199,132,.12); border: 1px solid rgba(22,199,132,.45); }
-.st-key-abf_fj [data-testid="stDataFrame"] { border: 1.5px solid #4a5468; border-radius: 10px; }
+.st-key-abf_fj [data-testid="stDataFrame"] { border: 1.5px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 10px; }
 </style>"""
 
 
@@ -1153,11 +1154,12 @@ def render(gespeichert=None, null=False):
     st.caption("Szenariorechnung · keine Steuer- oder Rechtsberatung")
     st.markdown('<div class="zr-hilfe"><span><i class="zr-muster"></i> hier eintippen</span>'
                 '<span><i class="zr-muster calc"></i> wird berechnet</span></div>', unsafe_allow_html=True)
+    schritte.leiste(st, "abfindung_netto")
     form = st.container(key="abf_form")
 
     # 1) Abfindung
     k1_ = form.container(border=True, key="abf_karte_summe")
-    k1_.markdown(_zr._kopf("1", "Abfindung", "Bruttobetrag laut Aufhebungsvertrag / Vergleich").replace(
+    k1_.markdown(_zr._kopf("1", "Abfindung", "Bruttobetrag laut Aufhebungsvertrag / Vergleich", ("abfindung_netto", 1)).replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     abf = k1_.number_input("💶 Abfindungssumme brutto (€)", 0.0, 1e8, **_start(st, "abf_summe", 50000.0), step=1000.0, format="%.0f",
                            key="abf_summe")
@@ -1171,7 +1173,7 @@ def render(gespeichert=None, null=False):
 
     # 2) Einkommen
     k2_ = form.container(border=True, key="abf_karte_einkommen")
-    k2_.markdown(_zr._kopf("2", "Einkommen ohne Abfindung", f"Im Auszahlungsjahr {j1} und im Jahr danach ({j2})").replace(
+    k2_.markdown(_zr._kopf("2", "Einkommen ohne Abfindung", f"Im Auszahlungsjahr {j1} und im Jahr danach ({j2})", ("abfindung_netto", 2)).replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     brutto = float(k2_.number_input(f"Jahresbrutto {j1} (€)", 0.0, 1e8, **_start(st, "abf_brutto", 60000.0),
                                     step=1000.0, format="%.0f", key="abf_brutto",
@@ -1198,7 +1200,7 @@ def render(gespeichert=None, null=False):
 
     # 3) Steuerliche Angaben
     k3_ = form.container(border=True, key="abf_karte_steuer")
-    k3_.markdown(_zr._kopf("3", "Steuerliche Angaben", "Veranlagung, Kirche, Fünftelregelung").replace(
+    k3_.markdown(_zr._kopf("3", "Steuerliche Angaben", "Veranlagung, Kirche, Fünftelregelung", ("abfindung_netto", 3)).replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     veranl = k3_.selectbox("Veranlagung", ["Einzeln", "Zusammen (Splitting)"], key="abf_veranl",
                            help="Bei Zusammenveranlagung das Einkommen beider Partner eintragen.")
@@ -1210,7 +1212,7 @@ def render(gespeichert=None, null=False):
 
     # 4) optional
     k4_ = form.container(border=True, key="abf_karte_optional")
-    k4_.markdown(_zr._kopf("4", "Optional: Steuer senken", "Nur ausfüllen, wenn es auf dich zutrifft").replace(
+    k4_.markdown(_zr._kopf("4", "Optional: Steuer senken", "Nur ausfüllen, wenn es auf dich zutrifft", ("abfindung_netto", 4)).replace(
         'style="margin-top:18px"', ""), unsafe_allow_html=True)
     with k4_.expander("🛠️ Arbeitslosengeld, Werbungskosten, Rente, bAV", expanded=False):
         alg1 = float(st.number_input(f"Arbeitslosengeld {j1} (€)", 0.0, 1e6, **_start(st, "abf_alg1", 0.0), step=500.0, format="%.0f",
@@ -1236,7 +1238,7 @@ def render(gespeichert=None, null=False):
     with k4_:
         gest = _gestaltungen_eingabe(st)
 
-    st.markdown('<div class="abf-ergebnis-kopf">📊 Ergebnis</div>', unsafe_allow_html=True)
+    schritte.titel(st, "abfindung_netto", 5)
 
     e = {"gest": gest, "abfindung": float(abf), "jahr1": j1, "zve1": float(zve1), "zve2": zve2,
          "splitting": veranl.startswith("Zusammen"),

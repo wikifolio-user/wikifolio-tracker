@@ -8,14 +8,14 @@ showErrorDetails = false
 
 [theme]
 base = "dark"
-# Blau-Design (10/2026): Navy-Grund, blaue Akzente. Gruen/Rot bleiben fuer
-# Kursveraenderungen reserviert - Blau als Bedienfarbe kollidiert damit nicht.
-backgroundColor = "#0B1220"
-secondaryBackgroundColor = "#0E1826"
-textColor = "#E8EEF6"
-primaryColor = "#5B9BFF"
-linkColor = "#8AB8FF"
-borderColor = "#24364F"
+# Apple-Graphit (Liquid Glass, 10/2026): neutrale Grautoene, Systemblau als Bedienfarbe.
+# Gruen/Rot bleiben fuer Kursveraenderungen reserviert.
+backgroundColor = "#111113"
+secondaryBackgroundColor = "#1C1C1E"
+textColor = "#F5F5F7"
+primaryColor = "#0A84FF"
+linkColor = "#409CFF"
+borderColor = "#38383A"
 showWidgetBorder = true
 baseRadius = "12px"
 buttonRadius = "12px"

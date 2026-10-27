@@ -16,7 +16,7 @@ def _kontrast(a, b):
 class Farben(unittest.TestCase):
     def test_flaechen_hell_text_dunkel(self):
         self.assertGreater(_kontrast(H.hell("#0B1220"), "#000000"), 15)     # Seitengrund wird hell
-        self.assertEqual(H.hell("#FFFFFF"), "#0F1B2D")                        # weisse Schrift -> Navy
+        self.assertEqual(H.hell("#FFFFFF"), "#1C1C1E")                        # weisse Schrift -> Apple-Textschwarz
 
     def test_kursfarben_lesbar_auf_hell(self):
         grund = H.hell("#0B1220")
@@ -24,13 +24,13 @@ class Farben(unittest.TestCase):
             self.assertGreaterEqual(_kontrast(H.hell(farbe), grund), 4.2, farbe)
 
     def test_transparente_weisse_ueberlagerung_wird_dunkle(self):
-        self.assertTrue(H.hell("rgba(255, 255, 255, 0.06)").startswith("rgba(15, 27, 45"))
+        self.assertTrue(H.hell("rgba(255, 255, 255, 0.06)").startswith("rgba(0, 0, 0"))
 
 
 class Umschreiben(unittest.TestCase):
     def test_nur_farbregeln_mit_hoeherer_spezifitaet(self):
         aus = H.umschreiben(".a { color: #FFFFFF; font-size: 2rem; } .b { margin: 0; }")
-        self.assertIn(".a:not(#fd-hell) { color: #0F1B2D !important; }", aus)
+        self.assertIn(".a:not(#fd-hell) { color: #1C1C1E !important; }", aus)
         self.assertNotIn("font-size", aus)
         self.assertNotIn(".b", aus)
 
@@ -52,7 +52,7 @@ class Umschreiben(unittest.TestCase):
 
     def test_weisse_schrift_auf_kraeftiger_flaeche_bleibt(self):
         aus = H.umschreiben(".sym { background: #2563EB; color: #FFFFFF; }")
-        self.assertNotIn("color: #0F1B2D", aus)
+        self.assertNotIn("color: #1C1C1E", aus)
 
 
 class Modi(unittest.TestCase):

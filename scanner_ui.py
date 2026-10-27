@@ -14,6 +14,7 @@ import scanner as S
 from portfolio_builder_ui import _smartphone
 import formate as FMT
 import ui_stil as UI
+import schritte
 
 PROFIL_TITEL = {"niedrig": "Niedrig", "mittel": "Mittel", "hoch": "Hoch", "eigene": "Eigene",
                 S.FAVORITEN: "Favoriten"}
@@ -779,8 +780,9 @@ def seite(h):
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Investment-<span>Scanner</span></div>'
                 '<div class="pb-unter">Aktien · ETFs · wikifolios → Musterdepot für dein Ziel</div></div>',
                 unsafe_allow_html=True)
+    schritte.leiste(st, "scanner", spaeter=() if st.session_state.get("pb_scan_erg") is not None else (4,))
     with st.container(border=True, key="pb_scan_eckdaten"):
-        st.markdown('<div class="pb-karte-t">Eckdaten</div>', unsafe_allow_html=True)
+        schritte.titel(st, "scanner", 1)
         _eckdaten(e)
     render(h, S.scanner_eingaben(e), lambda: B._katalog(h), (h or {}).get("zum_builder"))
     art, _ = B._automatisch_speichern(h, e)
@@ -791,7 +793,7 @@ def seite(h):
 def render(h, e, katalog_fn, zum_builder=None):
     """Scanner-Karte. e = bereinigte Builder-Eingaben, katalog_fn() = Builder-Katalog."""
     with st.container(border=True, key="pb_scanner"):
-        st.markdown('<div class="pb-karte-t">Risikoprofil & Regeln</div>', unsafe_allow_html=True)
+        schritte.titel(st, "scanner", 2, "Risikoprofil & Regeln")
         st.caption("Durchsucht Aktien (mit Fundamentaldaten), ETFs und wikifolios aus den Daten der Watchlist, bewertet "
                    "sie, stellt ein Musterdepot zusammen und simuliert dein Ziel mit den Eckdaten oben.")
         _einstellungen(e, katalog_fn)
@@ -799,6 +801,7 @@ def render(h, e, katalog_fn, zum_builder=None):
         keine_favoriten = e["scan_profil"] == S.FAVORITEN and not e["scan_favoriten"]
         erg = st.session_state.get("pb_scan_erg")
         veraltet = erg is not None and st.session_state.get("pb_scan_sig") != sig
+        schritte.titel(st, "scanner", 3)
         if st.button("🔍 Scannen & Musterdepot berechnen" if erg is None else "🔄 Neu berechnen",
                      key="pb_scan_los", type="primary" if erg is None or veraltet else "secondary", width="stretch",
                      disabled=keine_favoriten):
@@ -819,6 +822,7 @@ def render(h, e, katalog_fn, zum_builder=None):
         if veraltet:
             st.info("Eingaben geändert – „Neu berechnen“, damit das Ergebnis dazu passt.")
         kapital = erg["start"]
+        schritte.titel(st, "scanner", 4)
         tabs = st.tabs(["📦 Musterdepot", "🏆 Top-Investments", "📈 Prognose", "💸 Entnahme", "⚠️ Risiken",
                         "🧭 Plan", "ℹ️ Daten"])
         with tabs[0]:
@@ -843,18 +847,18 @@ CSS = """
 table.pb-scan { width:100%; border-collapse:separate; border-spacing:0; font-size:.84rem; }
 table.pb-scan.breit { min-width:640px; }
 table.pb-scan th { text-align:left; color:#9AA0A6; font-weight:700; font-size:.75rem; letter-spacing:.4px;
-  text-transform:uppercase; padding:6px 8px; border-bottom:1px solid #262B33; vertical-align:bottom; }
-table.pb-scan td { padding:6px 8px; border-bottom:1px solid #1A1E24; vertical-align:top; white-space:nowrap; }
+  text-transform:uppercase; padding:6px 8px; border-bottom:1px solid #2B2C2E; vertical-align:bottom; }
+table.pb-scan td { padding:6px 8px; border-bottom:1px solid #1E1F20; vertical-align:top; white-space:nowrap; }
 table.pb-scan td.t { white-space:normal; min-width:180px; max-width:280px; }
-table.pb-scan .n { position:sticky; left:0; background:#0A0B0D; z-index:1; max-width:220px; white-space:normal; }
+table.pb-scan .n { position:sticky; left:0; background:#0B0B0C; z-index:1; max-width:220px; white-space:normal; }
 table.pb-scan .r { text-align:right; white-space:nowrap; }
 table.pb-scan .gr { color:#9AA0A6; font-weight:400; }
 table.pb-scan.depot { table-layout:fixed; }
 table.pb-scan.depot td, table.pb-scan.depot th { overflow:hidden; text-overflow:ellipsis; }
 table.pb-scan.depot td.t, table.pb-scan.depot td.n { white-space:normal; max-width:none; min-width:0; }
-table.pb-scan.depot tr.summe td { border-top:1px solid #3A3F47; }
+table.pb-scan.depot tr.summe td { border-top:1px solid #3E4043; }
 .pb-scan-kpis { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
-.pb-scan-kpis .k { border:1px solid #262B33; border-radius:10px; padding:10px 12px; background:#0F1115; }
+.pb-scan-kpis .k { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:10px; padding:10px 12px; background:#111213; }
 .pb-scan-kpis .l { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.4px; }
 .pb-scan-kpis .w { font-size:1.25rem; font-weight:800; margin-top:2px; }
 .pb-scan-kpis .s { color:#9AA0A6; font-size:.76rem; margin-top:2px; }

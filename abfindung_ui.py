@@ -13,6 +13,7 @@ import abfindung as A
 import abfindung_modelle as M
 import formate as FMT
 import ui_stil as UI
+import schritte
 
 NAV = ["🧮 Abfindung berechnen", "📊 Alle Modelle", "💶 Brutto-Netto", "🏭 Sozialplan & Regelwerke",
        "🎚️ Verhandlung", "🧾 ALG & Risiken", "🔀 Szenarien", "📄 Bericht"]
@@ -126,10 +127,11 @@ def _staffel(text):
     return aus
 
 
-def _karte(st, nr, titel, text, key):
+def _karte(st, nr, titel, text, key, fuehrung=None):
     import zinsrechner as _zr
     k = st.container(border=True, key=f"abf_karte_{key}")
-    k.markdown(_zr._kopf(nr, titel, text).replace('style="margin-top:18px"', ""), unsafe_allow_html=True)
+    schritt = (fuehrung, int(nr)) if fuehrung and str(nr).isdigit() else None
+    k.markdown(_zr._kopf(nr, titel, text, schritt).replace('style="margin-top:18px"', ""), unsafe_allow_html=True)
     return k
 
 
@@ -254,8 +256,9 @@ def _bereich_fall(st, null):
     st.caption("Alle Angaben bleiben in dieser Sitzung erhalten und gelten für alle Bereiche. Pflicht sind nur "
                "Monatsgehalt sowie Beginn und Ende (oder die Jahre). Fehlende Angaben werden als „unbekannt“ "
                "gerechnet und ausdrücklich so gekennzeichnet.")
+    schritte.leiste(st, "abfindung")
     form = st.container(key="abf_form")
-    k = _karte(form, "1", "Person", "Alter, Kinder, Schwerbehinderung, Rentennähe", "person")
+    k = _karte(form, "1", "Person", "Alter, Kinder, Schwerbehinderung, Rentennähe", "person", "abfindung")
     c1, c2, c3 = k.columns(3)
     # Leeres Feld statt 0 (unter dem Minimum 15 brach Streamlit ab - Rechner fuer neue Benutzer
     # unbenutzbar); ungueltige gemerkte Werte ebenso leeren. Leer = Alter unbekannt.
@@ -277,7 +280,7 @@ def _bereich_fall(st, null):
     c7.toggle("Regelaltersgrenze erreicht", **_s(st, "abf_f_regelalter", False), key="abf_f_regelalter",
               help="Dann gelten die erhöhten Grenzen des § 10 Abs. 2 KSchG nicht.")
 
-    k = _karte(form, "2", "Beschäftigung", "Zeiten und Vergütung (Monatsverdienst nach § 10 Abs. 3 KSchG)", "besch")
+    k = _karte(form, "2", "Beschäftigung", "Zeiten und Vergütung (Monatsverdienst nach § 10 Abs. 3 KSchG)", "besch", "abfindung")
     c1, c2 = k.columns(2)
     c1.date_input("Arbeitsbeginn", **_s(st, "abf_f_beginn", None if null else datetime.date(2016, 1, 1)),
                   format="DD.MM.YYYY", key="abf_f_beginn", min_value=datetime.date(1950, 1, 1))
@@ -322,7 +325,7 @@ def _bereich_fall(st, null):
                         **_s(st, "abf_f_jentgelt", None), step=1000.0, format="%.0f", key="abf_f_jentgelt",
                         placeholder="leer = Monatsverdienst × 12")
 
-    k = _karte(form, "3", "Beendigung", "Wie endet das Arbeitsverhältnis?", "ende")
+    k = _karte(form, "3", "Beendigung", "Wie endet das Arbeitsverhältnis?", "ende", "abfindung")
     k.selectbox("Art der Beendigung", list(ARTEN), format_func=ARTEN.get, **_s(st, "abf_f_art", 0, "index"),
                 key="abf_f_art")
     c1, c2 = k.columns(2)
@@ -342,7 +345,7 @@ def _bereich_fall(st, null):
     k.multiselect("Besondere Situation (optional)", SONDER_AUSWAHL, format_func=lambda x: M.SONDERFAELLE[x][0], placeholder="Bitte auswählen …",
                   key="abf_f_sonderf")
 
-    k = _karte(form, "4", "Angebot / Vereinbarung", "Optional: was angeboten oder vereinbart ist", "vertrag")
+    k = _karte(form, "4", "Angebot / Vereinbarung", "Optional: was angeboten oder vereinbart ist", "vertrag", "abfindung")
     st_e = k
     for p, titel in (("auf", "Aufhebungsvertrag"), ("abw", "Abwicklungsvertrag"), ("ver", "Gerichtlicher Vergleich"),
                      ("zus", "Vertraglich zugesicherte Abfindung")):

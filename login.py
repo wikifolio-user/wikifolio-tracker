@@ -42,6 +42,7 @@ import threading
 import time
 
 import nutzerdaten
+import schritte
 
 PFAD_BENUTZER = "state/benutzer.json"
 ITERATIONEN = 200_000
@@ -401,35 +402,35 @@ def pruefe_anmeldung(cfg, daten, name, passwort):
 # ---------------------------------------------------------------------------
 LOGIN_CSS = """<style>
 .st-key-login_box { max-width: 420px; margin: 8vh auto 0; padding: 22px 20px; border-radius: 18px;
-                    background: linear-gradient(180deg, #152236, #0E1826); border: 1px solid #24364F;
-                    box-shadow: 0 14px 34px rgba(2, 8, 20, .45); }
+                    background: linear-gradient(180deg, #242527, #191A1B); border: 1px solid var(--rand, rgba(255, 255, 255, 0.55));
+                    box-shadow: 0 14px 34px rgba(11, 11, 11, 0.45); }
 .login-titel { font-size: 1.4rem; font-weight: 800; color: #fff; margin-bottom: 2px; }
-.login-text { font-size: .85rem; color: #AEBDD0; margin-bottom: 14px; }
+.login-text { font-size: .85rem; color: #BCBFC2; margin-bottom: 14px; }
 /* Beschriftung ueber den Feldern */
 .st-key-login_box [data-testid="stTextInput"] label p {
-    font-size: .95rem !important; font-weight: 700 !important; color: #D5DFEC !important; }
+    font-size: .95rem !important; font-weight: 700 !important; color: #DFE0E2 !important; }
 /* Eingabefelder: heller Kasten mit deutlichem Rahmen */
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] {
-    background: #0E1826 !important; border: 1px solid #2E4363 !important;
+    background: #191A1B !important; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important;
     border-radius: 12px !important; min-height: 52px; transition: border-color .15s, box-shadow .15s; }
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] > div,
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="base-input"] {
     background: transparent !important; }
 .st-key-login_box [data-testid="stTextInput"] input {
     background: transparent !important; color: #ffffff !important;
-    font-size: 16px !important; padding: 12px 14px !important; caret-color: #3987e5; }
-.st-key-login_box [data-testid="stTextInput"] input::placeholder { color: #8a90a0 !important; opacity: 1; }
+    font-size: 16px !important; padding: 12px 14px !important; caret-color: #0A84FF; }
+.st-key-login_box [data-testid="stTextInput"] input::placeholder { color: #919399 !important; opacity: 1; }
 /* aktives Feld: blauer Rahmen + Leuchten */
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"]:focus-within {
-    border-color: #3987e5 !important; box-shadow: 0 0 0 3px rgba(57,135,229,.35) !important; }
-.st-key-login_box [data-testid="stTextInput"] button { background: transparent !important; color: #c9ccd4 !important; }
+    border-color: #0A84FF !important; box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.35) !important; }
+.st-key-login_box [data-testid="stTextInput"] button { background: transparent !important; color: #CDCED0 !important; }
 .st-key-login_box [data-testid="InputInstructions"] { display: none; }
 /* Anmelden-Knopf: farbig und gross */
 .st-key-login_box [data-testid="stFormSubmitButton"] button {
-    background: #2563EB !important; border: none !important; color: #fff !important;
+    background: #0A84FF !important; border: none !important; color: #fff !important;
     min-height: 52px; border-radius: 12px !important; margin-top: 6px; }
 .st-key-login_box [data-testid="stFormSubmitButton"] button p { font-size: 1.05rem !important; font-weight: 700 !important; }
-.st-key-login_box [data-testid="stFormSubmitButton"] button:active { background: #1D4ED8 !important; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button:active { background: #0A84FF !important; }
 </style>"""
 
 
@@ -614,13 +615,13 @@ def darf(nutzer, ansicht):
 RECHTE_CSS = """<style>
 .st-key-rechte_box [data-testid="stCheckbox"], [class*="st-key-rechte_"] [data-testid="stCheckbox"] {
     padding: 6px 10px; margin-bottom: 6px; border-radius: 10px;
-    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.14); }
+    background: rgba(255,255,255,.04); border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); }
 [class*="st-key-rechte_"] [data-testid="stCheckbox"] label p { font-size: .9rem !important; color: #e8e6df !important; }
 .rechte-info { font-size: .8rem; color: #a9a79c; margin: 2px 0 8px; }
 [class*="st-key-rspeichern_"] button {
-    background: #5B9BFF !important; border: none !important; min-height: 46px; border-radius: 12px !important;
+    background: #0A84FF !important; border: none !important; min-height: 46px; border-radius: 12px !important;
     box-shadow: none !important; }
-[class*="st-key-rspeichern_"] button p { color: #071224 !important; font-weight: 700 !important; font-size: 1rem !important; }
+[class*="st-key-rspeichern_"] button p { color: #151516 !important; font-weight: 700 !important; font-size: 1rem !important; }
 </style>"""
 
 
@@ -741,6 +742,8 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
         st.session_state["rechte_meldung"] = f"✅ Rechte von „{nn}“ gespeichert ({len(auswahl)}/{len(ansichten)})"
         return True
 
+    schritte.leiste(st, "benutzer", [1, 2] if benutzer else [1])
+    schritte.titel(st, "benutzer", 1)
     with st.expander("➕ Neuen Benutzer anlegen", expanded=not benutzer):
         with st.form("neu_benutzer", clear_on_submit=True):
             c1, c2 = st.columns(2)
@@ -789,6 +792,7 @@ def render_verwaltung(st, gh_read, gh_write, ansichten, namen, gh_aktualisiere=N
     for ordner_, namen_ in nutzerdaten.slug_kollisionen(benutzer).items():
         st.error(f"⚠️ Diese Benutzer teilen sich einen Datenordner ({ordner_}) und sehen gegenseitig ihre "
                  f"Daten: {', '.join(namen_)}. Bitte alle bis auf einen löschen und neu anlegen.")
+    schritte.titel(st, "benutzer", 2)
     for nn in sorted(benutzer):
         u = benutzer[nn] if isinstance(benutzer[nn], dict) else {}
         aktiv = u.get("aktiv", True)

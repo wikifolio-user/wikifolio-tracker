@@ -12,6 +12,7 @@ import investment_scanner2 as E
 import portfolio_builder_ui as B
 import scanner as S
 import formate as FMT
+import schritte
 
 P = "is2_"                                         # Schluessel-Praefix in st.session_state
 TOP_N = {"Top 50": 50, "Top 100": 100, "Top 250": 250, "Top 500": 500}
@@ -22,16 +23,16 @@ ANSATZ_HINT = {"auto": "Innerhalb Risikolimit", "defensiv": "Stabilität im Foku
 CSS = """
 <style>
 .is2-chip { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.75rem; font-weight:700;
-  letter-spacing:.6px; background:rgba(91,155,255,.16); color:#BFD6FF; border:1px solid rgba(91,155,255,.35); }
+  letter-spacing:.6px; background:rgba(10, 132, 255, 0.16); color:#409CFF; border:1px solid rgba(10, 132, 255, 0.35); }
 .is2-chip.warn { background:#423523; color:#f4c67b; }
-.pb-karte-t .is2-nr { color:var(--accent-hell,#8AB8FF); margin-right:6px; }
+.pb-karte-t .is2-nr { color:var(--accent-hell,#409CFF); margin-right:6px; }
 .is2-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:8px 0; }
-.is2-k .k { border:1px solid #262B33; border-radius:12px; padding:10px 12px; background:#0F1115; }
+.is2-k .k { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:12px; padding:10px 12px; background:#111213; }
 .is2-k .l { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.4px; }
 .is2-k .w { font-size:1.2rem; font-weight:800; margin-top:2px; }
 .is2-k .s { color:#9AA0A6; font-size:.78rem; }
-.is2-szen .c { min-height:150px; border:1px solid #262B33; border-radius:12px; padding:12px; background:#0F1115; }
-.is2-szen .c.sel { border-color:var(--accent,#5B9BFF); background:rgba(91,155,255,.10); box-shadow:none; }
+.is2-szen .c { min-height:150px; border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:12px; padding:12px; background:#111213; }
+.is2-szen .c.sel { border-color:var(--accent,#0A84FF); background:rgba(10, 132, 255, 0.1); box-shadow:none; }
 .is2-szen .c.off { opacity:.55; }
 .is2-szen .t { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.6px; }
 .is2-szen .n { font-weight:800; margin-top:2px; }
@@ -39,8 +40,8 @@ CSS = """
 .is2-pos { color:#4ade80; } .is2-neg { color:#f87171; }
 table.is2 { display:table !important; width:100% !important; border-collapse:separate; border-spacing:0; font-size:.84rem; }
 table.is2 th { text-align:left; color:#9AA0A6; font-size:.75rem; letter-spacing:.4px; text-transform:uppercase;
-  padding:6px 8px; border-bottom:1px solid #262B33; white-space:nowrap; }
-table.is2 td { padding:6px 8px; border-bottom:1px solid #1A1E24; vertical-align:top; }
+  padding:6px 8px; border-bottom:1px solid #2B2C2E; white-space:nowrap; }
+table.is2 td { padding:6px 8px; border-bottom:1px solid #1E1F20; vertical-align:top; }
 table.is2 .r { text-align:right; white-space:nowrap; }
 table.is2 .m { color:#9AA0A6; font-size:.78rem; }
 .is2-wrap, .is2-scroll { overflow-x:auto; }
@@ -50,9 +51,9 @@ table.is2 td.nm { min-width:160px; }
 table.is2 .nr { width:36px; }
 .is2-score { display:inline-block; min-width:42px; text-align:center; padding:2px 6px; border-radius:8px;
   background:#193c38; color:#9af1d4; font-weight:700; }
-.is2-score.na { background:#2a2f37; color:#9AA0A6; }
+.is2-score.na { background:#2F3032; color:#9AA0A6; }
 .is2-mix { display:flex; height:16px; border-radius:8px; overflow:hidden; margin:6px 0; }
-.is2-bar { height:8px; border-radius:4px; background:#1A1E24; overflow:hidden; }
+.is2-bar { height:8px; border-radius:4px; background:#1E1F20; overflow:hidden; }
 .is2-bar > div { height:100%; }
 .is2-leg { display:inline-flex; align-items:center; gap:5px; margin:2px 10px 2px 0; font-size:.8rem; }
 .is2-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
@@ -222,7 +223,7 @@ def _score_chip(v):
 
 # ---------------------------------------------------------------- Eingaben
 def _eingaben():
-    _karte_titel("Kapital & Anlageziel", "01")
+    schritte.titel(st, "scanner2", 1, "Kapital & Anlageziel")
     c = _spalten(4)
     c[0].number_input("Neues Anfangskapital €", 0.0, 1e9, step=100.0, format="%.0f", key=P + "capital")
     c[1].number_input("Zielwert Gesamtdepot €", 0.0, 1e10, step=500.0, format="%.0f", key=P + "goal")
@@ -250,7 +251,7 @@ def _eingaben():
 
 
 def _anlageklassen(katalog):
-    _karte_titel("Anlageklassen & Auswahl", "02")
+    schritte.titel(st, "scanner2", 2, "Anlageklassen & Auswahl")
     vorhanden = [t for t in E.TYPES if any(a["type"] == t for a in katalog)]
     if st.session_state.get(P + "typen") is None:
         st.session_state[P + "typen"] = list(vorhanden)
@@ -268,7 +269,7 @@ def _anlageklassen(katalog):
 
 
 def _daten(katalog, stand):
-    _karte_titel("Daten & Gesamtdepot", "03")
+    schritte.titel(st, "scanner2", 3, "Daten & Gesamtdepot")
     n_live = len(st.session_state.get(P + "live") or {})
     st.caption(f"{len(katalog):,} Wertpapiere aus den Top-500-/Watchlist-Daten · Tagesschluss vom {stand or '–'}"
                .replace(",", ".") + (f" · {n_live} aktuelle Kurse von ls-tc.de" if n_live else "")
@@ -306,7 +307,7 @@ def _daten(katalog, stand):
 
 
 def _entnahme():
-    _karte_titel("Geld entnehmen", "04")
+    schritte.titel(st, "scanner2", 4, "Geld entnehmen")
     c = _spalten(4)
     c[0].number_input("Auszahlung sofort €", 0.0, 1e9, step=100.0, format="%.0f", key=P + "take_now")
     c[1].number_input("Auszahlung je Monat €", 0.0, 1e7, step=50.0, format="%.0f", key=P + "take_monthly")
@@ -319,7 +320,7 @@ def _entnahme():
 
 # ---------------------------------------------------------------- Ergebnis
 def _ergebnis(erg):
-    _karte_titel("Ergebnis")
+    schritte.titel(st, "scanner2", 5, "Ergebnis")
     m = erg["plans"][erg["active"]]
     r = m["neededRate"]
     _kpis((("Depotwert zu Beginn", _eur(m["deposit"]), "nach Sofortentnahme und Gebühren"),
@@ -365,7 +366,7 @@ def _strategien(erg):
 
 def _kaufplan(h, erg):
     m, inp = erg["plans"][erg["active"]], erg["inp"]
-    _karte_titel(f"Kaufplan · {E.PROFILES[erg['active']]['name']}")
+    schritte.titel(st, "scanner2", 6, f"Kaufplan · {E.PROFILES[erg['active']]['name']}")
     _kpis((("Kaufpositionen", str(len(m["orders"])), ""), ("Käufe", _eur(m["investedNew"]), ""),
            ("Freies Kapital danach", _eur(m["cash"]),
             f"{_pct(m['cash'] / m['deposit'] * 100 if m['deposit'] else 0)} des Gesamtdepots"),
@@ -509,6 +510,7 @@ def _seite(h):
     k1, k2 = st.columns([3, 2] if B._smartphone() else [4, 1], vertical_alignment="center")
     k1.markdown(f'<span class="is2-chip {"" if katalog else "warn"}">{chip.upper()}</span>', unsafe_allow_html=True)
     k2.button("↺ Zurücksetzen", key=P + "reset", width="stretch", on_click=_zuruecksetzen, args=(null,))
+    schritte.leiste(st, "scanner2")
     for teil in (_eingaben, lambda: _anlageklassen(katalog), lambda: _daten(katalog, stand), _entnahme):
         with st.container(border=True):
             teil()

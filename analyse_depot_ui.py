@@ -14,18 +14,19 @@ import streamlit as st
 import analyse_depot as A
 import depot_analyse as D
 import portfolio_builder_ui as B
+import schritte
 
 P = "ad_"
 
 CSS = """
 <style>
 .ad-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
-.ad-k .k { border:1px solid var(--line,#22344C); border-radius:12px; padding:10px 12px; background:var(--surface-2,#0E1826); }
-.ad-k .l { color:#9AA9BF; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
+.ad-k .k { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:12px; padding:10px 12px; background:var(--surface-2,#191A1B); }
+.ad-k .l { color:#A9ACB0; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
 .ad-k .w { font-size:1.15rem; font-weight:800; margin-top:2px; }
 @media (max-width: 760px) { .ad-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }
-.ad-hinweis { border:1px dashed #5B9BFF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#BFD6FF;
-  background:rgba(91,155,255,.08); font-size:.85rem; }
+.ad-hinweis { border:1px dashed #0A84FF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#409CFF;
+  background:rgba(10, 132, 255, 0.08); font-size:.85rem; }
 .ad-weg { border-left:3px solid #f4c67b; padding:6px 10px; border-radius:8px; background:rgba(244,198,123,.08);
   font-size:.88rem; }
 .ad-pos { color:#4ade80; } .ad-neg { color:#f87171; }
@@ -109,7 +110,7 @@ def _aus_treffer(t, stueck, kaufkurs, kaufdatum):
 # ---------------------------------------------------------------- Bereiche
 def _hinzufuegen(h, depot):
     s = st.session_state
-    _titel("➕ Wert hinzufügen")
+    schritte.titel(st, "analyse_depot", 1, "Wert hinzufügen")
     with st.form(P + "suche_form", border=False):
         c1, c2 = ([st.container()] * 2 if B._smartphone()
                   else st.columns([4, 1], vertical_alignment="bottom"))
@@ -155,7 +156,7 @@ def _hinzufuegen(h, depot):
 
 def _tabelle(h, depot):
     s = st.session_state
-    _titel(f"📋 Positionen ({len(depot['positionen'])})")
+    schritte.titel(st, "analyse_depot", 2, f"Positionen ({len(depot['positionen'])})")
     _rueckgaengig(h)
     if not depot["positionen"]:
         st.caption("Noch keine Positionen – oben suchen, unten mehrere Zeilen auf einmal eingeben oder eine Datei "
@@ -288,7 +289,7 @@ def _uebernehmen_zeilen(h, depot, zeilen, quelle):
 
 
 def _schnell(h, depot):
-    _titel("⚡ Schnelleingabe (mehrere Werte auf einmal)")
+    schritte.titel(st, "analyse_depot", 3, "Schnelleingabe (mehrere Werte auf einmal)")
     if P + "schnell_neu" in st.session_state:              # nach dem Uebernehmen: nur nicht gefundene Zeilen behalten
         st.session_state[P + "schnell"] = st.session_state.pop(P + "schnell_neu")
     with st.form(P + "schnell_form", border=False):
@@ -335,7 +336,7 @@ def _import(h, depot):
 
 
 def _plan(h, depot):
-    _titel("🔁 Sparplan & Entnahme")
+    schritte.titel(st, "analyse_depot", 4, "Sparplan & Entnahme")
     sp, en = depot["sparplan"], depot["entnahme"]
     pos = depot["positionen"]
     optionen = [""] + [p["id"] for p in pos]
@@ -384,6 +385,7 @@ def seite(h):
         st.markdown('<div class="ad-hinweis">📥 Dieses Depot ist <b>getrennt von deinem echten Depot</b> („Depot '
                     'verwalten“) – ideal für das Depot bei deiner Bank. In der 🧠 Depot-Analyse oben „Analyse-Depot“ '
                     'wählen.</div>', unsafe_allow_html=True)
+        schritte.leiste(st, "analyse_depot")
         depot = _depot(h)
         if st.session_state.get(P + "lesefehler"):
             st.warning("Dein gespeichertes Analyse-Depot ist gerade nicht lesbar – bitte später erneut öffnen. "

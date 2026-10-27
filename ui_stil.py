@@ -29,12 +29,12 @@ CSS_BASIS = """
               wirklich wichtig ist.
        ============================================================ */
     :root {
-        --ink:     #0A0B0D;   /* Hintergrund - nicht reines Schwarz, Hauch Blau */
-        --surface: #131519;   /* erhoehte Flaechen */
-        --line:    #21252C;   /* Haarlinien */
-        --muted:   #7C8493;   /* Sekundaertext, tertiaer (Fussnoten) */
-        --label:   #AAB1BE;   /* Zeilen-Labels - deutlich besser lesbar als --muted */
-        --text:    #E9EBEF;   /* Primaertext */
+        --ink:     #0B0B0C;   /* Hintergrund - nicht reines Schwarz, Hauch Blau */
+        --surface: #151617;   /* erhoehte Flaechen */
+        --line:    #252628;   /* Haarlinien */
+        --muted:   #83868C;   /* Sekundaertext, tertiaer (Fussnoten) */
+        --label:   #B1B3B7;   /* Zeilen-Labels - deutlich besser lesbar als --muted */
+        --text:    #EBECED;   /* Primaertext */
         --up:      #16C784;
         --down:    #EA3943;
     }
@@ -66,7 +66,7 @@ CSS_BASIS = """
 
     /* ---------- KURS-KOPF: die Zahl ist der Held der Seite ---------- */
     .quote {
-        background: var(--surface); border: 1px solid var(--line);
+        background: var(--surface); border: 1px solid var(--rand);
         border-radius: 12px; padding: 14px 16px;
         /* Diese Kachel wird in einem eigenen Fragment-Container gezeichnet -
            dort greift der Grundabstand aus stVerticalBlock nicht. Deshalb hier
@@ -142,7 +142,7 @@ CSS_BASIS = """
 
     /* ---------- HERO: eine einzige hervorgehobene Kennzahl ---------- */
     .hero {
-        background: var(--surface); border: 1px solid var(--line);
+        background: var(--surface); border: 1px solid var(--rand);
         border-radius: 12px; padding: 14px 16px; margin-bottom: 0;
     }
 
@@ -184,7 +184,7 @@ CSS_BASIS = """
     /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
        Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
        und deutlich schneller zu scannen als 8 gleich grosse Boxen. */
-    .rows { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 22px; }
+    .rows { border: 1px solid var(--rand); border-radius: 12px; overflow: hidden; margin-bottom: 22px; }
     .row {
         display: flex; justify-content: space-between; align-items: flex-start;
         gap: 14px; padding: 14px 18px; background: var(--surface);
@@ -342,7 +342,7 @@ CSS_BASIS = """
        nach Version unterschiedlich tief verschachtelt. */
     [data-testid="stSelectbox"] > div,
     [data-testid="stSelectbox"] [data-baseweb="select"] {
-        outline: 2px solid #FFFFFF !important;
+        outline: 2px solid var(--rand) !important;
         outline-offset: 0 !important;
         border-radius: 12px !important;
         background-color: var(--surface) !important;
@@ -442,7 +442,7 @@ CSS_BASIS = """
        Leuchten) - das Dropdown ist die Hauptnavigation und soll das
        auffaelligste Element auf der Seite bleiben. */
     [data-testid="stExpander"] {
-        border: 1px solid rgba(255, 255, 255, 0.55) !important;
+        border: 1px solid var(--rand) !important;
         border-radius: 12px !important;
         background: var(--surface) !important;
         margin-bottom: 0 !important;
@@ -451,7 +451,7 @@ CSS_BASIS = """
         transition: box-shadow 0.15s ease, border-color 0.15s ease;
     }
     [data-testid="stExpander"]:hover {
-        border-color: rgba(255, 255, 255, 0.9) !important;
+        border-color: var(--rand) !important;
         box-shadow: 0 0 16px rgba(255, 255, 255, 0.30);
     }
 
@@ -528,7 +528,7 @@ CSS_BASIS = """
     }
     [data-testid="stExpander"] summary:hover,
     [data-testid="stExpander"] summary:hover p {
-        background-color: #171A1F !important;
+        background-color: #1A1B1C !important;
         color: #FFFFFF !important;
     }
     /* Abstand zwischen Pfeil und Titel */
@@ -543,17 +543,17 @@ CSS_BASIS = """
        Zeitraum-Spalten, keine Zeilenfuehrung ueber die volle Breite. */
     .pt-wrap {
         overflow-x: auto; -webkit-overflow-scrolling: touch;
-        border: 1px solid var(--line); border-radius: 10px;
+        border: 1px solid var(--rand); border-radius: 10px;
         margin-bottom: 12px;
     }
-    .pt { width: 100%; border-collapse: collapse; background: #0B0C0F; }
+    .pt { width: 100%; border-collapse: collapse; background: #0C0D0E; }
 
     .pt thead th {
         position: sticky; top: 0; z-index: 2;
         /* Harmonischer Grauton, deutlich abgesetzt von den Zeilen darunter
-           (#0B0C0F) - die Kopfzeile soll klar als eigene Ebene erkennbar
+           (#0C0D0E) - die Kopfzeile soll klar als eigene Ebene erkennbar
            sein, nicht nur eine Nuance dunkler. */
-        background: #1C1F26;
+        background: #202022;
         padding: 9px 10px;
         font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 0.7px; text-transform: uppercase;
@@ -624,7 +624,7 @@ CSS_BASIS = """
         gap: 8px; margin: 6px 0 12px;
     }
     .q-kpi {
-        background: #0B0C0F; border: 1px solid var(--line); border-radius: 10px;
+        background: #0C0D0E; border: 1px solid var(--rand); border-radius: 10px;
         padding: 10px 12px; min-width: 0;
     }
     .q-kpi-l {
@@ -643,14 +643,14 @@ CSS_BASIS = """
        iPhone), die Namensspalte bleibt beim Wischen links stehen */
     .ue-wrap {
         overflow-x: auto; -webkit-overflow-scrolling: touch;
-        border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px;
+        border: 1px solid var(--rand); border-radius: 10px; margin-bottom: 14px;
     }
     .pt.ue td { white-space: nowrap; }
     .pt.ue td.pt-wert { white-space: normal; min-width: 150px; max-width: 320px; }
-    .pt.ue .ue-fix { position: sticky; left: 0; z-index: 1; background: #0B0C0F;
+    .pt.ue .ue-fix { position: sticky; left: 0; z-index: 1; background: #0C0D0E;
                      box-shadow: 1px 0 0 var(--line); }
-    .pt.ue thead th.ue-fix { z-index: 3; background: #1C1F26; }
-    .pt.ue tr.pt-zebra .ue-fix { background: #111216; }
+    .pt.ue thead th.ue-fix { z-index: 3; background: #202022; }
+    .pt.ue tr.pt-zebra .ue-fix { background: #131314; }
     /* wikifolio-Rangliste: Rang und Name bleiben beim Wischen beide links stehen */
     .pt.wk .wk-rang { left: 0; width: 44px; min-width: 44px; max-width: 44px; box-sizing: border-box;
                       box-shadow: none; }
@@ -760,7 +760,7 @@ CSS_BASIS = """
         padding: 10px 16px 0; display: block;
         font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
         font-size: 1.35rem; font-weight: 700; line-height: 1.2; color: var(--text);
-        background: rgba(11, 18, 32, 0.97); border-bottom: 1px solid var(--line);
+        background: rgba(21, 21, 22, 0.97); border-bottom: 1px solid var(--line);
         box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
         opacity: 0; pointer-events: none;
         animation: ladeein 0.2s ease 0.5s forwards, ladezahl 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
@@ -773,7 +773,7 @@ CSS_BASIS = """
         font-size: 0.9rem; font-weight: 600; color: var(--muted); white-space: nowrap;
         /* Balken: unten im Banner, Fuellung waechst mit --ladebreite */
         background:
-            linear-gradient(var(--accent, #5B9BFF), var(--accent, #5B9BFF)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
+            linear-gradient(var(--accent, #0A84FF), var(--accent, #0A84FF)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
             linear-gradient(var(--line), var(--line)) no-repeat 16px 46px / calc(100% - 32px) 9px;
         opacity: 0; pointer-events: none;
         animation: ladeein 0.2s ease 0.5s forwards, ladebalken 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
@@ -795,7 +795,7 @@ CSS_BASIS = """
         position: fixed; top: 0; left: 0; right: 0; z-index: 9999; height: 66px; box-sizing: border-box;
         display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 8px;
         padding: 10px 16px 0; align-content: flex-start;
-        background: rgba(11, 18, 32, 0.97);
+        background: rgba(21, 21, 22, 0.97);
         border-bottom: 1px solid var(--line);
         box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
         backdrop-filter: blur(6px);
@@ -812,7 +812,7 @@ CSS_BASIS = """
         background: var(--line); overflow: hidden;
     }
     .loading-bar-fill {
-        height: 100%; background: var(--accent, #5B9BFF); border-radius: 999px;
+        height: 100%; background: var(--accent, #0A84FF); border-radius: 999px;
         transition: width 0.25s ease;
     }
     /* Text rechts neben der Prozentzahl, bei Bedarf abgeschnitten */
@@ -877,7 +877,7 @@ CSS_BASIS = """
     /* Sichtbarer Tastatur-Fokus (Audit A-16) */
     button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-visible,
     [role="button"]:focus-visible, [role="checkbox"]:focus-visible, [role="switch"]:focus-visible {
-        outline: 2px solid #8AB4FF !important; outline-offset: 2px !important;
+        outline: 2px solid #409CFF !important; outline-offset: 2px !important;
     }
     /* Kachel im Tab hat keinen doppelten Abstand nach unten */
     [data-testid="stTabs"] .hero { margin-bottom: 0; }
@@ -936,10 +936,10 @@ CSS_BASIS = """
     [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p,
     [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
     [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) p {
-        color: #0A0B0D !important; }
+        color: #0B0B0C !important; }
     /* Mehrfachauswahl: gewaehlte Werte (Tags) haben die Primaerfarbe Weiss als Hintergrund - Schrift dunkel */
     [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * {
-        color: #0A0B0D !important; }
+        color: #0B0B0C !important; }
     /* Touch-Geraete: Trefferflaechen mind. 44 px (Apple HIG) */
     @media (pointer: coarse) {
         [data-testid="stButtonGroup"] button { min-height: 44px !important; }
@@ -966,16 +966,21 @@ CSS_BASIS = """
        Gruen/Rot bleiben ausschliesslich Kursveraenderungen vorbehalten.
        ============================================================ */
     :root {
-        --ink: #0B1220; --surface: #111C2C; --surface-2: #0E1826; --line: #22344C;
-        --muted: #7F90A8; --label: #AEBDD0; --text: #E8EEF6;
-        --accent: #5B9BFF; --accent-hell: #8AB8FF; --accent-soft: rgba(91, 155, 255, 0.14);
-        --accent-rand: rgba(91, 155, 255, 0.55);
-        --karte: linear-gradient(180deg, rgba(21, 34, 54, 0.94) 0%, rgba(14, 24, 38, 0.94) 100%);
+        /* Apple-Graphit (Liquid Glass, 10/2026): neutrale Grautoene, Systemblau nur fuer Auswahl/Hauptaktion */
+        --ink: #111113; --surface: #1C1C1E; --surface-2: #232325; --line: #38383A;
+        --muted: #8E8E93; --label: #AEAEB2; --text: #F5F5F7;
+        --accent: #0A84FF; --accent-hell: #409CFF; --accent-soft: rgba(10, 132, 255, 0.16);
+        --accent-rand: rgba(10, 132, 255, 0.55);
+        --karte: linear-gradient(180deg, rgba(58, 58, 60, 0.52) 0%, rgba(28, 28, 30, 0.62) 100%);
+        /* Raender: dunkel klar hell mit leichtem Leuchten, hell (ui_hell) klar dunkel */
+        --rand: rgba(255, 255, 255, 0.55);
+        --rand-glow: 0 0 10px rgba(255, 255, 255, 0.14);
     }
     .stApp {
         background:
-            radial-gradient(1100px 560px at 88% -6%, rgba(59, 130, 246, 0.20), transparent 62%),
-            radial-gradient(800px 600px at -12% 40%, rgba(37, 99, 235, 0.07), transparent 60%),
+            radial-gradient(1100px 620px at 88% -8%, rgba(255, 255, 255, 0.09), transparent 60%),
+            radial-gradient(900px 640px at -12% 42%, rgba(255, 255, 255, 0.05), transparent 62%),
+            radial-gradient(700px 500px at 60% 110%, rgba(255, 255, 255, 0.04), transparent 60%),
             var(--ink) !important;
         background-attachment: fixed !important;
     }
@@ -984,26 +989,28 @@ CSS_BASIS = """
     /* Karten: Kacheln, Aufklappbereiche und umrandete Bloecke (.karte setzt das Lade-Skript) */
     .quote, .hero, .karte {
         background: var(--karte) !important;
-        border: 1px solid var(--line) !important;
-        border-radius: 20px !important;
-        box-shadow: 0 10px 28px rgba(2, 8, 20, 0.35);
+        border: 1px solid var(--rand) !important;
+        border-radius: 22px !important;
+        -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 12px 32px rgba(0, 0, 0, 0.35), var(--rand-glow);
+        position: relative;
     }
     .karte { padding: 18px 18px 16px !important; }
     @media (max-width: 640px) { .karte { padding: 14px 14px 12px !important; } }
     [data-testid="stExpander"] {
         background: var(--karte) !important;
-        border: 1px solid var(--line) !important;
+        border: 1px solid var(--rand) !important;
         border-radius: 16px !important;
-        box-shadow: 0 6px 18px rgba(2, 8, 20, 0.28) !important;
+        box-shadow: 0 6px 18px rgba(11, 11, 11, 0.28), var(--rand-glow) !important;
     }
     [data-testid="stExpander"]:hover { border-color: var(--accent-rand) !important;
-                                       box-shadow: 0 6px 18px rgba(2, 8, 20, 0.28) !important; }
+                                       box-shadow: 0 6px 18px rgba(11, 11, 11, 0.28) !important; }
     [data-testid="stExpander"] summary:hover, [data-testid="stExpander"] summary:hover p { color: var(--accent-hell) !important; }
 
     /* Feldbeschriftungen: fett und hell wie im Vorbild, nicht als Grossbuchstaben-Ueberschrift */
     [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label,
     [data-testid="stSelectbox"] label, [data-testid="stSelectbox"] label p {
-        font-size: 0.9rem !important; font-weight: 600 !important; color: #D5DFEC !important;
+        font-size: 0.9rem !important; font-weight: 600 !important; color: #DFE0E2 !important;
         letter-spacing: 0.1px !important; text-transform: none !important; text-shadow: none !important;
     }
 
@@ -1011,7 +1018,7 @@ CSS_BASIS = """
     [data-baseweb="input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
     [data-testid="stDateInputField"], [data-baseweb="base-input"] {
         background-color: var(--surface-2) !important;
-        border-color: var(--line) !important;
+        border-color: var(--rand) !important;
         border-radius: 12px !important;
     }
     [data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within,
@@ -1031,7 +1038,7 @@ CSS_BASIS = """
         background-color: var(--surface-2) !important; border-radius: 12px !important;
     }
     [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-        border: 1px solid var(--line) !important; border-radius: 12px !important;
+        border: 1px solid var(--rand) !important; border-radius: 12px !important;
         background-color: var(--surface-2) !important;
     }
     [data-testid="stSelectbox"] > div:hover [data-baseweb="select"] > div,
@@ -1040,10 +1047,10 @@ CSS_BASIS = """
     }
     [data-testid="stSelectbox"] > div:hover, [data-testid="stSelectbox"] > div:focus-within { box-shadow: none !important; }
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
-        background-color: var(--surface-2) !important; border-color: var(--line) !important; border-radius: 12px !important;
+        background-color: var(--surface-2) !important; border-color: var(--rand) !important; border-radius: 12px !important;
     }
     [data-testid="stMultiSelect"] [data-tag] { background: var(--accent) !important; }
-    [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * { color: #071224 !important; }
+    [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * { color: #151516 !important; }
 
     /* Pillen und Knoepfe (sekundaer/primaer): Glas-Optik - siehe GLAS am Ende von CSS_NAV */
 
@@ -1051,9 +1058,9 @@ CSS_BASIS = """
     [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p { color: var(--accent-hell) !important; }
 
     /* Hinweisboxen im Blau-Ton */
-    [data-testid="stAlertContentInfo"] { color: #CFE0FA !important; }
+    [data-testid="stAlertContentInfo"] { color: #409CFF !important; }
     [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div {
-        background: rgba(91, 155, 255, 0.10) !important; border: 1px solid rgba(91, 155, 255, 0.28) !important;
+        background: rgba(10, 132, 255, 0.1) !important; border: 1px solid rgba(10, 132, 255, 0.28) !important;
         border-radius: 14px !important;
     }
 
@@ -1136,7 +1143,7 @@ CSS_NAV = """
 }
 .nav-gruppe::after {
     content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
-    background: linear-gradient(90deg, rgba(138, 184, 255, 0.7), rgba(91, 155, 255, 0.10));
+    background: linear-gradient(90deg, rgba(64, 156, 255, 0.7), rgba(10, 132, 255, 0.1));
 }
 .nav-wander {
     position: absolute; bottom: 12px; left: 0; white-space: nowrap;
@@ -1209,9 +1216,9 @@ CSS_NAV = """
 /* ================= IN EINER ANSICHT: Kopfleiste ================= */
 .st-key-nav_leiste {
     padding: 6px 8px; border-radius: 18px;
-    background: linear-gradient(165deg, #18263B, #0E1826);
-    border: 1px solid #24364F;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(2, 8, 20, 0.45);
+    background: linear-gradient(165deg, #28292B, #191A1B);
+    border: 1px solid var(--rand);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(11, 11, 11, 0.45);
 }
 .st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
                                                        align-items: center !important; }
@@ -1231,7 +1238,7 @@ CSS_NAV = """
 }
 .nav-stand { display: flex; justify-content: center; margin: 6px 0 4px; }
 .nav-stand span { display: inline-block; font-size: 0.78rem; line-height: 1.5;
-    color: var(--label, #9AA0A6); padding: 2px 12px; border: 1px solid rgba(150, 188, 240, 0.25); border-radius: 14px;
+    color: var(--label, #9AA0A6); padding: 2px 12px; border: 1px solid rgba(64, 156, 255, 0.25); border-radius: 14px;
     max-width: 100%; box-sizing: border-box; text-align: center; }
 .nav-stand span > i { margin-right: 6px; vertical-align: 1px; }
 .nav-stand b { color: #FFFFFF; font-weight: 600; }
@@ -1244,107 +1251,212 @@ CSS_NAV = """
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
 
-/* ================= GLAS (UX 10/2026): Knoepfe, Kacheln, Pillen im "Liquid Glass"-Stil =================
-   Statt dicker 3D-Tasten mit Neonrand: durchscheinende Glasflaeche mit Unschaerfe dahinter, Lichtkante oben,
-   weichem Glanz und blauem Glow - beim Darueberfahren/Antippen leuchtet der Glow staerker. Alle Farben kommen
-   aus Variablen; die helle Ansicht setzt nur andere Werte (ui_hell.WIDGETS). */
+/* ================= GLAS: Apple "Liquid Glass" (10/2026) =================
+   Klares Glas in Kapselform: leicht getoente, durchscheinende Flaeche mit Unschaerfe dahinter, eine feine
+   Lichtkante (Verlaufsrand: oben links und unten rechts hell, dazwischen fast unsichtbar), innen oben ein
+   weicher Lichtsaum, darunter ein zarter Schatten. Beim Darueberfahren leuchtet die Kante auf und ein weisser
+   Glow umgibt das Glas. Systemblau nur fuer Auswahl und Hauptaktion. Alle Farben ueber Variablen - die helle
+   Ansicht setzt nur andere Werte (ui_hell.WIDGETS). */
 :root {
-    --glas-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.05) 48%, rgba(255, 255, 255, 0.09) 100%);
-    --glas-rand: rgba(255, 255, 255, 0.22);
-    --glas-licht: rgba(255, 255, 255, 0.38);
-    --glas-tiefe: rgba(0, 0, 0, 0.18);
-    --glas-ring: rgba(0, 0, 0, 0);
-    --glas-schatten: 0 10px 28px rgba(2, 8, 20, 0.45);
-    --glas-glow: rgba(91, 155, 255, 0.22);
-    --glas-glow-stark: rgba(120, 175, 255, 0.55);
-    --glas-glanz: rgba(255, 255, 255, 0.20);
-    --glas-text: #F4F8FF;
-    --glas-aktiv-bg: linear-gradient(150deg, rgba(91, 155, 255, 0.42) 0%, rgba(91, 155, 255, 0.18) 100%);
-    --glas-aktiv-rand: rgba(150, 195, 255, 0.85);
+    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.07) 100%);
+    --glas-rand-flach: rgba(255, 255, 255, 0.10);
+    --glas-kante: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.55) 30%,
+                  rgba(255, 255, 255, 0.45) 60%, rgba(255, 255, 255, 0.85) 100%);
+    --glas-licht: rgba(255, 255, 255, 0.22);
+    --glas-tiefe: rgba(0, 0, 0, 0.28);
+    --glas-schatten: 0 10px 28px rgba(0, 0, 0, 0.40), 0 2px 6px rgba(0, 0, 0, 0.25);
+    --glas-glow: rgba(255, 255, 255, 0.14);
+    --glas-glow-stark: rgba(255, 255, 255, 0.22);
+    --glas-text: #F5F5F7;
+    --glas-aktiv-bg: linear-gradient(180deg, rgba(10, 132, 255, 0.55) 0%, rgba(10, 132, 255, 0.32) 100%);
+    --glas-aktiv-kante: linear-gradient(135deg, rgba(170, 210, 255, 0.95) 0%, rgba(10, 132, 255, 0.35) 45%, rgba(120, 185, 255, 0.85) 100%);
     --glas-aktiv-text: #FFFFFF;
-    --glas-primaer-bg: linear-gradient(150deg, #3B82F6 0%, #1D4ED8 100%);
+    --glas-primaer-bg: linear-gradient(180deg, #2E95FF 0%, #0A6FE0 100%);
     --glas-primaer-text: #FFFFFF;
 }
+/* Glasflaeche */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, .nav-chip):not(.st-key-logout_ecke *) {
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, .nav-chip,
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *) {
     background: var(--glas-bg) !important;
-    border: 1px solid var(--glas-rand) !important;
-    -webkit-backdrop-filter: blur(16px) saturate(170%); backdrop-filter: blur(16px) saturate(170%);
-    box-shadow: inset 0 1px 0 var(--glas-licht), inset 0 -10px 18px var(--glas-tiefe), 0 0 0 1px var(--glas-ring),
-                var(--glas-schatten), 0 0 18px var(--glas-glow) !important;
+    border: 1px solid transparent !important;
+    -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: inset 0 1px 1px var(--glas-licht), inset 0 -1px 2px var(--glas-tiefe), var(--glas-schatten),
+                0 0 0 0.5px var(--glas-rand-flach), 0 0 16px var(--glas-glow) !important;
     color: var(--glas-text) !important;
     transform: none !important;
-    transition: box-shadow .2s ease, border-color .2s ease, transform .15s ease, background .2s ease !important;
+    transition: box-shadow .25s ease, transform .15s ease, background .25s ease !important;
     position: relative; isolation: isolate;
 }
-/* Glanz: weiches Licht oben links, wie bei gewoelbtem Glas (nicht bei "?"-Knoepfen - deren ::before ist die Tippflaeche) */
+/* Kapselform fuer einzeilige Knoepfe und Pillen; die Menuekacheln bleiben gross gerundet */
+html body :is(.st-key-nav_leiste [data-testid="stButton"] button, [data-testid="stBaseButton-secondary"],
+    [data-testid="stBaseButton-secondaryFormSubmit"], [data-testid="stDownloadButton"] button,
+    [data-testid="stButtonGroup"] button, [data-testid="stBaseButton-primary"],
+    [data-testid="stBaseButton-primaryFormSubmit"], .st-key-nav_menue .st-key-nav_refresh button):not(.st-key-logout_ecke *) {
+    border-radius: 999px !important;
+}
+html body .st-key-nav_menue [data-testid="stButton"] button:not(.st-key-logout_ecke *):not(.st-key-nav_refresh *) {
+    border-radius: 24px !important;
+}
+/* Lichtkante: Verlaufsrand als Maske (nur die 1-px-Kante sichtbar) */
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, .nav-chip,
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *)::after {
+    content: "" !important; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px;
+    background: var(--glas-kante); display: block !important; animation: none !important; border: 0 !important;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: 1; transition: opacity .25s ease;
+}
+/* Innerer Glanz oben (gewoelbtes Glas) */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button,
     [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *)::before {
-    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
-    background: radial-gradient(120% 70% at 18% 0%, var(--glas-glanz), transparent 62%);
+    content: ""; position: absolute; inset: 1px 6% auto 6%; height: 48%; border-radius: inherit; pointer-events: none;
+    z-index: -1; background: linear-gradient(180deg, var(--glas-licht), transparent);
+    opacity: 0.55;
 }
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *) :is(p, span, div) {
     color: inherit !important;
 }
-/* Darueberfahren / Tastatur-Fokus: Glow wird kraeftig, Glas hebt sich leicht */
+/* Darueberfahren / Fokus: Kante leuchtet, weisser Glow, Glas hebt sich minimal */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *):is(:hover, :focus-visible):not(:disabled) {
-    border-color: var(--glas-aktiv-rand) !important;
-    box-shadow: inset 0 1px 0 var(--glas-licht), inset 0 -10px 18px var(--glas-tiefe), 0 0 0 1px var(--glas-ring),
-                var(--glas-schatten), 0 0 26px var(--glas-glow-stark) !important;
+    box-shadow: inset 0 1px 1px var(--glas-licht), inset 0 -1px 2px var(--glas-tiefe), var(--glas-schatten),
+                0 0 0 0.5px var(--glas-rand-flach), 0 0 24px var(--glas-glow-stark) !important;
     transform: translateY(-1px) !important;
 }
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *):active:not(:disabled) {
-    transform: scale(0.98) !important;
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *):is(:hover, :focus-visible):not(:disabled)::after {
+    opacity: 1;
 }
-/* Gewaehlte Pille / Segment: blau getoentes Glas */
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button,
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):active:not(:disabled) {
+    transform: scale(0.97) !important;
+}
+/* Gewaehlte Pille / Segment: Systemblau-Glas */
 html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] :is(button[aria-checked="true"], button[aria-pressed="true"],
     button[data-testid$="Active"]):not(.st-key-logout_ecke *):not(.st-key-x) {
-    background: var(--glas-aktiv-bg) !important; border-color: var(--glas-aktiv-rand) !important;
-    color: var(--glas-aktiv-text) !important;
-    box-shadow: inset 0 1px 0 var(--glas-licht), 0 0 0 1px var(--glas-ring), var(--glas-schatten),
-                0 0 22px var(--glas-glow-stark) !important;
+    background: var(--glas-aktiv-bg) !important; color: var(--glas-aktiv-text) !important;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), var(--glas-schatten), 0 0 20px rgba(10, 132, 255, 0.35) !important;
 }
-/* Hauptaktion (primaer): kraeftig blaues Glas mit weisser Schrift */
-html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *) {
-    background: var(--glas-primaer-bg) !important; border: 1px solid var(--glas-aktiv-rand) !important;
-    -webkit-backdrop-filter: blur(16px) saturate(170%); backdrop-filter: blur(16px) saturate(170%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 10px 26px rgba(37, 99, 235, 0.35),
-                0 0 22px var(--glas-glow-stark) !important;
-    position: relative; isolation: isolate; transition: box-shadow .2s ease, transform .15s ease !important;
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] :is(button[aria-checked="true"], button[aria-pressed="true"],
+    button[data-testid$="Active"]):not(.st-key-logout_ecke *):not(.st-key-x)::after {
+    background: var(--glas-aktiv-kante); opacity: 1;
+}
+/* Hauptaktion: Systemblau-Glas mit weisser Schrift */
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):not(.st-key-x) {
+    background: var(--glas-primaer-bg) !important;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), inset 0 -1px 2px rgba(0, 40, 110, 0.35),
+                0 10px 26px rgba(10, 132, 255, 0.30), 0 0 18px rgba(10, 132, 255, 0.25) !important;
+}
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):not(.st-key-x)::after {
+    background: var(--glas-aktiv-kante);
 }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled),
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled) :is(p, span) {
     color: var(--glas-primaer-text) !important;
 }
-html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):is(:hover, :focus-visible):not(:disabled) {
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 12px 30px rgba(37, 99, 235, 0.45),
-                0 0 32px var(--glas-glow-stark) !important;
-    transform: translateY(-1px);
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):is(:hover, :focus-visible):not(:disabled):not(.st-key-x) {
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.55), 0 12px 30px rgba(10, 132, 255, 0.40),
+                0 0 30px rgba(10, 132, 255, 0.45) !important;
+    transform: translateY(-1px) !important;
 }
-/* Deaktivierte Hauptaktion: mattes Glas statt Blau (sonst blasse Schrift auf Blau) */
-html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x) {
-    background: var(--glas-bg) !important; border-color: var(--glas-rand) !important; }
+/* Deaktiviert: mattes Glas, keine Kante, kein Glow */
+html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x):not(.st-key-y) {
+    background: var(--glas-bg) !important; }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x) :is(p, span) {
     color: var(--glas-text) !important; }
-/* Deaktiviert: mattes Glas, kein Glow */
 html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [data-testid="stDownloadButton"],
     [data-testid="stButtonGroup"]) button:disabled:not(.st-key-logout_ecke *):not(.st-key-x):not(.st-key-y) {
-    box-shadow: none !important; opacity: 0.55; transform: none !important;
+    box-shadow: none !important; opacity: 0.5; transform: none !important;
 }
+html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [data-testid="stDownloadButton"],
+    [data-testid="stButtonGroup"]) button:disabled:not(.st-key-logout_ecke *):not(.st-key-x):not(.st-key-y)::after { opacity: 0.35; }
 /* Segment-Schalter: keine Flaeche hinter den Glas-Pillen */
 [data-testid="stButtonGroup"], [data-testid="stButtonGroup"] [role="radiogroup"],
 [data-testid="stButtonGroup"] div:not(button div) { background: transparent !important; box-shadow: none !important; }
-/* Kein Leuchtring mehr um die Menuekacheln */
-.st-key-nav_menue [data-testid="stButton"] button::after { content: none !important; }
+
+/* Rahmen von Karten, Klappbereichen, Formularen und Feldern im selben Glas-Look: feine Lichtkante statt Linie */
+.quote::after, .hero::after {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px;
+    background: var(--glas-kante); opacity: 0.9;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+}
+html body [data-testid="stExpander"] details, html body [data-testid="stForm"] {
+    border: 1px solid var(--rand) !important; border-radius: 20px !important;
+    background: var(--glas-bg) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%);
+    box-shadow: inset 0 1px 1px var(--glas-licht), 0 8px 22px rgba(0, 0, 0, 0.22), var(--rand-glow) !important;
+}
+html body :is([data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
+    [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"], [data-baseweb="textarea"],
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div) {
+    border-radius: 14px !important; border-color: var(--rand) !important;
+    box-shadow: inset 0 1px 2px var(--glas-tiefe), var(--rand-glow) !important;
+}
+html body :is([data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
+    [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"], [data-baseweb="textarea"]):focus-within {
+    border-color: rgba(10, 132, 255, 0.8) !important; box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25) !important;
+}
+/* Restliche Rahmen (umrandete Container, Tabellen, Kopfleiste) mit derselben klaren Randfarbe */
+html body :is([data-testid="stVerticalBlockBorderWrapper"], [data-testid="stLayoutWrapper"]) > [data-testid="stVerticalBlock"][style*="border"],
+html body [data-testid="stElementContainer"]:has([data-testid="stDataFrame"], [data-testid="stTable"]) {
+    border: 1px solid var(--rand) !important; border-radius: 14px; box-shadow: var(--rand-glow); overflow: hidden;
+}
+/* Klappbereich: nur EIN Rand (am inneren details) - der aeussere Rahmen entfaellt */
+html body [data-testid="stExpander"][data-testid="stExpander"] { border: none !important; box-shadow: none !important; background: transparent !important; }
+html body [data-testid="stExpander"] summary { border-radius: 19px !important; }
+html body [data-testid="stExpander"] summary:hover, html body [data-testid="stExpander"] summary:hover p {
+    background-color: transparent !important; }
+
+/* ================= SCHRITTE: Schritt-fuer-Schritt-Fuehrung (schritte.py) =================
+   Oben eine Leiste mit nummerierten Glas-Kapseln, an den Abschnitten eine leuchtende Nummer mit Hinweis. */
+.sf-leiste { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 2px 0 14px; }
+.sf-leiste .sf-kopf { flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; letter-spacing: 1.2px;
+    text-transform: uppercase; color: var(--label); margin-right: 4px; }
+.sf-leiste a.sf-s, .sf-leiste a.sf-s:visited { display: inline-flex; align-items: center; gap: 8px; min-height: 36px;
+    padding: 3px 14px 3px 4px; border-radius: 999px; text-decoration: none !important; color: var(--text) !important;
+    background: var(--glas-bg); border: 1px solid var(--rand); box-shadow: var(--rand-glow);
+    font-size: 0.85rem; font-weight: 600; white-space: nowrap; transition: box-shadow .2s ease, transform .15s ease; }
+.sf-leiste span.sf-s { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 3px 14px 3px 4px;
+    border-radius: 999px; border: 1px dashed var(--rand); color: var(--label); font-size: 0.85rem; font-weight: 600;
+    white-space: nowrap; opacity: 0.7; }
+.sf-leiste span.sf-s b { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+    border-radius: 50%; font-weight: 800; font-size: 0.85rem; border: 1px solid var(--rand); color: var(--label); }
+.sf-leiste a.sf-s:hover { box-shadow: 0 0 16px var(--glas-glow-stark); transform: translateY(-1px); }
+.sf-leiste a.sf-s b, .sf-nr { display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; font-weight: 800; font-size: 0.85rem;
+    color: var(--glas-primaer-text); background: var(--glas-primaer-bg);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), 0 0 12px rgba(10, 132, 255, 0.55); }
+/* Rechner-Karten (Zins/Abfindung): Nummer in Groesse des frueheren Symbols */
+.zr-kopf .sf-nr.sf-klein { width: 34px; height: 34px; font-size: 1rem; margin: 0; flex: 0 0 34px; scroll-margin-top: 90px; }
+/* kleine Nummer in vorhandenen Abschnittsueberschriften */
+.sf-nr.sf-klein { width: 22px; height: 22px; font-size: 0.72rem; margin-right: 8px; vertical-align: 1px;
+    letter-spacing: 0; text-shadow: none; scroll-margin-top: 90px; }
+.sf-titel { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0 8px; scroll-margin-top: 90px; }
+.sf-titel .sf-nr { width: 32px; height: 32px; font-size: 0.95rem; margin-top: 1px; }
+.sf-titel .sf-name { font-size: 1.02rem; font-weight: 700; color: var(--text); line-height: 1.3; }
+.sf-titel .sf-was { font-size: 0.84rem; color: var(--label); line-height: 1.35; margin-top: 2px; }
+/* Handy: Leiste als waagerecht wischbare Reihe statt mehrerer Zeilen */
+@media (max-width: 640px) {
+    .sf-leiste { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 4px 2px 6px;
+                 margin-left: -2px; margin-right: -2px; scroll-snap-type: x proximity; }
+    .sf-leiste::-webkit-scrollbar { display: none; }
+    .sf-leiste .sf-kopf { display: none; }
+    .sf-leiste a.sf-s { scroll-snap-align: start; }
+}
+html body .st-key-nav_leiste { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(11, 11, 11, 0.45), var(--rand-glow); }
 </style>
 """
 
@@ -1425,7 +1537,7 @@ CSS_RESPONSIV = """
     .gv.flat .gv-eur, .gv.flat .gv-pct, .gv.flat .gv-pfeil { color: var(--label); }
     .kz-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
     @container (min-width: 520px) { .kz-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-    .kz { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; min-width: 0;
+    .kz { border: 1px solid var(--rand); border-radius: 12px; padding: 8px 10px; min-width: 0;
           background: rgba(255, 255, 255, 0.025); }
     .kz-l { font-size: 0.78rem; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.5px; }
     .kz-e, .kz-p { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
@@ -1458,8 +1570,8 @@ CSS_RESPONSIV = """
 
 
 # ------------------------------------------------------------------ Charts (eine Vorlage fuer alle)
-CHART_RASTER = "rgba(150, 175, 210, 0.13)"
-CHART_SCHRIFT = "#AEBDD0"
+CHART_RASTER = "rgba(177, 179, 183, 0.13)"
+CHART_SCHRIFT = "#BCBFC2"
 
 
 def ist_smartphone():

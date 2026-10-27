@@ -23,6 +23,7 @@ import kurs_dienst as KD
 import formate as FMT
 import ui_stil as UI
 import ui_hell
+import schritte
 import prognose_basis as PROG_BASIS
 import branchen as BR
 import dividenden as DV
@@ -2672,12 +2673,15 @@ def render_chronik():
             optionen = ["alle"] + [k_ for k_ in chronik.KATEGORIEN if anzahl.get(k_)]
             beschr = {"alle": f"Alle ({len(db_events)})"}
             beschr.update({k_: f"{v_[0]} {v_[1]} ({anzahl.get(k_, 0)})" for k_, v_ in chronik.KATEGORIEN.items()})
+            schritte.leiste(st, "chronik")
+            schritte.titel(st, "chronik", 1)
             try:
                 wahl = st.pills("Filter", optionen, default="alle", format_func=beschr.get,
                                 key="chronik_filter", label_visibility="collapsed") or "alle"
             except Exception:
                 wahl = st.selectbox("Filter", optionen, format_func=beschr.get, key="chronik_filter_sb")
             gezeigt = [ev for ev in db_events if wahl == "alle" or chronik.kategorie_von(ev) == wahl]
+            schritte.titel(st, "chronik", 2)
             farben = {"alarm": "#EA3943", "depot": "#29B6F6", "beobachtung": "#A78BFA", "planer": "#F5B942",
                       "notiz": "#71717A"}
             if not gezeigt:
@@ -2697,7 +2701,7 @@ def render_chronik():
                     letzter_tag = tag
                 kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
                 st.markdown(f"""
-                    <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
+                    <div style="background: #09090B; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
                         <div style="font-size: 0.8rem; color: #A1A1AA;">{html.escape(kopf)}</div>
                         <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
                         <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
@@ -2706,6 +2710,7 @@ def render_chronik():
             if len(gezeigt) > 200:
                 st.caption(f"Die neuesten 200 von {len(gezeigt)} Einträgen.")
 
+            schritte.titel(st, "chronik", 3)
             with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
                 with st.form("trade_form", clear_on_submit=True):
                     col1, col2 = st.columns([2, 3])
@@ -4599,9 +4604,12 @@ def render_dashboard():
     @st.fragment
     def _render_top50():
         _zugang_pruefen("🏆 Watchlist Top 50")
+        schritte.leiste(st, "watchlist")
+        schritte.titel(st, "watchlist", 1)
         art = st.pills("Liste", ["🗂️ Gesamtübersicht", "⭐ Qualitäts-Score", "🏅 ETF- & wikifolio-Score",
                                  "🧭 Qualität × Kurs", "📈 Performance", "🧩 Wikifolios"],
                        default="🗂️ Gesamtübersicht", key="top50_art") or "🗂️ Gesamtübersicht"
+        schritte.titel(st, "watchlist", 2, art.split(" ", 1)[-1])
         if art == "🏅 ETF- & wikifolio-Score":
             try:
                 _render_klassen_score()
@@ -5080,6 +5088,7 @@ def render_dashboard():
         moeglich.append(("+/- €", "euro"))
 
         beschriftungen = [b for b, _ in moeglich]
+        schritte.titel(st, "vergleich", 2)
         wahl = st.pills("Vergleichen nach", beschriftungen,
                         default=beschriftungen[0], key=key)
         zuordnung = dict(moeglich)
@@ -5853,13 +5862,17 @@ def render_dashboard():
     # ---------- ZWEI SPALTEN: links das eigene Depot, rechts die Kurse ----------
     # Auf breiten Bildschirmen nebeneinander, unter 820 px untereinander (Depot zuerst, siehe ui_stil).
     # Beide Spalten gleich breit und mit gleich hoher Kopfzeile (Titel | Auswahl).
+    # Schritt-Fuehrung: nur Abschnitte, die es gerade gibt (fortlaufend nummeriert)
+    _sf_aktiv = [1] + ([2] if positions_karten else []) + ([3] if kurs_auswahl else []) + ([4] if haupt_aktiv else [])
+    _sf_nr = lambda n: schritte.nummer_html("depot", n, _sf_aktiv.index(n) + 1)
+    schritte.leiste(st, "depot", _sf_aktiv)
     if kurs_auswahl:
         _spalte_depot, _spalte_kurse = st.container(key="depot_spalten").columns([1, 1], gap="large")
     else:
         _spalte_depot, _spalte_kurse = st.container(key="depot_spalten"), None
     _spalte_depot.__enter__()
     with st.container(key="depot_kopf_links"):
-        st.markdown('<div class="abschnitt">🏠 Mein Depot</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="abschnitt">{_sf_nr(1)}🏠 Mein Depot</div>', unsafe_allow_html=True)
 
     # ---------- DEPOT GESAMT: Wert und Gewinn/Verlust zuerst (ab einer Position) ----------
     if positions_karten and any(k[2] for k in positions_karten):
@@ -5909,7 +5922,7 @@ def render_dashboard():
 
     # ---------- POSITIONEN: Liste mit Kurzinfo, Details aufklappbar ----------
     if positions_karten:
-        st.markdown('<div class="abschnitt klein">Positionen</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="abschnitt klein">{_sf_nr(2)}Positionen</div>', unsafe_allow_html=True)
         for _i, (_name, _karte, _kurz) in enumerate(positions_karten):
             if _kurz:
                 _w, _gv, _gvp = _kurz
@@ -5959,7 +5972,7 @@ def render_dashboard():
             # Kopfzeile wie links: Titel und Auswahl in einer Zeile
             with st.container(key="depot_kopf_rechts"):
                 _k_titel, _k_wahl = st.columns([1, 1.6], vertical_alignment="center")
-                _k_titel.markdown('<div class="abschnitt">📈 Kurse</div>', unsafe_allow_html=True)
+                _k_titel.markdown(f'<div class="abschnitt">{_sf_nr(3)}📈 Kurse</div>', unsafe_allow_html=True)
                 # immer ein Dropdown: Pills liefen in der halben Breite ueber den Rand
                 auswahl = _k_wahl.selectbox("Wert wählen", kurs_optionen,
                                             key="kurs_ansicht_wahl_select", label_visibility="collapsed")
@@ -6005,6 +6018,8 @@ def render_dashboard():
     st.markdown('<div class="abschnitt">🛠️ Depot verwalten</div>', unsafe_allow_html=True)
     st.caption("Positionen anlegen und ändern, Sparrate und Entnahme, Beobachtungsliste und System-Status "
                "deines Depots.")
+    schritte.leiste(st, "verwalten")
+    schritte.titel(st, "verwalten", 1, "Sparrate und Entnahme")
 
     with st.expander("🛠️ Sparrate und Entnahme anpassen", expanded=False):
         # Felder bewusst untereinander (keine Spalten) - auf dem Smartphone
@@ -6128,6 +6143,7 @@ def render_dashboard():
     lade_fertig()
 
     # ---------- BEOBACHTUNGSLISTE VERWALTEN ----------
+    schritte.titel(st, "verwalten", 2)
     with st.expander("👁️ Beobachtungsliste verwalten", expanded=False):
         st.caption(
             "Werte hier werden nur als Kurskachel angezeigt (umschaltbar über die "
@@ -6264,6 +6280,7 @@ def render_dashboard():
                             st.error("Hinzufügen fehlgeschlagen (kein persistenter State?).")
 
     # ---------- POSITIONEN VERWALTEN (anlegen / aendern / loeschen) ----------
+    schritte.titel(st, "verwalten", 3)
     with st.expander("➕ Positionen verwalten", expanded=False):
         if not GH_STATE_READY:
             st.warning(
@@ -6402,7 +6419,7 @@ def render_dashboard():
     # Normale Benutzer: nur mit eigenem Sparplan (Hauptposition); Meilenstein/Anfangskapital
     # beziehen sich auf das Startkapital der Admin-Hauptposition und entfallen dort.
     if haupt_aktiv:
-        st.markdown('<div class="abschnitt">📄 Weitere Informationen</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="abschnitt">{_sf_nr(4)}📄 Weitere Informationen</div>', unsafe_allow_html=True)
 
     if not eigen:
         with st.expander("🎯 Meilenstein und Anfangskapital", expanded=False):
@@ -6485,6 +6502,8 @@ def render_dashboard():
         """Eigene Vergleichswerte (Vermoegensaufbau, Performance seit 2026/2021): aus der Top-500-Liste oder per
         Suche hinzufuegen, wieder entfernen - je Benutzer gespeichert."""
         liste = lade_vergleichswerte()
+        schritte.leiste(st, "vergleich")
+        schritte.titel(st, "vergleich", 1)
         with st.expander(f"⭐ Vergleichswerte verwalten ({len(liste)})", expanded=offen):
             st.caption("Deine Vergleichswerte – gespeichert und in allen Vergleichs-Charts verwendet. Aus der "
                        f"Top-500-Liste übernehmen oder einen beliebigen Wert suchen. Höchstens "
@@ -6585,6 +6604,7 @@ def render_dashboard():
                               yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"),
                                          ticksuffix=" €"),
                               hovermode="x unified")
+            schritte.titel(st, "vergleich", 3)
             st.plotly_chart(UI.chart_stil(fig), width="stretch", key="chart_vgl_eigen")
 
     def _render_wealth():
@@ -6699,6 +6719,7 @@ def render_dashboard():
                                ticksuffix=" €"),
                     hovermode="x unified",
                 )
+                schritte.titel(st, "vergleich", 3)
                 st.plotly_chart(UI.chart_stil(fig_wealth), width="stretch", key="chart_wealth")
 
         except Exception as e:
@@ -6825,6 +6846,7 @@ def render_dashboard():
                     zeige_chart_legende_liste([("Startkapital", "⚪"), (f"{haupt_name} ({config.WKN})", "🟢")])
                     pills_auswahl(benchmark_series_v2.keys(), key="benchmark_v2_pills")
 
+                schritte.titel(st, "vergleich", 3)
                 st.plotly_chart(UI.chart_stil(fig_v2), width="stretch", key="chart_ytd")
 
         except Exception as e:
@@ -6967,6 +6989,7 @@ def render_dashboard():
                     zeige_chart_legende_liste([("Startkapital", "⚪"), (f"{haupt_name} ({config.WKN})", "🟢")])
                     pills_auswahl(benchmark_series_v3.keys(), key="benchmark_v3_pills")
 
+                schritte.titel(st, "vergleich", 3)
                 st.plotly_chart(UI.chart_stil(fig_v3), width="stretch", key="chart_2021")
 
         except Exception as e:
@@ -6993,7 +7016,10 @@ def render_dashboard():
                     return
                 fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
                 fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False)
+                schritte.leiste(st, "candle")
+                schritte.titel(st, "candle", 1)
                 st.plotly_chart(UI.chart_stil(fig_c), width="stretch", key="chart_candlestick")
+                schritte.titel(st, "candle", 2)
                 st.caption(
                     "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
                     "Der GitHub-Actions-Cron protokolliert seit Kurzem zusätzlich alle 5 Min den "
@@ -7064,6 +7090,8 @@ def render_dashboard():
     @st.fragment
     def _render_forecast():
         _zugang_pruefen("🔮 Zukunfts-Prognose")
+        schritte.leiste(st, "prognose")
+        schritte.titel(st, "prognose", 1)
         _prognose_basis_verwalten()
         if not prognose_optionen:
             # normaler Benutzer ohne eigene Positionen/Prognose-Werte
@@ -7106,6 +7134,7 @@ def render_dashboard():
             opt_gewinn = opt_aktueller_wert + opt_entnommen - opt_einstand
 
             _default_key = f"prognose_rate_{opt['name']}"
+            schritte.titel(st, "prognose", 2)
             opt_cagr_pa = st.number_input(
                 "Angenommene Rendite p.a. (%) für diese Prognose",
                 min_value=-99.0, max_value=100000.0, step=0.5,
@@ -7192,6 +7221,7 @@ def render_dashboard():
             if not opt_entnahme:
                 df_forecast = df_forecast.drop(columns=["Kumulierte Entnahme"], errors="ignore")
 
+            schritte.titel(st, "prognose", 3)
             # Hoehe an die tatsaechliche Zeilenzahl anpassen: st.dataframe
             # begrenzt sonst auf ~10 Zeilen und scrollt INNERHALB der
             # Tabelle - auf dem Smartphone unangenehm, weil man dann zwei
@@ -7219,8 +7249,7 @@ def render_dashboard():
             # daher zusaetzlich eine Monte-Carlo-Simulation: tausende
             # moegliche Verlaeufe auf Basis der tatsaechlichen
             # Volatilitaet der Kursreihe.
-            st.markdown('<div class="abschnitt">📉 Bandbreite möglicher Verläufe</div>',
-                        unsafe_allow_html=True)
+            schritte.titel(st, "prognose", 4, "Bandbreite möglicher Verläufe")
 
             mc_jahre = st.slider("Zeitraum der Simulation (Jahre)", 1, 15, **_startwert("mc_jahre", 5),
                                  key="mc_jahre")
@@ -7371,6 +7400,8 @@ def render_dashboard():
                 '📊 Szenario-Analyse (5 Jahre)</div>',
                 unsafe_allow_html=True,
             )
+            schritte.leiste(st, "szenario")
+            schritte.titel(st, "szenario", 1)
             # ---------- BASIS: hinterlegten Wert oder eigene Eingabe ----------
             # Vorher rechnete der Simulator immer mit festen 10.000 € und
             # hatte keinerlei Bezug zu den Werten der App. Jetzt laesst sich
@@ -7417,6 +7448,7 @@ def render_dashboard():
             # Aenderungen bleiben je Wert erhalten.
             _k = re.sub(r"[^A-Za-z0-9]+", "_", basis_name)
 
+            schritte.titel(st, "szenario", 2)
             col_sk, col_en = st.columns(2)
             with col_sk:
                 startkapital_szenario = st.number_input(
@@ -7638,6 +7670,7 @@ def render_dashboard():
                     f'</div>'
                 )
             karten_html += "</div>"
+            schritte.titel(st, "szenario", 3)
             st.markdown(karten_html, unsafe_allow_html=True)
 
             fig_scen = go.Figure()
@@ -7695,7 +7728,7 @@ def render_dashboard():
         # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
         # Systemstatus wird nur im Fehlerfall gebraucht. Faellt der persistente
         # State aus, klappt der Expander weiterhin automatisch auf.
-        st.markdown('<div class="abschnitt">🔧 System</div>', unsafe_allow_html=True)
+        schritte.titel(st, "verwalten", 4)
 
         with st.expander("System-Status / Diagnose", expanded=not GH_STATE_READY):
             st.write(f"**Live-Daten aktiv:** {'✅ Ja' if is_live_data else '❌ Nein'} ({fetched_source})")
