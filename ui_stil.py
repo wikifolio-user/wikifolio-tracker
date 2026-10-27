@@ -1219,7 +1219,8 @@ CSS_NAV = """
 /* ================= IN EINER ANSICHT: Kopfleiste ================= */
 .st-key-nav_leiste {
     padding: 6px 8px; border-radius: 18px;
-    background: linear-gradient(165deg, #28292B, #191A1B);
+    background: var(--karte);                       /* Glas wie die Karten (hell und dunkel gleich) */
+    -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
     border: 1px solid var(--rand);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(11, 11, 11, 0.45);
 }

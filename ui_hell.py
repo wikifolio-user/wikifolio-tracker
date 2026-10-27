@@ -236,7 +236,9 @@ def _quellen_css(ordner):
     teile = []
     for pfad in sorted(glob.glob(os.path.join(ordner, "*.py"))):
         name = os.path.basename(pfad)
-        if name.startswith("test_") or name in ("ui_hell.py",):
+        # glass_theme.py: Grundlage arbeitet mit Variablen - die helle Ansicht setzt deren Werte in WIDGETS;
+        # automatisch umgerechnete Kopien seiner Regeln wuerden das Glas grau und schwer machen
+        if name.startswith("test_") or name in ("ui_hell.py", "glass_theme.py"):
             continue
         try:
             text = open(pfad, encoding="utf-8").read()
@@ -346,13 +348,30 @@ WIDGETS = """
     --rand: rgba(15, 23, 42, 0.12) !important;
     --rand-glow: 0 0 0 transparent !important;
     --accent: #4C6EF5 !important;
+    --bg-0: #EEF1F8 !important;
+    --bg-1: #FFFFFF !important;
+    --text: #0F172A !important;
+    --text-dim: #64748B !important;
+    --glass-bg: rgba(255, 255, 255, 0.72) !important;
+    --glass-bg-hover: rgba(255, 255, 255, 0.92) !important;
+    --glass-border: rgba(15, 23, 42, 0.10) !important;
+    --glass-border-strong: rgba(76, 110, 245, 0.35) !important;
+    --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px -14px rgba(15, 23, 42, 0.16) !important;
     --accent-2: #0D9488 !important;
     --sf-nr-text: #FFFFFF !important;
     --accent-hell: #3B5BDB !important;
     --pos: #047857 !important;
     --neg: #B91C1C !important;
 }
-button:disabled:not(#fd-hell) { background: #E5E5EA !important; border-color: #D1D1D6 !important; }
+button:disabled:not([data-testid^="stNumberInputStep"]):not(#fd-hell) { background: #E5E5EA !important; border-color: #D1D1D6 !important; }
+[data-testid^="stNumberInputStep"]:disabled:not(#fd-hell) { background: transparent !important; }
+/* Auswahlfelder: nur der feine Feldrand - alter Leucht-Rahmen (umgerechnet zu grauem Schatten) entfaellt */
+:is([data-testid="stSelectbox"] > div, [data-testid="stSelectbox"] [data-baseweb="select"]):not(#fd-hell) {
+    outline: none !important; box-shadow: none !important; }
+/* glass_theme.py (Grundlage) in Hell: Titel und Reiter dunkel statt weiss */
+h1:not(#fd-hell) { background: none !important; color: #0F172A !important; -webkit-text-fill-color: #0F172A !important; }
+[data-baseweb="tab"][aria-selected="true"]:not(#fd-hell) { background: #FFFFFF !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 4px 12px -4px rgba(15, 23, 42, 0.16) !important; }
 button:disabled:not(#fd-hell), button:disabled p:not(#fd-hell), button:disabled span:not(#fd-hell) { color: #6E6E73 !important; }
 /* Klappbereiche, Reiter, Formulare, Hinweise */
 [data-testid="stExpander"] details:not(#fd-hell) { background: var(--glas-bg) !important; border-color: var(--rand) !important; }

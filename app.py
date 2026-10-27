@@ -793,7 +793,7 @@ def depot_hero_html(wert, chips="", gesamt=None, tag=None, mehr="", anzahl_mehr=
     Zeitraeume (Woche/Monat/Jahr) folgen darunter als st.metric-Karten, der Rest ist aufklappbar."""
     badges = "".join(b for b in (badge_html("Heute", *tag) if tag else "",
                                  badge_html("Gesamt", *gesamt) if gesamt else "") if b)
-    return ('<div class="hero gesamt depot-hero">'
+    return ('<div class="hero depot-hero">'
             '<div class="hero-label">Depotwert</div>'
             f'<div class="price-line"><span class="hero-val depot-wert">{wert}</span>{chips}</div>'
             + (f'<div class="hero-badges">{badges}</div>' if badges else "")
