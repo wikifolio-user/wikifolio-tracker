@@ -1097,19 +1097,19 @@ ABF_CSS = """<style>
 @media (max-width: 640px) {
   .st-key-abf_form [data-testid="stHorizontalBlock"] > div { flex: 1 1 100% !important; }
 }
-.st-key-abf_form .zr-symbol { border-radius: 50%; background: #3987e5; color: #fff; font-weight: 800;
+.st-key-abf_form .zr-symbol { border-radius: 50%; background: #0A84FF; color: #fff; font-weight: 800;
                               font-size: 1.05rem; width: 34px; height: 34px; flex-basis: 34px; }
-.st-key-abf_form [data-testid="stExpander"] details { border-color: #3a4152 !important; }
+.st-key-abf_form [data-testid="stExpander"] details { border-color: #434549 !important; }
 .st-key-abf_form [data-testid="stCheckbox"] label p { font-size: .88rem !important; color: #e8e6df !important; }
 .st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipIcon"],
 .st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"],
 .st-key-abf_form [data-testid="stSelectbox"] > div:has([data-testid="stTooltipIcon"]):not(:has([data-baseweb="select"])) {
     outline: none !important; background: transparent !important; box-shadow: none !important; border: none !important; }
-.abf-oben { border: 1px solid rgba(91,155,255,.45); border-radius: 14px; padding: 10px 14px; margin: 4px 0 10px;
-  background: linear-gradient(135deg, rgba(91,155,255,.16), rgba(91,155,255,.04)); }
-.abf-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
+.abf-oben { border: 1px solid rgba(10, 132, 255, 0.45); border-radius: 14px; padding: 10px 14px; margin: 4px 0 10px;
+  background: linear-gradient(135deg, rgba(10, 132, 255, 0.16), rgba(10, 132, 255, 0.04)); }
+.abf-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #A9ACB0; }
 .abf-oben-w { font-size: 1.3rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
-.abf-oben-s { font-size: .8rem; color: #BFD0E6; }
+.abf-oben-s { font-size: .8rem; color: #D1D2D4; }
 [data-testid="stMetricLabel"] p { overflow-wrap: normal !important; word-break: normal !important; hyphens: auto; }
 .abf-ergebnis-kopf { margin: 22px 0 10px; padding: 10px 14px; border-radius: 12px; font-size: 1.1rem;
                      font-weight: 800; color: #fff; background: linear-gradient(90deg, rgba(22,199,132,.22), transparent);
@@ -1121,7 +1121,7 @@ ABF_FJ_CSS = """<style>
 .abf-schritt { font-size: .88rem; color: #d6d4cc; margin: 10px 0 6px; }
 .abf-fazit { margin: 4px 0 8px; padding: 10px 12px; border-radius: 10px; font-size: .9rem; color: #e8e6df;
              background: rgba(22,199,132,.12); border: 1px solid rgba(22,199,132,.45); }
-.st-key-abf_fj [data-testid="stDataFrame"] { border: 1.5px solid #4a5468; border-radius: 10px; }
+.st-key-abf_fj [data-testid="stDataFrame"] { border: 1.5px solid #55585D; border-radius: 10px; }
 </style>"""
 
 

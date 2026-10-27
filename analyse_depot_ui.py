@@ -20,12 +20,12 @@ P = "ad_"
 CSS = """
 <style>
 .ad-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
-.ad-k .k { border:1px solid var(--line,#22344C); border-radius:12px; padding:10px 12px; background:var(--surface-2,#0E1826); }
-.ad-k .l { color:#9AA9BF; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
+.ad-k .k { border:1px solid var(--line,#353739); border-radius:12px; padding:10px 12px; background:var(--surface-2,#191A1B); }
+.ad-k .l { color:#A9ACB0; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
 .ad-k .w { font-size:1.15rem; font-weight:800; margin-top:2px; }
 @media (max-width: 760px) { .ad-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }
-.ad-hinweis { border:1px dashed #5B9BFF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#BFD6FF;
-  background:rgba(91,155,255,.08); font-size:.85rem; }
+.ad-hinweis { border:1px dashed #0A84FF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#409CFF;
+  background:rgba(10, 132, 255, 0.08); font-size:.85rem; }
 .ad-weg { border-left:3px solid #f4c67b; padding:6px 10px; border-radius:8px; background:rgba(244,198,123,.08);
   font-size:.88rem; }
 .ad-pos { color:#4ade80; } .ad-neg { color:#f87171; }

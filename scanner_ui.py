@@ -843,18 +843,18 @@ CSS = """
 table.pb-scan { width:100%; border-collapse:separate; border-spacing:0; font-size:.84rem; }
 table.pb-scan.breit { min-width:640px; }
 table.pb-scan th { text-align:left; color:#9AA0A6; font-weight:700; font-size:.75rem; letter-spacing:.4px;
-  text-transform:uppercase; padding:6px 8px; border-bottom:1px solid #262B33; vertical-align:bottom; }
-table.pb-scan td { padding:6px 8px; border-bottom:1px solid #1A1E24; vertical-align:top; white-space:nowrap; }
+  text-transform:uppercase; padding:6px 8px; border-bottom:1px solid #2B2C2E; vertical-align:bottom; }
+table.pb-scan td { padding:6px 8px; border-bottom:1px solid #1E1F20; vertical-align:top; white-space:nowrap; }
 table.pb-scan td.t { white-space:normal; min-width:180px; max-width:280px; }
-table.pb-scan .n { position:sticky; left:0; background:#0A0B0D; z-index:1; max-width:220px; white-space:normal; }
+table.pb-scan .n { position:sticky; left:0; background:#0B0B0C; z-index:1; max-width:220px; white-space:normal; }
 table.pb-scan .r { text-align:right; white-space:nowrap; }
 table.pb-scan .gr { color:#9AA0A6; font-weight:400; }
 table.pb-scan.depot { table-layout:fixed; }
 table.pb-scan.depot td, table.pb-scan.depot th { overflow:hidden; text-overflow:ellipsis; }
 table.pb-scan.depot td.t, table.pb-scan.depot td.n { white-space:normal; max-width:none; min-width:0; }
-table.pb-scan.depot tr.summe td { border-top:1px solid #3A3F47; }
+table.pb-scan.depot tr.summe td { border-top:1px solid #3E4043; }
 .pb-scan-kpis { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
-.pb-scan-kpis .k { border:1px solid #262B33; border-radius:10px; padding:10px 12px; background:#0F1115; }
+.pb-scan-kpis .k { border:1px solid #2B2C2E; border-radius:10px; padding:10px 12px; background:#111213; }
 .pb-scan-kpis .l { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.4px; }
 .pb-scan-kpis .w { font-size:1.25rem; font-weight:800; margin-top:2px; }
 .pb-scan-kpis .s { color:#9AA0A6; font-size:.76rem; margin-top:2px; }

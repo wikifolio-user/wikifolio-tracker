@@ -970,11 +970,11 @@ FORM_CSS = """<style>
 /* Zinsrechner: Abschnitte als Karten, Feldbeschriftungen einheitlich und klein */
 .st-key-zr_form [data-testid="stVerticalBlockBorderWrapper"],
 .st-key-zr_form [class*="st-key-zr_karte_"] {
-    background: #12151c; border: 1px solid #2c313d !important; border-radius: 16px !important;
+    background: #161718; border: 1px solid #323437 !important; border-radius: 16px !important;
 }
 .zr-kopf { display: flex; gap: 12px; align-items: center; margin: 2px 0 8px; padding-bottom: 10px;
-           border-bottom: 1px solid #2c313d; }
-.zr-symbol { font-size: 1.35rem; width: 38px; height: 38px; border-radius: 10px; background: #1d2330;
+           border-bottom: 1px solid #323437; }
+.zr-symbol { font-size: 1.35rem; width: 38px; height: 38px; border-radius: 10px; background: #252628;
              display: flex; align-items: center; justify-content: center; flex: 0 0 38px; }
 .zr-titel { font-size: 1.05rem; font-weight: 700; color: #ffffff; letter-spacing: .2px; line-height: 1.2; }
 .zr-text { font-size: .8rem; color: #a9a79c; margin-top: 2px; line-height: 1.25; }
@@ -989,28 +989,28 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-testid="stSelectbox"] label { margin: 0 0 4px 0 !important; }
 .st-key-zr_form [data-testid="stSelectbox"] > div,
 .st-key-zr_form [data-testid="stSelectbox"] [data-baseweb="select"] {
-    outline: 1px solid #3a4152 !important; box-shadow: none !important; animation: none !important;
+    outline: 1px solid #434549 !important; box-shadow: none !important; animation: none !important;
     border-radius: 10px !important;
 }
 /* ---- Alle bearbeitbaren Felder gleich deutlich als Eingabefeld zeigen ---- */
 .st-key-zr_form [data-baseweb="input"],
 .st-key-zr_form [data-testid="stNumberInputContainer"] {
-    background: #0b0d12 !important; border: 1.5px solid #4a5468 !important; border-radius: 10px !important;
+    background: #0E0E0F !important; border: 1.5px solid #55585D !important; border-radius: 10px !important;
     box-shadow: none !important;
 }
 .st-key-zr_form [data-baseweb="input"] input { color: #ffffff !important; font-weight: 600 !important; }
 .st-key-zr_form [data-baseweb="input"]:focus-within,
 .st-key-zr_form [data-testid="stNumberInputContainer"]:focus-within,
 .st-key-zr_form [data-testid="stSelectbox"] > div:focus-within {
-    border-color: #3987e5 !important; outline-color: #3987e5 !important;
-    box-shadow: 0 0 0 3px rgba(57,135,229,.25) !important;
+    border-color: #0A84FF !important; outline-color: #0A84FF !important;
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25) !important;
 }
 /* Plus/Minus ausblenden: auf dem iPhone tippt man den Wert ein (Zahlentastatur) - mehr Platz fuer die Zahl */
 .st-key-zr_form [data-testid="stNumberInputStepUp"],
 .st-key-zr_form [data-testid="stNumberInputStepDown"] { display: none !important; }
 .st-key-zr_form [data-testid="stSelectbox"] > div,
-.st-key-zr_form [data-testid="stSelectbox"] [data-baseweb="select"] { background: #0b0d12 !important; }
-.st-key-zr_form [data-testid="stSelectbox"] > div { outline: 1.5px solid #4a5468 !important; }
+.st-key-zr_form [data-testid="stSelectbox"] [data-baseweb="select"] { background: #0E0E0F !important; }
+.st-key-zr_form [data-testid="stSelectbox"] > div { outline: 1.5px solid #55585D !important; }
 /* berechnetes Feld: gestrichelt + Akzentfarbe -> "nicht eingeben, wird ausgerechnet" */
 .st-key-zr_form [data-baseweb="input"]:has(input:disabled) {
     border: 1.5px dashed #d95926 !important; background: rgba(217,89,38,.08) !important;
@@ -1027,16 +1027,16 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-testid="stNumberInput"],
 .st-key-zr_form [data-testid="stTextInput"],
 .st-key-zr_form [data-testid="stDateInput"] { margin-top: 0 !important; padding-top: 0 !important; }
-.zr-oben { border: 1px solid rgba(91,155,255,.45); border-radius: 14px; padding: 10px 14px; margin: 2px 0 10px;
-  background: linear-gradient(135deg, rgba(91,155,255,.16), rgba(91,155,255,.04)); }
-.zr-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
+.zr-oben { border: 1px solid rgba(10, 132, 255, 0.45); border-radius: 14px; padding: 10px 14px; margin: 2px 0 10px;
+  background: linear-gradient(135deg, rgba(10, 132, 255, 0.16), rgba(10, 132, 255, 0.04)); }
+.zr-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #A9ACB0; }
 .zr-oben-w { font-size: 1.35rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
-.zr-oben-s { font-size: .8rem; color: #BFD0E6; }
+.zr-oben-s { font-size: .8rem; color: #D1D2D4; }
 .zr-hilfe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 0.8rem; color: #c3c2b7;
-            margin: 0 0 4px; padding: 10px 12px; border-radius: 12px; background: #12151c; border: 1px solid #2c313d; }
+            margin: 0 0 4px; padding: 10px 12px; border-radius: 12px; background: #161718; border: 1px solid #323437; }
 .zr-hilfe span { display: inline-flex; align-items: center; gap: 6px; }
-.zr-muster { display: inline-block; width: 26px; height: 16px; border-radius: 5px; background: #0b0d12;
-             border: 1.5px solid #4a5468; }
+.zr-muster { display: inline-block; width: 26px; height: 16px; border-radius: 5px; background: #0E0E0F;
+             border: 1.5px solid #55585D; }
 .zr-muster.calc { border: 1.5px dashed #d95926; background: rgba(217,89,38,.08); }
 /* Paare (Wert + Einheit) auch auf dem iPhone nebeneinander lassen */
 .st-key-zr_form [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 10px !important; }

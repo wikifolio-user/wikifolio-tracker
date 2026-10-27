@@ -67,12 +67,12 @@ def hell(farbe):
     h, l, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
     # Weisse Ueberlagerungen (Zebra, Hover, Glanz) -> dunkle Ueberlagerung, etwas schwaecher
     if l > 0.97 and a < 0.999:
-        return _ausgabe(15, 27, 45, a * 0.75)
+        return _ausgabe(0, 0, 0, a * 0.6)
     # Schatten (schwarz / fast schwarz, transparent) -> leichter, kuehler Schatten
     if l < 0.12 and a < 0.999:
-        return _ausgabe(15, 27, 45, min(a, 0.6) * 0.3)
+        return _ausgabe(0, 0, 0, min(a, 0.6) * 0.25)
     if a >= 0.999 and l > 0.9 and s < 0.25:
-        return "#0F1B2D"                                     # Weiss als Textfarbe -> Navy-Text
+        return "#1C1C1E"                                     # Weiss als Textfarbe -> Apple-Textschwarz
     if s >= 0.4 and 0.22 < l < 0.85:
         # kraeftige Farbe (Gruen/Rot/Blau/Gelb): Farbton bleibt, auf hellem Grund lesbar (Kontrast >= 4,5)
         l2 = min(l, 0.3 if 0.05 < h < 0.2 else 0.27 if 0.2 <= h < 0.55 else 0.42)   # Gelb/Gruen dunkler
@@ -95,7 +95,7 @@ def _rand(farbe):
         return farbe
     r, g, b, a = p
     if colorsys.rgb_to_hls(r / 255, g / 255, b / 255)[1] > 0.85:
-        return "#A3B3C8" if a >= 0.999 else _ausgabe(40, 62, 95, min(1.0, a * 0.8))
+        return "#C7C7CC" if a >= 0.999 else _ausgabe(0, 0, 0, min(1.0, a * 0.45))
     return hell(farbe)
 
 
@@ -103,7 +103,7 @@ def _schrift(farbe):
     """Schriftfarbe: dunkle Schrift (z. B. auf hellen Knoepfen) bleibt dunkel, alles andere wie hell()."""
     p = _parse(farbe)
     if p and colorsys.rgb_to_hls(*[x / 255 for x in p[:3]])[1] < 0.3:
-        return "#0F1B2D"
+        return "#1C1C1E"
     return hell(farbe)
 
 
@@ -276,7 +276,7 @@ def _inline_regeln(ordner):
 
 # Streamlit-Bausteine: deren Farben kommen aus dem (dunklen) Streamlit-Theme, nicht aus unserem CSS
 WIDGETS = """
-.stApp:not(#fd-hell), [data-testid="stAppViewContainer"]:not(#fd-hell) { color: #0F1B2D !important; color-scheme: light; }
+.stApp:not(#fd-hell), [data-testid="stAppViewContainer"]:not(#fd-hell) { color: #1C1C1E !important; color-scheme: light; }
 [data-testid="stMarkdownContainer"]:not(#fd-hell), [data-testid="stWidgetLabel"]:not(#fd-hell),
 [data-testid="stWidgetLabel"] p:not(#fd-hell), [data-testid="stExpander"] summary:not(#fd-hell),
 [data-testid="stExpander"] summary p:not(#fd-hell), [data-testid="stMetricValue"]:not(#fd-hell),
@@ -284,74 +284,74 @@ WIDGETS = """
 [data-testid="stHeading"]:not(#fd-hell), [data-testid="stHeading"] *:not(#fd-hell),
 [data-testid="stText"]:not(#fd-hell), [data-testid="stCheckbox"] label:not(#fd-hell),
 [data-testid="stRadio"] label:not(#fd-hell), [data-testid="stToggle"] label:not(#fd-hell),
-[role="tab"]:not(#fd-hell), [role="tab"] p:not(#fd-hell) { color: #0F1B2D !important; }
-[data-testid="stCaptionContainer"]:not(#fd-hell), [data-testid="stCaptionContainer"] *:not(#fd-hell) { color: #4A5B73 !important; }
-[role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #1D4ED8 !important; }
+[role="tab"]:not(#fd-hell), [role="tab"] p:not(#fd-hell) { color: #1C1C1E !important; }
+[data-testid="stCaptionContainer"]:not(#fd-hell), [data-testid="stCaptionContainer"] *:not(#fd-hell) { color: #6E6E73 !important; }
+[role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #007AFF !important; }
 /* Eingabefelder */
 :is([data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
     [data-testid="stTextInputRootElement"], [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"],
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div):not(#fd-hell) {
-    background: #FFFFFF !important; border-color: #B8C6D8 !important; color: #0F1B2D !important; }
-:is(input, textarea):not(#fd-hell) { color: #0F1B2D !important; -webkit-text-fill-color: #0F1B2D !important;
-    background: transparent !important; caret-color: #1D4ED8 !important; }
-:is(input, textarea)::placeholder { color: #7A8BA3 !important; -webkit-text-fill-color: #7A8BA3 !important; }
+    background: #FFFFFF !important; border-color: #D1D1D6 !important; color: #1C1C1E !important; }
+:is(input, textarea):not(#fd-hell) { color: #1C1C1E !important; -webkit-text-fill-color: #1C1C1E !important;
+    background: transparent !important; caret-color: #007AFF !important; }
+:is(input, textarea)::placeholder { color: #8E8E93 !important; -webkit-text-fill-color: #8E8E93 !important; }
 :is([data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"]):not(#fd-hell) {
-    background: #EEF3F9 !important; color: #0F1B2D !important; }
+    background: #F2F2F7 !important; color: #1C1C1E !important; }
 [data-testid="stSelectbox"] svg:not(#fd-hell), [data-testid="stMultiSelect"] svg:not(#fd-hell),
-[data-testid="stDateInput"] svg:not(#fd-hell) { color: #3B4C63 !important; fill: currentColor; }
+[data-testid="stDateInput"] svg:not(#fd-hell) { color: #3A3A3C !important; fill: currentColor; }
 /* Auswahllisten (Popover der Auswahlfelder, Kalender) */
 :is([data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [data-baseweb="calendar"]):not(#fd-hell),
 :is([data-baseweb="popover"], [role="listbox"]) :is(ul, li, div):not(#fd-hell) {
-    background-color: #FFFFFF !important; color: #0F1B2D !important; }
+    background-color: #FFFFFF !important; color: #1C1C1E !important; }
 :is([role="option"]):hover:not(#fd-hell), [role="option"][aria-selected="true"]:not(#fd-hell),
-[role="option"][data-focused="true"]:not(#fd-hell) { background-color: #E6EEF9 !important; }
+[role="option"][data-focused="true"]:not(#fd-hell) { background-color: #E5E5EA !important; }
 /* Knoepfe, Kacheln, Pillen: Glas-Optik (ui_stil GLAS) - hier nur die Werte fuer helles, milchiges Glas */
 :root:not(#fd-hell) {
-    --glas-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.62) 50%, rgba(255, 255, 255, 0.84) 100%) !important;
-    --glas-rand: rgba(255, 255, 255, 0.95) !important;
-    --glas-licht: rgba(255, 255, 255, 1) !important;
-    --glas-tiefe: rgba(30, 60, 110, 0.06) !important;
-    --glas-ring: rgba(30, 60, 110, 0.16) !important;
-    --glas-schatten: 0 8px 22px rgba(15, 27, 45, 0.12) !important;
-    --glas-glow: rgba(37, 99, 235, 0.14) !important;
-    --glas-glow-stark: rgba(37, 99, 235, 0.36) !important;
-    --glas-glanz: rgba(255, 255, 255, 0.9) !important;
-    --glas-text: #0F1B2D !important;
-    --glas-aktiv-bg: linear-gradient(150deg, rgba(37, 99, 235, 0.22) 0%, rgba(37, 99, 235, 0.08) 100%) !important;
-    --glas-aktiv-rand: rgba(37, 99, 235, 0.55) !important;
-    --glas-aktiv-text: #1D4ED8 !important;
-    --glas-primaer-bg: linear-gradient(150deg, #4F8DF7 0%, #1D4ED8 100%) !important;
+    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(242, 242, 245, 0.72) 60%, rgba(229, 229, 234, 0.80) 100%) !important;
+    --glas-rand-flach: rgba(0, 0, 0, 0.08) !important;
+    --glas-kante: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.55) 40%, rgba(160, 160, 168, 0.55) 100%) !important;
+    --glas-licht: rgba(255, 255, 255, 0.95) !important;
+    --glas-tiefe: rgba(0, 0, 0, 0.07) !important;
+    --glas-schatten: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 22px rgba(0, 0, 0, 0.10) !important;
+    --glas-glow: rgba(255, 255, 255, 0.45) !important;
+    --glas-glow-stark: rgba(0, 122, 255, 0.20) !important;
+    --glas-text: #1C1C1E !important;
+    --glas-aktiv-bg: linear-gradient(180deg, #2E95FF 0%, #0071E3 100%) !important;
+    --glas-aktiv-kante: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(0, 122, 255, 0.35) 50%, rgba(255, 255, 255, 0.7) 100%) !important;
+    --glas-aktiv-text: #FFFFFF !important;
+    --glas-primaer-bg: linear-gradient(180deg, #2E95FF 0%, #0071E3 100%) !important;
     --glas-primaer-text: #FFFFFF !important;
+    --karte: linear-gradient(180deg, rgba(255, 255, 255, 0.80) 0%, rgba(246, 246, 248, 0.72) 100%) !important;
 }
-button:disabled:not(#fd-hell) { background: #E6ECF4 !important; border-color: #C9D5E4 !important; }
-button:disabled:not(#fd-hell), button:disabled p:not(#fd-hell), button:disabled span:not(#fd-hell) { color: #6B7C93 !important; }
+button:disabled:not(#fd-hell) { background: #E5E5EA !important; border-color: #D1D1D6 !important; }
+button:disabled:not(#fd-hell), button:disabled p:not(#fd-hell), button:disabled span:not(#fd-hell) { color: #8E8E93 !important; }
 /* Klappbereiche, Reiter, Formulare, Hinweise */
-[data-testid="stExpander"] details:not(#fd-hell) { background: #FFFFFF !important; border-color: #C9D5E4 !important; }
+[data-testid="stExpander"] details:not(#fd-hell) { background: var(--glas-bg) !important; border-color: rgba(0, 0, 0, 0.08) !important; }
 [data-testid="stExpander"] summary:not(#fd-hell) { background-color: transparent !important; }
-[data-testid="stExpander"] summary:hover:not(#fd-hell) { background-color: #F1F5FB !important; }
+[data-testid="stExpander"] summary:hover:not(#fd-hell) { background-color: #F2F2F7 !important; }
 [data-testid="stDateInputField"] *:not(#fd-hell), [data-testid="stDateInput"] [role="spinbutton"]:not(#fd-hell),
-[data-testid="stTimeInput"] [role="spinbutton"]:not(#fd-hell) { color: #0F1B2D !important; }
-[data-testid="stDateInput"] [role="spinbutton"][aria-valuenow=""]:not(#fd-hell) { color: #7A8BA3 !important; }
-[data-testid="stExpander"] summary svg:not(#fd-hell) { fill: #3B4C63 !important; color: #3B4C63 !important; }
-[data-testid="stForm"]:not(#fd-hell) { background: #FFFFFF !important; border-color: #C9D5E4 !important; }
-[data-testid="stTabs"] [data-baseweb="tab-border"]:not(#fd-hell) { background: #C9D5E4 !important; }
-[data-testid="stAlertContainer"]:not(#fd-hell) { color: #0F1B2D !important; }
+[data-testid="stTimeInput"] [role="spinbutton"]:not(#fd-hell) { color: #1C1C1E !important; }
+[data-testid="stDateInput"] [role="spinbutton"][aria-valuenow=""]:not(#fd-hell) { color: #8E8E93 !important; }
+[data-testid="stExpander"] summary svg:not(#fd-hell) { fill: #3A3A3C !important; color: #3A3A3C !important; }
+[data-testid="stForm"]:not(#fd-hell) { background: var(--glas-bg) !important; border-color: rgba(0, 0, 0, 0.08) !important; }
+[data-testid="stTabs"] [data-baseweb="tab-border"]:not(#fd-hell) { background: #D1D1D6 !important; }
+[data-testid="stAlertContainer"]:not(#fd-hell) { color: #1C1C1E !important; }
 [data-testid="stAlertContainer"] *:not(#fd-hell) { color: inherit !important; }
-[data-testid="stCode"] pre:not(#fd-hell), [data-testid="stCode"] code:not(#fd-hell) { background: #EEF3F9 !important; color: #0F1B2D !important; }
+[data-testid="stCode"] pre:not(#fd-hell), [data-testid="stCode"] code:not(#fd-hell) { background: #F2F2F7 !important; color: #1C1C1E !important; }
 [data-testid="stTooltipIcon"] svg:not(#fd-hell), button[aria-label^="Help"] svg:not(#fd-hell) {
-    color: #4A5B73 !important; stroke: #4A5B73 !important; opacity: 1 !important; }
+    color: #6E6E73 !important; stroke: #6E6E73 !important; opacity: 1 !important; }
 /* Tabellen (Datenraster wird auf Leinwand gezeichnet - per Filter hell, Farben behalten ihren Ton) */
 [data-testid="stDataFrame"]:not(#fd-hell), [data-testid="stDataEditor"]:not(#fd-hell) {
     filter: invert(1) hue-rotate(180deg); }
-.pt-leer:not(#fd-hell) { color: #7A8799 !important; }
-[data-testid="stTable"] :is(th, td):not(#fd-hell) { color: #0F1B2D !important; border-color: #D5DFEC !important; }
+.pt-leer:not(#fd-hell) { color: #8E8E93 !important; }
+[data-testid="stTable"] :is(th, td):not(#fd-hell) { color: #1C1C1E !important; border-color: #D1D1D6 !important; }
 /* Charts: Plotly- und Vega-Beschriftungen dunkel */
-.js-plotly-plot .main-svg :is(text, .legendtext, .gtitle, .xtitle, .ytitle):not(#fd-hell) { fill: #3B4C63 !important; }
-.js-plotly-plot .hoverlayer .hovertext text:not(#fd-hell) { fill: #0F1B2D !important; }
-.vega-embed text:not(#fd-hell) { fill: #3B4C63 !important; }
+.js-plotly-plot .main-svg :is(text, .legendtext, .gtitle, .xtitle, .ytitle):not(#fd-hell) { fill: #3A3A3C !important; }
+.js-plotly-plot .hoverlayer .hovertext text:not(#fd-hell) { fill: #1C1C1E !important; }
+.vega-embed text:not(#fd-hell) { fill: #3A3A3C !important; }
 /* Ladeanzeige oben */
 [data-testid="stApp"][data-test-script-state="running"]::before, [data-testid="stApp"][data-test-script-state="rerunRequested"]::before {
-    background: rgba(244, 247, 251, 0.97) !important; color: #0F1B2D !important; }
+    background: rgba(242, 242, 247, 0.97) !important; color: #1C1C1E !important; }
 """
 
 
