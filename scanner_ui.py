@@ -13,6 +13,7 @@ import portfolio_builder as P
 import scanner as S
 from portfolio_builder_ui import _smartphone
 import formate as FMT
+import ui_stil as UI
 
 PROFIL_TITEL = {"niedrig": "Niedrig", "mittel": "Mittel", "hoch": "Hoch", "eigene": "Eigene",
                 S.FAVORITEN: "Favoriten"}
@@ -649,7 +650,7 @@ def _faecher(erg, ziel):
                       legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0),
                       xaxis=dict(showgrid=False, tickformat="%Y"),
                       yaxis=dict(gridcolor="#1E2228", tickformat=",.0f", ticksuffix=" €", side="right"))
-    st.plotly_chart(fig, width="stretch", key="pb_scan_faecher", config={"displayModeBar": False})
+    st.plotly_chart(UI.chart_stil(fig), width="stretch", key="pb_scan_faecher", config={"displayModeBar": False})
 
 
 def _risiken(erg, kapital):

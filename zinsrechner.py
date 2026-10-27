@@ -21,6 +21,7 @@ import datetime
 import math
 import re
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+import ui_stil as UI
 
 INTERVALLE = {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich", 12: "jährlich"}
 ZIEL_FELDER = {"e": "Endkapital", "a": "Anfangskapital", "s": "Sparrate", "dy": "Dynamik", "z": "Zinssatz",
@@ -1368,7 +1369,7 @@ def render(basis_url="", gespeichert=None, null=False):
                    "Ansparzeit eingetragen sind.")
     else:
         try:
-            st.plotly_chart(chart(q, r), width="stretch", config={"displayModeBar": False}, key="zr_chart")
+            st.plotly_chart(UI.chart_stil(chart(q, r)), width="stretch", config={"displayModeBar": False}, key="zr_chart")
         except Exception as ex:
             st.caption(f"Chart nicht verfügbar: {ex}")
         za = zeitachse(q, r)

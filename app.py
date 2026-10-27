@@ -2087,6 +2087,9 @@ LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUI
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
+# Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
+BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
+
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2}
@@ -2604,6 +2607,10 @@ def navigation():
         return None
 
     # ---- In einer Ansicht: Kopfleiste ----
+    # Grosse Monitore: Inhalt auf UI.INHALT_MAX begrenzt (ui_stil); Ansichten mit breiten Tabellen duerfen breiter
+    if aktiv in BREITE_ANSICHTEN:
+        st.markdown(f'<style>[data-testid="stMainBlockContainer"][data-testid="stMainBlockContainer"] '
+                    f'{{ max-width: {UI.INHALT_MAX_BREIT}px !important; }}</style>', unsafe_allow_html=True)
     with st.container(key="nav_leiste"):
         c1, c2, c3 = st.columns([1, 3, 1], vertical_alignment="center")
         c1.button("☰ Menü", key="nav_menue_btn", on_click=_nav_waehle, args=(None,),
@@ -3830,7 +3837,7 @@ def render_dashboard():
             yaxis=dict(title=dict(text="Qualität (%)", font=dict(color="#A1A1AA", size=12)), range=[0, 100],
                        showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
             dragmode=False)
-        st.plotly_chart(fig, width="stretch", key="qk_diagramm", config={"displayModeBar": False})
+        st.plotly_chart(UI.chart_stil(fig), width="stretch", key="qk_diagramm", config={"displayModeBar": False})
 
     def _render_qualitaet_kurs():
         m = _qk_daten()
@@ -6566,7 +6573,7 @@ def render_dashboard():
                               yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA"),
                                          ticksuffix=" €"),
                               hovermode="x unified")
-            st.plotly_chart(fig, width="stretch", key="chart_vgl_eigen")
+            st.plotly_chart(UI.chart_stil(fig), width="stretch", key="chart_vgl_eigen")
 
     def _render_wealth():
         try:
@@ -6680,7 +6687,7 @@ def render_dashboard():
                                ticksuffix=" €"),
                     hovermode="x unified",
                 )
-                st.plotly_chart(fig_wealth, width="stretch", key="chart_wealth")
+                st.plotly_chart(UI.chart_stil(fig_wealth), width="stretch", key="chart_wealth")
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -6806,7 +6813,7 @@ def render_dashboard():
                     zeige_chart_legende_liste([("Startkapital", "⚪"), (f"{haupt_name} ({config.WKN})", "🟢")])
                     pills_auswahl(benchmark_series_v2.keys(), key="benchmark_v2_pills")
 
-                st.plotly_chart(fig_v2, width="stretch", key="chart_ytd")
+                st.plotly_chart(UI.chart_stil(fig_v2), width="stretch", key="chart_ytd")
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -6948,7 +6955,7 @@ def render_dashboard():
                     zeige_chart_legende_liste([("Startkapital", "⚪"), (f"{haupt_name} ({config.WKN})", "🟢")])
                     pills_auswahl(benchmark_series_v3.keys(), key="benchmark_v3_pills")
 
-                st.plotly_chart(fig_v3, width="stretch", key="chart_2021")
+                st.plotly_chart(UI.chart_stil(fig_v3), width="stretch", key="chart_2021")
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -6974,7 +6981,7 @@ def render_dashboard():
                     return
                 fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
                 fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False)
-                st.plotly_chart(fig_c, width="stretch", key="chart_candlestick")
+                st.plotly_chart(UI.chart_stil(fig_c), width="stretch", key="chart_candlestick")
                 st.caption(
                     "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
                     "Der GitHub-Actions-Cron protokolliert seit Kurzem zusätzlich alle 5 Min den "
@@ -7662,7 +7669,7 @@ def render_dashboard():
                 yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
                 hovermode="x unified",
             )
-            st.plotly_chart(fig_scen, width="stretch", key="chart_scenarios")
+            st.plotly_chart(UI.chart_stil(fig_scen), width="stretch", key="chart_scenarios")
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Szenarien", e)

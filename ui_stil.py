@@ -11,6 +11,7 @@ ueber .ui-breit die volle Breite nutzen.
 """
 
 INHALT_MAX = 1440
+INHALT_MAX_BREIT = 1920
 
 CSS_BASIS = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1381,6 +1382,11 @@ CSS_RESPONSIV = """
         [data-testid="stCode"] button { min-width: 44px !important; min-height: 44px !important; }
     }
 
+    /* --- Grosse Monitore: Inhalt hoechstens INHALT_MAX breit, zentriert (vorher 2.464 px breite Charts und
+       Kennzahlen, die weit auseinanderlagen). Ansichten mit breiten Tabellen heben die Grenze an (app.py). */
+    [data-testid="stMainBlockContainer"] { max-width: 1440px !important; margin-left: auto !important;
+                                           margin-right: auto !important; }
+
     /* --- Unsichtbare Bausteine (reine <style>-Bloecke, 0-px-Skript-Rahmen) belegten je einen Block-Abstand:
        oben in jeder Ansicht ~45 px Leerraum (am Handy quer ein Achtel der Hoehe). Abstand zuruecknehmen. */
     [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:first-child:last-child),
@@ -1426,3 +1432,42 @@ CSS_RESPONSIV = """
     @media (max-width: 380px) { .nav-titel { font-size: 0.84rem !important; letter-spacing: 0 !important; } }
 </style>
 """
+
+
+# ------------------------------------------------------------------ Charts (eine Vorlage fuer alle)
+CHART_RASTER = "rgba(150, 175, 210, 0.13)"
+CHART_SCHRIFT = "#AEBDD0"
+
+
+def ist_smartphone():
+    """True auf Smartphones (User-Agent; iPad meldet sich als Mac und gilt als Desktop)."""
+    try:
+        import streamlit as st
+        ua = (st.context.headers.get("User-Agent") or "").lower()
+    except Exception:
+        return False
+    return "iphone" in ua or ("android" in ua and "mobile" in ua) or "ipod" in ua
+
+
+def chart_stil(fig, schrumpfen=True):
+    """Gemeinsame Plotly-Vorlage (UX 10/2026): Hintergrund durchsichtig (Seiten-Navy statt Schwarz), dezentes
+    Raster, deutsche Zahlen. Am Handy: niedriger (70 %, mind. 260 px - ausser bei Legenden unter dem Chart),
+    kleinere Achsenschrift, weniger Achsenbeschriftungen und schmalere Raender. -> fig"""
+    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", separators=",.",
+                      font=dict(color=CHART_SCHRIFT))
+    fig.update_xaxes(gridcolor=CHART_RASTER, zerolinecolor=CHART_RASTER)
+    fig.update_yaxes(gridcolor=CHART_RASTER, zerolinecolor=CHART_RASTER)
+    if not ist_smartphone():
+        return fig
+    lay = fig.layout
+    legende_unten = lay.showlegend is not False and len(fig.data) > 1
+    if schrumpfen and lay.height and not legende_unten:
+        fig.update_layout(height=max(260, round(lay.height * 0.7)))
+    m = lay.margin
+    hat_titel = bool(lay.title and lay.title.text)
+    fig.update_layout(font=dict(size=11), margin=dict(
+        l=min(m.l if m.l is not None else 10, 6), r=min(m.r if m.r is not None else 10, 46),
+        t=(m.t if hat_titel or m.t is None else min(m.t, 24)), b=min(m.b if m.b is not None else 40, 36)))
+    fig.update_xaxes(tickfont=dict(size=10), nticks=5)
+    fig.update_yaxes(tickfont=dict(size=10), nticks=6)
+    return fig

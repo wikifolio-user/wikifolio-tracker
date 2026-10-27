@@ -37,6 +37,7 @@ import planer_daten as D
 import planer_engine as E
 import bewertung as BW
 import analyse as AN
+import ui_stil as UI
 
 try:
     import nutzerdaten as N
@@ -332,7 +333,7 @@ def _layout(fig, hoehe=360, y_titel=None, legende=True, eur=True):
 
 
 def _chart(fig, key):
-    st.plotly_chart(fig, width="stretch", key=key, config={"displayModeBar": False})
+    st.plotly_chart(UI.chart_stil(fig), width="stretch", key=key, config={"displayModeBar": False})
 
 
 def _abschnitt(titel):

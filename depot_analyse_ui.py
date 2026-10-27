@@ -18,6 +18,7 @@ import branchen as BR
 import depot_analyse as D
 import dividenden as DV
 import portfolio_builder_ui as B
+import ui_stil as UI
 
 P = "da_"
 REITER = ["📊 Übersicht", "🔍 Positionen", "🧪 Simulator", "🧭 Szenarien", "💬 Assistent", "⚙️ Daten & Profil"]
@@ -474,7 +475,7 @@ def _positionen(h, a):
                               plot_bgcolor="rgba(0,0,0,0)", font={"color": "#C9D4E5"}, showlegend=False,
                               separators=",.", xaxis={"gridcolor": "#16243A"},
                               yaxis={"gridcolor": "#16243A", "ticksuffix": " €"})
-            st.plotly_chart(fig, width="stretch", key=P + "kurs_chart", config={"displayModeBar": False})
+            st.plotly_chart(UI.chart_stil(fig), width="stretch", key=P + "kurs_chart", config={"displayModeBar": False})
 
 
 # ---------------------------------------------------------------- Simulator
