@@ -8,14 +8,15 @@ showErrorDetails = false
 
 [theme]
 base = "dark"
-# Apple-Graphit (Liquid Glass, 10/2026): neutrale Grautoene, Systemblau als Bedienfarbe.
-# Gruen/Rot bleiben fuer Kursveraenderungen reserviert.
-backgroundColor = "#111113"
-secondaryBackgroundColor = "#1C1C1E"
-textColor = "#F5F5F7"
-primaryColor = "#0A84FF"
-linkColor = "#409CFF"
-borderColor = "#38383A"
+# Premium Glass (10/2026): tiefes Navy, Akzent Periwinkle #7c9cff (zweiter Akzent Tuerkis #5eead4 nur im CSS).
+# Gruen/Rot (#34d399 / #f87171) bleiben fuer Gewinne/Verluste reserviert.
+primaryColor = "#7c9cff"
+backgroundColor = "#07090f"
+secondaryBackgroundColor = "#0d1220"
+textColor = "#e8ecf6"
+linkColor = "#a5b8ff"
+borderColor = "#232a3d"
+font = "sans serif"
 showWidgetBorder = true
-baseRadius = "12px"
-buttonRadius = "12px"
+baseRadius = "14px"
+buttonRadius = "14px"

@@ -352,7 +352,7 @@ def _ziel_depot_anzeige(erg, kapital):
     if not zd or not zd["positionen"]:
         return
     ben = (erg.get("benoetigt") or {}).get("rendite")
-    st.markdown("#### 🎯 1 · Zielrendite-Musterdepot")
+    st.markdown("#### 1 · Zielrendite-Musterdepot")
     st.caption("Ausgewählt nach der bisherigen Rendite aller Werte der Top-500-Daten, damit das Ziel rechnerisch "
                "erreicht wird – „Rendite p. a.“ ist hier die bisherige Rendite, keine Prognose.")
     if zd["erreicht"]:
@@ -385,7 +385,7 @@ def _musterdepot(erg, kapital, zum_builder=None, zum_muster=None):
                 "Prozentanteilen. Beide Tabellen haben dieselben Spalten.")
     _ziel_depot_anzeige(erg, kapital)                # erreicht das Ziel rechnerisch - gleich hier, nicht ganz unten
     d = erg["depot"]
-    st.markdown(f"#### 📦 {'2 · ' if zwei else ''}Musterdepot mit deiner Aufteilung")
+    st.markdown(f"#### {'2 · ' if zwei else ''}Musterdepot mit deiner Aufteilung")
     for hw in d["hinweise"]:
         st.info(hw)
     _depot_tabelle(S.depot_zeilen(d, kapital))
@@ -414,7 +414,7 @@ def _pdf_knopf(erg, kapital):
     if fertig and fertig[0] == schluessel:
         st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
                            file_name=f"Investment_Scanner_{datetime.date.today().isoformat()}.pdf",
-                           key="pb_scan_pdf_download", width="stretch", type="primary")
+                           key="pb_scan_pdf_download", width="stretch")
 
 
 def _uebernehmen(d, danach=None):
@@ -850,7 +850,7 @@ table.pb-scan th { text-align:left; color:#9AA0A6; font-weight:700; font-size:.7
   text-transform:uppercase; padding:6px 8px; border-bottom:1px solid #2B2C2E; vertical-align:bottom; }
 table.pb-scan td { padding:6px 8px; border-bottom:1px solid #1E1F20; vertical-align:top; white-space:nowrap; }
 table.pb-scan td.t { white-space:normal; min-width:180px; max-width:280px; }
-table.pb-scan .n { position:sticky; left:0; background:#0B0B0C; z-index:1; max-width:220px; white-space:normal; }
+table.pb-scan .n { position:sticky; left:0; background:#0D1220; z-index:1; max-width:220px; white-space:normal; }
 table.pb-scan .r { text-align:right; white-space:nowrap; }
 table.pb-scan .gr { color:#9AA0A6; font-weight:400; }
 table.pb-scan.depot { table-layout:fixed; }

@@ -16,6 +16,7 @@ import scanner as S
 import scanner_ui as SCANNER_DATA
 import investment_scanner_pro_engine as E
 import formate as FMT
+import ui_stil as UI
 import schritte
 
 
@@ -238,7 +239,8 @@ def seite(h):
     for spalte in ('Kurs €', 'Score'):
         if spalte in table:
             table[spalte] = pd.to_numeric(table[spalte], errors='coerce')
-    st.dataframe(table, width="stretch", hide_index=True)
+    st.dataframe(table, width="stretch", hide_index=True,
+                 column_config=UI.tabellen_spalten(table, fortschritt=('Score', 'Anteil gesamt %')))
     if not table.empty:
         st.download_button('📥 Kaufplan CSV herunterladen', table.to_csv(index=False, sep=';').encode('utf-8-sig'),
                            'investment_scanner_pro_kaufplan.csv', 'text/csv', key='isp_export')
@@ -253,7 +255,7 @@ def seite(h):
         c[2].metric('Depot danach', euro(one['depotwert_danach']))
         if one['verkaeufe']:
             sold = pd.DataFrame(one['verkaeufe'])
-            st.dataframe(sold, hide_index=True, width="stretch")
+            st.dataframe(sold, hide_index=True, width="stretch", column_config=UI.tabellen_spalten(sold))
             st.download_button('📥 Verkaufsvorschlag CSV', sold.to_csv(index=False, sep=';').encode('utf-8-sig'),
                                'investment_scanner_pro_verkauf.csv', 'text/csv', key='isp_sales')
         if one['fehlbetrag']:
@@ -267,7 +269,8 @@ def seite(h):
     st.markdown('#### Alternative Anlagevermögen und Zielerreichung')
     st.caption('Szenarien basieren auf Modellrenditen und Volatilitätsannahmen, nicht auf garantierten Echtzeit-Prognosen. '
                'Sie zeigen ausdrücklich auch Strategien mit geringer Zielchance.')
-    st.dataframe(pd.DataFrame(res['szenarien']), hide_index=True, width="stretch")
+    _szen = pd.DataFrame(res['szenarien'])
+    st.dataframe(_szen, hide_index=True, width="stretch", column_config=UI.tabellen_spalten(_szen))
     mu, sigma = S.portfolio_kennzahlen(d)
     m = e['jahre'] * 12
     cashflows = [e['sparen'] - e['auszahlung']] * m
@@ -285,7 +288,8 @@ def seite(h):
                             'Eignung': 'ausreichend' if z['ausreichend'] else 'nicht ausreichend',
                             'Kurs € (Datenbestand)': z.get('kurs'), 'Kennung': E.key(z)}
                            for z in res['bewertet']])
-        st.dataframe(df.sort_values('Score', ascending=False).head(500), hide_index=True, width="stretch")
+        st.dataframe(df.sort_values('Score', ascending=False).head(500), hide_index=True, width="stretch",
+                     column_config=UI.tabellen_spalten(df, fortschritt=('Score',)))
         for key_, value in res['stand'].items():
             st.caption(f'{key_}: {value or "kein Zeitstempel verfügbar"}')
         st.caption('Top 500 = höchstens 500 Ranglisteneinträge aus dem vorhandenen tatsächlichen Datenbestand, '

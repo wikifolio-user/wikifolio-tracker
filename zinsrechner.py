@@ -1003,8 +1003,8 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-baseweb="input"]:focus-within,
 .st-key-zr_form [data-testid="stNumberInputContainer"]:focus-within,
 .st-key-zr_form [data-testid="stSelectbox"] > div:focus-within {
-    border-color: #0A84FF !important; outline-color: #0A84FF !important;
-    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25) !important;
+    border-color: #7C9CFF !important; outline-color: #7C9CFF !important;
+    box-shadow: 0 0 0 3px rgba(124, 156, 255, 0.25) !important;
 }
 /* Plus/Minus ausblenden: auf dem iPhone tippt man den Wert ein (Zahlentastatur) - mehr Platz fuer die Zahl */
 .st-key-zr_form [data-testid="stNumberInputStepUp"],
@@ -1028,8 +1028,8 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-testid="stNumberInput"],
 .st-key-zr_form [data-testid="stTextInput"],
 .st-key-zr_form [data-testid="stDateInput"] { margin-top: 0 !important; padding-top: 0 !important; }
-.zr-oben { border: 1px solid rgba(10, 132, 255, 0.45); border-radius: 14px; padding: 10px 14px; margin: 2px 0 10px;
-  background: linear-gradient(135deg, rgba(10, 132, 255, 0.16), rgba(10, 132, 255, 0.04)); }
+.zr-oben { border: 1px solid rgba(124, 156, 255, 0.45); border-radius: 14px; padding: 10px 14px; margin: 2px 0 10px;
+  background: linear-gradient(135deg, rgba(124, 156, 255, 0.16), rgba(124, 156, 255, 0.04)); }
 .zr-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #A9ACB0; }
 .zr-oben-w { font-size: 1.35rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
 .zr-oben-s { font-size: .8rem; color: #D1D2D4; }
@@ -1047,7 +1047,8 @@ FORM_CSS = """<style>
 
 def _kopf(symbol, titel, text="", schritt=None):
     """schritt = (Fuehrung, Nr.): leuchtende Schritt-Nummer statt Symbol (schritte.py)."""
-    zeichen = schritte.nummer_html(*schritt) if schritt else f'<span class="zr-symbol">{symbol}</span>'
+    # Ueberschriften ohne Emojis: Schritt-Nummer, sonst kein Symbol
+    zeichen = schritte.nummer_html(*schritt) if schritt else ""
     return (f'<div class="zr-kopf" style="margin-top:18px">{zeichen}<div>'
             f'<div class="zr-titel">{titel}</div>' + (f'<div class="zr-text">{text}</div>' if text else "")
             + "</div></div>")

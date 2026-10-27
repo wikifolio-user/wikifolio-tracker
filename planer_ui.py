@@ -106,7 +106,7 @@ UNTER = {
 }
 BEREICHE = HAUPT      # Kompatibilitaet
 
-FARBEN = ["#4C9AFF", "#16C784", "#F5B942", "#EA3943", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C",
+FARBEN = ["#4C9AFF", "#34D399", "#F5B942", "#F87171", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C",
           "#A3E635", "#94A3B8", "#FDE047", "#2DD4BF", "#C084FC", "#F87171"]
 
 QUELLEN = {"historisch": "Kurshistorie (Ist)", "manualScenario": "Eigene Annahme", "historical5Y": "Historisch 5 J.", "historical10Y": "Historisch 10 J.",
@@ -129,10 +129,10 @@ CSS = """
 /* lange Hinweise duerfen umbrechen (sonst laufen sie auf dem Handy seitlich aus dem Bild) */
 .pl-badge.pl-warn, .pl-badge.pl-info { white-space: normal; border-radius: 10px; }
 .pl-warn { background: rgba(245, 185, 66, 0.14); color: #F5B942; border: 1px solid rgba(245, 185, 66, 0.4); }
-.pl-info { background: rgba(10, 132, 255, 0.12); color: #409CFF; border: 1px solid rgba(10, 132, 255, 0.35); }
-.pl-gut { color: #16C784; } .pl-schlecht { color: #EA3943; }
+.pl-info { background: rgba(124, 156, 255, 0.12); color: #A5B8FF; border: 1px solid rgba(124, 156, 255, 0.35); }
+.pl-gut { color: #34D399; } .pl-schlecht { color: #F87171; }
 .q-kpi-v span.pl-gut, .q-kpi-v span.pl-schlecht { font-size: inherit; font-weight: 800; }
-.q-kpi-v span.pl-gut { color: #16C784; } .q-kpi-v span.pl-schlecht { color: #EA3943; }
+.q-kpi-v span.pl-gut { color: #34D399; } .q-kpi-v span.pl-schlecht { color: #F87171; }
 .pl-sub { font-size: 0.8rem; color: var(--label, #8A9099); font-weight: 600; }
 .pl-zeile { font-size: 0.8rem; color: #D9DADB; margin: 2px 0 12px 2px; line-height: 1.5; }
 .q-kpi-v.pl-klein { font-size: 1.05rem; }
@@ -186,8 +186,8 @@ CSS = """
 @media (max-width: 700px) { .q-kpis.pl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
                             .pl-kpis .q-kpi-v { font-size: 1.12rem; } }
 .pt.ue td.pt-wert.ue-fix { min-width: 110px; max-width: 170px; }
-.pl-formhinweis { font-size: 0.8rem; color: #D9DADB; background: rgba(10, 132, 255, 0.1);
-                  border: 1px solid rgba(10, 132, 255, 0.35); border-radius: 8px; padding: 7px 10px; margin: 4px 0 8px; }
+.pl-formhinweis { font-size: 0.8rem; color: #D9DADB; background: rgba(124, 156, 255, 0.1);
+                  border: 1px solid rgba(124, 156, 255, 0.35); border-radius: 8px; padding: 7px 10px; margin: 4px 0 8px; }
 /* Formular-Buttons klar beschriftet und farbig statt weisser Flaeche */
 [data-testid="stFormSubmitButton"] button {
     background: #36373A !important; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; min-height: 44px;
@@ -216,8 +216,8 @@ CSS = """
 .sc-balken { height: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); margin: 7px 0 8px;
              overflow: hidden; }
 .sc-balken > div { height: 100%; border-radius: 4px; }
-.sc-gruen { color: #16C784; } .sc-gelb { color: #F5B942; } .sc-rot { color: #EA3943; } .sc-grau { color: #8A9099; }
-.sc-bg-gruen { background: #16C784; } .sc-bg-gelb { background: #F5B942; } .sc-bg-rot { background: #EA3943; }
+.sc-gruen { color: #34D399; } .sc-gelb { color: #F5B942; } .sc-rot { color: #F87171; } .sc-grau { color: #8A9099; }
+.sc-bg-gruen { background: #34D399; } .sc-bg-gelb { background: #F5B942; } .sc-bg-rot { background: #F87171; }
 .sc-bg-grau { background: #5F6166; }
 .sc-teil { display: grid; grid-template-columns: minmax(0, 9.5em) 1fr 2.2em 3.2em; gap: 6px; align-items: center;
            font-size: 0.8rem; color: #D9DADB; margin: 2px 0; }
@@ -229,19 +229,19 @@ CSS = """
 .sc-pm { font-size: 0.8rem; line-height: 1.45; margin: 2px 0; }
 .sc-pm .sc-plus { color: #9BE8C6; } .sc-pm .sc-minus { color: #F5A3A8; }
 .sc-meta { font-size: 0.8rem; color: #8A9099; margin-top: 4px; }
-.sc-formel { font-size: 0.8rem; color: #D9DADB; background: rgba(10, 132, 255, 0.08);
-             border: 1px solid rgba(10, 132, 255, 0.3); border-radius: 8px; padding: 6px 10px; margin: 6px 0 10px; }
+.sc-formel { font-size: 0.8rem; color: #D9DADB; background: rgba(124, 156, 255, 0.08);
+             border: 1px solid rgba(124, 156, 255, 0.3); border-radius: 8px; padding: 6px 10px; margin: 6px 0 10px; }
 @media (max-width: 700px) { .sc-teil { grid-template-columns: minmax(0, 7.5em) 1fr 2.2em 3em; } }
-.an-box { border-left: 3px solid rgba(10, 132, 255, 0.6); background: rgba(10, 132, 255, 0.05);
+.an-box { border-left: 3px solid rgba(124, 156, 255, 0.6); background: rgba(124, 156, 255, 0.05);
           border-radius: 0 10px 10px 0; padding: 7px 10px; margin: 2px 0 10px; }
 .an-zeile { font-size: 0.8rem; color: #D9DADB; line-height: 1.45; margin: 3px 0; }
 .an-zeile b { color: #FFFFFF; }
 .an-tag { display: inline-block; font-size: 0.8rem; font-weight: 800; padding: 1px 6px; border-radius: 999px;
           margin-right: 5px; letter-spacing: 0.3px; text-transform: uppercase; vertical-align: 1px; }
-.an-fakt { background: rgba(22, 199, 132, 0.14); color: #6EE7B7; }
+.an-fakt { background: rgba(52, 211, 153, 0.14); color: #6EE7B7; }
 .an-prognose { background: rgba(245, 185, 66, 0.16); color: #F5B942; }
-.an-modell { background: rgba(64, 156, 255, 0.16); color: #409CFF; }
-.an-einschaetzung { background: rgba(10, 132, 255, 0.16); color: #409CFF; }
+.an-modell { background: rgba(165, 184, 255, 0.16); color: #A5B8FF; }
+.an-einschaetzung { background: rgba(124, 156, 255, 0.16); color: #A5B8FF; }
 .an-urteil { font-size: 0.95rem; font-weight: 800; color: #FFFFFF; margin: 4px 0 2px; }
 </style>
 """
@@ -1709,10 +1709,10 @@ WZ_CSS = """
 .wz-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 3px; display: flex; align-items: center;
           justify-content: center; font-size: 0.8rem; font-weight: 900; border: 1.5px solid var(--rand, rgba(255, 255, 255, 0.55));
           color: #D9DADB; background: transparent; }
-.wz-step.ok .wz-dot { background: rgba(10, 132, 255, 0.18); border-color: #0A84FF; color: #409CFF; }
+.wz-step.ok .wz-dot { background: rgba(124, 156, 255, 0.18); border-color: #7C9CFF; color: #A5B8FF; }
 .wz-step.warn .wz-dot { background: rgba(245,185,66,0.15); border-color: #F5B942; color: #F5B942; }
-.wz-step.fehler .wz-dot { background: rgba(234,57,67,0.15); border-color: #EA3943; color: #EA3943; }
-.wz-step.aktiv .wz-dot { box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.45); border-color: #0A84FF; }
+.wz-step.fehler .wz-dot { background: rgba(248, 113, 113,0.15); border-color: #F87171; color: #F87171; }
+.wz-step.aktiv .wz-dot { box-shadow: 0 0 0 3px rgba(124, 156, 255, 0.45); border-color: #7C9CFF; }
 .wz-step.aktiv { color: #FFFFFF; }
 .wz-lbl { display: block; line-height: 1.2; overflow-wrap: break-word; hyphens: manual; }
 .wz-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -1723,10 +1723,10 @@ WZ_CSS = """
                                     clip: rect(0 0 0 0); white-space: nowrap; }
 }
 .wz-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 2px 0 10px; }
-.wz-bar > div { height: 100%; background: linear-gradient(90deg, #0A84FF, #409CFF); border-radius: 3px; }
-.wz-kopf { border: 1px solid rgba(10, 132, 255, 0.35); background: rgba(10, 132, 255, 0.06); border-radius: 12px;
+.wz-bar > div { height: 100%; background: linear-gradient(90deg, #7C9CFF, #A5B8FF); border-radius: 3px; }
+.wz-kopf { border: 1px solid rgba(124, 156, 255, 0.35); background: rgba(124, 156, 255, 0.06); border-radius: 12px;
            padding: 10px 14px; margin: 4px 0 12px; }
-.wz-kopf .wz-nr { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; color: #409CFF; font-weight: 800; }
+.wz-kopf .wz-nr { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; color: #A5B8FF; font-weight: 800; }
 .wz-kopf .wz-t { font-size: 1.05rem; font-weight: 900; color: #FFFFFF; margin: 1px 0 2px; }
 .wz-kopf .wz-d { font-size: 0.8rem; color: #CCCED0; line-height: 1.45; }
 .wz-check { font-size: 0.82rem; color: #D9DADB; margin: 3px 0; line-height: 1.4; }
@@ -1746,12 +1746,12 @@ WZ_CSS = """
 .wz-vs-u { font-size: 0.8rem; letter-spacing: 1.1px; text-transform: uppercase; color: #8A9099; font-weight: 800;
            margin: 10px 0 2px; }
 .wz-mehr { font-size: 0.8rem; color: #8A9099; padding-top: 4px; }
-.wz-hinweis { font-size: 0.8rem; color: #409CFF; background: rgba(10, 132, 255, 0.08); border-radius: 8px;
+.wz-hinweis { font-size: 0.8rem; color: #A5B8FF; background: rgba(124, 156, 255, 0.08); border-radius: 8px;
               padding: 5px 8px; margin: 4px 0 8px; }
-.wz-hinweis.wz-rot { color: #F5A3A8; background: rgba(234,57,67,0.1); }
+.wz-hinweis.wz-rot { color: #F5A3A8; background: rgba(248, 113, 113,0.1); }
 .wz-leer { border: 1px dashed var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 12px; padding: 14px; text-align: center;
            color: #CCCED0; font-size: 0.84rem; margin: 6px 0 10px; }
-.st-key-pl_wz_weiter button { background: #36373A !important; border: 1px solid #0A84FF !important; min-height: 46px; }
+.st-key-pl_wz_weiter button { background: #36373A !important; border: 1px solid #7C9CFF !important; min-height: 46px; }
 .st-key-pl_wz_weiter button, .st-key-pl_wz_weiter button * { color: #FFFFFF !important; font-weight: 800 !important; }
 .st-key-pl_wz_ziel button { border: 1px solid #F5B942 !important; }
 @media (max-width: 700px) { .wz-lbl { font-size: 0.8rem; } .wz-dot { width: 24px; height: 24px; } }
@@ -1898,7 +1898,7 @@ def _vs_normalisieren():
 
 
 VS_GRUPPEN = {"index": ("ETFs & Indizes", "#4C9AFF"), "aktie": ("Aktien", "#A78BFA"),
-              "wikifolio": ("Wikifolios", "#16C784"), "hebel": ("Hebel-Produkte", "#F5B942"),
+              "wikifolio": ("Wikifolios", "#34D399"), "hebel": ("Hebel-Produkte", "#F5B942"),
               "krypto": ("Krypto", "#FB923C"), "cash": ("Reserve / Cash", "#94A3B8")}
 VS_TOP = 8
 
@@ -1935,7 +1935,7 @@ def _vorschau(m, R, mobil=False):
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                       annotations=[dict(text=f"<b>{_de(summe, 1)} %</b><br><span style='font-size:12px'>"
                                          f"{len(ids)} Positionen</span>", x=0.5, y=0.5, showarrow=False,
-                                        font=dict(size=15, color="#FFFFFF" if (ok_summe or auto) else "#EA3943"))])
+                                        font=dict(size=15, color="#FFFFFF" if (ok_summe or auto) else "#F87171"))])
     _chart(fig, "pl_vs_donut")
     st.markdown('<div class="wz-liste">' + "".join(
         f'<div class="wz-row"><span><i style="background:{VS_GRUPPEN.get(k, (k, "#94A3B8"))[1]}"></i>'
@@ -2765,7 +2765,7 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ct
     if not mit:
         return
     nach_score = sortierung == "⭐ Gesamt-Score"
-    _abschnitt("🏅 Warum auf diesem Platz?")
+    _abschnitt("Warum auf diesem Platz?")
     alter_k, stand_k = _sc_alter(stand)
     alter_q, stand_q = _sc_alter(q_stand)
     zeit = f"Bewertet {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')} · Kurse Stand {stand_k}"
@@ -2796,7 +2796,7 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ct
         st.markdown(_sc_karte(i + 1, z, z["bw"], text) + _analyse_box_html(_an(i, z)), unsafe_allow_html=True)
 
     if len(top) >= 2:
-        _abschnitt("⚖️ Direktvergleich der Spitze")
+        _abschnitt("Direktvergleich der Spitze")
         keys = []
         for z in top:
             for g in z["bw"]["gruppen"]:
@@ -2838,7 +2838,7 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ct
         st.caption("Zahlen in Klammern = Punkte, die der Teilscore zum Gesamt-Score beiträgt (Differenz zwischen "
                    f"den beiden). Abstände unter {BW.GLEICHWERTIG} Punkten sind innerhalb der Messgenauigkeit.")
 
-    _abschnitt("📋 Analyse je Eintrag")
+    _abschnitt("Analyse je Eintrag")
     st.caption("Kompakte Analysebox je Rang; „Detailanalyse“ zeigt alle Kennzahlen, Szenarien und Quellen. "
                "Gekennzeichnet: Fakt · Externe Prognose · Modell/Annahme · Einschätzung.")
     for i, z in enumerate(mit[:25]):
@@ -2850,7 +2850,7 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ct
     if len(mit) > 25:
         st.caption("Analyseboxen für die ersten 25 Einträge – alle weiteren über „Einzelnen Wert erklären“.")
 
-    _abschnitt("🔎 Einzelnen Wert erklären")
+    _abschnitt("Einzelnen Wert erklären")
     namen = [f'{i + 1}. {z["name"]} ({z["bw"]["score"]})' for i, z in enumerate(mit)]
     sig = zlib.crc32("|".join(str(z["kennung"]) for z in mit).encode())
     wahl_i = st.selectbox("Wert", list(range(len(mit))), format_func=lambda i: namen[i], key=f"pl_gk_erkl_{sig}")
@@ -2875,7 +2875,7 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ct
         st.caption(f"⚠️ {t}")
     if b["fehlend"]:
         st.caption("Ohne Daten (zieht den Score zur Mitte): " + ", ".join(b["fehlend"]))
-    _abschnitt(f"🧠 Investment-Analyse: {z['name']}")
+    _abschnitt(f"Investment-Analyse: {z['name']}")
     a = _an(int(wahl_i or 0), z, _q_detail(h, z))
     st.markdown(_analyse_box_html(a), unsafe_allow_html=True)
     _detailanalyse(a)
@@ -4214,11 +4214,11 @@ def _jahres_chart(zeilen, ziel=0.0, rendite=None):
     if zeige_ohne:
         linie(ohne, "Vermögen ohne Entnahme", "#8A9099", 2, "dash", marker=3)
     linie(verm, "Vermögen", "#FFFFFF", 3, text=True, marker=7)
-    linie(ertr, "Erträge je Jahr", "#16C784")
+    linie(ertr, "Erträge je Jahr", "#34D399")
     if any(ein):
         linie(ein, "Einzahlung je Jahr", "#A78BFA")
     if any(aus):
-        linie(aus, "Entnahme je Jahr", "#EA3943")
+        linie(aus, "Entnahme je Jahr", "#F87171")
         linie(summe_aus, "Entnahmen gesamt", "#FF6B6B", 2, "dot", text=True, pos="bottom")
     if ziel > 0:
         fig.add_hline(y=ziel, line=dict(color="#F5B942", dash="dash", width=1),
@@ -4340,7 +4340,7 @@ def _b_ziel(m, R):
     ], klein=True)
     beitr = sorted(proj["beitraege"].items(), key=lambda x: -x[1])
     fig = go.Figure(go.Bar(x=[v for _, v in beitr], y=[namen[i] for i, _ in beitr], orientation="h",
-                           marker_color=["#16C784" if v >= 0 else "#EA3943" for _, v in beitr],
+                           marker_color=["#34D399" if v >= 0 else "#F87171" for _, v in beitr],
                            hovertemplate="%{y}: %{x:,.0f} €<extra></extra>"))
     _layout(fig, 60 + 30 * len(beitr), legende=False)
     fig.update_yaxes(autorange="reversed", side="left", tickformat=None)
@@ -4437,7 +4437,7 @@ def _b_korb(m, R, fund, fund_stand, je_score, korb_score, hist_korb):
     sc = [je_score[i]["gesamt"] for i in ids]
     fig = go.Figure(go.Bar(
         x=[x["name"] for x in m["korb"]], y=[x["gewicht"] for x in m["korb"]],
-        marker_color=["#8A9099" if s is None else "#16C784" if s >= 70 else "#F5B942" if s >= 50 else "#EA3943"
+        marker_color=["#8A9099" if s is None else "#34D399" if s >= 70 else "#F5B942" if s >= 50 else "#F87171"
                       for s in sc],
         text=["–" if s is None else f"{s:.0f}" for s in sc], textposition="outside",
         hovertemplate="%{x}: %{y:.1f} % · Score %{text}<extra></extra>"))
@@ -4555,7 +4555,7 @@ def _b_szenarien(m, R, historie, h):
     st.caption("* im Stresspfad (Markteinbruch unter „⚠️ Risiko → Stress & Reserve“). Custom = eigene Custom-Annahmen, "
                "sonst Base. " + m["szenario_regel"]["text"])
     fig = go.Figure(go.Bar(x=["Bear", "Base", "Bull", "Custom"], y=[s[x]["endwert"] for x in ("bear", "base", "bull", "custom")],
-                           marker_color=["#EA3943", "#4C9AFF", "#16C784", "#A78BFA"],
+                           marker_color=["#F87171", "#4C9AFF", "#34D399", "#A78BFA"],
                            hovertemplate="%{x}: %{y:,.0f} €<extra></extra>"))
     fig.add_hline(y=rahmen["zielvermoegen"], line=dict(color="#F5B942", dash="dash"), annotation_text="Ziel",
                   annotation_font_color="#F5B942")
@@ -4801,7 +4801,7 @@ def _b_reserve(m, R):
     x = [i / 12 for i in range(len(mit["monatswerte"]))]
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x, y=ohne["monatswerte"], name="Reserve bleibt Cash", line=dict(color="#8A9099", width=2)))
-    fig.add_trace(go.Scatter(x=x, y=mit["monatswerte"], name="Mit Tranchen", line=dict(color="#16C784", width=3)))
+    fig.add_trace(go.Scatter(x=x, y=mit["monatswerte"], name="Mit Tranchen", line=dict(color="#34D399", width=3)))
     for n in mit["nachkaeufe"]:
         fig.add_trace(go.Scatter(x=[n["monat"] / 12], y=[mit["monatswerte"][n["monat"]]], mode="markers",
                                  marker=dict(color="#F5B942", size=11, symbol="triangle-up"), showlegend=False,
@@ -4844,10 +4844,10 @@ def _b_sensitiv(m, R):
     zeilen = [z for z in zeilen if z["spanne"] > 1][:10]
     fig = go.Figure()
     fig.add_trace(go.Bar(y=[namen[z["id"]] for z in zeilen], x=[z["tief"] - basis for z in zeilen], base=basis,
-                         orientation="h", name=f"−{delta} Pp.", marker_color="#EA3943",
+                         orientation="h", name=f"−{delta} Pp.", marker_color="#F87171",
                          hovertemplate="%{y}: %{x:,.0f} €<extra></extra>"))
     fig.add_trace(go.Bar(y=[namen[z["id"]] for z in zeilen], x=[z["hoch"] - basis for z in zeilen], base=basis,
-                         orientation="h", name=f"+{delta} Pp.", marker_color="#16C784",
+                         orientation="h", name=f"+{delta} Pp.", marker_color="#34D399",
                          hovertemplate="%{y}: %{x:,.0f} €<extra></extra>"))
     fig.add_vline(x=basis, line=dict(color="#FFFFFF", width=1))
     _layout(fig, 80 + 34 * len(zeilen))
@@ -4864,7 +4864,7 @@ def _b_sensitiv(m, R):
         stufen = [0.50, 0.40, 0.30, 0.20, 0.10, 0.0]
         erg = E.gruppen_sensitivitaet(m, R["r"], wiki_ids, stufen, rebalancing=R["reb"])
         fig2 = go.Figure(go.Bar(x=[_pct(s, 0) for s, _ in erg], y=[v for _, v in erg],
-                                marker_color=["#16C784" if v >= m["rahmen"]["zielvermoegen"] else "#4C9AFF" for _, v in erg],
+                                marker_color=["#34D399" if v >= m["rahmen"]["zielvermoegen"] else "#4C9AFF" for _, v in erg],
                                 hovertemplate="Wikifolios %{x} p.a.: %{y:,.0f} €<extra></extra>"))
         fig2.add_hline(y=m["rahmen"]["zielvermoegen"], line=dict(color="#F5B942", dash="dash"))
         _layout(fig2, 300, legende=False)
@@ -5150,7 +5150,7 @@ def _b_entnahme(m, R):
     fig = go.Figure()
     if e["start"] == "modell":
         fig.add_trace(go.Scatter(x=x_auf, y=aufbau, name="Aufbau (Modell)", line=dict(color="#4C9AFF", width=2)))
-    fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahmephase", line=dict(color="#16C784", width=3)))
+    fig.add_trace(go.Scatter(x=x_ent, y=ent, name="Entnahmephase", line=dict(color="#34D399", width=3)))
     netto_kum, summe = [0.0], 0.0
     for i in range(1, len(ent)):
         summe += E.entnahme_betrag(e["monatlich"], e["dynamik_pa"] / 100.0, i + kw.get("start_monat", 0),
@@ -5447,7 +5447,7 @@ def _b_kredit(m, R):
                    f'<b>{_de(plan[j_]["ende"])} €</b>'] for j_ in jahre_p])
         fig_s = go.Figure()
         fig_s.add_trace(go.Bar(x=[0] + jahre_p, y=[plan[jahre_p[0]]["anfang"]] + [plan[j_]["ende"] for j_ in jahre_p],
-                               name="Restschuld", marker_color="#EA3943",
+                               name="Restschuld", marker_color="#F87171",
                                text=[_kurz_eur(v) for v in [plan[jahre_p[0]]["anfang"]] + [plan[j_]["ende"] for j_ in jahre_p]],
                                textposition="outside", textfont=dict(color="#FFFFFF", size=11)))
         _layout(fig_s, 280, legende=False)
@@ -5469,7 +5469,7 @@ def _b_kredit(m, R):
             mit_p[j] += pkt[1]
             ohne_p[j] += pkt[2]
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=jahre, y=mit_p, name="Mit Krediten (nach Restschuld)", line=dict(color="#16C784", width=3)))
+    fig.add_trace(go.Scatter(x=jahre, y=mit_p, name="Mit Krediten (nach Restschuld)", line=dict(color="#34D399", width=3)))
     fig.add_trace(go.Scatter(x=jahre, y=ohne_p, name="Ohne Kredite", line=dict(color="#4C9AFF", width=2, dash="dash")))
     _layout(fig, 340)
     fig.update_layout(hovermode="x unified")
@@ -5662,7 +5662,7 @@ def render_musterdepot(h):
         seit = datetime.date.fromisoformat(d["erstellt"]).strftime("%d.%m.%Y")
     except Exception:
         seit = d.get("erstellt", "–")
-    st.markdown(f'<div class="abschnitt">📦 {_esc(wahl)}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="abschnitt">{_esc(wahl)}</div>', unsafe_allow_html=True)
     _hinweis(f"Musterdepot aus „{d.get('quelle', '–')}“ · erstellt am {seit} · "
              "Kaufkurse = Schlusskurse vom Erstellungstag · ohne Gebühren und Steuern")
     farbe = "pl-gut" if gv >= 0 else "pl-schlecht"
@@ -5779,7 +5779,7 @@ def render(h):
     st.markdown(CSS + WZ_CSS, unsafe_allow_html=True)
     m = _modell(h)
     name = st.session_state.get("planer_variante")
-    st.markdown(f'<div class="abschnitt">💼 Portfolio-Planer{" · aus Variante " + _esc(name) if name else ""}</div>',
+    st.markdown(f'<div class="abschnitt">Portfolio-Planer{" · aus Variante " + _esc(name) if name else ""}</div>',
                 unsafe_allow_html=True)
     st.caption(f"Planer-Version {PLANER_VERSION} · Rechenkern {getattr(E, 'ENGINE_VERSION', 'alt')}")
     _hinweis("Szenariorechnung / keine Prognose – alle Renditen sind Annahmen oder historische Ausgangswerte, "
