@@ -12,6 +12,7 @@ import streamlit as st
 import portfolio_builder as P
 import scanner as S
 from portfolio_builder_ui import _smartphone
+import formate as FMT
 
 PROFIL_TITEL = {"niedrig": "Niedrig", "mittel": "Mittel", "hoch": "Hoch", "eigene": "Eigene",
                 S.FAVORITEN: "Favoriten"}
@@ -24,13 +25,11 @@ def _de(x, dez=0):
 
 
 def _eur(x, dez=0):
-    return ("−" if x < -1e-9 else "") + _de(abs(x), dez) + " €"
+    return FMT.eur(x, dez)
 
 
 def _pct(x, dez=1, vz=False):
-    if x is None:
-        return "–"
-    return ("+" if vz and x > 0 else "−" if x < 0 else "") + _de(abs(x), dez) + " %"
+    return FMT.pct(x, dez, vz)
 
 
 def _esc(t):

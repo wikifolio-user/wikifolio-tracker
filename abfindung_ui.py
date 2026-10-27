@@ -11,6 +11,7 @@ from decimal import Decimal
 
 import abfindung as A
 import abfindung_modelle as M
+import formate as FMT
 
 NAV = ["🧮 Abfindung berechnen", "📊 Alle Modelle", "💶 Brutto-Netto", "🏭 Sozialplan & Regelwerke",
        "🎚️ Verhandlung", "🧾 ALG & Risiken", "🔀 Szenarien", "📄 Bericht"]
@@ -132,7 +133,7 @@ def _karte(st, nr, titel, text, key):
 
 
 def _eur(x, nk=0):
-    return "–" if x is None else f"{M.de(x, nk)} €"
+    return FMT.eur(x, nk)
 
 
 def fall_aus_session(ss, null=False):

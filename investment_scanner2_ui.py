@@ -11,6 +11,7 @@ import streamlit as st
 import investment_scanner2 as E
 import portfolio_builder_ui as B
 import scanner as S
+import formate as FMT
 
 P = "is2_"                                         # Schluessel-Praefix in st.session_state
 TOP_N = {"Top 50": 50, "Top 100": 100, "Top 250": 250, "Top 500": 500}
@@ -70,11 +71,11 @@ def _de(x, dez=0):
 
 
 def _eur(x, dez=0):
-    return ("−" if x < -1e-9 else "") + _de(abs(x), dez) + " €"
+    return FMT.eur(x, dez)
 
 
 def _pct(x, dez=1):
-    return "–" if x is None else ("−" if x < 0 else "") + _de(abs(x), dez) + " %"
+    return FMT.pct(x, dez)
 
 
 def _esc(t):

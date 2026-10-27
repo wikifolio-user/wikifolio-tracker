@@ -179,7 +179,7 @@ def _lade_app():
         raise AssertionError(f"fehlt in app.py: {fehlend}")
     modul = ast.Module(body=[zuw[z] for z in ZUWEISUNGEN] + [defs[f] for f in FUNKTIONEN], type_ignores=[])
     st = types.SimpleNamespace(session_state={})
-    ns = {"html": html, "bisect": bisect, "datetime": datetime, "pd": pd, "math": math, "re": re,
+    ns = {"FMT": __import__("formate"), "html": html, "bisect": bisect, "datetime": datetime, "pd": pd, "math": math, "re": re,
           "config": config, "nutzerdaten": N, "st": st}
     exec(compile(modul, pfad, "exec"), ns)
     return ns, st

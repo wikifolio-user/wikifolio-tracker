@@ -15,6 +15,7 @@ import portfolio_builder_ui as B
 import scanner as S
 import scanner_ui as SCANNER_DATA
 import investment_scanner_pro_engine as E
+import formate as FMT
 
 
 PROFILES = {'Defensiv': 'niedrig', 'Ausgewogen': 'mittel', 'Wachstum': 'hoch'}
@@ -31,7 +32,7 @@ def _spalten(n, je_zeile=None):
 
 
 def euro(v):
-    return f"{v:,.2f} €".replace(',', 'X').replace('.', ',').replace('X', '.')
+    return FMT.eur(v, 2)
 
 
 def _quote_map():

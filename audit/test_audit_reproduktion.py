@@ -42,7 +42,7 @@ def _lade():
         baum = ast.parse(f.read())
     defs = {n.name: n for n in baum.body if isinstance(n, ast.FunctionDef)}
     modul = ast.Module(body=[defs[f] for f in FUNKTIONEN], type_ignores=[])
-    ns = {"html": html, "bisect": bisect, "datetime": datetime, "pd": pd, "np": np, "math": math}
+    ns = {"FMT": __import__("formate"), "html": html, "bisect": bisect, "datetime": datetime, "pd": pd, "np": np, "math": math}
     exec(compile(modul, "app.py", "exec"), ns)
     return ns
 
@@ -176,7 +176,7 @@ class Randfaelle(unittest.TestCase):
             self.fail("ZeroDivisionError bei Startwert 0 (app.py berechne_performance_kennzahlen)")
 
     def test_fmt_vz_negative_null(self):
-        self.assertEqual(A["fmt_vz"](-0.004), "+0,00€")
+        self.assertEqual(A["fmt_vz"](-0.004), "+0,00\u00a0€")
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import pandas as pd
 import streamlit as st
 
 import portfolio_builder as P
+import formate as FMT
 
 try:
     import nutzerdaten as N
@@ -100,11 +101,11 @@ def _de(x, dez=0):
 
 
 def eur(x, dez=0):
-    return ("−" if x < -1e-9 else "") + _de(abs(x), dez) + " €"
+    return FMT.eur(x, dez)
 
 
 def pct(x, dez=1):
-    return _de(x, dez) + " %"
+    return FMT.pct(x, dez)
 
 
 def _esc(t):

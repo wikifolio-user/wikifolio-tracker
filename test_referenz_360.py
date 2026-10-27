@@ -184,13 +184,13 @@ class Scanner2Modell(unittest.TestCase):
 
 class Rundung(unittest.TestCase):                           # F-07
     def test_kaufmaennisch_halbe_cents_aufwaerts(self):
-        self.assertEqual(_A["fmt"](2.675), "2,68€")
-        self.assertEqual(_A["fmt"](1.005), "1,01€")
-        self.assertEqual(_A["fmt"](-2.675), "-2,68€")
-        self.assertEqual(_A["fmt"](1234567.125), "1.234.567,13€")
-        self.assertEqual(_A["fmt_vz"](-0.004), "+0,00€")             # nie "-0,00€"
+        self.assertEqual(_A["fmt"](2.675), "2,68\u00a0€")
+        self.assertEqual(_A["fmt"](1.005), "1,01\u00a0€")
+        self.assertEqual(_A["fmt"](-2.675), "\u22122,68\u00a0€")
+        self.assertEqual(_A["fmt"](1234567.125), "1.234.567,13\u00a0€")
+        self.assertEqual(_A["fmt_vz"](-0.004), "+0,00\u00a0€")             # nie "-0,00€"
         self.assertEqual(_A["vz_zahl"](0.125, 2), "+0,13")
-        self.assertEqual(_A["fmt"](0.5, 0), "1€")
+        self.assertEqual(_A["fmt"](0.5, 0), "1\u00a0€")
 
 
 if __name__ == "__main__":

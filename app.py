@@ -20,6 +20,8 @@ import chronik
 import login
 import nutzerdaten
 import kurs_dienst as KD
+import formate as FMT
+import ui_stil as UI
 import prognose_basis as PROG_BASIS
 import branchen as BR
 import dividenden as DV
@@ -99,1100 +101,7 @@ WIKIFOLIO_STARTKURS = 100.0
 # War die Hauptursache fuer das sichtbare Aufhellen/Verdunkeln bei jedem
 # Fragment-Rerun (kompletter CSS-Neuaufbau zwingt den Browser zum Neu-Rendern
 # der gesamten Seite).
-st.markdown("""
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-    /* ============================================================
-       DESIGN-SYSTEM
-       Typo:  Space Grotesk = Labels/Text (charaktervoll, technisch)
-              IBM Plex Mono = ALLE Zahlen (echte Tabellenziffern,
-              fuer Datendarstellung entworfen - Betraege stehen
-              dadurch sauber untereinander statt zu "wackeln")
-       Farbe: Graustufen als Basis. Gruen/Rot AUSSCHLIESSLICH fuer
-              Kursveraenderungen - dadurch sticht das hervor, was
-              wirklich wichtig ist.
-       ============================================================ */
-    :root {
-        --ink:     #0A0B0D;   /* Hintergrund - nicht reines Schwarz, Hauch Blau */
-        --surface: #131519;   /* erhoehte Flaechen */
-        --line:    #21252C;   /* Haarlinien */
-        --muted:   #7C8493;   /* Sekundaertext, tertiaer (Fussnoten) */
-        --label:   #AAB1BE;   /* Zeilen-Labels - deutlich besser lesbar als --muted */
-        --text:    #E9EBEF;   /* Primaertext */
-        --up:      #16C784;
-        --down:    #EA3943;
-    }
-
-    .stApp { background-color: var(--ink); color: var(--text); }
-
-    /* Basistypo fuer Text - Icon-Elemente (z.B. Expander-Pfeile,
-       Number-Input-Steppers) werden HIER BEWUSST AUSGENOMMEN, da diese
-       eine eigene Icon-Font (Material Symbols) benoetigen. Wurde diese
-       durch Space Grotesk ueberschrieben, zeigte Streamlit statt des
-       Pfeil-Glyphs den rohen Icon-Namen als Text an (z.B. "_arrow_right"). */
-    .stApp,
-    .stApp *:not([data-testid="stIconMaterial"]):not(.material-icons):not(.material-symbols-rounded):not(.material-symbols-outlined) {
-        font-family: 'Space Grotesk', -apple-system, sans-serif;
-    }
-
-    /* Streamlit-eigene Icons (Expander-Chevron, Stepper-Pfeile etc.)
-       explizit auf ihrer Icon-Font belassen. */
-    [data-testid="stIconMaterial"] {
-        font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
-    }
-
-    /* Zahlen bekommen konsequent die Datenschrift mit Tabellenziffern */
-    .num, .q-price, .q-delta, .row-val, .hero-val, .hero-sub {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
-        font-variant-numeric: tabular-nums;
-        font-feature-settings: "tnum" 1;
-    }
-
-    /* ---------- KURS-KOPF: die Zahl ist der Held der Seite ---------- */
-    .quote {
-        background: var(--surface); border: 1px solid var(--line);
-        border-radius: 12px; padding: 14px 16px;
-        /* Diese Kachel wird in einem eigenen Fragment-Container gezeichnet -
-           dort greift der Grundabstand aus stVerticalBlock nicht. Deshalb hier
-           derselbe Wert (0.7rem) direkt gesetzt, damit der Abstand zur
-           Depotwert-Kachel genauso gross ist wie ueberall sonst. */
-        margin-bottom: 0.7rem;
-    }
-    /* Kachel-Ueberschriften identisch zu den Abschnittsueberschriften:
-       gleiche Schrift, gleiches Gewicht, Neonweiss mit leichtem Schein. */
-    .q-name, .hero-label {
-        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
-        letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: 6px;
-        text-shadow: 0 0 10px rgba(255, 255, 255, 0.30);
-    }
-    .q-price {
-        font-size: 1.6rem; font-weight: 700; color: var(--text);
-        line-height: 1; letter-spacing: -0.5px;
-    }
-    /* Kurs + Live-Badge + Boerse in einer Zeile: die Statusinfos gehoeren
-       unmittelbar zum Kurs, nicht in die Kennzahlen-Chipreihe darunter. */
-    .price-line {
-        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    }
-    .q-delta { font-size: 1.1rem; font-weight: 600; margin-top: 12px; }
-    .up { color: var(--up); } .down { color: var(--down); }
-
-    /* ---------- META-CHIPS statt Punkt-getrennter Textwurst ----------
-       Live-Status als farbiges Pill-Badge, restliche Fakten als eigene
-       Chips - deutlich schneller erfassbar als eine lange "A · B · C"
-       Zeile. Zeitstempel bewusst separat und kleiner: es ist die am
-       wenigsten wichtige Information hier (Meta zur Meta). */
-    .meta-row {
-        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-        margin-top: 14px;
-    }
-    .live-pill {
-        display: inline-flex; align-items: center; gap: 6px;
-        background: rgba(22, 199, 132, 0.12); color: var(--up);
-        font-size: 0.8rem; font-weight: 700; letter-spacing: 0.2px;
-        padding: 4px 10px 4px 8px; border-radius: 999px;
-    }
-    .live-pill.offline { background: rgba(234, 57, 67, 0.12); color: var(--down); }
-    .live-pill.stand { background: rgba(255, 255, 255, 0.06); color: var(--label); }
-    .live-dot.stand { background: var(--label); animation: none; }
-    .meta-chip {
-        font-size: 0.85rem; color: var(--label); font-weight: 500;
-        background: rgba(255, 255, 255, 0.04);
-        padding: 4px 10px; border-radius: 999px;
-    }
-    /* Badge fuer "aktuell auf Allzeithoch" - gleiche Pill-Optik wie das
-       Live-Badge, damit sich die Statusmarker in beiden Kacheln gleichen. */
-    .hw-pill {
-        display: inline-flex; align-items: center; gap: 6px;
-        background: rgba(22, 199, 132, 0.12); color: var(--up);
-        font-size: 0.8rem; font-weight: 700; letter-spacing: 0.2px;
-        padding: 4px 10px; border-radius: 999px;
-    }
-
-    .live-dot {
-        display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-        background: var(--up); animation: pulse 2.4s ease-in-out infinite;
-        flex-shrink: 0;
-    }
-    .live-dot.offline { background: var(--down); animation: none; }
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50%      { opacity: 0.35; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-        .live-dot { animation: none; }
-    }
-
-    /* ---------- HERO: eine einzige hervorgehobene Kennzahl ---------- */
-    .hero {
-        background: var(--surface); border: 1px solid var(--line);
-        border-radius: 12px; padding: 14px 16px; margin-bottom: 0;
-    }
-
-    /* Gesamtsumme optisch abheben - gruener Akzentrand, damit sie sich
-       trotz gleicher Struktur klar von den Einzelpositionen unterscheidet. */
-    .hero.gesamt {
-        border-color: rgba(22, 199, 132, 0.35);
-        background: linear-gradient(rgba(22, 199, 132, 0.05), rgba(22, 199, 132, 0.05)), var(--surface);
-    }
-    .hero-val { font-size: 1.6rem; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
-    .hero-sub { font-size: 0.92rem; color: var(--label); font-weight: 500; }
-
-    /* Kompakte Fussnote am Kachelende (Zeitstempel, Stueckzahl) - bewusst
-       ohne Chip-Pille, damit sie moeglichst wenig Hoehe kostet. */
-    .card-footnote {
-        font-size: 0.8rem; color: var(--muted); margin-top: 8px;
-    }
-
-    /* ---------- STAT-CHIPS: gleiche Pill-Optik wie die Meta-Chips
-       oben beim Kurs-Kopf - Label + Wert in einer Pille, statt Label
-       ueber Wert gestapelt. Sorgt fuer ein einheitliches Design ueber
-       beide Kacheln hinweg. ---------- */
-    .stat-chip {
-        display: inline-flex; align-items: center; gap: 7px;
-        background: rgba(255, 255, 255, 0.04);
-        padding: 6px 12px; border-radius: 999px;
-    }
-    .stat-chip-label {
-        font-size: 0.8rem; font-weight: 700; color: var(--label);
-        text-transform: uppercase; letter-spacing: 0.4px;
-    }
-    .stat-chip-val {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
-        font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
-        font-size: 0.9rem; font-weight: 700; color: var(--text);
-    }
-    .stat-chip-val.up { color: var(--up); } .stat-chip-val.down { color: var(--down); }
-
-    /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
-       Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
-       und deutlich schneller zu scannen als 8 gleich grosse Boxen. */
-    .rows { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 22px; }
-    .row {
-        display: flex; justify-content: space-between; align-items: flex-start;
-        gap: 14px; padding: 14px 18px; background: var(--surface);
-        border-bottom: 1px solid var(--line);
-    }
-    .row:last-child { border-bottom: none; }
-    .row-label {
-        font-size: 0.88rem; color: var(--text); font-weight: 600;
-        line-height: 1.35; flex: 1 1 42%; min-width: 0;
-    }
-    .row-val {
-        font-size: 1rem; color: var(--text); font-weight: 700;
-        text-align: right; line-height: 1.35; flex: 1 1 58%; min-width: 0;
-        overflow-wrap: break-word;
-    }
-    .row-note {
-        display: block; font-size: 0.8rem; color: var(--muted);
-        font-weight: 400; margin-top: 4px; white-space: normal;
-    }
-
-    /* ---------- PERFORMANCE-TABELLE INNERHALB einer Kachel ----------
-       Hairline-getrennte Zeitraum-Zeilen (Tag/Woche/Monat/Jahr/seit Kauf)
-       direkt unter den Chips. Bewusst ohne eigenen Rahmen/Hintergrund -
-       sie sitzt ja schon IN der Kachel, ein zweiter Rahmen wuerde
-       verschachtelt und unruhig wirken. */
-    .perf-table {
-        margin-top: 10px; border-top: 1px solid var(--line);
-    }
-    .perf-row {
-        display: flex; justify-content: space-between; align-items: baseline;
-        gap: 12px; padding: 7px 2px; border-bottom: 1px solid var(--line);
-    }
-    .perf-row:last-child { border-bottom: none; padding-bottom: 2px; }
-    .perf-label {
-        font-size: 0.82rem; color: var(--label); font-weight: 500;
-    }
-    .perf-vals {
-        display: inline-flex; gap: 12px; justify-content: flex-end;
-        flex-wrap: wrap; text-align: right;
-    }
-    .perf-vals .up, .perf-vals .down, .perf-vals .neutral {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
-        font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
-        font-size: 0.85rem; font-weight: 600; white-space: nowrap;
-    }
-    .perf-vals .neutral { color: var(--label); }
-
-    /* ---------- Streamlit-Eigenheiten ---------- */
-    #MainMenu, footer { visibility: hidden; }
-    [data-testid="stToolbar"] { visibility: hidden; }
-    /* Streamlits eigenes "Running ..."-Kaestchen ausblenden - wir zeigen
-       stattdessen den zentrierten Ladefortschritt unten. Mehrere Selektoren,
-       da Streamlit das Widget je nach Version unterschiedlich benennt
-       (stStatusWidget / stStatus / Toolbar-Container) - so greift es
-       versionsunabhaengig. */
-    [data-testid="stStatusWidget"],
-    [data-testid="stStatus"],
-    [data-testid="stHeader"] [data-testid="stStatusWidget"],
-    .stStatusWidget,
-    div[class*="StatusWidget"],
-    div[data-testid="stDecoration"] {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-        height: 0 !important;
-        width: 0 !important;
-        overflow: hidden !important;
-    }
-    /* Der Header selbst darf bleiben (er haelt den Abstand oben frei),
-       nur sein Inhalt wird unsichtbar. */
-    /* Der (ohnehin leere) Streamlit-Header belegt sonst ~3rem Hoehe und
-       schiebt den gesamten Inhalt nach unten. Auf Hoehe 0 zusammenfallen
-       lassen - dadurch kann der Innenabstand oben deutlich kleiner sein,
-       ohne dass etwas unter dem Header verschwindet. */
-    [data-testid="stHeader"] {
-        background: transparent !important;
-        height: 0 !important;
-        min-height: 0 !important;
-    }
-    [data-testid="stAppViewContainer"] > .main { padding-top: 0 !important; }
-
-    /* ---------- KURSANSICHT-UMSCHALTER ----------
-       Kompakt gehalten: der Umschalter ist Navigation, nicht Inhalt - er darf
-       die eigentliche Kurskachel nicht aus dem sichtbaren Bereich draengen.
-       Trefferflaeche bleibt mit 34px trotzdem daumentauglich. */
-    [data-testid="stButtonGroup"] { margin-bottom: 8px; }
-    [data-testid="stButtonGroup"] button {
-        min-height: 34px !important;
-        padding: 4px 12px !important;
-        font-size: 0.8rem !important;
-        border-radius: 999px !important;
-    }
-    /* Aktive Pille weiss hervorheben - gleiche Bildsprache wie beim Dropdown,
-       und Gruen/Rot bleiben den Kursveraenderungen vorbehalten. */
-    [data-testid="stButtonGroup"] button[aria-checked="true"],
-    [data-testid="stButtonGroup"] button[aria-pressed="true"] {
-        border-color: #FFFFFF !important;
-        box-shadow: 0 0 10px rgba(255,255,255,0.35) !important;
-    }
-    /* Dropdown-Variante (ab 4 Werten) ebenfalls schlanker */
-    /* ---------- DROPDOWNS DEUTLICH ALS BEDIENELEMENT KENNZEICHNEN ----------
-       Streamlits Standard-Selectbox sieht im dunklen Theme fast wie eine
-       Ueberschrift aus. Loesung: leuchtender weisser Rahmen plus dezenter
-       Schein. Bewusst MEHRERE Selektoren - Streamlit verschachtelt die
-       BaseWeb-Selectbox je nach Version unterschiedlich tief, ein einzelner
-       Selektor griff hier nicht zuverlaessig. */
-    [data-testid="stSelectbox"] { margin-bottom: 0; }
-
-    /* Label dezent halten - es soll orientieren, nicht mit den Kachel-
-       Ueberschriften konkurrieren. */
-    /* Identisch zu .abschnitt, damit alle Ueberschriften gleich aussehen.
-       Typografie fuer beide Ebenen (Streamlit legt den Text je nach Version
-       direkt ins label oder in ein <p> darin). */
-    [data-testid="stSelectbox"] label,
-    [data-testid="stSelectbox"] label p {
-        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.8rem !important;
-        font-weight: 700 !important;
-        color: #FFFFFF !important;
-        letter-spacing: 1.3px !important;
-        text-transform: uppercase;
-        text-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
-    }
-    /* Trennlinie und Abstaende NUR auf dem label - liegen sie auch auf dem
-       <p> darin, zeichnen beide je einen Strich (das waren die zwei Linien).
-       Der Streamlit-Grundabstand greift innerhalb eines Widgets nicht,
-       deshalb sind die 13px hier direkt gesetzt (entspricht 2px margin +
-       11px Grundabstand bei den .abschnitt-Ueberschriften). */
-    [data-testid="stSelectbox"] label {
-        display: block !important;
-        width: 100% !important;
-        /* KEINE Trennlinie hier: das Dropdown darunter hat bereits einen
-           kraeftigen weissen Rahmen - eine zusaetzliche Linie direkt darueber
-           wirkt wie eine doppelte Begrenzung. Der Abstand entspricht dem der
-           .abschnitt-Ueberschriften (dort 7px padding + 2px margin + 11px
-           Grundabstand = 20px, hier direkt als margin gesetzt). */
-        /* Streamlit fuegt zwischen Label und Feld bereits einen eigenen
-           Abstand ein - deshalb hier deutlich weniger als der rechnerische
-           Wert der .abschnitt-Ueberschriften, sonst klafft eine Luecke. */
-        margin: 16px 0 4px 2px !important;
-        padding-bottom: 0 !important;
-        border-bottom: none !important;
-    }
-    /* Etwaigen Zusatzabstand des Widget-Containers entfernen, damit der
-       Abstand Ueberschrift -> Feld dem der Abschnitte entspricht. */
-    [data-testid="stSelectbox"] > div:not(:first-child) {
-        margin-top: 0 !important;
-    }
-    /* Das innere <p> bringt eigene Abstaende mit - hier entfernen. */
-    [data-testid="stSelectbox"] label p {
-        margin: 0 !important;
-        padding: 0 !important;
-        border: none !important;
-        line-height: 1.2 !important;
-    }
-
-    /* Rahmen per OUTLINE statt border: outline wird von BaseWebs eigenen
-       Border-Regeln nicht ueberschrieben und liegt garantiert aussen an.
-       Zusaetzlich auf mehreren Ebenen gesetzt, da Streamlit die Selectbox je
-       nach Version unterschiedlich tief verschachtelt. */
-    [data-testid="stSelectbox"] > div,
-    [data-testid="stSelectbox"] [data-baseweb="select"] {
-        outline: 2px solid #FFFFFF !important;
-        outline-offset: 0 !important;
-        border-radius: 12px !important;
-        background-color: var(--surface) !important;
-        box-shadow: 0 0 14px rgba(255, 255, 255, 0.35) !important;
-    }
-
-    /* Aufmerksamkeits-Puls: laeuft nur kurz nach dem Laden und kommt dann zur
-       Ruhe. Dauerhafte Animation wuerde dem Blick staendig Aufmerksamkeit
-       abziehen - in einer Kurs-App soll Bewegung "hier hat sich etwas
-       geaendert" bedeuten, nicht "hier ist ein Bedienelement". */
-    @keyframes hinweis_puls {
-        0%, 100% { box-shadow: 0 0 10px rgba(255,255,255,0.25); }
-        50%      { box-shadow: 0 0 26px rgba(255,255,255,0.85); }
-    }
-    [data-testid="stSelectbox"] > div {
-        animation: hinweis_puls 1.6s ease-in-out 3;
-    }
-    @media (prefers-reduced-motion: reduce) {
-        [data-testid="stSelectbox"] > div { animation: none; }
-    }
-
-    /* Innere Ebenen rahmenlos halten, damit keine Doppellinie entsteht */
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div > div {
-        border: none !important;
-        background-color: transparent !important;
-        min-height: 46px !important;
-    }
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {
-        box-shadow: none !important;
-    }
-    /* Beim Antippen kurz kraeftiger - reine Rueckmeldung, keine Dauerbewegung */
-    [data-testid="stSelectbox"] > div:hover,
-    [data-testid="stSelectbox"] > div:focus-within {
-        box-shadow: 0 0 22px rgba(255, 255, 255, 0.7) !important;
-    }
-
-    /* Auswahltext kraeftiger als normaler Fliesstext */
-    [data-testid="stSelectbox"] [data-baseweb="select"] div[value],
-    [data-testid="stSelectbox"] [data-baseweb="select"] span {
-        font-weight: 600 !important;
-    }
-    /* Pfeil weiss und groesser - zusammen mit dem Rahmen das "hier tippen"-Signal */
-    [data-testid="stSelectbox"] svg {
-        fill: #FFFFFF !important;
-        color: #FFFFFF !important;
-        width: 24px !important; height: 24px !important;
-    }
-    /* Hilfe-Symbol (?) neben Dropdowns: nicht wie das Feld rahmen/fuellen - sonst
-       erscheint es als weisser Kreis. Gleiche Optik wie bei den uebrigen Feldern. */
-    [data-testid="stSelectbox"] [data-testid="stTooltipIcon"],
-    [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"],
-    [data-testid="stSelectbox"] > div:has([data-testid="stTooltipIcon"]):not(:has([data-baseweb="select"])) {
-        outline: none !important; background: transparent !important; box-shadow: none !important;
-        animation: none !important; border: none !important;
-    }
-    [data-testid="stSelectbox"] [data-testid="stTooltipIcon"] svg,
-    [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"] svg {
-        fill: none !important; color: #9AA0A6 !important; stroke: currentColor;
-        width: 18px !important; height: 18px !important;
-    }
-    /* Aufgeklappte Liste passend zum Rest gestalten */
-    div[data-baseweb="popover"] li {
-        font-size: 0.9rem !important;
-        min-height: 44px !important;
-    }
-    /* Streamlit begrenzt aufgeklappte Auswahllisten auf rund 300px - bei
-       "Ansicht wählen" wurde dadurch der 8. Eintrag angeschnitten. Die Grenze
-       sitzt ZWEIMAL: am aeusseren Rahmen (data-testid=stSelectboxVirtualDropdown)
-       und an der inneren Liste (role=listbox), beide mit
-       max-height: min(maxDropdownHeight, 70vh). Beide muessen angehoben
-       werden. Die Liste misst ihre Groesse selbst nach, lange Listen bleiben
-       also korrekt scrollbar. */
-    [data-testid="stSelectboxVirtualDropdown"],
-    [data-testid="stSelectboxVirtualDropdown"] [role="listbox"] {
-        max-height: min(30rem, 80vh) !important;
-    }
-
-    /* ---------- ABSCHNITTE & AUFKLAPPBEREICHE ----------
-       Die Aufklappbereiche taten bisher zweierlei (etwas einstellen vs. etwas
-       nachschlagen), sahen aber identisch aus. Abschnittsueberschrift plus
-       weisser Rahmen macht die Gliederung auf einen Blick lesbar. */
-    .abschnitt {
-        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
-        letter-spacing: 1.3px; text-transform: uppercase;
-        margin: 16px 0 2px 2px;
-        padding-bottom: 7px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.45);
-        /* Neon-Weiss wie Titel und Menue */
-        text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
-        box-shadow: 0 6px 8px -8px rgba(255, 255, 255, 0.35);
-    }
-
-    /* Jeder Aufklappbereich als eigener Block mit weissem Rand. Bewusst
-       schwaecher als das Ansichts-Dropdown (1px statt 2px outline, dezenteres
-       Leuchten) - das Dropdown ist die Hauptnavigation und soll das
-       auffaelligste Element auf der Seite bleiben. */
-    [data-testid="stExpander"] {
-        border: 1px solid rgba(255, 255, 255, 0.55) !important;
-        border-radius: 12px !important;
-        background: var(--surface) !important;
-        margin-bottom: 0 !important;
-        overflow: hidden;
-        box-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
-        transition: box-shadow 0.15s ease, border-color 0.15s ease;
-    }
-    [data-testid="stExpander"]:hover {
-        border-color: rgba(255, 255, 255, 0.9) !important;
-        box-shadow: 0 0 16px rgba(255, 255, 255, 0.30);
-    }
-
-    /* Titelzeile vereinheitlichen: gleiche Schrift, gleiches Gewicht, gleiche
-       Groesse. Streamlit setzt hier je nach Version eigene Werte - dadurch
-       wirkten die Titel unterschiedlich, obwohl es dieselbe Schrift war. */
-    /* ACHTUNG: Icon-Elemente hier ausnehmen! Wird ihnen eine Textschrift
-       aufgezwungen, rendert Streamlit statt des Pfeil-Glyphs den rohen
-       Icon-Namen als Text ("_arrow_right"). */
-    [data-testid="stExpander"] summary,
-    [data-testid="stExpander"] summary p,
-    [data-testid="stExpander"] summary span:not([data-testid="stIconMaterial"]):not(.material-icons):not([class*="material-symbols"]),
-    [data-testid="stExpander"] summary div:not([data-testid="stIconMaterial"]) {
-        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
-        font-size: 0.88rem !important;
-        font-weight: 600 !important;
-        line-height: 1.35 !important;
-        color: var(--text) !important;
-    }
-
-    /* Der Abstand kommt bei Streamlit vom umgebenden Block, nicht vom
-       Expander selbst - deshalb dort verringern. Sonst stehen die Kacheln
-       trotz margin-bottom:0 weit auseinander. */
-    /* Zusammengehoerige Aufklappbereiche ruecken enger zusammen als der
-       Grundabstand - sie bilden optisch eine Gruppe. */
-    div[data-testid="stElementContainer"]:has([data-testid="stExpander"]) {
-        margin-top: -0.35rem !important;
-    }
-    /* AUSNAHME: der ERSTE Bereich direkt unter einer Abschnittsueberschrift
-       behaelt den vollen Abstand. Ohne das saehe der Abstand Ueberschrift ->
-       erste Kachel enger aus als bei "Ansicht waehlen" -> Dropdown. */
-    div[data-testid="stElementContainer"]:has(.abschnitt)
-    + div[data-testid="stElementContainer"] {
-        margin-top: 0 !important;
-    }
-    /* Fallback fuer Browser ohne :has()-Unterstuetzung: der Expander zieht
-       sich selbst nach oben an den vorherigen Block heran. */
-    @supports not selector(:has(*)) {
-        [data-testid="stExpander"] { margin-top: -0.35rem !important; }
-    }
-
-    /* "Ansicht wählen:" und "Prognose Basis auswählen:" bekommen eine eigene
-       .abschnitt-Ueberschrift (siehe oben, gleiche Optik wie "WEITERE
-       INFORMATIONEN"). Das native Selectbox-Label direkt danach wird hier
-       gezielt ausgeblendet - WICHTIG: nicht ueber Streamlits eigenes
-       label_visibility="collapsed", sondern ausschliesslich per CSS. Ein
-       frueherer Versuch mit "collapsed" hat zu doppeltem Text gefuehrt:
-       unsere Label-Regel nutzt "display: block !important", und !important
-       in einer Stylesheet-Regel gewinnt IMMER gegen ein simples Inline-
-       "style=display:none" (das Streamlit fuer "collapsed" setzt) - das
-       eigentlich versteckte Label wurde dadurch wieder sichtbar. Hier
-       versteckt ausschliesslich UNSERE eigene Regel, kein Widerspruch. */
-    div[data-testid="stElementContainer"]:has(.abschnitt-marker-ansicht)
-    + div[data-testid="stElementContainer"] [data-testid="stSelectbox"] label,
-    div[data-testid="stElementContainer"]:has(.abschnitt-marker-prognose)
-    + div[data-testid="stElementContainer"] [data-testid="stSelectbox"] label {
-        display: none !important;
-    }
-
-    /* Aufklapp-Pfeil: eigene Icon-Schrift erzwingen und deutlich vergroessern,
-       damit klar erkennbar ist, dass sich der Bereich oeffnen laesst. */
-    [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {
-        font-family: 'Material Symbols Rounded', 'Material Symbols Outlined',
-                     'Material Icons' !important;
-        font-size: 1.7rem !important;
-        line-height: 1 !important;
-        color: #FFFFFF !important;
-        opacity: 1 !important;
-        flex-shrink: 0;
-    }
-    [data-testid="stExpander"] summary {
-        padding: 13px 14px !important;
-        transition: background-color 0.15s ease;
-    }
-    [data-testid="stExpander"] summary:hover,
-    [data-testid="stExpander"] summary:hover p {
-        background-color: #171A1F !important;
-        color: #FFFFFF !important;
-    }
-    /* Abstand zwischen Pfeil und Titel */
-    [data-testid="stExpander"] summary { gap: 10px !important; }
-    [data-testid="stExpander"] summary svg {
-        fill: #FFFFFF !important;
-        color: #FFFFFF !important;
-    }
-
-    /* ---------- VERGLEICHSTABELLE ----------
-       Kernprobleme der alten Fassung: umbrechende Namen, komplett leere
-       Zeitraum-Spalten, keine Zeilenfuehrung ueber die volle Breite. */
-    .pt-wrap {
-        overflow-x: auto; -webkit-overflow-scrolling: touch;
-        border: 1px solid var(--line); border-radius: 10px;
-        margin-bottom: 12px;
-    }
-    .pt { width: 100%; border-collapse: collapse; background: #0B0C0F; }
-
-    .pt thead th {
-        position: sticky; top: 0; z-index: 2;
-        /* Harmonischer Grauton, deutlich abgesetzt von den Zeilen darunter
-           (#0B0C0F) - die Kopfzeile soll klar als eigene Ebene erkennbar
-           sein, nicht nur eine Nuance dunkler. */
-        background: #1C1F26;
-        padding: 9px 10px;
-        font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
-        letter-spacing: 0.7px; text-transform: uppercase;
-        text-align: center; white-space: nowrap;
-        border-bottom: 1px solid var(--line);
-        text-shadow: 0 0 8px rgba(255, 255, 255, 0.30);
-    }
-
-    /* Zebra-Streifen: machen lange Zeilen ueber die ganze Breite verfolgbar */
-    .pt tbody tr.pt-zebra { background: rgba(255, 255, 255, 0.022); }
-    .pt tbody tr:hover { background: rgba(255, 255, 255, 0.06); }
-
-    /* Die EIGENE Position ist der Bezugspunkt - alles andere ist Vergleich.
-       Deshalb farblich abgesetzt statt in der Masse unterzugehen. */
-    .pt tbody tr.pt-eigene {
-        background: rgba(22, 199, 132, 0.09);
-        box-shadow: inset 3px 0 0 var(--up);
-    }
-
-    .pt td {
-        padding: 9px 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        white-space: nowrap;
-    }
-    .pt tbody tr:last-child td { border-bottom: none; }
-
-    /* Name und WKN untereinander statt nebeneinander - spart Breite und
-       verhindert den Umbruch mitten im Namen. */
-    .pt-wert { text-align: left; min-width: 110px; }
-    .pt-name {
-        display: block; font-size: 0.83rem; font-weight: 700; color: #FFFFFF;
-        white-space: normal; line-height: 1.25;
-    }
-    .pt-wknval {
-        color: var(--label); font-weight: 600; font-size: 0.8rem;
-        letter-spacing: 0.3px;
-    }
-
-    /* Zahlen in Tabellenziffern, damit Nachkommastellen untereinander stehen */
-    .pt-num {
-        text-align: right;
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
-        font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
-        font-size: 0.8rem;
-    }
-    .pt-stark { font-weight: 700; font-size: 0.83rem; }
-    .pt-klein { font-size: 0.8rem; opacity: 0.92; }
-    .pt-up { color: #16C784; }
-    .pt-down { color: #EA3943; }
-    .pt-leer { color: #4B5058; }
-    .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.8rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
-
-    /* ---------- WATCHLIST / QUALITAETS-SCORE ----------
-       Zweite Zeile unter dem Namen (Kennung, Branche) statt eigener Spalten -
-       spart auf dem iPhone die Breite fuer die eigentlichen Zahlen. */
-    .pt-sub {
-        display: block; margin-top: 2px; white-space: normal;
-        font-size: 0.8rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
-    }
-    .q-punkte { font-weight: 800; font-size: 0.9rem; }
-    .q-prio { color: #16C784; }
-    .q-beob { color: #F5B942; }
-    .q-nicht { color: #8A9099; }
-    .pt td.q-fokus-hl, .pt th.q-fokus-hl { background: rgba(255, 255, 255, 0.05); }
-    .q-legende { font-size: 0.8rem; color: var(--label); margin: -4px 0 10px; }
-    .q-kpis {
-        display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-        gap: 8px; margin: 6px 0 12px;
-    }
-    .q-kpi {
-        background: #0B0C0F; border: 1px solid var(--line); border-radius: 10px;
-        padding: 10px 12px; min-width: 0;
-    }
-    .q-kpi-l {
-        font-size: 0.8rem; font-weight: 700; color: var(--label);
-        text-transform: uppercase; letter-spacing: 0.6px;
-    }
-    .q-kpi-v {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
-        font-size: 1.35rem; font-weight: 800; color: #FFFFFF; line-height: 1.3;
-    }
-    .q-kpi-v span { font-size: 0.8rem; font-weight: 600; color: var(--label); }
-    .q-kpi-v b { font-weight: 800; }
-    /* Kleine Tabellen mit mehreren Zahlenspalten: Koepfe duerfen zweizeilig sein */
-    .pt.pt-kompakt thead th { white-space: normal; line-height: 1.25; }
-    /* Gesamtuebersicht: breite Tabellen scrollen IMMER seitlich (auch am
-       iPhone), die Namensspalte bleibt beim Wischen links stehen */
-    .ue-wrap {
-        overflow-x: auto; -webkit-overflow-scrolling: touch;
-        border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px;
-    }
-    .pt.ue td { white-space: nowrap; }
-    .pt.ue td.pt-wert { white-space: normal; min-width: 150px; max-width: 320px; }
-    .pt.ue .ue-fix { position: sticky; left: 0; z-index: 1; background: #0B0C0F;
-                     box-shadow: 1px 0 0 var(--line); }
-    .pt.ue thead th.ue-fix { z-index: 3; background: #1C1F26; }
-    .pt.ue tr.pt-zebra .ue-fix { background: #111216; }
-    /* wikifolio-Rangliste: Rang und Name bleiben beim Wischen beide links stehen */
-    .pt.wk .wk-rang { left: 0; width: 44px; min-width: 44px; max-width: 44px; box-sizing: border-box;
-                      box-shadow: none; }
-    .pt.wk .wk-name { left: 44px; width: auto; min-width: 150px; max-width: 220px; }
-    /* iPad hochkant: etwas engere Spalten, damit alle Zeitraeume ohne Wischen passen */
-    @media (min-width: 701px) and (max-width: 1100px) {
-        .pt.wk td, .pt.wk thead th { padding-left: 6px; padding-right: 6px; }
-        .pt.wk .wk-rang { width: 36px; min-width: 36px; max-width: 36px; }
-        .pt.wk .wk-name { left: 36px; min-width: 130px; max-width: 170px; }
-    }
-    @media (min-width: 701px) and (max-width: 800px) {
-        .pt.wk td, .pt.wk thead th { padding-left: 4px; padding-right: 4px; }
-        .pt.wk .wk-name { min-width: 112px; max-width: 140px; }
-        .pt.wk .pt-num { font-size: 0.76rem; }
-    }
-    @media (max-width: 700px) { .pt.wk .wk-name { min-width: 128px; max-width: 150px; } }
-    /* ETF-/wikifolio-Score: Begruendung als kurze Zeilen, Teilpunkte als Balken */
-    .pt.ks td.ks-grund, .pt.ks th.ks-grund { white-space: normal; min-width: 220px; max-width: 320px;
-                                              text-align: left; font-size: 0.78rem; line-height: 1.35; }
-    .ks-plus, .ks-minus { display: block; }
-    .ks-plus { color: #16C784; }
-    .ks-minus { color: #F5B942; }
-    .ks-bahn { width: 140px; height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px;
-               overflow: hidden; }
-    .ks-bahn > div { height: 100%; background: #16C784; border-radius: 4px; }
-    .pt.ks-mini td { white-space: normal; }
-    .pt.ks-mini td.pt-num { white-space: nowrap; }
-    .q-balken { margin: 4px 0 14px; }
-    .q-b-zeile {
-        display: grid; grid-template-columns: minmax(0, 1fr) 96px 46px;
-        gap: 10px; align-items: center; padding: 6px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.82rem; color: #FFFFFF;
-    }
-    .q-b-bahn { height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden; }
-    .q-b-fuell { height: 100%; border-radius: 4px; }
-    .q-b-wert {
-        text-align: right; font-weight: 700;
-        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
-    }
-    @media (max-width: 700px) {
-        .q-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .q-kpi-v { font-size: 1.2rem; }
-        .q-b-zeile { grid-template-columns: minmax(0, 1fr) 72px 44px; font-size: 0.86rem; }
-        .pt-sub { font-size: 0.8rem; }
-        .q-punkte { font-size: 0.98rem; }
-        .pt.pt-kompakt td, .pt.pt-kompakt thead th { padding: 9px 6px; }
-    }
-
-    /* ---------- MOBILE: FOKUS AUF EINE KENNZAHL ----------
-       Die volle Tabelle braucht ~980px, ein Smartphone bietet ~360px.
-       Ein Karten-Layout (jeder Wert eine eigene Karte) waere zwar lesbar,
-       zerstoert aber genau den Zweck einer VERGLEICHStabelle: das schnelle
-       Nebeneinander. Deshalb stattdessen: Tabelle bleibt Tabelle, aber es
-       wird nur EINE Kennzahl-Spalte gezeigt - dafuer alle Werte untereinander
-       direkt vergleichbar, ohne horizontales Scrollen. Welche Kennzahl das
-       ist, waehlt der Nutzer per Umschalter darueber.
-       Am Desktop (>700px) bleibt die volle Tabelle unveraendert. */
-    @media (max-width: 700px) {
-        /* Alle Kennzahl-Spalten ausblenden ... */
-        .pt td[data-spalte], .pt th[data-spalte] { display: none; }
-        /* ... und nur die aktive wieder einblenden. Die Klasse am Tabellen-
-           Container steuert, welche das ist. */
-        .pt-fokus-monatlich  td[data-spalte="monatlich"],
-        .pt-fokus-monatlich  th[data-spalte="monatlich"],
-        .pt-fokus-jaehrlich  td[data-spalte="jaehrlich"],
-        .pt-fokus-jaehrlich  th[data-spalte="jaehrlich"],
-        .pt-fokus-perf       td[data-spalte="perf"],
-        .pt-fokus-perf       th[data-spalte="perf"],
-        .pt-fokus-euro       td[data-spalte="euro"],
-        .pt-fokus-euro       th[data-spalte="euro"],
-        .pt-fokus-_q td[data-spalte="_q"], .pt-fokus-_q th[data-spalte="_q"],
-        .pt-fokus-_h td[data-spalte="_h"], .pt-fokus-_h th[data-spalte="_h"],
-        .pt-fokus-_n td[data-spalte="_n"], .pt-fokus-_n th[data-spalte="_n"],
-        .pt-fokus-_z td[data-spalte="_z"], .pt-fokus-_z th[data-spalte="_z"] {
-            display: table-cell;
-        }
-
-        /* Der Name bekommt den gewonnenen Platz, die Zahl bleibt gut lesbar */
-        .pt-wert { min-width: 0; width: 58%; }
-        .pt-name { font-size: 0.86rem; }
-        .pt-num  { font-size: 0.92rem; }
-        .pt-stark { font-size: 0.95rem; }
-        .pt td, .pt thead th { padding: 10px 8px; }
-        .pt-wrap { overflow-x: visible; }
-    }
-
-    /* ---------- ALLGEMEINE LADEANZEIGE (jede Ansicht) ----------
-       Streamlit markiert die App waehrend jedes Durchlaufs mit
-       data-test-script-state="running". Dauert ein Durchlauf laenger als
-       0,5 s, erscheint oben dasselbe Banner wie beim genauen Balken:
-       Prozentzahl, Text und Balken. Die Prozentzahl ist hier eine
-       HOCHRECHNUNG (zaehlt zuegig an, wird dann langsamer und haelt bei
-       95 %, bis die Seite fertig ist) - der genaue Stand ist unbekannt.
-       Laeuft schon der genaue Prozent-Balken (.loading-overlay), bleibt
-       diese Anzeige aus. */
-    @property --ladepct { syntax: '<integer>'; inherits: false; initial-value: 0; }
-    @property --ladebreite { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
-    [data-testid="stApp"][data-test-script-state="running"]::before,
-    [data-testid="stApp"][data-test-script-state="rerunRequested"]::before {
-        counter-reset: ladepct var(--ladepct);
-        content: counter(ladepct) " %";
-        position: fixed; top: 0; left: 0; right: 0; z-index: 10000; height: 66px; box-sizing: border-box;
-        padding: 10px 16px 0; display: block;
-        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
-        font-size: 1.35rem; font-weight: 700; line-height: 1.2; color: var(--text);
-        background: rgba(11, 18, 32, 0.97); border-bottom: 1px solid var(--line);
-        box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
-        opacity: 0; pointer-events: none;
-        animation: ladeein 0.2s ease 0.5s forwards, ladezahl 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
-    }
-    [data-testid="stApp"][data-test-script-state="running"]::after,
-    [data-testid="stApp"][data-test-script-state="rerunRequested"]::after {
-        content: "Lade Daten …";
-        position: fixed; z-index: 10001; top: 0; left: 0; right: 0; height: 66px; box-sizing: border-box;
-        padding: 14px 16px 0 96px; text-align: right;
-        font-size: 0.9rem; font-weight: 600; color: var(--muted); white-space: nowrap;
-        /* Balken: unten im Banner, Fuellung waechst mit --ladebreite */
-        background:
-            linear-gradient(var(--accent, #5B9BFF), var(--accent, #5B9BFF)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
-            linear-gradient(var(--line), var(--line)) no-repeat 16px 46px / calc(100% - 32px) 9px;
-        opacity: 0; pointer-events: none;
-        animation: ladeein 0.2s ease 0.5s forwards, ladebalken 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
-    }
-    [data-testid="stApp"]:has(.loading-overlay)::before,
-    [data-testid="stApp"]:has(.loading-overlay)::after { display: none !important; }
-    @keyframes ladeein { to { opacity: 1; } }
-    @keyframes ladezahl { from { --ladepct: 0; } to { --ladepct: 95; } }
-    @keyframes ladebalken { from { --ladebreite: 0%; } to { --ladebreite: 95%; } }
-
-    /* ---------- LADEFORTSCHRITT: FESTES BANNER AM OBEREN RAND ----------
-       Bewusst position:fixed statt im normalen Seitenfluss. Vorher wanderte
-       der Balken mit, sobald darueber/darunter Inhalte erschienen - und das
-       Fragment der Kursansicht zeichnete ihn an einer voellig anderen Stelle.
-       Ergebnis war ein sichtbares Hin- und Herspringen.
-       Fixiert belegt er ausserdem keinen Platz im Layout, es gibt also auch
-       keinen Versatz mehr, wenn er wieder verschwindet. */
-    .loading-overlay {
-        position: fixed; top: 0; left: 0; right: 0; z-index: 9999; height: 66px; box-sizing: border-box;
-        display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 8px;
-        padding: 10px 16px 0; align-content: flex-start;
-        background: rgba(11, 18, 32, 0.97);
-        border-bottom: 1px solid var(--line);
-        box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(6px);
-    }
-    .loading-pct {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
-        font-variant-numeric: tabular-nums;
-        font-size: 1.35rem; font-weight: 700; color: var(--text);
-        line-height: 1.2; min-width: 72px; flex-shrink: 0;
-    }
-    /* Balken in eigener Zeile ueber die volle Breite - feste Breite, nur die Fuellung bewegt sich */
-    .loading-bar {
-        order: 3; flex: 0 0 100%; width: 100%; height: 9px; border-radius: 999px;
-        background: var(--line); overflow: hidden;
-    }
-    .loading-bar-fill {
-        height: 100%; background: var(--accent, #5B9BFF); border-radius: 999px;
-        transition: width 0.25s ease;
-    }
-    /* Text rechts neben der Prozentzahl, bei Bedarf abgeschnitten */
-    .loading-text {
-        flex: 1 1 0; min-width: 0; text-align: right;
-        font-size: 0.9rem; color: var(--muted); font-weight: 600;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    /* ---------- VOLLE BREITE, RESPONSIV (gilt fuer alle Ansichten) ----------
-       Der Inhalt nutzt die ganze verfuegbare Breite (mit Sidebar: den Rest daneben);
-       seitliche Abstaende wachsen nur maessig mit dem Bildschirm. Kein seitliches
-       Scrollen der Seite - breite Tabellen scrollen in ihrem eigenen Rahmen. */
-    .block-container, [data-testid="stMainBlockContainer"] {
-        padding-top: 0.8rem; padding-bottom: 4rem;
-        max-width: 100% !important; width: 100% !important;
-        padding-left: clamp(12px, 2.6vw, 48px) !important; padding-right: clamp(12px, 2.6vw, 48px) !important;
-    }
-    html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"] {
-        overflow-x: hidden;
-    }
-    [data-testid="stMarkdownContainer"] img, [data-testid="stMarkdownContainer"] svg,
-    [data-testid="stMarkdownContainer"] iframe, [data-testid="stImage"] img { max-width: 100%; height: auto; }
-    [data-testid="stElementContainer"], [data-testid="stColumn"], [data-testid="stVerticalBlock"] { min-width: 0; }
-    [data-testid="stDataFrame"], [data-testid="stTable"], [data-testid="stPlotlyChart"],
-    [data-testid="stVegaLiteChart"] { max-width: 100%; }
-    [data-testid="stTable"], [data-testid="stMarkdownContainer"] table { display: block; overflow-x: auto; }
-    [data-testid="stMarkdownContainer"] .pt, [data-testid="stMarkdownContainer"] .ue-wrap table { display: table; }
-
-    /* ---------- EINHEITLICHES ABSTANDS-RASTER ----------
-       Streamlit setzt zwischen allen Bloecken 1rem. Zusammen mit den eigenen
-       margin-Werten der Kacheln ergaben sich dadurch ueberall andere Abstaende.
-       Deshalb: EIN Grundabstand hier, und die Elemente selbst bringen keinen
-       eigenen mehr mit. Alles im Fluss haelt damit denselben Rhythmus. */
-    div[data-testid="stVerticalBlock"] { gap: 0.7rem !important; }
-
-    [data-testid="stNumberInput"] input {
-        font-family: 'IBM Plex Mono', monospace !important;
-        font-variant-numeric: tabular-nums;
-        font-size: 1.15rem !important; font-weight: 600 !important;
-    }
-    [data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"] {
-        width: 42px !important; height: 42px !important; min-width: 42px !important;
-    }
-    [data-testid="stNumberInputStepUp"] svg, [data-testid="stNumberInputStepDown"] svg {
-        width: 20px !important; height: 20px !important;
-    }
-    /* Handy: die Zahlenfelder sind durch die grossen +/- Tasten 46 px hoch - Auswahlfelder daneben
-       gleich hoch, sonst wirken sie in einer Reihe kleiner und versetzt */
-    @media (max-width: 700px), (pointer: coarse) {
-        [data-testid="stSelectbox"] > div:last-child,
-        [data-testid="stSelectbox"] > div:last-child > div { min-height: 46px !important; }
-        [data-testid="stSelectbox"] > div:last-child > div { display: flex; align-items: center; }
-    }
-    /* Tabs ruhiger, ohne dicke gruene Unterstreichung */
-    [data-testid="stTabs"] button { font-size: 0.8rem !important; letter-spacing: 0.3px; }
-    /* Tab-Leiste bei vielen Positionen horizontal scrollbar halten, statt
-       die Beschriftungen umbrechen oder abschneiden zu lassen. */
-    [data-testid="stTabs"] [data-baseweb="tab-list"] {
-        overflow-x: auto; scrollbar-width: none;
-    }
-    [data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
-    /* Sichtbarer Tastatur-Fokus (Audit A-16) */
-    button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-visible,
-    [role="button"]:focus-visible, [role="checkbox"]:focus-visible, [role="switch"]:focus-visible {
-        outline: 2px solid #8AB4FF !important; outline-offset: 2px !important;
-    }
-    /* Kachel im Tab hat keinen doppelten Abstand nach unten */
-    [data-testid="stTabs"] .hero { margin-bottom: 0; }
-
-    /* ---------- UX 10/2026: Lesbarkeit auf kleinen Bildschirmen ----------
-       Streamlit kuerzt Kennzahlen, Feldbeschriftungen und Knopftexte mit "…" - auf dem
-       iPhone waren so Werte wie "4.00…" oder "Wahrscheinlichkeit …" nicht lesbar.
-       Hier wird stattdessen umgebrochen. */
-    [data-testid="stMetric"] .stMarkdownEllipsis, [data-testid="stMetric"] .stMarkdownEllipsis *,
-    [data-testid="stWidgetLabel"] .stMarkdownEllipsis, [data-testid="stWidgetLabel"] .stMarkdownEllipsis *,
-    [data-testid="stButton"] .stMarkdownEllipsis, [data-testid="stButton"] .stMarkdownEllipsis *,
-    [data-testid="stFormSubmitButton"] .stMarkdownEllipsis, [data-testid="stFormSubmitButton"] .stMarkdownEllipsis *,
-    [data-testid="stDownloadButton"] .stMarkdownEllipsis, [data-testid="stDownloadButton"] .stMarkdownEllipsis * {
-        white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
-        overflow-wrap: break-word;
-    }
-    [data-testid="stMetricValue"] { font-size: clamp(1.25rem, 5.2vw, 2.25rem) !important; line-height: 1.15 !important; }
-    /* Depot | Kurse: gleich hohe Kopfzeilen (Titel links, Auswahl rechts), eine durchgehende Linie */
-    .st-key-depot_kopf_links, .st-key-depot_kopf_rechts {
-        min-height: 54px; justify-content: center; margin: 6px 0 4px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.45); padding-bottom: 6px; }
-    .st-key-depot_kopf_links .abschnitt, .st-key-depot_kopf_rechts .abschnitt {
-        border-bottom: none !important; box-shadow: none !important; margin: 0 0 0 2px !important;
-        padding-bottom: 0 !important; }
-    .st-key-depot_kopf_rechts [data-testid="stWidgetLabel"] { display: none !important; }
-    /* Titel in der Kopfzeile senkrecht mittig (wie links), auch wenn der Block gestreckt wird */
-    .st-key-depot_kopf_links [data-testid="stMarkdownContainer"],
-    .st-key-depot_kopf_rechts [data-testid="stMarkdownContainer"] { display: flex; align-items: center; }
-    /* Depot | Kurse nebeneinander: die jeweils letzte Kachel fuellt die Spalte bis unten, beide Spalten
-       enden auf derselben Hoehe (die Fusszeile rutscht ans Kachelende) */
-    @media (min-width: 820px) {
-        .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
-        /* Spalte -> (Fragment-Huelle) -> letztes Element waechst bis zum Spaltenende */
-        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"],
-        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"]
-            > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] { height: 100%; }
-        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > :last-child,
-        .st-key-depot_spalten [data-testid="stColumn"] > [data-testid="stVerticalBlock"]
-            > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] > :last-child {
-            flex: 1 1 auto; }
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child > [data-testid="stMarkdown"],
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child > [data-testid="stMarkdown"] > div,
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child [data-testid="stMarkdownContainer"] {
-            height: 100%; margin: 0 !important; }
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child :is(.hero, .quote) {
-            height: 100%; margin-top: 0 !important; margin-bottom: 0 !important; box-sizing: border-box;
-            display: flex; flex-direction: column; }
-        .st-key-depot_spalten [data-testid="stElementContainer"]:last-child :is(.hero, .quote) .card-footnote {
-            margin-top: auto; }
-    }
-    /* Depot | Kurse: nebeneinander erst ab 820 px, darunter untereinander */
-    @media (max-width: 819px) {
-        .st-key-depot_spalten > div > [data-testid="stHorizontalBlock"],
-        .st-key-depot_spalten [data-testid="stHorizontalBlock"]:first-of-type {
-            flex-direction: column !important; flex-wrap: wrap !important; gap: 0.7rem !important; }
-        .st-key-depot_spalten [data-testid="stColumn"] {
-            width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; }
-        .st-key-depot_kopf_rechts { margin-top: 14px; }
-        /* Kopfzeile "Kurse | Auswahl" auch auf dem Handy in EINER Zeile (sonst ueberdeckt das
-           Dropdown den Titel) - Titel so schmal wie noetig, Auswahl nimmt den Rest */
-        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stHorizontalBlock"] {
-            flex-direction: row !important; flex-wrap: nowrap !important; gap: 0.6rem !important;
-            align-items: center !important; }
-        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stColumn"] {
-            min-width: 0 !important; width: auto !important; flex: 1 1 auto !important; }
-        .st-key-depot_spalten .st-key-depot_kopf_rechts [data-testid="stColumn"]:first-child {
-            flex: 0 0 auto !important; }
-    }
-    /* Touch: Plotly-Werkzeugleiste (22-px-Symbole) ausblenden - Zoomen per Fingergeste geht weiter */
-    @media (pointer: coarse) { .modebar-container { display: none !important; } }
-    [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button { height: auto !important; }
-    /* Primaer-Knoepfe: primaryColor ist Weiss - Schrift dunkel, sonst Weiss auf Weiss */
-    [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p,
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) p {
-        color: #0A0B0D !important; }
-    /* Mehrfachauswahl: gewaehlte Werte (Tags) haben die Primaerfarbe Weiss als Hintergrund - Schrift dunkel */
-    [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * {
-        color: #0A0B0D !important; }
-    /* Touch-Geraete: Trefferflaechen mind. 44 px (Apple HIG) */
-    @media (pointer: coarse) {
-        [data-testid="stButtonGroup"] button { min-height: 44px !important; }
-        [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
-        [data-testid="stDownloadButton"] button { min-height: 44px !important; }
-        [data-testid="stExpander"] summary { min-height: 44px; }
-        [data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
-        [data-testid="stDateInputField"], [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-            min-height: 44px !important; height: auto !important; }
-        [data-testid="stNumberInputField"], [data-testid="stTextInputRootElement"] input { min-height: 44px !important; }
-        [data-testid="stTabs"] [role="tab"] { min-height: 44px !important; }
-        /* "?"-Hilfe: sichtbar 16 px, Tippflaeche 44 px (360°-Pruefung) */
-        /* nur die "?"-Knoepfe selbst - stTooltipIcon umhuellt auch Knoepfe mit Hinweistext (z. B. "Menue");
-           Flaeche waechst nach links/oben/unten, nicht ueber den rechten Bildschirmrand */
-        button[aria-label^="Help for"] { position: relative; }
-        button[aria-label^="Help for"]::before { content: ""; position: absolute; inset: -14px 0 -14px -28px; }
-        [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 44px !important; }
-    }
-
-    /* ============================================================
-       BLAU-DESIGN (10/2026) - Vorbild "Portfolio Lab": Navy-Grund, ruhige Karten mit
-       weichen Rahmen, fette Feldbeschriftungen, dunkle Eingabefelder, Blau als Bedienfarbe.
-       Liegt bewusst am Ende und ueberschreibt die frueheren weissen Leucht-Rahmen.
-       Gruen/Rot bleiben ausschliesslich Kursveraenderungen vorbehalten.
-       ============================================================ */
-    :root {
-        --ink: #0B1220; --surface: #111C2C; --surface-2: #0E1826; --line: #22344C;
-        --muted: #7F90A8; --label: #AEBDD0; --text: #E8EEF6;
-        --accent: #5B9BFF; --accent-hell: #8AB8FF; --accent-soft: rgba(91, 155, 255, 0.14);
-        --accent-rand: rgba(91, 155, 255, 0.55);
-        --karte: linear-gradient(180deg, rgba(21, 34, 54, 0.94) 0%, rgba(14, 24, 38, 0.94) 100%);
-    }
-    .stApp {
-        background:
-            radial-gradient(1100px 560px at 88% -6%, rgba(59, 130, 246, 0.20), transparent 62%),
-            radial-gradient(800px 600px at -12% 40%, rgba(37, 99, 235, 0.07), transparent 60%),
-            var(--ink) !important;
-        background-attachment: fixed !important;
-    }
-    [data-testid="stHeader"], [data-testid="stBottomBlockContainer"] { background: transparent !important; }
-
-    /* Karten: Kacheln, Aufklappbereiche und umrandete Bloecke (.karte setzt das Lade-Skript) */
-    .quote, .hero, .karte {
-        background: var(--karte) !important;
-        border: 1px solid var(--line) !important;
-        border-radius: 20px !important;
-        box-shadow: 0 10px 28px rgba(2, 8, 20, 0.35);
-    }
-    .karte { padding: 18px 18px 16px !important; }
-    @media (max-width: 640px) { .karte { padding: 14px 14px 12px !important; } }
-    [data-testid="stExpander"] {
-        background: var(--karte) !important;
-        border: 1px solid var(--line) !important;
-        border-radius: 16px !important;
-        box-shadow: 0 6px 18px rgba(2, 8, 20, 0.28) !important;
-    }
-    [data-testid="stExpander"]:hover { border-color: var(--accent-rand) !important;
-                                       box-shadow: 0 6px 18px rgba(2, 8, 20, 0.28) !important; }
-    [data-testid="stExpander"] summary:hover, [data-testid="stExpander"] summary:hover p { color: var(--accent-hell) !important; }
-
-    /* Feldbeschriftungen: fett und hell wie im Vorbild, nicht als Grossbuchstaben-Ueberschrift */
-    [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label,
-    [data-testid="stSelectbox"] label, [data-testid="stSelectbox"] label p {
-        font-size: 0.9rem !important; font-weight: 600 !important; color: #D5DFEC !important;
-        letter-spacing: 0.1px !important; text-transform: none !important; text-shadow: none !important;
-    }
-
-    /* Eingabefelder: dunkle Flaeche, feiner Rahmen, blauer Fokus */
-    [data-baseweb="input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
-    [data-testid="stDateInputField"], [data-baseweb="base-input"] {
-        background-color: var(--surface-2) !important;
-        border-color: var(--line) !important;
-        border-radius: 12px !important;
-    }
-    [data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within,
-    [data-testid="stNumberInputContainer"]:focus-within {
-        border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important;
-    }
-    [data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"] {
-        background: transparent !important; color: var(--label) !important; border-radius: 10px !important;
-    }
-    [data-testid="stNumberInputStepUp"]:hover, [data-testid="stNumberInputStepDown"]:hover {
-        background: var(--accent-soft) !important; color: var(--accent-hell) !important;
-    }
-
-    /* Auswahlfelder: ruhiger Rahmen statt weissem Leuchten und Puls */
-    [data-testid="stSelectbox"] > div, [data-testid="stSelectbox"] [data-baseweb="select"] {
-        outline: none !important; box-shadow: none !important; animation: none !important;
-        background-color: var(--surface-2) !important; border-radius: 12px !important;
-    }
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-        border: 1px solid var(--line) !important; border-radius: 12px !important;
-        background-color: var(--surface-2) !important;
-    }
-    [data-testid="stSelectbox"] > div:hover [data-baseweb="select"] > div,
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {
-        border-color: var(--accent-rand) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important;
-    }
-    [data-testid="stSelectbox"] > div:hover, [data-testid="stSelectbox"] > div:focus-within { box-shadow: none !important; }
-    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
-        background-color: var(--surface-2) !important; border-color: var(--line) !important; border-radius: 12px !important;
-    }
-    [data-testid="stMultiSelect"] [data-tag] { background: var(--accent) !important; }
-    [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * { color: #071224 !important; }
-
-    /* Auswahl-Pillen: gewaehlte Pille blau hinterlegt (wie "Automatisch" im Vorbild) */
-    [data-testid="stButtonGroup"] button {
-        background: var(--surface-2) !important; border: 1px solid var(--line) !important;
-        color: #D5DFEC !important; box-shadow: none !important;
-    }
-    [data-testid="stButtonGroup"] button:hover { border-color: var(--accent-rand) !important; }
-    [data-testid="stButtonGroup"] button[aria-checked="true"],
-    [data-testid="stButtonGroup"] button[aria-pressed="true"] {
-        background: var(--accent-soft) !important; border-color: var(--accent) !important;
-        color: var(--accent-hell) !important; box-shadow: none !important;
-    }
-    [data-testid="stButtonGroup"] button[aria-checked="true"] p,
-    [data-testid="stButtonGroup"] button[aria-pressed="true"] p { color: var(--accent-hell) !important; }
-
-    /* Knoepfe: sekundaer dunkel mit feinem Rahmen, primaer blau */
-    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button {
-        background: var(--surface-2) !important; border: 1px solid var(--line) !important;
-        border-radius: 12px !important; color: var(--text) !important;
-    }
-    [data-testid="stBaseButton-secondary"]:hover, [data-testid="stBaseButton-secondaryFormSubmit"]:hover,
-    [data-testid="stDownloadButton"] button:hover {
-        border-color: var(--accent-rand) !important; color: var(--accent-hell) !important;
-    }
-    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"] {
-        background: var(--accent) !important; border-color: var(--accent) !important; border-radius: 12px !important;
-    }
-    [data-testid="stBaseButton-primary"]:not(:disabled), [data-testid="stBaseButton-primary"]:not(:disabled) p,
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) p { color: #071224 !important; }
-
-    /* Reiter: blaue Markierung */
-    [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p { color: var(--accent-hell) !important; }
-
-    /* Hinweisboxen im Blau-Ton */
-    [data-testid="stAlertContentInfo"] { color: #CFE0FA !important; }
-    [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div {
-        background: rgba(91, 155, 255, 0.10) !important; border: 1px solid rgba(91, 155, 255, 0.28) !important;
-        border-radius: 14px !important;
-    }
-
-</style>
-""", unsafe_allow_html=True)
+st.markdown(UI.CSS_BASIS + UI.CSS_RESPONSIV, unsafe_allow_html=True)
 
 
 # --- STATE-HELFER (persistent über GitHub statt fluechtiges Streamlit-Dateisystem) ---
@@ -1386,33 +295,24 @@ def notify_app_error(context, exc):
 
 # --- ZAHLENFORMATIERUNG (Punkt = Tausender, Komma = Dezimal) ---
 def _kaufm(val, dec=2):
-    """Kaufmaennisch runden (0,5 aufwaerts, ab der Dezimaldarstellung): 2,675 -> 2,68 statt 2,67 bei der
-    binaeren Gleitkomma-Rundung (360°-Pruefung F-07). -> float"""
-    from decimal import ROUND_HALF_UP, Decimal
-    return float(Decimal(repr(float(val))).quantize(Decimal(1).scaleb(-dec), rounding=ROUND_HALF_UP))
+    """Kaufmaennisch runden (360°-Pruefung F-07) - zentral in formate.runden. -> float"""
+    return FMT.runden(val, dec)
 
 
 def fmt(val, dec=2):
-    val = _kaufm(val, max(dec, 0))
-    if dec > 0:
-        s = f"{val:,.{dec}f}"
-    else:
-        s = f"{val:,.0f}"
-    return f"{s.replace(',', 'X').replace('.', ',').replace('X', '.')}€"
+    """Euro-Betrag: '1.234,56 €' (zentral: formate.eur)."""
+    return FMT.eur(val, max(dec, 0))
 
 
 def fmt_vz(val, dec=2):
-    """Wie fmt, aber immer mit Vorzeichen: +1.234,00€ / -500,00€ (Audit DEP-13).
-    Nie '+-'; Werte, die auf 0 runden, erscheinen als +0,00€ (kein '-0,00€')."""
-    v = _kaufm(val, dec) + 0.0
-    return ("+" if v >= 0 else "") + fmt(v, dec)
+    """Wie fmt, aber immer mit Vorzeichen: '+1.234,00 €' / '−500,00 €' (Audit DEP-13).
+    Werte, die auf 0 runden, erscheinen als '+0,00 €' (kein '−0,00 €')."""
+    return FMT.eur(val, dec, vz=True)
 
 
 def vz_zahl(wert, nachkomma=2):
-    """Deutsche Zahl mit Vorzeichen ohne Einheit: +1.234,56 / -0,50 (Audit DEP-13)."""
-    v = _kaufm(wert, nachkomma) + 0.0
-    s = f"{v:+,.{nachkomma}f}"
-    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+    """Deutsche Zahl mit Vorzeichen ohne Einheit: '+1.234,56' / '−0,50' (Audit DEP-13)."""
+    return FMT.zahl(wert, nachkomma, vz=True)
 
 
 def wikifolio_werte(kat, lang):
@@ -2189,10 +1089,8 @@ def chronik_eintrag_global(kategorie, titel, inhalt="", schluessel=None):
 
 
 def _de_zahl(x, nk=2):
-    try:
-        return f"{_kaufm(x, nk):,.{nk}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (TypeError, ValueError, ArithmeticError):
-        return str(x)
+    z = FMT.zahl(x, nk)
+    return str(x) if z == FMT.LEER and x is not None else z
 
 
 def _chronik_listen_diff(alt, neu, kategorie, wort, felder):
@@ -3131,253 +2029,7 @@ LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUI
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2}
 
-NAV_CSS = """
-<style>
-/* ================= STARTSEITE: Neon-Weiss ================= */
-.st-key-nav_menue { max-width: 100%; margin: 0 auto; position: relative; }
-/* Kacheln je Gruppe: Handy 2, Tablet 3, Desktop 4, breite Monitore 5 je Zeile */
-.st-key-nav_menue [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
-.st-key-nav_menue [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-    flex: 0 1 calc((100% - 12px) / 2) !important; max-width: calc((100% - 12px) / 2) !important; }
-@media (min-width: 760px) {
-  .st-key-nav_menue [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-      flex-basis: calc((100% - 24px) / 3) !important; max-width: calc((100% - 24px) / 3) !important; } }
-@media (min-width: 1150px) {
-  .st-key-nav_menue [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-      flex-basis: calc((100% - 36px) / 4) !important; max-width: calc((100% - 36px) / 4) !important; } }
-@media (min-width: 1700px) {
-  .st-key-nav_menue [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-      flex-basis: calc((100% - 48px) / 5) !important; max-width: calc((100% - 48px) / 5) !important; } }
-.st-key-nav_menue::before {
-    content: ""; position: absolute; inset: -30px -10px; z-index: -1; pointer-events: none;
-    background: radial-gradient(520px 320px at 50% 0%, rgba(255, 255, 255, 0.07), transparent 70%);
-}
-.st-key-nav_menue [data-testid="stVerticalBlock"] { gap: 12px !important; }
-.st-key-nav_menue [data-testid="stHorizontalBlock"] { gap: 12px !important; }
-.st-key-nav_menue [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
-/* Streamlit zieht Markdown-Bloecke unten um 1rem hoch - hier nicht (sonst
-   rutschen die Ueberschriften unter die Kacheln) */
-.st-key-nav_menue [data-testid="stMarkdown"], .st-key-nav_menue .stMarkdown,
-.st-key-nav_menue [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
-
-/* Kopf */
-.nav-kopf { text-align: center; padding: 0 0 4px; margin-top: -26px; }
-.nav-credit { font-size: 0.8rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
-              text-shadow: 0 0 6px rgba(255, 255, 255, 0.35); }
-.nav-logo {
-    font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
-    letter-spacing: 5px; color: #FFFFFF; text-transform: uppercase;
-    text-shadow: 0 0 8px rgba(255, 255, 255, 0.45), 0 0 20px rgba(255, 255, 255, 0.15);
-}
-.nav-logo .nav-lauf > span { font-weight: 300; }
-.nav-chip {
-    /* gleicher Tasten-Look wie die Kacheln: klarer Rand, 3D-Kante, kein Leuchten */
-    display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 6px; padding: 7px 16px;
-    border-radius: 999px; font-size: 0.8rem; color: #FFFFFF; font-weight: 700;
-    border: 1px solid rgba(150, 188, 240, 0.55); background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%);
-    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22);
-}
-.nav-chip b { color: #FFFFFF; font-weight: 700; }
-.nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
-           box-shadow: 0 0 8px #16C784; animation: navpuls 2.4s ease-in-out infinite; }
-@keyframes navpuls { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
-/* Lichtschimmer, der langsam durch die Ueberschriften laeuft (alle 6 s,
-   dazwischen Ruhe). Text = Verlauf, per background-clip auf die Schrift begrenzt. */
-.nav-lauf {
-    background: linear-gradient(100deg,
-        rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.8) 40%, #FFFFFF 47%, #FFFFFF 53%,
-        rgba(255, 255, 255, 0.8) 60%, rgba(255, 255, 255, 0.8) 100%);
-    background-size: 300% 100%; background-position: 100% 0;
-    -webkit-background-clip: text; background-clip: text; color: transparent !important;
-    -webkit-text-fill-color: transparent;
-    animation: navschimmer 6s ease-in-out infinite;
-}
-.nav-logo .nav-lauf {
-    background-image: linear-gradient(100deg,
-        rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.82) 40%, #FFFFFF 47%, #FFFFFF 53%,
-        rgba(255, 255, 255, 0.82) 60%, rgba(255, 255, 255, 0.82) 100%);
-}
-@keyframes navschimmer { 0% { background-position: 100% 0; } 55%, 100% { background-position: 0% 0; } }
-@media (prefers-reduced-motion: reduce) { .nav-lauf { animation: none; } }
-
-/* Gruppen-Ueberschrift: schiesst beim Oeffnen einmal blitzschnell nach rechts
-   aus dem Bild, kommt links wieder herein, bleibt stehen und pulsiert leicht */
-.nav-gruppe {
-    position: relative; height: 38px; margin: 0 4px; overflow: hidden;
-    font-size: 0.8rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
-}
-.nav-gruppe::after {
-    content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
-    background: linear-gradient(90deg, rgba(138, 184, 255, 0.7), rgba(91, 155, 255, 0.10));
-}
-.nav-wander {
-    position: absolute; bottom: 12px; left: 0; white-space: nowrap;
-    /* Blitz nur einmal beim Oeffnen des Menues, danach stehen bleiben und pulsieren */
-    animation: navblitz 0.6s 1 both, navpulsieren 2s ease-in-out infinite;
-}
-@keyframes navblitz {
-    0%     { left: 0;    transform: translateX(0);     animation-timing-function: cubic-bezier(.7, 0, 1, .6); filter: none; }
-    50%    { left: 100%; transform: translateX(0);     filter: blur(1.2px); }
-    50.1%  { left: 0;    transform: translateX(-100%); animation-timing-function: cubic-bezier(0, .5, .3, 1); filter: blur(1.2px); }
-    100%   { left: 0;    transform: translateX(0);     filter: none; }
-}
-@keyframes navpulsieren {
-    0%, 100% { text-shadow: 0 0 2px rgba(255, 255, 255, 0.2); opacity: 0.6; }
-    50%      { text-shadow: 0 0 6px rgba(255, 255, 255, 0.9), 0 0 14px rgba(255, 255, 255, 0.5); opacity: 1; }
-}
-/* Rand der Menue-Tasten pulsiert leicht: eigener Leuchtring (::after) ueber
-   dem Rand - der eigentliche Rand ist per !important gesetzt und liesse sich
-   nicht animieren */
-.st-key-nav_menue [data-testid="stButton"] button { border-color: rgba(255, 255, 255, 0.45) !important; }
-.st-key-nav_menue [data-testid="stButton"] button::after {
-    content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
-    border: 1px solid #FFFFFF;
-    animation: navrandpuls 2s ease-in-out infinite;
-}
-@keyframes navrandpuls {
-    0%, 100% { opacity: 0.35; box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
-    50%      { opacity: 1;    box-shadow: 0 0 5px rgba(255, 255, 255, 0.45); }
-}
-
-/* Titel "FINANZ DASHBOARD" pulsiert ebenfalls dauerhaft */
-.nav-logo { animation: navlogopuls 2s ease-in-out infinite; }
-@keyframes navlogopuls {
-    0%, 100% { text-shadow: 0 0 3px rgba(255, 255, 255, 0.25); opacity: 0.72; }
-    50%      { text-shadow: 0 0 8px rgba(255, 255, 255, 0.9), 0 0 20px rgba(255, 255, 255, 0.45); opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-    .nav-wander, .nav-logo, .st-key-nav_menue [data-testid="stButton"] button::after { animation: none; }
-}
-
-/* Kacheln "Neon-Taste": dicke 3D-Kante (gestapelte Schatten), weisser
-   Neonrand, weiches Bodenleuchten unter der Taste - ruhig, ohne Bewegung */
-.st-key-nav_menue [data-testid="stButton"] button {
-    position: relative; width: 100% !important; min-height: 58px !important; border-radius: 16px !important;
-    padding: 8px 6px !important;
-    /* Blau-Design: Navy-Taste mit blau schimmernder Kante */
-    background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%) !important;
-    border: 1px solid rgba(150, 188, 240, 0.55) !important;
-    transform: translateY(-4px);
-    box-shadow:
-        0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 5px 0 #142031, 0 6px 0 #101A28,
-        0 18px 26px rgba(2, 8, 20, 0.7),
-        inset 0 1px 0 rgba(255, 255, 255, 0.22),
-        inset 0 -10px 16px rgba(0, 0, 0, 0.30) !important;
-    transition: transform .15s ease, box-shadow .15s ease;
-}
-.st-key-nav_menue [data-testid="stButton"] button > div { min-width: 0; max-width: 100%; }
-.st-key-nav_menue [data-testid="stButton"] button p {
-    /* immer einzeilig: Schrift waechst/schrumpft mit der Bildschirmbreite */
-    font-size: clamp(0.7rem, 3.25vw, 0.95rem) !important; font-weight: 700 !important; line-height: 1.2 !important;
-    white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis;
-    color: #FFFFFF !important; letter-spacing: 0.2px;
-    text-shadow: none !important;     /* Schatten wuerde hinter Emojis dunkle Kaestchen erzeugen */
-}
-/* sehr schmale Telefone (iPhone SE 1. Gen., 320 px): lange Namen zweizeilig statt ueber den Rand */
-/* Zu lange Namen brechen um statt ueber den Kachelrand zu laufen (jede Breite) */
-.st-key-nav_menue [data-testid="stButton"] button p { white-space: normal !important; overflow-wrap: anywhere; }
-/* Antippen/Hover: Taste hebt sich, Kante und Leuchten werden staerker */
-.st-key-nav_menue [data-testid="stButton"] button:hover,
-.st-key-nav_menue [data-testid="stButton"] button:focus-visible {
-    transform: translateY(-6px);
-    border-color: #8AB8FF !important;
-    box-shadow:
-        0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 5px 0 #142031, 0 6px 0 #101A28,
-        0 7px 0 #0D1624, 0 8px 0 #0A121E,
-        0 22px 30px rgba(2, 8, 20, 0.75),
-        0 0 10px rgba(91, 155, 255, 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.40),
-        inset 0 -10px 16px rgba(0, 0, 0, 0.35) !important;
-}
-/* Druecken: Taste sinkt ein */
-.st-key-nav_menue [data-testid="stButton"] button:active {
-    transform: translateY(1px);
-    box-shadow:
-        0 1px 0 #1E2E44,
-        0 6px 12px rgba(2, 8, 20, 0.6),
-        inset 0 2px 8px rgba(0, 0, 0, 0.55) !important;
-}
-.st-key-nav_menue .st-key-nav_refresh button p { font-size: 0.8rem !important; font-weight: 700 !important; }
-
-/* Aktualisieren: schlanke Neon-Pille */
-/* klein und mittig direkt unter der Kurs-Pille */
-/* Streamlit gibt dem Button-Container bei width="content" nur Inhaltsbreite -
-   deshalb den Container selbst mittig setzen (align-self + auto-Rand) */
-.st-key-nav_menue .st-key-nav_refresh {
-    align-self: center !important; margin-left: auto !important; margin-right: auto !important;
-    margin-top: -4px; display: flex !important; justify-content: center !important;
-}
-.st-key-nav_menue .st-key-nav_refresh [data-testid="stButton"] {
-    width: auto !important; display: flex !important; justify-content: center !important;
-}
-.st-key-nav_menue .st-key-nav_refresh button {
-    width: auto !important; min-height: 34px !important; padding: 2px 18px !important; border-radius: 999px !important;
-    transform: translateY(-2px) !important; border: 1px solid rgba(150, 188, 240, 0.55) !important;
-    background: linear-gradient(175deg, #21324B 0%, #152438 48%, #0D1726 100%) !important;
-    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
-}
-.st-key-nav_menue .st-key-nav_refresh button:hover {
-    transform: translateY(-3px) !important; border-color: #8AB8FF !important;
-    box-shadow: 0 1px 0 #2A3D58, 0 2px 0 #24364F, 0 3px 0 #1E2E44, 0 4px 0 #19273A, 0 10px 16px rgba(2, 8, 20, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 10px rgba(91, 155, 255, 0.35) !important;
-}
-.st-key-nav_menue .st-key-nav_refresh button:active {
-    transform: translateY(1px) !important;
-    box-shadow: 0 1px 0 #282B31, 0 4px 8px rgba(0, 0, 0, 0.6), inset 0 2px 6px rgba(0, 0, 0, 0.55) !important;
-}
-
-/* ================= ALLE BUTTONS: weisser Neonrand ================= */
-[data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
-[data-testid="stDownloadButton"] button {
-    border: 1px solid rgba(255, 255, 255, 0.75) !important;
-    box-shadow: 0 0 5px rgba(255, 255, 255, 0.4), 0 0 14px rgba(255, 255, 255, 0.15) !important;
-    transition: box-shadow .15s ease, border-color .15s ease;
-}
-[data-testid="stButton"] button:hover, [data-testid="stFormSubmitButton"] button:hover,
-[data-testid="stDownloadButton"] button:hover {
-    border-color: #FFFFFF !important;
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.65), 0 0 22px rgba(255, 255, 255, 0.25) !important;
-}
-
-/* ================= IN EINER ANSICHT: Kopfleiste ================= */
-.st-key-nav_leiste {
-    padding: 6px 8px; border-radius: 18px;
-    background: linear-gradient(165deg, #18263B, #0E1826);
-    border: 1px solid #24364F;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(2, 8, 20, 0.45);
-}
-.st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
-                                                       align-items: center !important; }
-.st-key-nav_leiste [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
-.st-key-nav_leiste [data-testid="stColumn"]:nth-child(1),
-.st-key-nav_leiste [data-testid="stColumn"]:nth-child(3) { flex: 0 0 auto !important; }
-.st-key-nav_leiste [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
-.st-key-nav_leiste [data-testid="stButton"] button {
-    min-height: 44px !important; min-width: 44px !important; border-radius: 10px !important; padding: 4px 12px !important;
-    white-space: nowrap !important; background: #0E1826 !important;
-    border: 1px solid #2E4363 !important; box-shadow: none !important;
-}
-.st-key-nav_leiste [data-testid="stButton"] button:hover { border-color: rgba(91, 155, 255, 0.7) !important; }
-.st-key-nav_leiste [data-testid="stButton"] button p { font-weight: 700 !important; color: #FFFFFF !important; }
-.nav-titel {
-    font-size: 1.02rem; font-weight: 700; color: #FFFFFF; line-height: 1.2;
-    overflow-wrap: anywhere; text-align: center; letter-spacing: 0.3px;
-    text-shadow: none;
-}
-.nav-stand { display: flex; justify-content: center; margin: 6px 0 4px; }
-.nav-stand span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--label, #9AA0A6);
-    padding: 2px 10px; border: 1px solid rgba(150, 188, 240, 0.25); border-radius: 999px; white-space: nowrap; }
-.nav-stand b { color: #FFFFFF; font-weight: 600; }
-.nav-stand i { width: 6px; height: 6px; border-radius: 50%; background: #16C784; display: inline-block; }
-@media (max-width: 700px) {
-    .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
-    .st-key-nav_menue [data-testid="stButton"] button { min-height: 58px !important; }
-    .st-key-nav_menue .st-key-nav_refresh button { min-height: 44px !important; }
-    .nav-titel { font-size: 0.92rem; }
-    .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
-}
-</style>
-"""
+NAV_CSS = UI.CSS_NAV
 
 
 def _termine(tag):
@@ -4275,7 +2927,7 @@ def render_dashboard():
                 if not wert:
                     return '<td class="pt-num">–</td>'
                 unter = f'<span class="pt-sub">{html.escape(rhythmus)}</span>' if rhythmus else ""
-                return f'<td class="pt-num pt-stark pt-up">{_de_zahl(wert, 2)} %{unter}</td>'
+                return f'<td class="pt-num pt-stark pt-up">{FMT.pct(wert, 2)}{unter}</td>'
 
             vergleich = (kat.get("vergleich") or {}).get(zr_key)
             mit_trend = vergleich is not None
@@ -4655,7 +3307,7 @@ def render_dashboard():
                     continue
                 farbe = "pt-up" if (v["pot"] or 0) >= 0 else "pt-down"
                 zeilen += (f'<tr><td class="pt-wert"><span class="pt-name">{namen[k]}</span></td>'
-                           f'<td class="pt-num">{_de_zahl(v["g"], 1)} %</td><td class="pt-num">{_de_zahl(v["r"], 1)} %</td>'
+                           f'<td class="pt-num">{FMT.pct(v["g"], 1)}</td><td class="pt-num">{FMT.pct(v["r"], 1)}</td>'
                            f'<td class="pt-num">{v["m"]:.1f}x</td>'
                            f'<td class="pt-num pt-stark {farbe}">{v["pot"]:+.0f} %</td></tr>')
             st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr><th class="pt-wert">Fall</th>'
@@ -4706,7 +3358,7 @@ def render_dashboard():
                        f'<td class="pt-num">{z["nachhaltig"] if z["schluessel"] != "keine" else "–"}</td>'
                        f'<td class="pt-wert"><span class="pt-name">{html.escape(str(b["name"]))}</span>'
                        f'<span class="pt-sub">{b.get("gesamt")} Punkte · Dividende '
-                       f'{_de_zahl(b.get("div") or 0, 1)} %</span></td></tr>')
+                       f'{FMT.pct(b.get("div") or 0, 1)}</span></td></tr>')
         st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
                     '<table class="pt"><thead><tr><th class="pt-wert">Dividende</th><th class="pt-num">Aktien</th>'
                     '<th class="pt-num">Ø Punkte</th><th class="pt-num">nachhaltig</th>'
@@ -5030,7 +3682,7 @@ def render_dashboard():
                 f'<span class="pt-sub">{html.escape(unter)}</span></td>'
                 f'<td class="pt-num pt-stark {"pt-up" if perf >= 0 else "pt-down"}">{vz_zahl(perf, 1)} %</td>'
                 f'<td class="pt-num pt-stark {"pt-up" if (fy or 0) >= 5 else "pt-down" if fy is not None and fy < 2 else ""}">'
-                f'{"–" if fy is None else f"{_de_zahl(fy, 1)} %"}</td>'
+                f'{"–" if fy is None else f"{FMT.pct(fy, 1)}"}</td>'
                 f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(z["klasse"], "")}">{z["gesamt"]}</td></tr>')
         st.markdown(f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr>{kopf}</tr></thead>'
                     f'<tbody>{z_html}</tbody></table></div>', unsafe_allow_html=True)
@@ -5235,7 +3887,7 @@ def render_dashboard():
                                    _ue_z(f'{vz_zahl(z["p12"], 1)} %', "up" if z["p12"] >= 0 else "down", True),
                                    _ue_z(f'{z["q_ant"]:.0f} %'),
                                    _ue_z(z["gesamt"], {"prio": "prio", "beobachten": "beob"}.get(z["klasse"], "nicht"), True),
-                                   _ue_z("–" if fy is None else f"{_de_zahl(fy, 1)} %", "up" if (fy or 0) >= 5 else None),
+                                   _ue_z("–" if fy is None else f"{FMT.pct(fy, 1)}", "up" if (fy or 0) >= 5 else None),
                                    _ue_z(z.get("bew") or "–"),
                                    _ue_z("–" if z.get("mos") is None or z["mos"] <= -200 else f'{z["mos"]:+.0f} %')])
                     ab.append({"titel": f"Qualität × Kurs (1 Jahr): {f_titel[2:].strip()} – alle Aktien "
@@ -5291,7 +3943,7 @@ def render_dashboard():
                             continue
                         e, leer = liste[platz - 1], False
                         wert = e.get("div") if zr == div_zr[0] else e.get("perf")
-                        zahl = "–" if wert is None else (f"{_de_zahl(wert, 2)} %" if zr == div_zr[0] else f"{vz_zahl(wert, 1)} %")
+                        zahl = "–" if wert is None else (f"{FMT.pct(wert, 2)}" if zr == div_zr[0] else f"{vz_zahl(wert, 1)} %")
                         v = (kat.get("vergleich") or {}).get(zr)
                         trend = _trend(e.get("vor"), platz)[0] if v is not None else ""
                         name = e["name"] if len(e["name"]) <= 26 else e["name"][:25] + "…"
@@ -6521,7 +5173,7 @@ def render_dashboard():
         # Rate stammt aus dem Rueckfall (hochgerechnet bzw. 0 %) - sichtbar kennzeichnen
         _ms_basis = (prognose_rueckfall_hinweis.split(" – ")[0]
                      if prognose_rueckfall_hinweis.startswith("Hochgerechnet") else "0 % p.a. (Historie < 1 Monat)")
-        meilenstein_details_str += f" · Basis {_de_zahl(prognose_rendite_pa, 1)} % p.a., {_ms_basis}"
+        meilenstein_details_str += f" · Basis {FMT.pct(prognose_rendite_pa, 1)} p.a., {_ms_basis}"
 
     richtung = "up" if tages_verenderung_pct >= 0 else "down"
     differenz_zum_vortag = aktueller_kurs - vortag_kurs
@@ -6542,11 +5194,11 @@ def render_dashboard():
     live_markup = kurs_pill(_kurs_art, _kurs_text)
     kurs_zeit_text = (kurs_zeit.strftime("%d.%m.%Y %H:%M Uhr") if kurs_zeit is not None else "unbekannt")
 
-    def de_zahl(wert, nachkomma=3):
-        """Deutsche Schreibweise (Punkt = Tausender, Komma = Dezimal) - bewusst
-        nur auf den ZAHLENWERT angewendet, nicht auf das umgebende HTML."""
-        s = f"{wert:,.{nachkomma}f}"
-        return s.replace(",", "X").replace(".", ",").replace("X", ".")
+    def de_zahl(wert, nachkomma=2):
+        """Deutsche Schreibweise (zentral: formate.zahl) - bewusst nur auf den ZAHLENWERT
+        angewendet, nicht auf das umgebende HTML. Kurse mit 2 Nachkommastellen (UX 10/2026:
+        "150,000 €" las sich wie 150 Tausend)."""
+        return FMT.zahl(wert, nachkomma)
 
     # ---------- PERFORMANCE JE ZEITRAUM (Tag/Woche/Monat/Jahr/seit Kauf) ----------
     # Referenzkurse werden aus der Kurshistorie berechnet (letzter Schlusskurs
@@ -6638,7 +5290,7 @@ def render_dashboard():
         gewaehlt = optionen[wahl]
 
         live_kurs, _, _ = get_live_kurs(gewaehlt["instrument_id"])
-        kurs_txt = f"{de_zahl(live_kurs)} €" if live_kurs else "kein Kurs verfügbar"
+        kurs_txt = f"{FMT.eur(live_kurs, 2)}" if live_kurs else "kein Kurs verfügbar"
         st.caption(
             f"→ **{gewaehlt['name']}** · ID {gewaehlt['instrument_id']} · "
             f"ISIN {gewaehlt['isin'] or '–'} · aktuell {kurs_txt}"
@@ -6708,7 +5360,7 @@ def render_dashboard():
                         if aendere_positionen(lambda l: l + [_p_anlage], "position angelegt [skip ci]"):
                             suche_zuruecksetzen(prefix)
                             if test_kurs is not None:
-                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {de_zahl(test_kurs)} €).")
+                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {FMT.eur(test_kurs, 2)}).")
                             else:
                                 st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
                                            "Kursquelle-ID kann oben jederzeit ergänzt werden.")
@@ -6731,29 +5383,29 @@ def render_dashboard():
         hw_status_chip = '<span class="hw-pill">Allzeithoch</span>'
         hw_zeile = (
             '<div class="perf-row"><span class="perf-label">Höchststand</span>'
-            f'<span class="perf-vals"><span class="neutral">{de_zahl(high_watermark_anzeige)} €</span>'
+            f'<span class="perf-vals"><span class="neutral">{FMT.eur(high_watermark_anzeige, 2)}</span>'
             '<span class="up">erreicht</span></span></div>'
         )
     else:
         hw_status_chip = ""
         hw_zeile = (
             '<div class="perf-row"><span class="perf-label">Höchststand</span>'
-            f'<span class="perf-vals"><span class="neutral">{de_zahl(high_watermark_anzeige)} €</span>'
-            f'<span class="down">{de_zahl(hw_abstand_pct, 2)} %</span></span></div>'
+            f'<span class="perf-vals"><span class="neutral">{FMT.eur(high_watermark_anzeige, 2)}</span>'
+            f'<span class="down">{FMT.pct(hw_abstand_pct, 2)}</span></span></div>'
         )
 
     kurs_karte = (
         '<div class="quote">'
         f'<div class="q-name">Hauptindizes Global · {config.WKN}</div>'
         '<div class="price-line">'
-        f'<span class="q-price">{de_zahl(aktueller_kurs)} €</span>'
+        f'<span class="q-price">{FMT.eur(aktueller_kurs, 2)}</span>'
         f'{live_markup}'
         f'{hw_status_chip}'
         '</div>'
         # Hoechststand als letzte Zeile der Zeitraum-Tabelle - dadurch steht er
         # im selben Raster wie Vortag/Tag/Woche/Monat/Jahr statt in eigener Kachel.
         + perf_zeilen_html(periods_kurs, 3,
-                           kopfzeile=("Vortag", f"{de_zahl(vortag_kurs)} €"),
+                           kopfzeile=("Vortag", f"{FMT.eur(vortag_kurs, 2)}"),
                            fusszeile=hw_zeile)
         + f'<div class="card-footnote">Lang &amp; Schwarz · Kurs vom {kurs_zeit_text}'
         + (f' · Höchststand vom {high_watermark_datum}, ab dort '
@@ -6798,10 +5450,10 @@ def render_dashboard():
             b_hoch_datum = b_hist.idxmax().strftime("%d.%m.%Y")
             b_abstand_pct = (b_kurs - b_hoch) / b_hoch * 100 if b_hoch else 0.0
             b_wert_html = ('<span class="up">erreicht</span>' if b_abstand_pct >= -0.0005
-                           else f'<span class="down">{de_zahl(b_abstand_pct, 2)} %</span>')
+                           else f'<span class="down">{FMT.pct(b_abstand_pct, 2)}</span>')
             b_hw_zeile = (
                 '<div class="perf-row"><span class="perf-label">Höchststand</span>'
-                f'<span class="perf-vals"><span class="neutral">{de_zahl(b_hoch)} €</span>'
+                f'<span class="perf-vals"><span class="neutral">{FMT.eur(b_hoch, 2)}</span>'
                 f'{b_wert_html}</span></div>'
             )
             b_fuss = (f'Lang &amp; Schwarz · Höchststand vom {b_hoch_datum} '
@@ -6813,13 +5465,13 @@ def render_dashboard():
             '<div class="quote">'
             f'<div class="q-name">{_h(eintrag.get("name", ""))} · {_h(eintrag.get("wkn", ""))}</div>'
             '<div class="price-line">'
-            f'<span class="q-price">{de_zahl(b_kurs)} €</span>'
+            f'<span class="q-price">{FMT.eur(b_kurs, 2)}</span>'
             + kurs_pill(*kurs_status(kurs_zeitpunkt(eintrag["instrument_id"]), now_berlin, True)) +
             '<span class="meta-chip">Beobachtung</span>'
             '</div>'
             + perf_zeilen_html(
                 b_perioden, 3,
-                kopfzeile=("Vortag", f"{de_zahl(b_vortag)} €") if b_vortag else None,
+                kopfzeile=("Vortag", f"{FMT.eur(b_vortag, 2)}") if b_vortag else None,
                 fusszeile=b_hw_zeile)
             + f'<div class="card-footnote">{b_fuss}</div>'
             '</div>'
@@ -6906,7 +5558,7 @@ def render_dashboard():
         # "Ø/Jahr" in der Vergleichstabelle. Die Prognoserate steht nur in den Prognosen.
         + (f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
            f'{" (hochgerechnet)" if rendite_pa_hochgerechnet else ""}</span>'
-           f'<span class="stat-chip-val">{_de_zahl(rendite_pa_real, 1)} %</span></span>'
+           f'<span class="stat-chip-val">{FMT.pct(rendite_pa_real, 1)}</span></span>'
            if rendite_pa_real is not None else '')
         + '</div>'
         f'{perf_zeilen_html(periods_depot, 2)}'
@@ -7013,7 +5665,7 @@ def render_dashboard():
                     '<span class="meta-chip">ohne Kursquelle</span>'
                     '</div>'
                     f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
-                    f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {de_zahl(float(pos["kaufkurs"]), 2)} € · '
+                    f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {FMT.eur(float(pos["kaufkurs"]), 2)} · '
                     'Kursquelle-ID ergänzen (Position bearbeiten → Suche), um Kurse und Performance zu sehen</div>'
                     '</div>'
                 )
@@ -7095,13 +5747,13 @@ def render_dashboard():
                 # (die gehoert in die Prognosen - Audit A-08, 360°-Pruefung F-05)
                 + (f'<span class="stat-chip"><span class="stat-chip-label">Ø p.a. seit Kauf'
                    f'{" (hochgerechnet)" if p_pa_hoch else ""}</span>'
-                   f'<span class="stat-chip-val">{_de_zahl(p_pa_ist, 1)} %</span></span>'
+                   f'<span class="stat-chip-val">{FMT.pct(p_pa_ist, 1)}</span></span>'
                    if p_pa_ist is not None else '') +
-                f'<span class="meta-chip">Kurs {de_zahl(p_kurs)} €</span>'
+                f'<span class="meta-chip">Kurs {FMT.eur(p_kurs, 2)}</span>'
                 '</div>'
                 f'{perf_zeilen_html(p_perioden_depot, 2)}'
                 f'<div class="card-footnote">{p_stueck:.4f} Anteile · '
-                f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {de_zahl(float(pos["kaufkurs"]), 2)} €</div>'
+                f'Kauf am {p_kaufdatum.strftime("%d.%m.%Y")} zu {FMT.eur(float(pos["kaufkurs"]), 2)}</div>'
                 '</div>'
             )
             positions_karten.append((p_name, karte))
@@ -7312,7 +5964,7 @@ def render_dashboard():
             # die Hauptposition unter "Positionen verwalten" (frueher hier nur fuer die Sitzung).
             st.caption(
                 f"**Hauptposition:** Kauf am {kaufdatum_aktiv.strftime('%d.%m.%Y')} zu "
-                f"{de_zahl(kaufkurs_aktiv, 4)} €, Kapital {fmt(startkapital_aktiv, 2)} → "
+                f"{FMT.eur(kaufkurs_aktiv, 4)}, Kapital {fmt(startkapital_aktiv, 2)} → "
                 f"{de_zahl(stueckzahl_aktiv, 4)} Anteile. Ändern unter „➕ Positionen verwalten“ "
                 "(wird dauerhaft gespeichert)."
             )
@@ -7380,7 +6032,7 @@ def render_dashboard():
                         lambda d: sparplan_state_neu(d, _sp_neu, heute_date), default={},
                         message="sparplan gespeichert [skip ci]")
                     if ok:
-                        chronik_eintrag("depot", f"💶 Sparrate gespeichert: {_de_zahl(_sp_neu)} €/Monat",
+                        chronik_eintrag("depot", f"💶 Sparrate gespeichert: {FMT.eur(_sp_neu, 2)}/Monat",
                                         "Monatlicher Nachkauf zum jeweiligen Kurs (Rechnung).")
                         st.session_state["_haupt_sparrate_input_basis"] = _sp_neu
                         st.success("Sparrate gespeichert.")
@@ -7396,7 +6048,7 @@ def render_dashboard():
             "Monatliche Entnahme (€)", min_value=0.0, step=10.0, key="haupt_entnommen_input",
             help=f"Wird ab einem Monat nach dem Kaufdatum monatlich entnommen und seit Kauf "
                  f"aufsummiert (Netto = Brutto − Rate × Anzahl Entnahmen). Dieselbe Rate gilt für "
-                 f"die Real-Variante mit Anteilsverkauf. Standard: {_de_zahl(entnahme_standard(eigen))} €.",
+                 f"die Real-Variante mit Anteilsverkauf. Standard: {FMT.eur(entnahme_standard(eigen), 2)}.",
         )
         st.caption(f"{anzahl_entnahmen} Entnahmen seit Kauf · zusammen {fmt(gesamt_entnommen, 2)}")
         _en_neu = float(st.session_state.get("haupt_entnommen_input") or 0.0)
@@ -7408,7 +6060,7 @@ def render_dashboard():
                                         lambda d: dict(d if isinstance(d, dict) else {}, rate=_en_neu),
                                         default={}, message="entnahme gespeichert [skip ci]")
                 if ok:
-                    chronik_eintrag("depot", f"💸 Monatliche Entnahme: {_de_zahl(_en_neu)} €",
+                    chronik_eintrag("depot", f"💸 Monatliche Entnahme: {FMT.eur(_en_neu, 2)}",
                                     "Gilt für Netto (Simulation) und Real.")
                     st.session_state["_haupt_entnommen_input_basis"] = _en_neu
                     st.success("Entnahme gespeichert.")
@@ -7551,7 +6203,7 @@ def render_dashboard():
                         if aendere_beobachtung(lambda l: l + [_b_anlage], "beobachtung angelegt [skip ci]"):
                             suche_zuruecksetzen("beob_neu")
                             st.success(f"„{bneu_name}“ hinzugefügt "
-                                       f"(aktueller Kurs {de_zahl(b_test)} €).")
+                                       f"(aktueller Kurs {FMT.eur(b_test, 2)}).")
                             st.rerun()
                         else:
                             st.error("Hinzufügen fehlgeschlagen (kein persistenter State?).")
@@ -7710,7 +6362,7 @@ def render_dashboard():
             <div class="row">
                 <span class="row-label">Anfangskapital</span>
                 <span class="row-val">{fmt(startkapital_aktiv, 2)}
-                    <span class="row-note">Kauf am {kaufdatum_aktiv.strftime('%d.%m.%Y')} zu {de_zahl(kaufkurs_aktiv, 2)} €</span>
+                    <span class="row-note">Kauf am {kaufdatum_aktiv.strftime('%d.%m.%Y')} zu {FMT.eur(kaufkurs_aktiv, 2)}</span>
                 </span>
             </div>
         </div>
@@ -7728,7 +6380,7 @@ def render_dashboard():
                 <div class="row">
                     <span class="row-label">Depotwert (nach Entnahmen)</span>
                     <span class="row-val">{fmt(depotwert_real_ist, 2)}
-                        <span class="row-note">{_de_zahl(stueckzahl_real_ist, 4)} Anteile nach {verkaeufe_ausgefuehrt} Verkäufen à {fmt(entnahme_rate, 2)} zum Geldkurs (Spread-Annahme {_de_zahl(config.SPREAD_PCT, 2)} %){sparrate_note}</span>
+                        <span class="row-note">{_de_zahl(stueckzahl_real_ist, 4)} Anteile nach {verkaeufe_ausgefuehrt} Verkäufen à {fmt(entnahme_rate, 2)} zum Geldkurs (Spread-Annahme {FMT.pct(config.SPREAD_PCT, 2)}){sparrate_note}</span>
                     </span>
                 </div>
                 <div class="row">
@@ -7745,7 +6397,7 @@ def render_dashboard():
                 </div>
                 <div class="row">
                     <span class="row-label">Laufende Kosten</span>
-                    <span class="row-val">{_de_zahl(config.ZERTIFIKAT_GEBUEHR_PA_PCT, 2)} % p.a.
+                    <span class="row-val">{FMT.pct(config.ZERTIFIKAT_GEBUEHR_PA_PCT, 2)} p.a.
                         <span class="row-note">Zertifikatsgebühr, bereits im Kurs eingepreist</span>
                     </span>
                 </div>
@@ -7961,7 +6613,7 @@ def render_dashboard():
                     st.caption(
                         "„Depotwert“ ist der reale Wert nach den monatlichen Entnahmen: je Termin werden "
                         f"Anteile für {fmt(entnahme_rate, 2)} zum Geldkurs verkauft (Spread-Annahme "
-                        f"{_de_zahl(config.SPREAD_PCT, 2)} %), Sparplan-Käufe ab ihrem Kauftag. "
+                        f"{FMT.pct(config.SPREAD_PCT, 2)}), Sparplan-Käufe ab ihrem Kauftag. "
                         "„Eingezahlt“ = Startkapital plus Sparraten. Die Vergleichslinien zeigen, wie sich "
                         f"{fmt(startkapital_aktiv, 0)} im selben Zeitraum in gängigen Vergleichs-ETFs "
                         "entwickelt hätten (Kosten der ETFs bereits im Kurs enthalten, keine Steuern)."
@@ -8875,7 +7527,7 @@ def render_dashboard():
                     cap_5y = (cap_5y * (1 + r_mo)) + netto_cashflow_szenario
                     monthly_vals.append(max(0, cap_5y))
         
-                _serien_name = f"{_de_zahl(r_pa_pct, 1)} % p.a. ({_de_zahl(r_mo_pct, 2)} % p.M.)"
+                _serien_name = f"{FMT.pct(r_pa_pct, 1)} p.a. ({FMT.pct(r_mo_pct, 2)} p.M.)"
                 if ist_eigene_rate:
                     _serien_name = f"⭐ {_h(basis_name)}: {_serien_name}"   # Plotly deutet Teile von HTML
                 scenario_series[_serien_name] = monthly_vals
@@ -8922,7 +7574,7 @@ def render_dashboard():
                     f'<div style="background: #09090B; border: {_rahmen}; border-radius: 6px; padding: 12px 14px;">'
                     f'{_marke}'
                     f'<div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">'
-                    f'{_de_zahl(e["rate_pa"], 1)} % p.a. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({_de_zahl(e["rate"], 2)} % p.M.)</span>'
+                    f'{FMT.pct(e["rate_pa"], 1)} p.a. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({FMT.pct(e["rate"], 2)} p.M.)</span>'
                     f'</div>'
                     f'<div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
                     f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e["ziel_datum"]}</div>'
