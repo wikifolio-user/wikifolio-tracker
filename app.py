@@ -3631,10 +3631,7 @@ def kursstand_text(stx, jetzt):
     """Kurzer Stand aller Kurse fuer Kopf/Startseite."""
     if stx["aeltester"] is None:
         return "Kurse werden beim ersten Aufruf geladen"
-    t = f"Kurse vom <b>{_zeit_kurz(stx['aeltester'], jetzt)} Uhr</b> · {stx['werte']} Werte"
-    if stx["letzter_fehler"]:
-        t += f" · {stx['letzter_fehler']} ohne Aktualisierung"
-    return t
+    return f"Kurse vom <b>{_zeit_kurz(stx['aeltester'], jetzt)}&nbsp;Uhr</b>"
 
 
 KURSLAUF_WARTEN_MAX_SEK = 180
@@ -3669,13 +3666,14 @@ def kursstand_details(stx, jetzt):
         if stx["aeltester"] is None:
             st.caption("Noch keine Kurse im Speicher – sie werden beim ersten Aufruf einer Ansicht geladen.")
             return
-        namen = {"live": "Aktuelle Kurse (Aktien, ETFs, wikifolios)", "historie": "Kursverläufe (Charts)",
-                 "benchmark": "Vergleichswerte (Verläufe)"}
-        zeilen = [f"<tr><td>{namen.get(a, a)}</td><td style='text-align:right'>{n}</td></tr>"
-                  for a, n in sorted(stx["anzahl"].items(), key=lambda x: list(namen).index(x[0])
-                                     if x[0] in namen else 9)]
-        st.markdown("<table class='pt'><tr><th>Daten</th><th style='text-align:right'>Werte</th></tr>"
-                    + "".join(zeilen) + "</table>", unsafe_allow_html=True)
+        st.caption(f"Live-Kurse für {stx['instrumente']} Wertpapiere im Speicher – das sind die Werte, die die "
+                   "App gerade braucht: deine Depots, das Analyse-Depot, Vergleichswerte sowie Werte aus Builder "
+                   "und Planer. Neue kommen beim ersten Aufruf automatisch dazu. Die Ranglisten (Top 500 mit "
+                   "rund 12.500 Aktien, ETFs und über 10.000 wikifolios) rechnen die Agenten jede Nacht neu – "
+                   "ihren Stand zeigt jede Liste oben an.")
+        namen = {"live": "aktuelle Kurse", "historie": "Kursverläufe", "benchmark": "Vergleichsverläufe"}
+        st.markdown(" · ".join(f"**{n}** {namen.get(a, a)}" for a, n in sorted(
+            stx["anzahl"].items(), key=lambda x: list(namen).index(x[0]) if x[0] in namen else 9)))
         teile = [f"Ältester Stand {_zeit_kurz(stx['aeltester'], jetzt)} Uhr",
                  f"neuester {_zeit_kurz(stx['neuester'], jetzt)} Uhr"]
         if stx["letzter_ende"] is not None:
@@ -3725,8 +3723,8 @@ def navigation():
             st.markdown(
                 '<div class="nav-kopf"><div class="nav-logo"><span class="nav-lauf">FINANZ <span>DASHBOARD</span></span></div>'
                 '<div class="nav-credit">created by MarsTech</div>'
-                f'<div class="nav-chip"><span class="nav-dot"></span>{kursstand_text(stx, jetzt)}'
-                f' · nächste {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div></div>',
+                f'<div class="nav-chip"><span class="nav-dot"></span><span>{kursstand_text(stx, jetzt)}'
+                f' · nächste {naechster_termin(jetzt).strftime("%H:%M")}&nbsp;Uhr</span></div></div>',
                 unsafe_allow_html=True)
             st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
                       width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)

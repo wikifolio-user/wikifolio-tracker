@@ -151,6 +151,7 @@ class KursDienst:
                     "letzter_fehler": letzter["fehler"] if letzter else 0,
                     "anzahl": anzahl,
                     "werte": sum(anzahl.values()),
+                    "instrumente": len({i for (_, i), (_, z) in self._daten.items() if z is not None}),
                     "aeltester": min(zeiten) if zeiten else None,
                     "neuester": max(zeiten) if zeiten else None,
                     "ohne_wert": sum(1 for _, z in self._daten.values() if z is None)}
