@@ -4819,7 +4819,7 @@ def render_dashboard():
             nur_nachhaltig = st.toggle("Nur nachhaltige Dividende", key="q_div_nachhaltig",
                                        help="Ausschüttungsquote höchstens 80 % des Gewinns")
             rhythmen = _div_rhythmen()
-            rh_filter = st.selectbox("Ausschüttung", ["Alle"] + list(DV.RHYTHMEN), key="q_div_rhythmus",
+            rh_filter = st.selectbox("Ausschüttung", ["Alle"] + list(getattr(DV, "RHYTHMEN", ("monatlich", "alle 2 Monate", "quartalsweise", "halbjährlich", "jährlich"))), key="q_div_rhythmus",
                                      help="Wie oft die Dividende gezahlt wird – ermittelt aus den Zahlungsterminen "
                                           "der letzten zwei Jahre (Yahoo Finance)") or "Alle"
             if rh_filter != "Alle" and not rhythmen:
