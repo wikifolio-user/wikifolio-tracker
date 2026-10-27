@@ -3120,6 +3120,10 @@ LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUI
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER}
 
+# Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
+OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
+              "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2}
+
 NAV_CSS = """
 <style>
 /* ================= STARTSEITE: Neon-Weiss ================= */
@@ -3353,8 +3357,11 @@ NAV_CSS = """
     overflow-wrap: anywhere; text-align: center; letter-spacing: 0.3px;
     text-shadow: none;
 }
-.nav-stand { font-size: 0.8rem; color: var(--label, #9AA0A6); line-height: 1.3; margin: 6px 0 4px 4px; }
-.nav-stand b { color: #FFFFFF; }
+.nav-stand { display: flex; justify-content: center; margin: 6px 0 4px; }
+.nav-stand span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--label, #9AA0A6);
+    padding: 2px 10px; border: 1px solid rgba(150, 188, 240, 0.25); border-radius: 999px; white-space: nowrap; }
+.nav-stand b { color: #FFFFFF; font-weight: 600; }
+.nav-stand i { width: 6px; height: 6px; border-radius: 50%; background: #16C784; display: inline-block; }
 @media (max-width: 700px) {
     .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
     .st-key-nav_menue [data-testid="stButton"] button { min-height: 58px !important; }
@@ -3699,8 +3706,8 @@ def navigation():
     dienst = kurs_dienst_bereit()
     stx = dienst.status()
     laeuft = stx["laeuft"]
-    stand_html = (f'<div class="nav-stand">{kursstand_text(stx, jetzt)} · '
-                  f'nächste Aktualisierung {naechster_termin(jetzt).strftime("%H:%M")} Uhr</div>')
+    stand_html = (f'<div class="nav-stand"><span><i></i>{kursstand_text(stx, jetzt)} · '
+                  f'nächste {naechster_termin(jetzt).strftime("%H:%M")}&nbsp;Uhr</span></div>')
     hilfe = ("Die Kurse werden gerade im Hintergrund geladen – der Knopf ist bis zum Ende gesperrt." if laeuft else
              f"Alle Kurse jetzt im Hintergrund neu laden (sonst automatisch täglich ab {AKTUALISIERUNG_START} Uhr "
              f"alle {AKTUALISIERUNG_TAKT} Stunden)")
@@ -3840,7 +3847,8 @@ def navigation():
                     unsafe_allow_html=True)
         c3.button("⏳" if laeuft else "🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren,
                   disabled=laeuft)
-    st.markdown(stand_html, unsafe_allow_html=True)
+    if aktiv not in OHNE_KURSE:              # Ansichten ohne Live-Kurse: dort zeigt jede Liste ihren eigenen Stand
+        st.markdown(stand_html, unsafe_allow_html=True)
     _kurslauf_fortschritt(stx)
     return aktiv
 
@@ -5807,9 +5815,9 @@ def render_dashboard():
     @st.fragment
     def _render_top50():
         _zugang_pruefen("🏆 Watchlist Top 50")
-        art = st.pills("Liste", ["⭐ Qualitäts-Score", "🏅 ETF- & wikifolio-Score", "🧭 Qualität × Kurs",
-                                 "📈 Performance", "🧩 Wikifolios", "🗂️ Gesamtübersicht"],
-                       default="⭐ Qualitäts-Score", key="top50_art") or "⭐ Qualitäts-Score"
+        art = st.pills("Liste", ["🗂️ Gesamtübersicht", "⭐ Qualitäts-Score", "🏅 ETF- & wikifolio-Score",
+                                 "🧭 Qualität × Kurs", "📈 Performance", "🧩 Wikifolios"],
+                       default="🗂️ Gesamtübersicht", key="top50_art") or "🗂️ Gesamtübersicht"
         if art == "🏅 ETF- & wikifolio-Score":
             try:
                 _render_klassen_score()
