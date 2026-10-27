@@ -947,6 +947,13 @@ st.markdown("""
     [data-testid="stNumberInputStepUp"] svg, [data-testid="stNumberInputStepDown"] svg {
         width: 20px !important; height: 20px !important;
     }
+    /* Handy: die Zahlenfelder sind durch die grossen +/- Tasten 46 px hoch - Auswahlfelder daneben
+       gleich hoch, sonst wirken sie in einer Reihe kleiner und versetzt */
+    @media (max-width: 700px), (pointer: coarse) {
+        [data-testid="stSelectbox"] > div:last-child,
+        [data-testid="stSelectbox"] > div:last-child > div { min-height: 46px !important; }
+        [data-testid="stSelectbox"] > div:last-child > div { display: flex; align-items: center; }
+    }
     /* Tabs ruhiger, ohne dicke gruene Unterstreichung */
     [data-testid="stTabs"] button { font-size: 0.8rem !important; letter-spacing: 0.3px; }
     /* Tab-Leiste bei vielen Positionen horizontal scrollbar halten, statt
