@@ -34,14 +34,14 @@ FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa
 SPALTEN = {"Name": "name", "Art": "art", "Rendite % p. a.": "rendite", "Kurs €": "kurs", "Gewicht %": "gewicht",
            "Betrag €": "betrag", "Stück": "stueck",
            "Wert €": "wert"}
-FARBEN = ["#5B9BFF", "#16C784", "#F5B942", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C", "#94A3B8",
+FARBEN = ["#5B9BFF", "#34D399", "#F5B942", "#A78BFA", "#22D3EE", "#F472B6", "#FB923C", "#94A3B8",
           "#84CC16", "#E879F9"]
 
 CSS = """
 <style>
 .pb-kopf { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:2px 0 12px; }
 .pb-titel { font-size:1.35rem; font-weight:800; color:var(--text,#EBECED); letter-spacing:.2px; }
-.pb-titel span { color:var(--accent,#0A84FF); }
+.pb-titel span { color:var(--accent,#7C9CFF); }
 .pb-unter { font-size:.8rem; color:var(--label,#B1B3B7); }
 .pb-kpis { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; margin:0 0 16px; }
 @media (max-width: 819px) { .pb-kpis { grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; } }
@@ -51,7 +51,7 @@ CSS = """
 .pb-kpi .w { font-size:clamp(1.15rem, 4.6vw, 1.7rem); font-weight:800; color:var(--text,#EBECED);
              font-variant-numeric:tabular-nums; margin-top:4px; overflow-wrap:anywhere; line-height:1.15; }
 .pb-kpi .s { font-size:.8rem; color:var(--muted,#83868C); margin-top:4px; }
-.pb-kpi.gut .w { color:var(--up,#16C784); } .pb-kpi.schlecht .w { color:var(--down,#EA3943); }
+.pb-kpi.gut .w { color:var(--up,#34D399); } .pb-kpi.schlecht .w { color:var(--down,#F87171); }
 .pb-karte-t { font-size:.8rem; letter-spacing:1.3px; text-transform:uppercase; font-weight:800;
               color:var(--text,#EBECED); margin:2px 0 8px; }
 .pb-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px 16px; }
@@ -59,9 +59,9 @@ CSS = """
 .pb-grid div { display:flex; flex-direction:column; padding:8px 0; border-bottom:1px solid var(--line,#252628); min-width:0; }
 .pb-grid .l { font-size:.8rem; color:var(--label,#B1B3B7); }
 .pb-grid .w { font-size:1rem; font-weight:700; color:var(--text,#EBECED); font-variant-numeric:tabular-nums; }
-.pb-grid .w.gut { color:var(--up,#16C784); } .pb-grid .w.schlecht { color:var(--down,#EA3943); }
+.pb-grid .w.gut { color:var(--up,#34D399); } .pb-grid .w.schlecht { color:var(--down,#F87171); }
 .pb-status { display:inline-block; font-size:.8rem; font-weight:700; padding:3px 10px; border-radius:999px; }
-.pb-status.ok { background:rgba(22,199,132,.14); color:#16C784; border:1px solid rgba(22,199,132,.4); }
+.pb-status.ok { background:rgba(52, 211, 153,.14); color:#34D399; border:1px solid rgba(52, 211, 153,.4); }
 .pb-status.warn { background:rgba(245,185,66,.14); color:#F5B942; border:1px solid rgba(245,185,66,.4); }
 .pb-tab { display:table; width:100%; border-collapse:collapse; font-size:.85rem; font-variant-numeric:tabular-nums; }
 .pb-tab th { text-align:right; color:var(--label,#B1B3B7); font-weight:600; font-size:.8rem; padding:6px 8px;
@@ -786,7 +786,7 @@ def _toplisten(h, e, art, art_wahl):
                 f'{f" · {len(liste)} Treffer" if begriff else ""} – Zeilen anhaken (Kästchen links), {verteilt}. '
                 f'Vergangene Renditen sind keine Prognose.</div>', unsafe_allow_html=True)
     if st.button(f"➕ {len(zeilen)} ausgewählte hinzufügen" if zeilen else "➕ Ausgewählte hinzufügen",
-                 key="pb_top_btn", type="primary", disabled=not zeilen, width="stretch"):
+                 key="pb_top_btn", type="secondary", disabled=not zeilen, width="stretch"):
         werte = [zeilen_seite[i] for i in zeilen if 0 <= i < len(zeilen_seite)]
         pos, anzahl, schon = P.mehrere_hinzufuegen(e["positionen"], werte)
         st.session_state["pb_positionen"] = pos
@@ -903,7 +903,7 @@ def _tabelle(h, r):
                                             "- **Aufs Zielvermögen**: nach erwarteter Rendite, so dass das Ziel erreicht "
                                             "wird\n\nFehlende Kurse werden vorher geholt; Betrag und Stück rechnen sich "
                                             "danach aus Kapital und Kurs.")
-                if r2.button("⚖️ Rebalancing", key="pb_rebal_btn", type="primary", width="stretch",
+                if r2.button("⚖️ Rebalancing", key="pb_rebal_btn", type="secondary", width="stretch",
                              disabled=not e["positionen"]):
                     _rebalancing(h, e, methode)
                     st.rerun()
@@ -981,7 +981,7 @@ def _diagramme(r):
             hat_kredit = r["eingaben"]["kredit_summe"] > 0
             reihen = [("Portfolio", "portfolio", "#5B9BFF")]
             if hat_kredit:
-                reihen += [("Schulden", "schulden", "#EA3943"), ("Netto (Portfolio − Schulden)", "netto", "#E9EBEF")]
+                reihen += [("Schulden", "schulden", "#F87171"), ("Netto (Portfolio − Schulden)", "netto", "#E9EBEF")]
             for name, feld, farbe in reihen:
                 fig.add_trace(go.Scatter(
                     x=x, y=[z[feld] for z in v], name=name, mode="lines", line=dict(color=farbe, width=2.4),

@@ -398,7 +398,7 @@ def _bereich_fall(st, null):
     fall = fall_aus_session(st.session_state, null)
     erg = M.alle_modelle(fall, cfg_aus_session(st.session_state))
     _kurzergebnis(st, oben, fall, erg)
-    st.markdown('<div class="abf-ergebnis-kopf">📊 Grundlagen</div>', unsafe_allow_html=True)
+    st.markdown('<div class="abf-ergebnis-kopf">Grundlagen</div>', unsafe_allow_html=True)
     dauer = erg["dauer"]
     c1, c2, c3 = st.columns(3)
     c1.metric("Monatsverdienst", _eur(erg["mv"], 2))
@@ -466,9 +466,9 @@ def _bereich_modelle(st, pd, null):
         ok = [z for z in zeilen if z["steuer"]]
         fig = go.Figure()
         fig.add_bar(y=[z["modell"]["name"] for z in ok], x=[float(z["steuer"]["netto"]) for z in ok], name="Netto",
-                    orientation="h", marker_color="#16C784")
+                    orientation="h", marker_color="#34D399")
         fig.add_bar(y=[z["modell"]["name"] for z in ok], x=[float(z["steuer"]["steuer"]) for z in ok], name="Steuer",
-                    orientation="h", marker_color="#EA3943")
+                    orientation="h", marker_color="#F87171")
         fig.update_layout(barmode="stack", height=max(260, 26 * len(ok) + 80), paper_bgcolor="#000",
                           plot_bgcolor="#000", font=dict(color="#D6D9DE", size=11), margin=dict(l=8, r=8, t=10, b=10),
                           legend=dict(orientation="h", y=1.05), separators=",.", xaxis=dict(gridcolor="#1A1A1A"),
@@ -640,7 +640,7 @@ def _bereich_verhandlung(st, pd, null):
         fig.add_scatter(x=[float(x) for x, _ in werte], y=[float(w["brutto"]) for _, w in werte], name="Brutto",
                         line=dict(color="#4C9AFF"))
         fig.add_scatter(x=[float(x) for x, _ in werte], y=[float(w["netto"]) for _, w in werte], name="Netto",
-                        line=dict(color="#16C784"))
+                        line=dict(color="#34D399"))
         fig.add_vline(x=float(f), line_color="#F5B942", line_dash="dot")
         fig.update_layout(height=280, paper_bgcolor="#000", plot_bgcolor="#000", font=dict(color="#D6D9DE", size=11),
                           margin=dict(l=8, r=8, t=10, b=30), legend=dict(orientation="h", y=1.08), separators=",.",
@@ -652,7 +652,7 @@ def _bereich_verhandlung(st, pd, null):
                                 "Netto €": float(w["netto"])} for x, w in werte]), hide_index=True, width="stretch",
                  column_config={c: st.column_config.NumberColumn(c, format="%.0f") for c in ("Brutto €", "Steuer €", "Netto €")})
 
-    st.markdown("##### 🎯 Abfindungsziel")
+    st.markdown("##### Abfindungsziel")
     c1, c2 = st.columns(2)
     art = c1.radio("Ziel", ["Netto", "Brutto"], horizontal=True, key="abf_vh_ziel_art")
     ziel = c2.number_input(f"Gewünschte {art}-Abfindung (€)", 0.0, 1e8, **_s(st, "abf_vh_ziel", None), step=1000.0,

@@ -9,6 +9,7 @@ Umbruchpunkte (einheitlich):  S < 600 px (Handy)  |  M 600-899 (Handy quer, Tabl
 Inhalt ist auf grossen Monitoren auf INHALT_MAX px begrenzt (zentriert); breite Tabellen duerfen
 ueber .ui-breit die volle Breite nutzen.
 """
+import re
 
 INHALT_MAX = 1440
 INHALT_MAX_BREIT = 1920
@@ -16,7 +17,7 @@ INHALT_MAX_BREIT = 1920
 CSS_BASIS = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
     /* ============================================================
        DESIGN-SYSTEM
@@ -29,14 +30,14 @@ CSS_BASIS = """
               wirklich wichtig ist.
        ============================================================ */
     :root {
-        --ink:     #0B0B0C;   /* Hintergrund - nicht reines Schwarz, Hauch Blau */
-        --surface: #151617;   /* erhoehte Flaechen */
-        --line:    #252628;   /* Haarlinien */
-        --muted:   #83868C;   /* Sekundaertext, tertiaer (Fussnoten) */
-        --label:   #B1B3B7;   /* Zeilen-Labels - deutlich besser lesbar als --muted */
-        --text:    #EBECED;   /* Primaertext */
-        --up:      #16C784;
-        --down:    #EA3943;
+        --ink:     #07090F;   /* Hintergrund: tiefes Navy (glass_theme --bg-0) */
+        --surface: #0D1220;   /* erhoehte Flaechen (--bg-1) */
+        --line:    #232A3D;   /* Haarlinien */
+        --muted:   #8A93A8;   /* Sekundaertext, tertiaer (Fussnoten) */
+        --label:   #A9B1C4;   /* Zeilen-Labels - deutlich besser lesbar als --muted */
+        --text:    #E8ECF6;   /* Primaertext */
+        --up:      #34D399;
+        --down:    #F87171;
     }
 
     .stApp { background-color: var(--ink); color: var(--text); }
@@ -48,7 +49,7 @@ CSS_BASIS = """
        Pfeil-Glyphs den rohen Icon-Namen als Text an (z.B. "_arrow_right"). */
     .stApp,
     .stApp *:not([data-testid="stIconMaterial"]):not(.material-icons):not(.material-symbols-rounded):not(.material-symbols-outlined) {
-        font-family: 'Space Grotesk', -apple-system, sans-serif;
+        font-family: 'Inter', -apple-system, sans-serif;
     }
 
     /* Streamlit-eigene Icons (Expander-Chevron, Stepper-Pfeile etc.)
@@ -59,7 +60,7 @@ CSS_BASIS = """
 
     /* Zahlen bekommen konsequent die Datenschrift mit Tabellenziffern */
     .num, .q-price, .q-delta, .row-val, .hero-val, .hero-sub {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums;
         font-feature-settings: "tnum" 1;
     }
@@ -77,7 +78,7 @@ CSS_BASIS = """
     /* Kachel-Ueberschriften identisch zu den Abschnittsueberschriften:
        gleiche Schrift, gleiches Gewicht, Neonweiss mit leichtem Schein. */
     .q-name, .hero-label {
-        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
+        font-family: 'Inter', -apple-system, sans-serif !important;
         font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: 6px;
         text-shadow: 0 0 10px rgba(255, 255, 255, 0.30);
@@ -105,11 +106,11 @@ CSS_BASIS = """
     }
     .live-pill {
         display: inline-flex; align-items: center; gap: 6px;
-        background: rgba(22, 199, 132, 0.12); color: var(--up);
+        background: rgba(52, 211, 153, 0.12); color: var(--up);
         font-size: 0.8rem; font-weight: 700; letter-spacing: 0.2px;
         padding: 4px 10px 4px 8px; border-radius: 999px;
     }
-    .live-pill.offline { background: rgba(234, 57, 67, 0.12); color: var(--down); }
+    .live-pill.offline { background: rgba(248, 113, 113, 0.12); color: var(--down); }
     .live-pill.stand { background: rgba(255, 255, 255, 0.06); color: var(--label); }
     .live-dot.stand { background: var(--label); animation: none; }
     .meta-chip {
@@ -121,7 +122,7 @@ CSS_BASIS = """
        Live-Badge, damit sich die Statusmarker in beiden Kacheln gleichen. */
     .hw-pill {
         display: inline-flex; align-items: center; gap: 6px;
-        background: rgba(22, 199, 132, 0.12); color: var(--up);
+        background: rgba(52, 211, 153, 0.12); color: var(--up);
         font-size: 0.8rem; font-weight: 700; letter-spacing: 0.2px;
         padding: 4px 10px; border-radius: 999px;
     }
@@ -149,8 +150,8 @@ CSS_BASIS = """
     /* Gesamtsumme optisch abheben - gruener Akzentrand, damit sie sich
        trotz gleicher Struktur klar von den Einzelpositionen unterscheidet. */
     .hero.gesamt {
-        border-color: rgba(22, 199, 132, 0.35);
-        background: linear-gradient(rgba(22, 199, 132, 0.05), rgba(22, 199, 132, 0.05)), var(--surface);
+        border-color: rgba(52, 211, 153, 0.35);
+        background: linear-gradient(rgba(52, 211, 153, 0.05), rgba(52, 211, 153, 0.05)), var(--surface);
     }
     .hero-val { font-size: 1.6rem; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
     .hero-sub { font-size: 0.92rem; color: var(--label); font-weight: 500; }
@@ -175,7 +176,7 @@ CSS_BASIS = """
         text-transform: uppercase; letter-spacing: 0.4px;
     }
     .stat-chip-val {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
         font-size: 0.9rem; font-weight: 700; color: var(--text);
     }
@@ -226,7 +227,7 @@ CSS_BASIS = """
         flex-wrap: wrap; text-align: right;
     }
     .perf-vals .up, .perf-vals .down, .perf-vals .neutral {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
         font-size: 0.85rem; font-weight: 600; white-space: nowrap;
     }
@@ -295,7 +296,7 @@ CSS_BASIS = """
        direkt ins label oder in ein <p> darin). */
     [data-testid="stSelectbox"] label,
     [data-testid="stSelectbox"] label p {
-        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
+        font-family: 'Inter', -apple-system, sans-serif !important;
         font-size: 0.8rem !important;
         font-weight: 700 !important;
         color: #FFFFFF !important;
@@ -426,7 +427,7 @@ CSS_BASIS = """
        nachschlagen), sahen aber identisch aus. Abschnittsueberschrift plus
        weisser Rahmen macht die Gliederung auf einen Blick lesbar. */
     .abschnitt {
-        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
+        font-family: 'Inter', -apple-system, sans-serif !important;
         font-size: 0.8rem; font-weight: 700; color: #FFFFFF;
         letter-spacing: 1.3px; text-transform: uppercase;
         margin: 16px 0 2px 2px;
@@ -465,7 +466,7 @@ CSS_BASIS = """
     [data-testid="stExpander"] summary p,
     [data-testid="stExpander"] summary span:not([data-testid="stIconMaterial"]):not(.material-icons):not([class*="material-symbols"]),
     [data-testid="stExpander"] summary div:not([data-testid="stIconMaterial"]) {
-        font-family: 'Space Grotesk', -apple-system, sans-serif !important;
+        font-family: 'Inter', -apple-system, sans-serif !important;
         font-size: 0.88rem !important;
         font-weight: 600 !important;
         line-height: 1.35 !important;
@@ -569,7 +570,7 @@ CSS_BASIS = """
     /* Die EIGENE Position ist der Bezugspunkt - alles andere ist Vergleich.
        Deshalb farblich abgesetzt statt in der Masse unterzugehen. */
     .pt tbody tr.pt-eigene {
-        background: rgba(22, 199, 132, 0.09);
+        background: rgba(52, 211, 153, 0.09);
         box-shadow: inset 3px 0 0 var(--up);
     }
 
@@ -595,14 +596,14 @@ CSS_BASIS = """
     /* Zahlen in Tabellenziffern, damit Nachkommastellen untereinander stehen */
     .pt-num {
         text-align: right;
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
         font-size: 0.8rem;
     }
     .pt-stark { font-weight: 700; font-size: 0.83rem; }
     .pt-klein { font-size: 0.8rem; opacity: 0.92; }
-    .pt-up { color: #16C784; }
-    .pt-down { color: #EA3943; }
+    .pt-up { color: #34D399; }
+    .pt-down { color: #F87171; }
     .pt-leer { color: #4B5058; }
     .pt-seit { color: #FFFFFF; font-weight: 700; font-size: 0.8rem; text-shadow: 0 0 8px rgba(255, 255, 255, 0.30); }
 
@@ -614,7 +615,7 @@ CSS_BASIS = """
         font-size: 0.8rem; font-weight: 600; color: var(--label); letter-spacing: 0.2px;
     }
     .q-punkte { font-weight: 800; font-size: 0.9rem; }
-    .q-prio { color: #16C784; }
+    .q-prio { color: #34D399; }
     .q-beob { color: #F5B942; }
     .q-nicht { color: #8A9099; }
     .pt td.q-fokus-hl, .pt th.q-fokus-hl { background: rgba(255, 255, 255, 0.05); }
@@ -632,7 +633,7 @@ CSS_BASIS = """
         text-transform: uppercase; letter-spacing: 0.6px;
     }
     .q-kpi-v {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+        font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
         font-size: 1.35rem; font-weight: 800; color: #FFFFFF; line-height: 1.3;
     }
     .q-kpi-v span { font-size: 0.8rem; font-weight: 600; color: var(--label); }
@@ -671,11 +672,11 @@ CSS_BASIS = """
     .pt.ks td.ks-grund, .pt.ks th.ks-grund { white-space: normal; min-width: 220px; max-width: 320px;
                                               text-align: left; font-size: 0.78rem; line-height: 1.35; }
     .ks-plus, .ks-minus { display: block; }
-    .ks-plus { color: #16C784; }
+    .ks-plus { color: #34D399; }
     .ks-minus { color: #F5B942; }
     .ks-bahn { width: 140px; height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px;
                overflow: hidden; }
-    .ks-bahn > div { height: 100%; background: #16C784; border-radius: 4px; }
+    .ks-bahn > div { height: 100%; background: #34D399; border-radius: 4px; }
     .pt.ks-mini td { white-space: normal; }
     .pt.ks-mini td.pt-num { white-space: nowrap; }
     .q-balken { margin: 4px 0 14px; }
@@ -688,7 +689,7 @@ CSS_BASIS = """
     .q-b-fuell { height: 100%; border-radius: 4px; }
     .q-b-wert {
         text-align: right; font-weight: 700;
-        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+        font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
     }
     @media (max-width: 700px) {
         .q-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -758,7 +759,7 @@ CSS_BASIS = """
         content: counter(ladepct) " %";
         position: fixed; top: 0; left: 0; right: 0; z-index: 10000; height: 66px; box-sizing: border-box;
         padding: 10px 16px 0; display: block;
-        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+        font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
         font-size: 1.35rem; font-weight: 700; line-height: 1.2; color: var(--text);
         background: rgba(21, 21, 22, 0.97); border-bottom: 1px solid var(--line);
         box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
@@ -773,7 +774,7 @@ CSS_BASIS = """
         font-size: 0.9rem; font-weight: 600; color: var(--muted); white-space: nowrap;
         /* Balken: unten im Banner, Fuellung waechst mit --ladebreite */
         background:
-            linear-gradient(var(--accent, #0A84FF), var(--accent, #0A84FF)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
+            linear-gradient(var(--accent, #7C9CFF), var(--accent, #7C9CFF)) no-repeat 16px 46px / calc((100% - 32px) * var(--ladebreite) / 100%) 9px,
             linear-gradient(var(--line), var(--line)) no-repeat 16px 46px / calc(100% - 32px) 9px;
         opacity: 0; pointer-events: none;
         animation: ladeein 0.2s ease 0.5s forwards, ladebalken 12s cubic-bezier(.12, .75, .3, 1) 0.5s forwards;
@@ -801,7 +802,7 @@ CSS_BASIS = """
         backdrop-filter: blur(6px);
     }
     .loading-pct {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-variant-numeric: tabular-nums;
         font-size: 1.35rem; font-weight: 700; color: var(--text);
         line-height: 1.2; min-width: 72px; flex-shrink: 0;
@@ -812,7 +813,7 @@ CSS_BASIS = """
         background: var(--line); overflow: hidden;
     }
     .loading-bar-fill {
-        height: 100%; background: var(--accent, #0A84FF); border-radius: 999px;
+        height: 100%; background: var(--accent, #7C9CFF); border-radius: 999px;
         transition: width 0.25s ease;
     }
     /* Text rechts neben der Prozentzahl, bei Bedarf abgeschnitten */
@@ -849,7 +850,7 @@ CSS_BASIS = """
     div[data-testid="stVerticalBlock"] { gap: 0.7rem !important; }
 
     [data-testid="stNumberInput"] input {
-        font-family: 'IBM Plex Mono', monospace !important;
+        font-family: 'JetBrains Mono', monospace !important;
         font-variant-numeric: tabular-nums;
         font-size: 1.15rem !important; font-weight: 600 !important;
     }
@@ -877,7 +878,7 @@ CSS_BASIS = """
     /* Sichtbarer Tastatur-Fokus (Audit A-16) */
     button:focus-visible, a:focus-visible, input:focus-visible, [role="tab"]:focus-visible,
     [role="button"]:focus-visible, [role="checkbox"]:focus-visible, [role="switch"]:focus-visible {
-        outline: 2px solid #409CFF !important; outline-offset: 2px !important;
+        outline: 2px solid #A5B8FF !important; outline-offset: 2px !important;
     }
     /* Kachel im Tab hat keinen doppelten Abstand nach unten */
     [data-testid="stTabs"] .hero { margin-bottom: 0; }
@@ -966,22 +967,24 @@ CSS_BASIS = """
        Gruen/Rot bleiben ausschliesslich Kursveraenderungen vorbehalten.
        ============================================================ */
     :root {
-        /* Apple-Graphit (Liquid Glass, 10/2026): neutrale Grautoene, Systemblau nur fuer Auswahl/Hauptaktion */
-        --ink: #111113; --surface: #1C1C1E; --surface-2: #232325; --line: #38383A;
-        --muted: #8E8E93; --label: #AEAEB2; --text: #F5F5F7;
-        --accent: #0A84FF; --accent-hell: #409CFF; --accent-soft: rgba(10, 132, 255, 0.16);
-        --accent-rand: rgba(10, 132, 255, 0.55);
-        --karte: linear-gradient(180deg, rgba(58, 58, 60, 0.52) 0%, rgba(28, 28, 30, 0.62) 100%);
-        /* Raender: dunkel klar hell mit leichtem Leuchten, hell (ui_hell) klar dunkel */
-        --rand: rgba(255, 255, 255, 0.24);
+        /* Premium Glass (10/2026, glass_theme.py): Navy, Akzent Periwinkle, zweiter Akzent Tuerkis */
+        --ink: #07090F; --surface: #0D1220; --surface-2: #111729; --line: #232A3D;
+        --muted: #8A93A8; --label: #A9B1C4; --text: #E8ECF6;
+        --accent: #7C9CFF; --accent-hell: #A5B8FF; --accent-2: #5EEAD4; --accent-soft: rgba(124, 156, 255, 0.18);
+        --accent-rand: rgba(124, 156, 255, 0.55);
+        --pos: #34D399; --neg: #F87171;
+        --karte: linear-gradient(160deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+        /* Raender: feines Glas (glass_theme --glass-border) */
+        --rand: rgba(255, 255, 255, 0.12);
         --rand-glow: 0 0 0 transparent;
     }
     .stApp {
         background:
-            radial-gradient(1100px 620px at 88% -8%, rgba(255, 255, 255, 0.09), transparent 60%),
-            radial-gradient(900px 640px at -12% 42%, rgba(255, 255, 255, 0.05), transparent 62%),
-            radial-gradient(700px 500px at 60% 110%, rgba(255, 255, 255, 0.04), transparent 60%),
-            var(--ink) !important;
+            radial-gradient(1200px 600px at 10% -10%, rgba(124, 156, 255, 0.18), transparent 60%),
+            radial-gradient(900px 500px at 110% 10%, rgba(94, 234, 212, 0.12), transparent 60%),
+            radial-gradient(800px 600px at 50% 120%, rgba(167, 139, 250, 0.12), transparent 60%),
+            linear-gradient(180deg, var(--surface), var(--ink)) !important;
+        background-color: var(--ink) !important;
         background-attachment: fixed !important;
     }
     [data-testid="stHeader"], [data-testid="stBottomBlockContainer"] { background: transparent !important; }
@@ -1058,9 +1061,9 @@ CSS_BASIS = """
     [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p { color: var(--accent-hell) !important; }
 
     /* Hinweisboxen im Blau-Ton */
-    [data-testid="stAlertContentInfo"] { color: #409CFF !important; }
+    [data-testid="stAlertContentInfo"] { color: #A5B8FF !important; }
     [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div {
-        background: rgba(10, 132, 255, 0.1) !important; border: 1px solid rgba(10, 132, 255, 0.28) !important;
+        background: rgba(124, 156, 255, 0.1) !important; border: 1px solid rgba(124, 156, 255, 0.28) !important;
         border-radius: 14px !important;
     }
 
@@ -1101,7 +1104,7 @@ CSS_NAV = """
 .nav-credit { font-size: 0.8rem; letter-spacing: 1.5px; color: #FFFFFF; margin-top: 3px;
               text-shadow: 0 0 6px rgba(255, 255, 255, 0.35); }
 .nav-logo {
-    font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
+    font-family: 'Inter', -apple-system, sans-serif; font-size: 1.5rem; font-weight: 700;
     letter-spacing: 5px; color: #FFFFFF; text-transform: uppercase;
     text-shadow: 0 0 8px rgba(255, 255, 255, 0.45), 0 0 20px rgba(255, 255, 255, 0.15);
 }
@@ -1112,8 +1115,8 @@ CSS_NAV = """
     border-radius: 999px; font-size: 0.8rem; font-weight: 700;
 }
 .nav-chip b { font-weight: 700; }
-.nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #16C784;
-           box-shadow: 0 0 8px #16C784; animation: navpuls 2.4s ease-in-out infinite; }
+.nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #34D399;
+           box-shadow: 0 0 8px #34D399; animation: navpuls 2.4s ease-in-out infinite; }
 @keyframes navpuls { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 /* Lichtschimmer, der langsam durch die Ueberschriften laeuft (alle 6 s,
@@ -1238,11 +1241,11 @@ CSS_NAV = """
 }
 .nav-stand { display: flex; justify-content: center; margin: 6px 0 4px; }
 .nav-stand span { display: inline-block; font-size: 0.78rem; line-height: 1.5;
-    color: var(--label, #9AA0A6); padding: 2px 12px; border: 1px solid rgba(64, 156, 255, 0.25); border-radius: 14px;
+    color: var(--label, #9AA0A6); padding: 2px 12px; border: 1px solid rgba(165, 184, 255, 0.25); border-radius: 14px;
     max-width: 100%; box-sizing: border-box; text-align: center; }
 .nav-stand span > i { margin-right: 6px; vertical-align: 1px; }
 .nav-stand b { color: #FFFFFF; font-weight: 600; }
-.nav-stand i { width: 6px; height: 6px; border-radius: 50%; background: #16C784; display: inline-block; }
+.nav-stand i { width: 6px; height: 6px; border-radius: 50%; background: #34D399; display: inline-block; }
 @media (max-width: 700px) {
     .nav-logo { font-size: 1.22rem; letter-spacing: 3.5px; }
     .st-key-nav_menue [data-testid="stButton"] button { min-height: 58px !important; }
@@ -1251,202 +1254,313 @@ CSS_NAV = """
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
 
-/* ================= GLAS: Apple-Stil (Liquid Glass, Ueberarbeitung 10/2026) =================
-   Ruhig statt laut: Systemschrift (SF), feine Haarlinien statt dicker Rahmen, oben eine helle Lichtkante,
-   darunter mehrlagige weiche Schatten. Kein Pulsieren, kein Dauer-Glow. Umschalter (segmented_control) wie
-   bei Apple: graue Spur mit hellem "Daumen"; Pillen als Glas-Chips, Auswahl blau getoent; Hauptaktion
-   Systemblau. ALLE Farben nur ueber Variablen - die helle Ansicht setzt eigene Werte (ui_hell.WIDGETS),
-   Farbliterale hier wuerden von ui_hell automatisch (und fuer Schatten falsch) umgerechnet. */
+/* ================= GLAS: Premium Glass (glass_theme.py, 10/2026) =================
+   Baut auf glass_theme.py auf und setzt dessen Look app-weit durch (die App hat eigene, spezifischere
+   Regeln): Glasflaeche mit Blur, Glanzstreifen oben (::before), durchlaufender Lichtreflex beim Hover
+   (::after), Press-Feedback. Hauptaktion: getoentes Glas Periwinkle -> Tuerkis mit Akzent-Glow.
+   Einheitliche Hoehe: 44 px am Desktop, 48 px auf Touch-Geraeten. ALLE Farben nur ueber Variablen - die helle
+   Ansicht setzt eigene Werte (ui_hell.WIDGETS); Farbliterale hier wuerden von ui_hell (fuer Schatten falsch)
+   umgerechnet. */
 :root {
-    --g-schrift: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto,
-                 "Helvetica Neue", Arial, sans-serif;
-    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.115) 0%, rgba(255, 255, 255, 0.055) 100%);
-    --glas-bg-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.08) 100%);
-    --glas-kante: linear-gradient(180deg, rgba(255, 255, 255, 0.50) 0%, rgba(255, 255, 255, 0.16) 40%,
-                  rgba(255, 255, 255, 0.10) 70%, rgba(255, 255, 255, 0.20) 100%);
-    --glas-licht: rgba(255, 255, 255, 0.20);
-    --glas-tiefe: rgba(0, 0, 0, 0.28);
-    --glas-schatten: 0 1px 2px rgba(0, 0, 0, 0.40), 0 4px 12px rgba(0, 0, 0, 0.28), 0 16px 32px -12px rgba(0, 0, 0, 0.55);
-    --glas-schatten-hover: 0 2px 4px rgba(0, 0, 0, 0.40), 0 8px 20px rgba(0, 0, 0, 0.32), 0 22px 44px -14px rgba(0, 0, 0, 0.6);
-    --glas-text: #F5F5F7;
-    --glas-glow-stark: rgba(255, 255, 255, 0.10);
+    --g-schrift: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --g-zahl: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --g-ease: cubic-bezier(.2, .8, .2, 1);
+    --g-hoehe: 44px;
+    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(255, 255, 255, 0.055);
+    --glas-bg-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.05) 100%), rgba(255, 255, 255, 0.09);
+    --glas-rand: rgba(255, 255, 255, 0.12);
+    --glas-rand-stark: rgba(255, 255, 255, 0.22);
+    --glas-glanz: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
+    --glas-reflex: linear-gradient(110deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+    --glas-licht: rgba(255, 255, 255, 0.25);
+    --glas-tiefe: rgba(0, 0, 0, 0.25);
+    --glas-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+                     0 10px 40px -12px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.25);
+    --glas-schatten-hover: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(124, 156, 255, 0.25),
+                           0 14px 40px -10px rgba(124, 156, 255, 0.45);
+    --glas-schatten-press: inset 0 2px 8px rgba(0, 0, 0, 0.35), 0 4px 14px -6px rgba(0, 0, 0, 0.5);
+    --glas-text: #E8ECF6;
+    --glas-text-hover: #FFFFFF;
+    --glas-glow-stark: rgba(124, 156, 255, 0.35);
     --glas-rand-flach: rgba(255, 255, 255, 0.12);
-    --trenn: rgba(255, 255, 255, 0.12);
-    --seg-spur: rgba(118, 118, 128, 0.24);
-    --seg-daumen: linear-gradient(180deg, #6C6C70 0%, #5A5A5E 100%);
-    --seg-daumen-schatten: inset 0 0.5px 0 rgba(255, 255, 255, 0.28), 0 3px 8px rgba(0, 0, 0, 0.30), 0 1px 1px rgba(0, 0, 0, 0.20);
-    --seg-text: #F5F5F7;
-    --chip-aktiv-bg: rgba(10, 132, 255, 0.24);
-    --chip-aktiv-rand: rgba(64, 156, 255, 0.70);
+    --karte-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 40px -12px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.25);
+    --trenn: rgba(255, 255, 255, 0.10);
+    --seg-spur: rgba(255, 255, 255, 0.055);
+    --seg-daumen: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+    --seg-daumen-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.30), 0 4px 14px -4px rgba(0, 0, 0, 0.5);
+    --seg-text: #8A93A8;
+    --seg-text-aktiv: #FFFFFF;
+    --chip-aktiv-bg: linear-gradient(135deg, rgba(124, 156, 255, 0.36), rgba(94, 234, 212, 0.18));
+    --chip-aktiv-rand: rgba(124, 156, 255, 0.55);
     --chip-aktiv-text: #FFFFFF;
-    --glas-primaer-bg: linear-gradient(180deg, #2A8BFF 0%, #0A7AFF 100%);
+    --glas-primaer-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0) 60%),
+                       linear-gradient(135deg, rgba(124, 156, 255, 0.55), rgba(94, 234, 212, 0.35));
+    --glas-primaer-rand: rgba(124, 156, 255, 0.45);
     --glas-primaer-text: #FFFFFF;
-    --glas-primaer-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.30), 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 16px rgba(10, 122, 255, 0.30);
-    --glas-fokus: 0 0 0 3px rgba(10, 132, 255, 0.45);
-    --glas-feld-innen: inset 0 1px 2px rgba(0, 0, 0, 0.30);
+    --glas-primaer-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 10px 30px -8px rgba(124, 156, 255, 0.6);
+    --glas-primaer-schatten-hover: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(124, 156, 255, 0.5),
+                                   0 16px 44px -8px rgba(124, 156, 255, 0.75);
+    --glas-fokus: 0 0 0 3px rgba(124, 156, 255, 0.35);
+    --feld-bg: rgba(255, 255, 255, 0.04);
+    --feld-innen: inset 0 1px 2px rgba(0, 0, 0, 0.25);
 }
+@media (pointer: coarse), (max-width: 768px) { :root { --g-hoehe: 48px; } }
 
-/* ---- Glasflaeche: Knoepfe, Menuekacheln, Kopfleiste, Download, Chips ---- */
+/* ---- Glasflaeche: Knoepfe, Menuekacheln, Kopfleiste, Download, Pillen, Chips ---- */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"], .nav-chip
     ):not(.st-key-logout_ecke *) {
     background: var(--glas-bg) !important;
-    border: 1px solid transparent !important;
-    -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
-    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten) !important;
+    border: 1px solid var(--glas-rand) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%);
+    box-shadow: var(--glas-schatten) !important;
     color: var(--glas-text) !important;
     font-family: var(--g-schrift) !important;
     transform: none !important; animation: none !important;
-    transition: box-shadow .2s ease, transform .12s ease, background .2s ease !important;
-    position: relative; isolation: isolate;
+    transition: transform .25s var(--g-ease), box-shadow .25s var(--g-ease), border-color .25s var(--g-ease),
+                background .25s var(--g-ease) !important;
+    position: relative; isolation: isolate; overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
 }
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, [data-testid="stBaseButton-primary"],
     [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *) :is(p, span, div) {
-    font-family: var(--g-schrift) !important; font-weight: 600 !important; letter-spacing: -0.01em !important;
+    font-family: var(--g-schrift) !important; font-weight: 600 !important; letter-spacing: 0.01em !important;
     color: inherit !important; text-shadow: none !important;
 }
-/* Form: einzeilige Knoepfe als Kapsel, Menuekacheln mit Apple-Eckenradius */
-html body :is(.st-key-nav_leiste [data-testid="stButton"] button, [data-testid="stBaseButton-secondary"],
-    [data-testid="stBaseButton-secondaryFormSubmit"], [data-testid="stDownloadButton"] button,
-    [data-testid="stButtonGroup"] button, [data-testid="stBaseButton-primary"],
-    [data-testid="stBaseButton-primaryFormSubmit"], .st-key-nav_menue .st-key-nav_refresh button):not(.st-key-logout_ecke *) {
-    border-radius: 999px !important;
+/* Einheitliche Hoehe und Form: Knoepfe 14 px Radius, Pillen als Kapsel, Menuekacheln 20 px */
+html body :is([data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stBaseButton-primary"],
+    [data-testid="stBaseButton-primaryFormSubmit"], .st-key-nav_leiste [data-testid="stButton"] button
+    ):not(.st-key-logout_ecke *) {
+    border-radius: 14px !important; min-height: var(--g-hoehe) !important;
+}
+html body [data-testid="stButtonGroup"] button:not(.st-key-logout_ecke *),
+html body .st-key-nav_menue .st-key-nav_refresh button {
+    border-radius: 999px !important; min-height: var(--g-hoehe) !important;
 }
 html body .st-key-nav_menue [data-testid="stButton"] button:not(.st-key-logout_ecke *):not(.st-key-nav_refresh *) {
     border-radius: 20px !important; min-height: 60px !important;
 }
-/* Lichtkante: 1-px-Verlaufsrand (oben hell, seitlich und unten fein) als Maske */
+/* Glanzstreifen oben */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"], .nav-chip,
-    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *)::after {
-    content: "" !important; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px;
-    background: var(--glas-kante); display: block !important; animation: none !important; border: 0 !important;
-    box-shadow: none !important; opacity: 1;
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor; mask-composite: exclude;
-}
-html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
-    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button,
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"],
     [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *)::before {
-    content: none !important; display: none !important;
+    content: "" !important; display: block !important; position: absolute; inset: 0 0 50% 0; border-radius: inherit;
+    background: var(--glas-glanz); pointer-events: none; z-index: -1; animation: none !important; border: 0 !important;
+    box-shadow: none !important; opacity: 1;
 }
-/* Darueberfahren: Flaeche minimal heller, Schatten tiefer; Druecken: leicht einsinken */
+/* Lichtreflex: laeuft beim Hover einmal durch */
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"],
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *)::after {
+    content: "" !important; display: block !important; position: absolute; top: 0; left: -120%; width: 60%; height: 100%;
+    inset: 0 auto auto -120%; padding: 0 !important; border: 0 !important; border-radius: 0 !important;
+    background: var(--glas-reflex) !important; transform: skewX(-20deg); transition: left .7s var(--g-ease), inset .7s var(--g-ease);
+    pointer-events: none; animation: none !important; box-shadow: none !important; opacity: 1;
+    -webkit-mask: none !important; mask: none !important;
+}
+/* Darueberfahren: heller, Akzent-Schimmer, hebt sich; Druecken: sinkt ein */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"]
     ):not(.st-key-logout_ecke *):is(:hover, :focus-visible):not(:disabled) {
-    background: var(--glas-bg-hover) !important;
-    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten-hover) !important;
+    background: var(--glas-bg-hover) !important; border-color: var(--glas-rand-stark) !important;
+    box-shadow: var(--glas-schatten-hover) !important; color: var(--glas-text-hover) !important;
+}
+@media (hover: hover) {
+    html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+        [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+        [data-testid="stDownloadButton"] button, [data-testid="stBaseButton-primary"],
+        [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):hover:not(:disabled) {
+        transform: translateY(-2px) !important;
+    }
+    html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+        [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+        [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"],
+        [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):hover:not(:disabled)::after {
+        left: 140%; inset: 0 auto auto 140%;
+    }
 }
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button,
     [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):active:not(:disabled) {
-    transform: scale(0.98) !important;
+    transform: translateY(0) scale(0.98) !important; box-shadow: var(--glas-schatten-press) !important;
 }
 html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [data-testid="stDownloadButton"],
     [data-testid="stButtonGroup"]) button:not(.st-key-logout_ecke *):focus-visible {
-    outline: none !important; box-shadow: var(--glas-fokus), var(--glas-schatten) !important;
+    outline: 2px solid var(--accent) !important; outline-offset: 3px !important;
 }
 
-/* ---- Pillen (st.pills): Glas-Chips, Auswahl blau getoent mit feiner blauer Kante ---- */
+/* ---- Pillen (st.pills): Auswahl als getoentes Akzent-Glas ---- */
 html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="pills"]:is([aria-checked="true"], [aria-pressed="true"]):not(.st-key-x) {
     background: var(--chip-aktiv-bg) !important; color: var(--chip-aktiv-text) !important;
-    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten) !important;
-}
-html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="pills"]:is([aria-checked="true"], [aria-pressed="true"]):not(.st-key-x)::after {
-    background: var(--chip-aktiv-rand);
+    border-color: var(--chip-aktiv-rand) !important;
 }
 
-/* ---- Umschalter (st.segmented_control): Apple-Segment - graue Spur, heller "Daumen" ---- */
+/* ---- Umschalter (st.segmented_control): Glas-Spur wie die Reiter, Auswahl als heller Glas-Daumen ---- */
 html body [data-testid="stButtonGroup"] [role="radiogroup"]:has(> button[data-variant="segmented_control"]),
 html body [data-testid="stButtonGroup"] [role="group"]:has(> button[data-variant="segmented_control"]) {
-    background: var(--seg-spur) !important; border-radius: 999px !important; padding: 2px !important;
-    gap: 2px !important; box-shadow: none !important; border: none !important;
+    /* 26 px statt 999 px: einzeilig wirkt es als Kapsel, umgebrochen (viele Optionen am Handy) als ruhige Flaeche */
+    background: var(--seg-spur) !important; border: 1px solid var(--glas-rand) !important; border-radius: 26px !important;
+    padding: 3px !important; gap: 3px !important; box-shadow: none !important;
+    -webkit-backdrop-filter: blur(22px); backdrop-filter: blur(22px);
 }
 html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:not(.st-key-x) {
     background: transparent !important; border: none !important; box-shadow: none !important;
     color: var(--seg-text) !important; font-family: var(--g-schrift) !important;
-    min-height: 34px !important; border-radius: 999px !important; opacity: 0.82;
+    min-height: var(--g-hoehe) !important; border-radius: 999px !important;
     -webkit-backdrop-filter: none; backdrop-filter: none;
-    transition: background .2s ease, box-shadow .2s ease, opacity .2s ease !important;
+    transition: background .25s var(--g-ease), box-shadow .25s var(--g-ease), color .25s var(--g-ease) !important;
 }
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:not(.st-key-x)::before,
 html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:not(.st-key-x)::after {
     content: none !important; display: none !important;
 }
 html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:is([aria-checked="true"], [aria-pressed="true"]):not(.st-key-x) {
-    background: var(--seg-daumen) !important; box-shadow: var(--seg-daumen-schatten) !important; opacity: 1;
+    background: var(--seg-daumen) !important; box-shadow: var(--seg-daumen-schatten) !important;
+    color: var(--seg-text-aktiv) !important;
 }
 html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:not([aria-checked="true"]):hover:not(:disabled) {
-    opacity: 1; background: transparent !important;
+    color: var(--glas-text) !important; background: transparent !important;
 }
 
-/* ---- Hauptaktion: Systemblau, flach mit feinem Lichtsaum ---- */
+/* ---- Hauptaktion (type="primary"): getoentes Glas mit Akzent-Glow ---- */
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):not(.st-key-x) {
-    background: var(--glas-primaer-bg) !important; border: 1px solid transparent !important;
+    background: var(--glas-primaer-bg) !important; border: 1px solid var(--glas-primaer-rand) !important;
     box-shadow: var(--glas-primaer-schatten) !important; font-family: var(--g-schrift) !important;
-    transform: none !important; animation: none !important; position: relative; isolation: isolate;
-}
-html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):not(.st-key-x)::after {
-    content: none !important; display: none !important;
+    -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%);
+    transform: none; animation: none !important; position: relative; isolation: isolate; overflow: hidden;
+    transition: transform .25s var(--g-ease), box-shadow .25s var(--g-ease) !important;
 }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled),
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled) :is(p, span) {
     color: var(--glas-primaer-text) !important;
 }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):is(:hover, :focus-visible):not(:disabled):not(.st-key-x) {
-    filter: brightness(1.06); box-shadow: var(--glas-primaer-schatten) !important;
+    box-shadow: var(--glas-primaer-schatten-hover) !important;
 }
-/* Deaktiviert: matt, ohne Kante und Schatten */
+/* Deaktiviert: matt, ohne Glanz und Schatten */
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x):not(.st-key-y) {
-    background: var(--glas-bg) !important; }
+    background: var(--glas-bg) !important; border-color: var(--glas-rand) !important; }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x) :is(p, span) {
     color: var(--glas-text) !important; }
 html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [data-testid="stDownloadButton"],
     [data-testid="stButtonGroup"]) button:disabled:not(.st-key-logout_ecke *):not(.st-key-x):not(.st-key-y) {
     box-shadow: none !important; opacity: 0.5; transform: none !important;
 }
+/* Werkzeug-/Symbolknoepfe von Streamlit (Tabellen-Toolbar, Kopfzeile) nicht als grosse Glasknoepfe */
+html body :is([data-testid="stBaseButton-elementToolbar"], [data-testid="stBaseButton-minimal"],
+    [data-testid="stBaseButton-borderlessIcon"], [data-testid^="stBaseButton-header"], [data-testid="stBaseButton-tertiary"]) {
+    padding: revert !important; background: transparent !important; border: none !important; box-shadow: none !important;
+    -webkit-backdrop-filter: none !important; backdrop-filter: none !important; min-height: 0 !important;
+}
+html body :is([data-testid="stBaseButton-elementToolbar"], [data-testid="stBaseButton-minimal"],
+    [data-testid="stBaseButton-borderlessIcon"], [data-testid^="stBaseButton-header"], [data-testid="stBaseButton-tertiary"])::after,
+html body :is([data-testid="stBaseButton-elementToolbar"], [data-testid="stBaseButton-minimal"],
+    [data-testid="stBaseButton-borderlessIcon"], [data-testid^="stBaseButton-header"], [data-testid="stBaseButton-tertiary"])::before {
+    content: none !important; display: none !important;
+}
 /* Pillen-Spur ohne eigene Flaeche (die Segment-Spur oben setzt ihre Flaeche selbst) */
 [data-testid="stButtonGroup"], [data-testid="stButtonGroup"] div:not(button div):not([role="radiogroup"]):not([role="group"]) {
     background: transparent !important; box-shadow: none !important; }
 [data-testid="stButtonGroup"] [role="radiogroup"]:not(:has(> button[data-variant="segmented_control"])) {
-    background: transparent !important; box-shadow: none !important; }
+    background: transparent !important; box-shadow: none !important; border: none !important; }
 
-/* ---- Gruppen-Ueberschriften im Menue: ruhig wie in den iOS-Einstellungen (kein Pulsieren) ---- */
+/* ---- Gruppen-Ueberschriften im Menue: ruhig, ohne Pulsieren ---- */
 html body .nav-gruppe { font-family: var(--g-schrift); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em;
     color: var(--label); }
 html body .nav-gruppe::after { background: var(--trenn); height: 1px; }
 html body .nav-wander { animation: none !important; opacity: 1 !important; text-shadow: none !important; filter: none !important; }
 html body .nav-logo { animation: none !important; opacity: 1 !important; text-shadow: none !important; }
 
-/* ---- Karten, Klappbereiche, Formulare, Felder: feine Haarlinie, weicher Schatten ---- */
-.quote::after, .hero::after {
-    content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px;
-    background: var(--glas-kante); opacity: 0.8;
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor; mask-composite: exclude;
-}
-html body [data-testid="stExpander"] details, html body [data-testid="stForm"] {
+/* ---- Karten, Klappbereiche, Formulare, Metriken: Glas-Karte (20 px Radius) ---- */
+.quote::after, .hero::after { content: none; }
+html body :is([data-testid="stExpander"] details, [data-testid="stForm"], [data-testid="stMetric"]) {
     border: 1px solid var(--rand) !important; border-radius: 20px !important;
-    background: var(--glas-bg) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%);
-    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten) !important;
+    background: var(--karte) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: var(--karte-schatten) !important;
 }
+html body [data-testid="stMetric"] { padding: 16px 20px !important; }
+@media (max-width: 640px) { html body [data-testid="stMetric"] { padding: 14px 16px !important; } }
+html body [data-testid="stMetricValue"], html body [data-testid="stMetricValue"] * {
+    font-family: var(--g-zahl) !important; font-weight: 600 !important; font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em !important; }
+html body [data-testid="stMetricDelta"], html body [data-testid="stMetricDelta"] * {
+    font-family: var(--g-zahl) !important; font-weight: 500 !important; font-variant-numeric: tabular-nums; }
+html body [data-testid="stMetricLabel"] p { font-family: var(--g-schrift) !important; color: var(--muted) !important;
+    font-size: 0.78rem !important; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600 !important; }
+
+/* ---- Eingabefelder: Glas, 14 px Radius, Akzent-Fokus, Touch 48 px ---- */
 html body :is([data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
     [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"], [data-baseweb="textarea"],
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div) {
-    border-radius: 12px !important; border-color: var(--rand) !important;
-    box-shadow: var(--glas-feld-innen) !important;
+    border-radius: 14px !important; border-color: var(--rand) !important; background-color: var(--feld-bg) !important;
+    box-shadow: var(--feld-innen) !important; min-height: var(--g-hoehe) !important;
 }
 html body :is([data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
     [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"], [data-baseweb="textarea"]):focus-within {
     border-color: var(--accent) !important; box-shadow: var(--glas-fokus) !important;
 }
+html body :is([data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"]) {
+    min-width: 40px !important; min-height: calc(var(--g-hoehe) - 2px) !important;
+}
+
+/* ---- Depot-Hero: Depotwert gross (Mono), Heute/Gesamt als Badges, darunter st.metric-Karten ---- */
+html body .depot-hero .hero-label { font-family: var(--g-schrift); font-size: 0.78rem; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+html body .depot-hero .hero-val { font-family: var(--g-zahl) !important; font-weight: 600 !important;
+    font-size: clamp(2rem, 8.5vw, 2.75rem) !important; letter-spacing: -0.03em !important;
+    font-variant-numeric: tabular-nums; line-height: 1.1 !important; color: var(--text) !important; }
+html body .depot-hero .price-line { flex-wrap: wrap; row-gap: 8px; margin: 8px 0 4px; }
+.hero-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
+.hero-badge { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 12px;
+    border-radius: 999px; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--rand);
+    background: var(--glas-bg); white-space: nowrap; max-width: 100%; }
+.hero-badge .hb-t { color: var(--muted); font-family: var(--g-schrift); }
+.hero-badge .hb-z { font-family: var(--g-zahl); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.hero-badge.up { color: var(--pos); background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.35); }
+.hero-badge.down { color: var(--neg); background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.35); }
+@media (max-width: 400px) { .hero-badge { white-space: normal; } }
+.st-key-depot_kpis { gap: 8px !important; margin-top: 8px; }
+html body .st-key-depot_kpis [data-testid="stHorizontalBlock"][data-testid="stHorizontalBlock"] {
+    flex-direction: row !important; flex-wrap: nowrap !important; gap: 8px !important; }
+html body .st-key-depot_kpis [data-testid="stHorizontalBlock"] > [data-testid="stColumn"][data-testid="stColumn"] {
+    min-width: 0 !important; flex: 1 1 0 !important; width: calc(50% - 4px) !important; max-width: calc(50% - 4px) !important; }
+html body .st-key-depot_kpis [data-testid="stMetricValue"] { font-size: clamp(1.05rem, 4.4vw, 1.45rem) !important; }
+html body [data-testid="stMetricValue"] > div { overflow: visible !important; text-overflow: clip !important; }
+/* Metrik-Deltas in den Theme-Farben (gruen #34d399 / rot #f87171) */
+html body [data-testid="stMetricDelta"]:has([data-testid="stMetricDeltaIcon-Up"]),
+html body [data-testid="stMetricDelta"]:has([data-testid="stMetricDeltaIcon-Up"]) * { color: var(--pos) !important; }
+html body [data-testid="stMetricDelta"]:has([data-testid="stMetricDeltaIcon-Down"]),
+html body [data-testid="stMetricDelta"]:has([data-testid="stMetricDeltaIcon-Down"]) * { color: var(--neg) !important; }
+
+/* ---- Touch-Ziele mind. 48 px (iPhone/iPad): Klappbereiche, Schritt-Chips ---- */
+html body [data-testid="stExpander"] summary { min-height: var(--g-hoehe) !important; box-sizing: border-box; }
+html body .sf-leiste :is(a.sf-s, span.sf-s) { min-height: var(--g-hoehe); padding-top: 6px; padding-bottom: 6px; box-sizing: border-box; }
+/* ?-Hilfesymbole: Trefferflaeche 48 px ohne das Layout zu verschieben (Padding + negativer Rand) */
+@media (pointer: coarse) {
+    /* nur nach links/oben/unten erweitert: rechts am Rand wuerde es sonst seitlich ueberstehen */
+    html body button[aria-label^="Help for"] { padding: 16px 0 16px 32px !important; margin: -16px 0 -16px -32px !important;
+        box-sizing: content-box; }
+}
+
+/* ---- HTML-Ranglisten (.pt): Glas statt Schwarz ---- */
+html body .pt, html body .pt tbody td { background-color: rgba(255, 255, 255, 0.02) !important; }
+html body .pt thead th { background-color: #121829 !important; }      /* deckend: Kopf bleibt beim Scrollen stehen */
+html body .pt tbody td.ue-fix { background-color: #0D1220 !important; }  /* fixierte Namensspalte deckend */
+html body :is(.pt-wrap, .pt-scroll, .ks-wrap) { border-radius: 16px; }
+
+/* ---- Zahlen: tabellarische Ziffern ueberall, Kennzahlen in Mono ---- */
+.stApp { font-variant-numeric: tabular-nums; }
+html body :is(.kz-w, .kz .w, .gv, .depot-wert, .hero-wert, .pb-kpis .w, .pb-grid .w, .pt td.r, .row-val) {
+    font-variant-numeric: tabular-nums; }
 /* Restliche Rahmen (umrandete Container, Tabellen, Kopfleiste) mit derselben klaren Randfarbe */
 html body :is([data-testid="stVerticalBlockBorderWrapper"], [data-testid="stLayoutWrapper"]) > [data-testid="stVerticalBlock"][style*="border"],
 html body [data-testid="stElementContainer"]:has([data-testid="stDataFrame"], [data-testid="stTable"]) {
@@ -1475,8 +1589,8 @@ html body [data-testid="stExpander"] summary:hover, html body [data-testid="stEx
 .sf-leiste a.sf-s:hover { box-shadow: 0 0 16px var(--glas-glow-stark); transform: translateY(-1px); }
 .sf-leiste a.sf-s b, .sf-nr { display: inline-flex; align-items: center; justify-content: center;
     width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; font-weight: 800; font-size: 0.85rem;
-    color: var(--glas-primaer-text); background: var(--glas-primaer-bg);
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), 0 0 12px rgba(10, 132, 255, 0.55); }
+    color: var(--sf-nr-text, #0B1020); background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), 0 0 12px rgba(124, 156, 255, 0.55); }
 /* Rechner-Karten (Zins/Abfindung): Nummer in Groesse des frueheren Symbols */
 .zr-kopf .sf-nr.sf-klein { width: 34px; height: 34px; font-size: 1rem; margin: 0; flex: 0 0 34px; scroll-margin-top: 90px; }
 /* kleine Nummer in vorhandenen Abschnittsueberschriften */
@@ -1565,10 +1679,10 @@ CSS_RESPONSIV = """
     /* --- DEPOT-KACHELN: Wert, Gewinn/Verlust, Kennzahl-Kacheln, weitere Zeitraeume (app.depot_kachel_html) --- */
     .hero, .quote { container-type: inline-size; }
     .gv { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 6px;
-          font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+          font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
     .gv .gv-eur { font-size: 1.05rem; font-weight: 700; }
     .gv .gv-pct { font-size: 0.98rem; font-weight: 700; }
-    .gv .gv-text { font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 0.82rem; font-weight: 500;
+    .gv .gv-text { font-family: 'Inter', -apple-system, sans-serif; font-size: 0.82rem; font-weight: 500;
                    color: var(--label); }
     .gv.up .gv-eur, .gv.up .gv-pct, .gv.up .gv-pfeil { color: var(--up); }
     .gv.down .gv-eur, .gv.down .gv-pct, .gv.down .gv-pfeil { color: var(--down); }
@@ -1578,7 +1692,7 @@ CSS_RESPONSIV = """
     .kz { border: 1px solid var(--rand); border-radius: 12px; padding: 8px 10px; min-width: 0;
           background: rgba(255, 255, 255, 0.025); }
     .kz-l { font-size: 0.78rem; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.5px; }
-    .kz-e, .kz-p { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+    .kz-e, .kz-p { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
                    font-weight: 700; white-space: nowrap; }
     /* Betrag waechst/schrumpft mit der Kachelbreite (bei 320 px wurde "+12.066,50 €" abgeschnitten); reicht es
        trotzdem nicht, bricht er hinter dem Pfeil um statt abgeschnitten zu werden */
@@ -1608,8 +1722,19 @@ CSS_RESPONSIV = """
 
 
 # ------------------------------------------------------------------ Charts (eine Vorlage fuer alle)
-CHART_RASTER = "rgba(177, 179, 183, 0.13)"
-CHART_SCHRIFT = "#BCBFC2"
+CHART_RASTER = "rgba(255, 255, 255, 0.06)"      # dezente Gitterlinien (Premium Glass)
+CHART_SCHRIFT = "#A9B1C4"
+CHART_FONT = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+AKZENT = "#7C9CFF"                                # Hauptlinie; zweiter Akzent #5EEAD4
+CHART_FARBEN = ["#7C9CFF", "#5EEAD4", "#A78BFA", "#F5B942", "#F472B6", "#60A5FA", "#94A3B8"]
+
+
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]+\\s*")
+
+
+def ohne_emoji(text):
+    """Ueberschriften ohne Emojis (Premium-Design): '🏠 Test-Depot' -> 'Test-Depot'."""
+    return _EMOJI.sub("", str(text or "")).strip()
 
 
 def ist_smartphone():
@@ -1622,14 +1747,57 @@ def ist_smartphone():
     return "iphone" in ua or ("android" in ua and "mobile" in ua) or "ipod" in ua
 
 
-def chart_stil(fig, schrumpfen=True):
-    """Gemeinsame Plotly-Vorlage (UX 10/2026): Hintergrund durchsichtig (Seiten-Navy statt Schwarz), dezentes
-    Raster, deutsche Zahlen. Am Handy: niedriger (70 %, mind. 260 px - ausser bei Legenden unter dem Chart),
-    kleinere Achsenschrift, weniger Achsenbeschriftungen und schmalere Raender. -> fig"""
+def _flaeche_unter(fig, name):
+    """Hauptlinie (Trace mit diesem Namen): Akzentfarbe mit weichem Verlauf darunter. Die y-Achse wird auf den
+    Datenbereich gesetzt, damit die Flaeche bis 0 die Kurve nicht plattdrueckt."""
+    werte = []
+    for tr in fig.data:
+        if getattr(tr, "y", None) is not None and getattr(tr, "type", "") == "scatter" and tr.visible is not False:
+            werte += [float(v) for v in tr.y if v is not None and v == v]
+    for tr in fig.data:
+        if getattr(tr, "name", None) == name and getattr(tr, "type", "") == "scatter":
+            tr.update(line=dict(color=AKZENT, width=2.5), fill="tozeroy",
+                      fillgradient=dict(type="vertical", colorscale=[[0, "rgba(124,156,255,0)"],
+                                                                     [1, "rgba(124,156,255,0.28)"]]))
+            break
+    else:
+        return
+    if werte and fig.layout.yaxis.range is None:
+        lo, hi = min(werte), max(werte)
+        rand = (hi - lo) * 0.06 or abs(hi) * 0.05 or 1
+        fig.update_yaxes(range=[lo - rand, hi + rand])
+
+
+def tabellen_spalten(df, fortschritt=(), maximum=100):
+    """column_config fuer st.dataframe: Zahlen im Gebietsschema des Browsers (de: 1.234,56), Spalten mit
+    "€"/"%" im Namen als Zahl, fortschritt = Spalten (0..maximum) als Fortschrittsbalken. -> dict"""
+    import pandas as pd
+    import streamlit as st
+    cfg = {}
+    for spalte in df.columns:
+        name = str(spalte)
+        if not pd.api.types.is_numeric_dtype(df[spalte]):
+            continue
+        if name in fortschritt:
+            cfg[name] = st.column_config.ProgressColumn(name, min_value=0, max_value=maximum, format="%.0f")
+        else:
+            cfg[name] = st.column_config.NumberColumn(name, format="localized")
+    return cfg
+
+
+def chart_stil(fig, schrumpfen=True, flaeche=None):
+    """Gemeinsame Plotly-Vorlage (Premium Glass): Hintergrund durchsichtig, dezentes Raster, Schrift Inter,
+    deutsche Zahlen, Tooltips im dunklen Glas-Look, Farbfolge mit Akzent #7c9cff; flaeche = Name der
+    Hauptlinie (Akzent + Verlauf). Am Handy: niedriger (70 %, mind. 260 px - ausser bei Legenden unter dem
+    Chart), kleinere Achsenschrift, weniger Achsenbeschriftungen und schmalere Raender. -> fig"""
     fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", separators=",.",
-                      font=dict(color=CHART_SCHRIFT))
+                      font=dict(color=CHART_SCHRIFT, family=CHART_FONT), colorway=CHART_FARBEN,
+                      hoverlabel=dict(bgcolor="rgba(13,18,32,0.92)", bordercolor="rgba(255,255,255,0.14)",
+                                      font=dict(family=CHART_FONT, color="#E8ECF6", size=13)))
     fig.update_xaxes(gridcolor=CHART_RASTER, zerolinecolor=CHART_RASTER)
     fig.update_yaxes(gridcolor=CHART_RASTER, zerolinecolor=CHART_RASTER)
+    if flaeche:
+        _flaeche_unter(fig, flaeche)
     if not ist_smartphone():
         return fig
     lay = fig.layout

@@ -38,7 +38,7 @@ STATE_PFAD = "state/depot_analyse.json"
 CSS = """
 <style>
 .da-chip { display:inline-block; padding:3px 10px; border-radius:12px; font-size:.75rem; font-weight:700;
-  background:rgba(10, 132, 255, 0.16); color:#409CFF; border:1px solid rgba(10, 132, 255, 0.35); margin:0 6px 4px 0; }
+  background:rgba(124, 156, 255, 0.16); color:#A5B8FF; border:1px solid rgba(124, 156, 255, 0.35); margin:0 6px 4px 0; }
 .da-chip.warn { background:#423523; color:#f4c67b; border-color:#6b5328; }
 .da-chip.neg { background:#3f1d22; color:#fca5a5; border-color:#7f1d1d; }
 .da-chip.pos { background:#163a2c; color:#86efac; border-color:#166534; }
@@ -58,17 +58,17 @@ table.da .r { text-align:right; white-space:nowrap; }
 table.da td.nm { min-width:150px; }
 .da-wrap.breit table.da { min-width:560px; }
 .da-bahn { height:8px; border-radius:4px; background:#26282A; overflow:hidden; min-width:60px; }
-.da-bahn > div { height:100%; background:var(--accent,#0A84FF); }
+.da-bahn > div { height:100%; background:var(--accent,#7C9CFF); }
 .da-score { display:inline-block; min-width:38px; text-align:center; padding:1px 6px; border-radius:8px;
   font-weight:800; background:#26282A; }
 .da-score.g { background:#163a2c; color:#86efac; } .da-score.m { background:#3a3418; color:#fde68a; }
 .da-score.s { background:#3f1d22; color:#fca5a5; } .da-score.na { color:#A9ACB0; }
-.da-box { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-left:3px solid var(--accent,#0A84FF); border-radius:10px;
+.da-box { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-left:3px solid var(--accent,#7C9CFF); border-radius:10px;
   padding:10px 12px; margin:6px 0; background:var(--surface-2,#191A1B); }
 .da-box.warn { border-left-color:#f4c67b; } .da-box.neg { border-left-color:#f87171; } .da-box.pos { border-left-color:#4ade80; }
 .da-box b { display:block; margin-bottom:2px; }
-.da-sim { border:1px dashed #0A84FF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#409CFF;
-  background:rgba(10, 132, 255, 0.08); font-size:.85rem; }
+.da-sim { border:1px dashed #7C9CFF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#A5B8FF;
+  background:rgba(124, 156, 255, 0.08); font-size:.85rem; }
 </style>
 """
 
@@ -879,7 +879,7 @@ def _szenarien(h, a):
 
 def _szenario_aktien(h, a, szen):
     """Konkrete Aktien aus der Top-500-Rangliste, passend zum gewaehlten Szenario."""
-    _titel("📈 Passende Aktien je Szenario")
+    _titel("Passende Aktien je Szenario")
     rang = a["markt"].get("rang") or {}
     if not rang.get("aktie"):
         st.info("Die Bewertungen der Top-500-Liste sind gerade nicht verfügbar – ohne sie gibt es keine "

@@ -34,6 +34,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Finanz Dashboard", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
+# --- PREMIUM GLASS THEME (Grundlage; ui_stil verfeinert darauf aufbauend) ---
+from glass_theme import apply_glass_theme
+apply_glass_theme()
+
 # --- PWA / "App-Icon"-Unterstuetzung ---
 # Ermoeglicht, die Seite ueber "Zum Home-Bildschirm hinzufuegen" wie eine
 # eigene App aussehen zu lassen: eigenes Icon, kein Safari-Rahmen/Adresszeile
@@ -61,7 +65,7 @@ st.markdown(f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="LS9VFS">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#07090f">
 """, unsafe_allow_html=True)
 
 # --- SECRETS ---
@@ -774,6 +778,43 @@ def depot_kachel_html(titel, wert, chips="", gv=None, zeilen=(), nk=2, kopfzeile
                if mehr else "")
             + (f'<div class="card-footnote">{fussnote}</div>' if fussnote else "")
             + '</div>')
+
+
+def badge_html(text, betrag, pct, nk=2):
+    """Performance-Badge (gruen/rot) fuer den Hero: '▲ Heute +2.111,28 € · +3,38 %' - nie nur Farbe."""
+    klasse, pfeil = _richtung_html(betrag, nk)
+    return (f'<span class="hero-badge {klasse}"><span aria-hidden="true">{pfeil}</span>'
+            f'<span class="hb-t">{html.escape(text)}</span>'
+            f'<span class="hb-z">{FMT.eur(betrag, nk, vz=True)} · {FMT.pct(pct, 2, vz=True)}</span></span>')
+
+
+def depot_hero_html(wert, chips="", gesamt=None, tag=None, mehr="", anzahl_mehr=0, fussnote=""):
+    """Hero oben im Depot: Depotwert gross, Tages- und Gesamtperformance als Badges. Die uebrigen
+    Zeitraeume (Woche/Monat/Jahr) folgen darunter als st.metric-Karten, der Rest ist aufklappbar."""
+    badges = "".join(b for b in (badge_html("Heute", *tag) if tag else "",
+                                 badge_html("Gesamt", *gesamt) if gesamt else "") if b)
+    return ('<div class="hero gesamt depot-hero">'
+            '<div class="hero-label">Depotwert</div>'
+            f'<div class="price-line"><span class="hero-val depot-wert">{wert}</span>{chips}</div>'
+            + (f'<div class="hero-badges">{badges}</div>' if badges else "")
+            + (f'<details class="mehr"><summary>Weitere Zeiträume ({anzahl_mehr})</summary>{mehr}</details>'
+               if mehr else "")
+            + (f'<div class="card-footnote">{fussnote}</div>' if fussnote else "")
+            + '</div>')
+
+
+def kpi_metriken(zeilen, key, nk=2):
+    """Kennzahlen je Zeitraum als st.metric in Glas-Karten (2 je Reihe, auch am Handy)."""
+    if not zeilen:
+        return
+    with st.container(key=key):
+        for i in range(0, len(zeilen), 2):
+            spalten = st.columns(2, gap="small")
+            for spalte, (label, betrag, pct) in zip(spalten, zeilen[i:i + 2]):
+                r = FMT.richtung(betrag, nk)
+                spalte.metric(label, FMT.eur(betrag, nk, vz=True), FMT.pct(pct, 2, vz=True),
+                              delta_color={"up": "green", "down": "red"}.get(r, "gray"),
+                              delta_arrow={"up": "up", "down": "down"}.get(r, "off"))
 
 
 def haenge_live_punkt_an(df, heute, kurs):
@@ -2523,12 +2564,12 @@ def navigation():
                        ist der Knopf selbst 44 px gross, der rote Kreis wird innen gezeichnet (UX 10/2026) */
                     html body .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button,
                     html body .st-key-logout_ecke [data-testid="stButton"] button {
-                        width: 44px !important; height: 44px !important; min-width: 44px !important;
-                        min-height: 44px !important; margin: -7px !important; background: transparent !important;
+                        width: 48px !important; height: 48px !important; min-width: 48px !important;
+                        min-height: 48px !important; margin: -9px !important; background: transparent !important;
                         border: none !important; isolation: isolate; }
                     html body .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::before,
                     html body .st-key-logout_ecke [data-testid="stButton"] button::before {
-                        inset: 7px; z-index: -1; border: 1px solid var(--rand);
+                        inset: 9px; z-index: -1; border: 1px solid var(--rand);
                         background: var(--glas-bg); }
                 }
                 @keyframes logoutglow {
@@ -2622,7 +2663,7 @@ def navigation():
         c1, c2, c3 = st.columns([1, 3, 1], vertical_alignment="center")
         c1.button("☰ Menü", key="nav_menue_btn", on_click=_nav_waehle, args=(None,),
                   help="Zurück zur Übersicht aller Ansichten")
-        c2.markdown(f'<div class="nav-titel">{html.escape(NAV_TITEL.get(aktiv) or NAV_NAMEN.get(aktiv, aktiv))}</div>',
+        c2.markdown(f'<div class="nav-titel">{html.escape(UI.ohne_emoji(NAV_TITEL.get(aktiv) or NAV_NAMEN.get(aktiv, aktiv)))}</div>',
                     unsafe_allow_html=True)
         c3.button("⏳" if laeuft else "🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren,
                   disabled=laeuft)
@@ -2682,7 +2723,7 @@ def render_chronik():
                 wahl = st.selectbox("Filter", optionen, format_func=beschr.get, key="chronik_filter_sb")
             gezeigt = [ev for ev in db_events if wahl == "alle" or chronik.kategorie_von(ev) == wahl]
             schritte.titel(st, "chronik", 2)
-            farben = {"alarm": "#EA3943", "depot": "#29B6F6", "beobachtung": "#A78BFA", "planer": "#F5B942",
+            farben = {"alarm": "#F87171", "depot": "#29B6F6", "beobachtung": "#A78BFA", "planer": "#F5B942",
                       "notiz": "#71717A"}
             if not gezeigt:
                 st.info("Noch keine Einträge – sie entstehen ab jetzt automatisch.")
@@ -2778,7 +2819,7 @@ def render_dashboard():
     # ---------- WOCHENVERGLEICH (Pfeile + Neu/Raus) ----------
     # Die Agenten speichern taeglich die Top 50 und vergleichen mit dem Stand
     # von vor 7 Tagen: "vor" = Platz damals (None = neu in der Liste).
-    TREND_FARBE = {"up": "#16C784", "down": "#EA3943", "gleich": "#9AA0A6", "neu": "#16C784"}
+    TREND_FARBE = {"up": "#34D399", "down": "#F87171", "gleich": "#9AA0A6", "neu": "#34D399"}
     Q_KLASSEN_KURZ = {"prio": "Priorität", "beobachten": "Beobachten", "nicht": "Nicht weiterv."}
 
     def _trend(vor, jetzt):
@@ -3203,7 +3244,7 @@ def render_dashboard():
     ]
     Q_KLASSE_CSS = {"prio": "q-prio", "beobachten": "q-beob", "nicht": "q-nicht"}
 
-    Q_FARBE_CSS = {"pt-up": "color: #16C784; font-weight: 600", "pt-down": "color: #EA3943; font-weight: 600"}
+    Q_FARBE_CSS = {"pt-up": "color: #34D399; font-weight: 600", "pt-down": "color: #F87171; font-weight: 600"}
 
     def _q_vergleich(werte, symbole):
         """Alle Kennzahlen nebeneinander (sortierbar per Tipp auf die Spalte, als CSV
@@ -3362,7 +3403,7 @@ def render_dashboard():
         for k, t, m in Q_BEREICHE:
             p = e["p"].get(k, 0)
             anteil = p / m if m else 0
-            farbe = "#16C784" if anteil >= 0.7 else "#F5B942" if anteil >= 0.4 else "#EA3943"
+            farbe = "#34D399" if anteil >= 0.7 else "#F5B942" if anteil >= 0.4 else "#F87171"
             balken += (f'<div class="q-b-zeile"><div>{html.escape(t)}</div>'
                        f'<div class="q-b-bahn"><div class="q-b-fuell" style="width:{anteil * 100:.0f}%;'
                        f'background:{farbe}"></div></div><div class="q-b-wert">{p}/{m}</div></div>')
@@ -3822,7 +3863,7 @@ def render_dashboard():
         fig = go.Figure()
         for kl, titel_kl, farbe in (("nicht", "Nicht weiterverfolgen", "#6B7280"),
                                     ("beobachten", "Beobachtungsliste", "#F5B942"),
-                                    ("prio", "Hohe Analysepriorität", "#16C784")):
+                                    ("prio", "Hohe Analysepriorität", "#34D399")):
             pts = [z for z in mit if z["klasse"] == kl]
             if not pts:
                 continue
@@ -3909,8 +3950,8 @@ def render_dashboard():
     # Ausgabe in passende Farben uebersetzt (dunkles Design vs. weisses Papier).
     UE_TEILE = ["Zusammenfassung", "Hohe Analysepriorität", "Beobachtungsliste",
                 "Qualität je Kategorie", "Qualität × Kurs", "Wochenveränderung", "Performance"]
-    UE_FARBEN_SCHIRM = {"up": "#16C784", "down": "#EA3943", "warn": "#F5B942", "grau": "#9AA0A6",
-                        "prio": "#16C784", "beob": "#F5B942", "nicht": "#9AA0A6"}
+    UE_FARBEN_SCHIRM = {"up": "#34D399", "down": "#F87171", "warn": "#F5B942", "grau": "#9AA0A6",
+                        "prio": "#34D399", "beob": "#F5B942", "nicht": "#9AA0A6"}
     UE_FARBEN_DRUCK = {"up": "#0E8A5F", "down": "#C62828", "warn": "#B7791F", "grau": "#6B7280",
                        "prio": "#0E8A5F", "beob": "#B7791F", "nicht": "#6B7280"}
     UE_ZEITRAEUME = ["1W", "1M", "3M", "6M", "1J", "3J", "5J", "10J"]
@@ -4304,7 +4345,7 @@ def render_dashboard():
         if fertig and fertig[0] == schluessel:
             st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
                                file_name=f"Watchlist_Uebersicht_{datetime.date.today().isoformat()}.pdf",
-                               key="ue_pdf_download", width="stretch", type="primary")
+                               key="ue_pdf_download", width="stretch")
         st.caption(f"{stand_text} · A4 quer · breite Tabellen lassen sich hier seitlich wischen, "
                    "die Namensspalte bleibt stehen.")
         _ue_html(abschnitte)
@@ -4402,7 +4443,7 @@ def render_dashboard():
         if fertig and fertig[0] == pdf_schluessel:
             st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
                                file_name=f"wikifolio_Rangliste_{datetime.date.today().isoformat()}.pdf",
-                               key="wk_pdf_download", width="stretch", type="primary")
+                               key="wk_pdf_download", width="stretch")
         st.caption("Tabelle seitlich wischen für alle Zeiträume – Rang und Name bleiben stehen. "
                    "– = in diesem Zeitraum nicht unter den Top 500 (oder noch keine so lange Historie). "
                    "Werte übernehmen: im Portfolio Builder unter „Wert hinzufügen → Wikifolios → Top-Listen“. "
@@ -4589,7 +4630,7 @@ def render_dashboard():
         if fertig and fertig[0] == pdf_schluessel:
             st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
                                file_name=f"{art}_Score_{datetime.date.today().isoformat()}.pdf",
-                               key="ks_pdf_download", width="stretch", type="primary")
+                               key="ks_pdf_download", width="stretch")
         st.caption("Tabelle seitlich wischen für alle Kennzahlen – Rang und Name bleiben stehen. "
                    "Vergangene Entwicklung ist keine Prognose.")
 
@@ -5872,7 +5913,7 @@ def render_dashboard():
         _spalte_depot, _spalte_kurse = st.container(key="depot_spalten"), None
     _spalte_depot.__enter__()
     with st.container(key="depot_kopf_links"):
-        st.markdown(f'<div class="abschnitt">{_sf_nr(1)}🏠 Mein Depot</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="abschnitt">{_sf_nr(1)}Mein Depot</div>', unsafe_allow_html=True)
 
     # ---------- DEPOT GESAMT: Wert und Gewinn/Verlust zuerst (ab einer Position) ----------
     if positions_karten and any(k[2] for k in positions_karten):
@@ -5910,11 +5951,18 @@ def render_dashboard():
             hinweis += f" · inkl. Sparraten {fmt(sparplan_eingezahlt, 2)}"
         if gesamt_ausgezahlt > 0:
             hinweis += f" · inkl. ausgezahlter Entnahmen {fmt(gesamt_ausgezahlt, 2)}"
-        st.markdown(depot_kachel_html(
-            "Depot gesamt", fmt(gesamt_wert, 2), chips=f'<span class="meta-chip">{positions_chip}</span>',
-            gv=(gesamt_gewinn, gesamt_rendite), zeilen=gesamt_perioden,
-            fussnote=f"Einstand {fmt(gesamt_einstand, 2)}{hinweis}", klasse="hero gesamt"),
+        # Hero: Tag als Badge; Woche/Monat/lfd. Jahr/Jahr als st.metric-Karten; der Rest aufklappbar
+        _kpi_lbl = ("Woche", "Monat", "Lfd. Jahr", "Jahr")
+        _tag = next(((b, p) for l, b, p in gesamt_perioden if l.rstrip("*") == "Tag"), None)
+        _kpis = [z for z in gesamt_perioden if z[0].rstrip("*") in _kpi_lbl]
+        _rest = [z for z in gesamt_perioden if z[0].rstrip("*") not in _kpi_lbl + ("Tag", "seit Kauf")]
+        st.markdown(depot_hero_html(
+            fmt(gesamt_wert, 2), chips=f'<span class="meta-chip">{positions_chip}</span>',
+            gesamt=(gesamt_gewinn, gesamt_rendite), tag=_tag,
+            mehr=zeitraum_zeilen_html(_rest), anzahl_mehr=len(_rest),
+            fussnote=f"Einstand {fmt(gesamt_einstand, 2)}{hinweis}"),
             unsafe_allow_html=True)
+        kpi_metriken(_kpis, key="depot_kpis")
         # Kurzinfo fuer die Startseite merken (nur Anzeige - dort wird nichts abgerufen)
         depot_kurzinfo_merken({"wert": gesamt_wert, "gv": gesamt_gewinn, "gv_pct": gesamt_rendite,
                                "tag": next(((b, p) for l, b, p in gesamt_perioden if l.rstrip("*") == "Tag"), None),
@@ -5972,7 +6020,7 @@ def render_dashboard():
             # Kopfzeile wie links: Titel und Auswahl in einer Zeile
             with st.container(key="depot_kopf_rechts"):
                 _k_titel, _k_wahl = st.columns([1, 1.6], vertical_alignment="center")
-                _k_titel.markdown(f'<div class="abschnitt">{_sf_nr(3)}📈 Kurse</div>', unsafe_allow_html=True)
+                _k_titel.markdown(f'<div class="abschnitt">{_sf_nr(3)}Kurse</div>', unsafe_allow_html=True)
                 # immer ein Dropdown: Pills liefen in der halben Breite ueber den Rand
                 auswahl = _k_wahl.selectbox("Wert wählen", kurs_optionen,
                                             key="kurs_ansicht_wahl_select", label_visibility="collapsed")
@@ -6015,7 +6063,7 @@ def render_dashboard():
     # ---------- Eingaben ----------
     # Wichtig: "value=" nur beim allerersten Erstellen des Widgets mitgeben,
     # NICHT bei jedem Rerun (klassischer Streamlit-Stolperstein).
-    st.markdown('<div class="abschnitt">🛠️ Depot verwalten</div>', unsafe_allow_html=True)
+    st.markdown('<div class="abschnitt">Depot verwalten</div>', unsafe_allow_html=True)
     st.caption("Positionen anlegen und ändern, Sparrate und Entnahme, Beobachtungsliste und System-Status "
                "deines Depots.")
     schritte.leiste(st, "verwalten")
@@ -6419,7 +6467,7 @@ def render_dashboard():
     # Normale Benutzer: nur mit eigenem Sparplan (Hauptposition); Meilenstein/Anfangskapital
     # beziehen sich auf das Startkapital der Admin-Hauptposition und entfallen dort.
     if haupt_aktiv:
-        st.markdown(f'<div class="abschnitt">{_sf_nr(4)}📄 Weitere Informationen</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="abschnitt">{_sf_nr(4)}Weitere Informationen</div>', unsafe_allow_html=True)
 
     if not eigen:
         with st.expander("🎯 Meilenstein und Anfangskapital", expanded=False):
@@ -6605,7 +6653,7 @@ def render_dashboard():
                                          ticksuffix=" €"),
                               hovermode="x unified")
             schritte.titel(st, "vergleich", 3)
-            st.plotly_chart(UI.chart_stil(fig), width="stretch", key="chart_vgl_eigen")
+            st.plotly_chart(UI.chart_stil(fig), width="stretch", key="chart_vgl_eigen", config={"displayModeBar": False})
 
     def _render_wealth():
         try:
@@ -6698,9 +6746,9 @@ def render_dashboard():
 
                 fig_wealth = go.Figure()
                 fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Eingezahlt"], name="Eingezahlt", line=dict(color="#71717A", width=1.5, dash="dash")))
-                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Real"], name="Depotwert", line=dict(color="#00C853", width=2.5)))
+                fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Real"], name="Depotwert", line=dict(color=UI.AKZENT, width=2.5)))
 
-                legende_eintraege = [("Eingezahlt", "#71717A"), (f"Depotwert {haupt_name} ({config.WKN})", "#00C853")]
+                legende_eintraege = [("Eingezahlt", "#71717A"), (f"Depotwert {haupt_name} ({config.WKN})", UI.AKZENT)]
                 for label, s in benchmark_series.items():
                     if label not in ausgewaehlte_benchmarks:
                         continue
@@ -6720,7 +6768,7 @@ def render_dashboard():
                     hovermode="x unified",
                 )
                 schritte.titel(st, "vergleich", 3)
-                st.plotly_chart(UI.chart_stil(fig_wealth), width="stretch", key="chart_wealth")
+                st.plotly_chart(UI.chart_stil(fig_wealth, flaeche="Depotwert"), width="stretch", key="chart_wealth", config={"displayModeBar": False})
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -6774,10 +6822,10 @@ def render_dashboard():
                 ))
                 fig_v2.add_trace(go.Scatter(
                     x=eigene_reihe_v2.index, y=eigene_reihe_v2, name=f"{haupt_name} ({config.WKN})",
-                    line=dict(color="#00C853", width=2.5),
+                    line=dict(color=UI.AKZENT, width=2.5),
                 ))
                 benchmark_colors_v2 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
-                legende_eintraege_v2 = [("Startkapital", "#71717A"), (f"{haupt_name} ({config.WKN})", "#00C853")]
+                legende_eintraege_v2 = [("Startkapital", "#71717A"), (f"{haupt_name} ({config.WKN})", UI.AKZENT)]
                 for i, (label, s) in enumerate(benchmark_series_v2.items()):
                     if label not in ausgewaehlte_v2:
                         continue
@@ -6847,7 +6895,7 @@ def render_dashboard():
                     pills_auswahl(benchmark_series_v2.keys(), key="benchmark_v2_pills")
 
                 schritte.titel(st, "vergleich", 3)
-                st.plotly_chart(UI.chart_stil(fig_v2), width="stretch", key="chart_ytd")
+                st.plotly_chart(UI.chart_stil(fig_v2, flaeche=f"{haupt_name} ({config.WKN})"), width="stretch", key="chart_ytd", config={"displayModeBar": False})
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -6909,10 +6957,10 @@ def render_dashboard():
                 fig_v3.add_trace(go.Scatter(
                     x=eigene_reihe_v3.index, y=eigene_reihe_v3,
                     name=f"{haupt_name} ({config.WKN})",
-                    line=dict(color="#00C853", width=2.5),
+                    line=dict(color=UI.AKZENT, width=2.5),
                 ))
                 benchmark_colors_v3 = ["#AB47BC", "#EC407A", "#8D6E63", "#78909C", "#26C6DA", "#FF7043", "#9CCC65", "#FFCA28", "#5C6BC0", "#8D6E63", "#EF5350"]
-                legende_eintraege_v3 = [("Startkapital", "#71717A"), (f"{haupt_name} ({config.WKN})", "#00C853")]
+                legende_eintraege_v3 = [("Startkapital", "#71717A"), (f"{haupt_name} ({config.WKN})", UI.AKZENT)]
                 for i, (label, s) in enumerate(benchmark_series_v3.items()):
                     if label not in ausgewaehlte_v3:
                         continue
@@ -6990,7 +7038,7 @@ def render_dashboard():
                     pills_auswahl(benchmark_series_v3.keys(), key="benchmark_v3_pills")
 
                 schritte.titel(st, "vergleich", 3)
-                st.plotly_chart(UI.chart_stil(fig_v3), width="stretch", key="chart_2021")
+                st.plotly_chart(UI.chart_stil(fig_v3, flaeche=f"{haupt_name} ({config.WKN})"), width="stretch", key="chart_2021", config={"displayModeBar": False})
 
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
@@ -7014,11 +7062,11 @@ def render_dashboard():
                     st.warning("⚠️ ls-tc.de liefert gerade keine Kurshistorie – die Linie des Zertifikats "
                                "fehlt. Bitte später mit 🔄 erneut laden.")
                     return
-                fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
+                fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#34D399", decreasing_line_color="#F87171")])
                 fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", dtick=10), showlegend=False)
                 schritte.leiste(st, "candle")
                 schritte.titel(st, "candle", 1)
-                st.plotly_chart(UI.chart_stil(fig_c), width="stretch", key="chart_candlestick")
+                st.plotly_chart(UI.chart_stil(fig_c), width="stretch", key="chart_candlestick", config={"displayModeBar": False})
                 schritte.titel(st, "candle", 2)
                 st.caption(
                     "Basiert auf ls-tc.de Tages-Schlusskursen (Open/High/Low approximiert). "
@@ -7237,6 +7285,9 @@ def render_dashboard():
                     # wurde - spart Breite fuer die Betrags-Spalten.
                     "Jahr": st.column_config.TextColumn("Jahr", width="small"),
                     "Datum": st.column_config.TextColumn("Datum", width="small"),
+                    # Betraege sind fertig deutsch formatiert (1.234,56 €) - rechtsbuendig wie Zahlen
+                    **{s_: st.column_config.TextColumn(s_, alignment="right")
+                       for s_ in ("Gewinn ab heute", "Depotwert", "Kumulierte Entnahme") if s_ in df_forecast.columns},
                 },
             )
             with st.expander("ℹ️ Tipp zur Tabelle", expanded=False):
@@ -7642,9 +7693,9 @@ def render_dashboard():
             karten_html = '<div style="display: flex; flex-direction: column; gap: 10px;">'
             for e in summary_list:
                 # Historische Rate des gewaehlten Werts sichtbar absetzen
-                _rahmen = ("2px solid #16C784; box-shadow: 0 0 12px rgba(22,199,132,0.25)"
-                           if e["eigene"] else "1px solid #27272A")
-                _marke = (f'<div style="font-size: 0.8rem; font-weight: 700; color: #16C784; '
+                _rahmen = ("2px solid #34D399; box-shadow: 0 0 12px rgba(52, 211, 153,0.25)"
+                           if e["eigene"] else "1px solid var(--rand)")
+                _marke = (f'<div style="font-size: 0.8rem; font-weight: 700; color: #34D399; '
                           f'letter-spacing: 0.6px; margin-bottom: 4px;">⭐ {_h(basis_name.upper())}</div>'
                           if e["eigene"] else "")
                 # WICHTIG: HTML ohne Zeilenumbrueche/Einrueckung aufbauen.
@@ -7654,18 +7705,18 @@ def render_dashboard():
                 # HTML-Quelltext als Text an (genau dieser Fehler trat auf).
                 _jahre = "".join(
                     f'<div><div style="font-size: 0.8rem; color: #A1A1AA;">{j}J</div>'
-                    f'<div style="font-size: 0.8rem; color: #E5E7EB; font-weight: 700;">{fmt(e[f"j{j}"], 0)}</div></div>'
+                    f'<div style="font-size: clamp(0.68rem, 2.9vw, 0.8rem); color: #E5E7EB; font-weight: 700; overflow-wrap: anywhere;">{fmt(e[f"j{j}"], 0)}</div></div>'
                     for j in range(1, 6)
                 )
                 karten_html += (
-                    f'<div style="background: #09090B; border: {_rahmen}; border-radius: 6px; padding: 12px 14px;">'
+                    f'<div style="background: var(--karte); border: {_rahmen}; border-radius: 16px; padding: 16px;">'
                     f'{_marke}'
                     f'<div style="font-size: 1rem; font-weight: 800; color: #FFFFFF; margin-bottom: 8px;">'
                     f'{FMT.pct(e["rate_pa"], 1)} p.a. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({FMT.pct(e["rate"], 2)} p.M.)</span>'
                     f'</div>'
-                    f'<div style="font-size: 0.85rem; color: #00C853; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
+                    f'<div style="font-size: 0.85rem; color: #34D399; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
                     f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e["ziel_datum"]}</div>'
-                    f'<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; border-top: 1px solid #1A1A1A; padding-top: 8px;">'
+                    f'<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; border-top: 1px solid var(--trenn); padding-top: 8px; font-variant-numeric: tabular-nums;">'
                     f'{_jahre}</div>'
                     f'</div>'
                 )
@@ -7680,7 +7731,7 @@ def render_dashboard():
                 if label.startswith("⭐"):
                     fig_scen.add_trace(go.Scatter(
                         x=months_x, y=vals, mode="lines", name=label,
-                        line=dict(color="#16C784", width=4),
+                        line=dict(color="#34D399", width=4),
                     ))
                 else:
                     fig_scen.add_trace(go.Scatter(
@@ -7691,10 +7742,10 @@ def render_dashboard():
             fig_scen.add_hline(
                 y=100000, 
                 line_dash="dot", 
-                line_color="#00C853", 
+                line_color="#34D399", 
                 annotation_text="🎯 100k Zielwert", 
                 annotation_position="top left",
-                annotation_font=dict(color="#00C853", size=12)
+                annotation_font=dict(color="#34D399", size=12)
             )
 
             fig_scen.update_layout(
@@ -7714,7 +7765,7 @@ def render_dashboard():
                 yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
                 hovermode="x unified",
             )
-            st.plotly_chart(UI.chart_stil(fig_scen), width="stretch", key="chart_scenarios")
+            st.plotly_chart(UI.chart_stil(fig_scen), width="stretch", key="chart_scenarios", config={"displayModeBar": False})
         except Exception as e:
             st.error(f"⚠️ Fehler in diesem Tab: {e}")
             notify_app_error("Tab-Szenarien", e)
@@ -7803,7 +7854,7 @@ _LADE_JS = """
       ' padding:10px 16px 0; background:rgba(11,18,32,.97); border-bottom:1px solid #22344C;' +
       ' box-shadow:0 2px 14px rgba(0,0,0,.6); display:none; pointer-events:none; }' +
       '#lade-banner .lb-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }' +
-      '#lade-banner .lb-pct { font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;' +
+      '#lade-banner .lb-pct { font-family:"JetBrains Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;' +
       ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; flex-shrink:0; }' +
       '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }' +
       '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#1A2A40; overflow:hidden; }' +

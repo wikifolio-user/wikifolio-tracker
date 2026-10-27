@@ -418,19 +418,19 @@ LOGIN_CSS = """<style>
     background: transparent !important; }
 .st-key-login_box [data-testid="stTextInput"] input {
     background: transparent !important; color: #ffffff !important;
-    font-size: 16px !important; padding: 12px 14px !important; caret-color: #0A84FF; }
+    font-size: 16px !important; padding: 12px 14px !important; caret-color: #7C9CFF; }
 .st-key-login_box [data-testid="stTextInput"] input::placeholder { color: #919399 !important; opacity: 1; }
 /* aktives Feld: blauer Rahmen + Leuchten */
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"]:focus-within {
-    border-color: #0A84FF !important; box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.35) !important; }
+    border-color: #7C9CFF !important; box-shadow: 0 0 0 3px rgba(124, 156, 255, 0.35) !important; }
 .st-key-login_box [data-testid="stTextInput"] button { background: transparent !important; color: #CDCED0 !important; }
 .st-key-login_box [data-testid="InputInstructions"] { display: none; }
 /* Anmelden-Knopf: farbig und gross */
 .st-key-login_box [data-testid="stFormSubmitButton"] button {
-    background: #0A84FF !important; border: none !important; color: #fff !important;
+    background: #7C9CFF !important; border: none !important; color: #fff !important;
     min-height: 52px; border-radius: 12px !important; margin-top: 6px; }
 .st-key-login_box [data-testid="stFormSubmitButton"] button p { font-size: 1.05rem !important; font-weight: 700 !important; }
-.st-key-login_box [data-testid="stFormSubmitButton"] button:active { background: #0A84FF !important; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button:active { background: #7C9CFF !important; }
 </style>"""
 
 
@@ -619,7 +619,7 @@ RECHTE_CSS = """<style>
 [class*="st-key-rechte_"] [data-testid="stCheckbox"] label p { font-size: .9rem !important; color: #e8e6df !important; }
 .rechte-info { font-size: .8rem; color: #a9a79c; margin: 2px 0 8px; }
 [class*="st-key-rspeichern_"] button {
-    background: #0A84FF !important; border: none !important; min-height: 46px; border-radius: 12px !important;
+    background: #7C9CFF !important; border: none !important; min-height: 46px; border-radius: 12px !important;
     box-shadow: none !important; }
 [class*="st-key-rspeichern_"] button p { color: #151516 !important; font-weight: 700 !important; font-size: 1rem !important; }
 </style>"""

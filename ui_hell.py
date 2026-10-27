@@ -286,14 +286,14 @@ WIDGETS = """
 [data-testid="stRadio"] label:not(#fd-hell), [data-testid="stToggle"] label:not(#fd-hell),
 [role="tab"]:not(#fd-hell), [role="tab"] p:not(#fd-hell) { color: #1C1C1E !important; }
 [data-testid="stCaptionContainer"]:not(#fd-hell), [data-testid="stCaptionContainer"] *:not(#fd-hell) { color: #6E6E73 !important; }
-[role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #007AFF !important; }
+[role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #4C6EF5 !important; }
 /* Eingabefelder */
 :is([data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
     [data-testid="stTextInputRootElement"], [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"],
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div):not(#fd-hell) {
     background: #FFFFFF !important; border-color: var(--rand) !important; color: #1C1C1E !important; }
 :is(input, textarea):not(#fd-hell) { color: #1C1C1E !important; -webkit-text-fill-color: #1C1C1E !important;
-    background: transparent !important; caret-color: #007AFF !important; }
+    background: transparent !important; caret-color: #4C6EF5 !important; }
 :is(input, textarea)::placeholder { color: #8E8E93 !important; -webkit-text-fill-color: #8E8E93 !important; }
 :is([data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"]):not(#fd-hell) {
     background: transparent !important; color: #1C1C1E !important; }
@@ -308,34 +308,49 @@ WIDGETS = """
 [role="option"][data-focused="true"]:not(#fd-hell) { background-color: #E5E5EA !important; }
 /* Knoepfe, Kacheln, Pillen: Glas-Optik (ui_stil GLAS) - hier nur die Werte fuer helles, milchiges Glas */
 :root:not(#fd-hell) {
-    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.80) 100%) !important;
-    --glas-bg-hover: linear-gradient(180deg, #FFFFFF 0%, rgba(255, 255, 255, 0.92) 100%) !important;
-    --glas-kante: linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.10) 60%, rgba(0, 0, 0, 0.16) 100%) !important;
+    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.72) 100%), rgba(255, 255, 255, 0.55) !important;
+    --glas-bg-hover: linear-gradient(180deg, #FFFFFF 0%, rgba(255, 255, 255, 0.85) 100%), rgba(255, 255, 255, 0.7) !important;
+    --glas-rand: rgba(15, 23, 42, 0.10) !important;
+    --glas-rand-stark: rgba(76, 110, 245, 0.35) !important;
+    --glas-glanz: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0)) !important;
+    --glas-reflex: linear-gradient(110deg, transparent, rgba(255, 255, 255, 0.85), transparent) !important;
     --glas-licht: #FFFFFF !important;
-    --glas-tiefe: rgba(0, 0, 0, 0.06) !important;
-    --glas-schatten: 0 1px 1px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.05), 0 12px 24px -10px rgba(0, 0, 0, 0.14) !important;
-    --glas-schatten-hover: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 14px rgba(0, 0, 0, 0.07), 0 18px 32px -12px rgba(0, 0, 0, 0.18) !important;
-    --glas-text: #1C1C1E !important;
-    --glas-glow: rgba(0, 0, 0, 0) !important;
-    --glas-glow-stark: rgba(0, 0, 0, 0.06) !important;
-    --glas-rand-flach: rgba(0, 0, 0, 0.08) !important;
-    --trenn: rgba(60, 60, 67, 0.16) !important;
-    --seg-spur: rgba(118, 118, 128, 0.12) !important;
+    --glas-tiefe: rgba(15, 23, 42, 0.06) !important;
+    --glas-schatten: inset 0 1px 0 #FFFFFF, 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px -10px rgba(15, 23, 42, 0.18) !important;
+    --glas-schatten-hover: inset 0 1px 0 #FFFFFF, 0 0 0 1px rgba(76, 110, 245, 0.18), 0 14px 32px -12px rgba(76, 110, 245, 0.35) !important;
+    --glas-schatten-press: inset 0 2px 6px rgba(15, 23, 42, 0.12) !important;
+    --glas-text: #0F172A !important;
+    --glas-text-hover: #0F172A !important;
+    --glas-glow-stark: rgba(76, 110, 245, 0.18) !important;
+    --glas-rand-flach: rgba(15, 23, 42, 0.08) !important;
+    --karte-schatten: inset 0 1px 0 #FFFFFF, 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px -14px rgba(15, 23, 42, 0.16) !important;
+    --trenn: rgba(15, 23, 42, 0.10) !important;
+    --seg-spur: rgba(15, 23, 42, 0.05) !important;
     --seg-daumen: #FFFFFF !important;
-    --seg-daumen-schatten: 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.04) !important;
-    --seg-text: #1C1C1E !important;
-    --chip-aktiv-bg: rgba(0, 122, 255, 0.10) !important;
-    --chip-aktiv-rand: rgba(0, 122, 255, 0.55) !important;
-    --chip-aktiv-text: #0062CC !important;
+    --seg-daumen-schatten: 0 1px 2px rgba(15, 23, 42, 0.10), 0 4px 12px -4px rgba(15, 23, 42, 0.18) !important;
+    --seg-text: #475569 !important;
+    --seg-text-aktiv: #0F172A !important;
+    --chip-aktiv-bg: linear-gradient(135deg, rgba(76, 110, 245, 0.16), rgba(20, 184, 166, 0.10)) !important;
+    --chip-aktiv-rand: rgba(76, 110, 245, 0.45) !important;
+    --chip-aktiv-text: #2F4AC7 !important;
     --glas-aktiv-text: #FFFFFF !important;
-    --glas-primaer-bg: linear-gradient(180deg, #1A88FF 0%, #007AFF 100%) !important;
+    --glas-primaer-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 60%), linear-gradient(135deg, #5B7BFF, #2BB5A5) !important;
+    --glas-primaer-rand: rgba(76, 110, 245, 0.55) !important;
     --glas-primaer-text: #FFFFFF !important;
-    --glas-primaer-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 1px 2px rgba(0, 0, 0, 0.10), 0 6px 14px rgba(0, 122, 255, 0.22) !important;
-    --glas-fokus: 0 0 0 3px rgba(0, 122, 255, 0.30) !important;
-    --glas-feld-innen: inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
-    --karte: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.80) 100%) !important;
-    --rand: rgba(60, 60, 67, 0.18) !important;
+    --glas-primaer-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 8px 22px -8px rgba(76, 110, 245, 0.55) !important;
+    --glas-primaer-schatten-hover: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 12px 30px -8px rgba(76, 110, 245, 0.65) !important;
+    --glas-fokus: 0 0 0 3px rgba(76, 110, 245, 0.25) !important;
+    --feld-bg: #FFFFFF !important;
+    --feld-innen: inset 0 1px 2px rgba(15, 23, 42, 0.05) !important;
+    --karte: linear-gradient(160deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.74) 100%) !important;
+    --rand: rgba(15, 23, 42, 0.12) !important;
     --rand-glow: 0 0 0 transparent !important;
+    --accent: #4C6EF5 !important;
+    --accent-2: #0D9488 !important;
+    --sf-nr-text: #FFFFFF !important;
+    --accent-hell: #3B5BDB !important;
+    --pos: #047857 !important;
+    --neg: #B91C1C !important;
 }
 button:disabled:not(#fd-hell) { background: #E5E5EA !important; border-color: #D1D1D6 !important; }
 button:disabled:not(#fd-hell), button:disabled p:not(#fd-hell), button:disabled span:not(#fd-hell) { color: #6E6E73 !important; }

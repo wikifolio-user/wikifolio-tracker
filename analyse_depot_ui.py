@@ -25,8 +25,8 @@ CSS = """
 .ad-k .l { color:#A9ACB0; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
 .ad-k .w { font-size:1.15rem; font-weight:800; margin-top:2px; }
 @media (max-width: 760px) { .ad-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }
-.ad-hinweis { border:1px dashed #0A84FF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#409CFF;
-  background:rgba(10, 132, 255, 0.08); font-size:.85rem; }
+.ad-hinweis { border:1px dashed #7C9CFF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#A5B8FF;
+  background:rgba(124, 156, 255, 0.08); font-size:.85rem; }
 .ad-weg { border-left:3px solid #f4c67b; padding:6px 10px; border-radius:8px; background:rgba(244,198,123,.08);
   font-size:.88rem; }
 .ad-pos { color:#4ade80; } .ad-neg { color:#f87171; }
@@ -295,7 +295,7 @@ def _schnell(h, depot):
     with st.form(P + "schnell_form", border=False):
         text = st.text_area("Eine Position je Zeile", key=P + "schnell", height=140,
                             placeholder="IE00B4L5Y983; 25; 85,40; 15.03.2024\nSiemens; 10\nA0RPWH; 5; 70,10")
-        los = st.form_submit_button("➕ Alle übernehmen", type="primary")
+        los = st.form_submit_button("➕ Alle übernehmen")
     st.caption(A.SCHNELL_HILFE.split(" Beispiel")[0])
     if los:
         zeilen, fehler = A.schnelleingabe(text)
@@ -311,7 +311,7 @@ def _schnell(h, depot):
 
 def _import(h, depot):
     s = st.session_state
-    _titel("📄 Import aus CSV oder Excel (z. B. Depotauszug der Bank)")
+    _titel("Import aus CSV oder Excel (z. B. Depotauszug der Bank)")
     c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
     f = c1.file_uploader("Datei", type=["csv", "xlsx"], key=P + "datei")
     c2.download_button("CSV-Vorlage", D.CSV_VORLAGE.encode("utf-8-sig"), "analyse_depot_vorlage.csv", "text/csv",
@@ -352,7 +352,7 @@ def _plan(h, depot):
         e_rate = c[0].number_input("Entnahme € / Monat", 0.0, 1e7, float(en["rate"]), step=25.0, format="%.0f")
         e_start = c[1].date_input("Entnahme seit/ab", D._datum(en["start"]) if en.get("start") else None,
                                   format="DD.MM.YYYY")
-        los = st.form_submit_button("💾 Sparplan & Entnahme speichern", type="primary")
+        los = st.form_submit_button("💾 Sparplan & Entnahme speichern")
     netto = rate - e_rate
     st.caption(f"Netto je Monat: {'+' if netto >= 0 else '−'}{D.eur(abs(netto))} – fließt in die Modellrechnung "
                "der Szenarien ein. Die Stückzahlen oben gibst du als heutigen Bestand ein (bisherige Sparraten "
