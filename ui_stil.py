@@ -1558,6 +1558,18 @@ html body .pt thead th { background-color: #121829 !important; }      /* deckend
 html body .pt tbody td.ue-fix { background-color: #0D1220 !important; }  /* fixierte Namensspalte deckend */
 html body :is(.pt-wrap, .pt-scroll, .ks-wrap) { border-radius: 16px; }
 
+/* ---- Kursstand-Pille im Menue: Live-Anzeige als leuchtender, pulsierender Balken ueber dem Text ---- */
+html body .nav-chip { flex-direction: column; gap: 8px; padding: 10px 18px 9px; border-radius: 20px; text-align: center; }
+html body .nav-chip .nav-dot { width: 44px; height: 6px; border-radius: 999px; flex: 0 0 auto;
+    background: linear-gradient(90deg, rgba(52, 211, 153, 0.35), #34D399 50%, rgba(52, 211, 153, 0.35));
+    background-size: 200% 100%; box-shadow: 0 0 10px rgba(52, 211, 153, 0.75), 0 0 22px rgba(52, 211, 153, 0.35);
+    animation: navlive 2.4s ease-in-out infinite !important; }
+@keyframes navlive {
+    0%, 100% { opacity: 1; background-position: 0% 0; box-shadow: 0 0 10px rgba(52, 211, 153, 0.75), 0 0 22px rgba(52, 211, 153, 0.35); }
+    50% { opacity: 0.45; background-position: 100% 0; box-shadow: 0 0 4px rgba(52, 211, 153, 0.35), 0 0 8px rgba(52, 211, 153, 0.15); }
+}
+@media (prefers-reduced-motion: reduce) { html body .nav-chip .nav-dot { animation: none !important; } }
+
 /* ---- Zahlen: tabellarische Ziffern ueberall, Kennzahlen in Mono ---- */
 .stApp { font-variant-numeric: tabular-nums; }
 html body :is(.kz-w, .kz .w, .gv, .depot-wert, .hero-wert, .pb-kpis .w, .pb-grid .w, .pt td.r, .row-val) {
