@@ -854,7 +854,7 @@ table.pb-scan.depot td, table.pb-scan.depot th { overflow:hidden; text-overflow:
 table.pb-scan.depot td.t, table.pb-scan.depot td.n { white-space:normal; max-width:none; min-width:0; }
 table.pb-scan.depot tr.summe td { border-top:1px solid #3E4043; }
 .pb-scan-kpis { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
-.pb-scan-kpis .k { border:1px solid #2B2C2E; border-radius:10px; padding:10px 12px; background:#111213; }
+.pb-scan-kpis .k { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:10px; padding:10px 12px; background:#111213; }
 .pb-scan-kpis .l { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.4px; }
 .pb-scan-kpis .w { font-size:1.25rem; font-weight:800; margin-top:2px; }
 .pb-scan-kpis .s { color:#9AA0A6; font-size:.76rem; margin-top:2px; }

@@ -146,7 +146,7 @@ CSS = """
     color: rgba(250, 250, 250, 0.85) !important; }
 [data-testid="stSelectbox"] label { margin: 0 0 4px 0 !important; }
 [data-testid="stSelectbox"] > div, [data-testid="stSelectbox"] [data-baseweb="select"] {
-    outline: 1px solid rgba(255, 255, 255, 0.22) !important; box-shadow: none !important; animation: none !important;
+    outline: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; box-shadow: none !important; animation: none !important;
     border-radius: 8px !important; }
 [data-testid="stSelectbox"] > div:hover, [data-testid="stSelectbox"] > div:focus-within {
     outline-color: rgba(255, 255, 255, 0.6) !important; box-shadow: none !important; }
@@ -190,19 +190,19 @@ CSS = """
                   border: 1px solid rgba(10, 132, 255, 0.35); border-radius: 8px; padding: 7px 10px; margin: 4px 0 8px; }
 /* Formular-Buttons klar beschriftet und farbig statt weisser Flaeche */
 [data-testid="stFormSubmitButton"] button {
-    background: #36373A !important; border: 1px solid rgba(255, 255, 255, 0.8) !important; min-height: 44px;
+    background: #36373A !important; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; min-height: 44px;
     box-shadow: 0 0 6px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.18) !important;
 }
 [data-testid="stFormSubmitButton"] button, [data-testid="stFormSubmitButton"] button * {
     color: #FFFFFF !important; font-weight: 700 !important;
 }
 [data-testid="stColumn"]:nth-child(2) [data-testid="stFormSubmitButton"] button {
-    background: #202022 !important; border: 1px solid rgba(255, 255, 255, 0.6) !important;
+    background: #202022 !important; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important;
 }
 [data-testid="stFormSubmitButton"] button:hover { filter: brightness(1.2); }
 @media (max-width: 700px) { .pl-zeile { font-size: 0.84rem; } }
 /* Transparente Rangliste (bewertung.py) */
-.sc-karte { border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 10px 12px 8px;
+.sc-karte { border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 12px; padding: 10px 12px 8px;
             margin: 0 0 10px; background: rgba(255, 255, 255, 0.03); }
 .sc-kopf { display: flex; align-items: center; gap: 8px; }
 .sc-platz { font-weight: 900; font-size: 0.95rem; width: 26px; height: 26px; border-radius: 50%;
@@ -1707,7 +1707,7 @@ WZ_CSS = """
 .wz-stepper { display: flex; gap: 6px; margin: 4px 0 6px; }
 .wz-step { flex: 1 1 0; min-width: 0; text-align: center; font-size: 0.8rem; color: #8A9099; font-weight: 700; }
 .wz-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 3px; display: flex; align-items: center;
-          justify-content: center; font-size: 0.8rem; font-weight: 900; border: 1.5px solid rgba(255,255,255,0.25);
+          justify-content: center; font-size: 0.8rem; font-weight: 900; border: 1.5px solid var(--rand, rgba(255, 255, 255, 0.55));
           color: #D9DADB; background: transparent; }
 .wz-step.ok .wz-dot { background: rgba(10, 132, 255, 0.18); border-color: #0A84FF; color: #409CFF; }
 .wz-step.warn .wz-dot { background: rgba(245,185,66,0.15); border-color: #F5B942; color: #F5B942; }
@@ -1730,7 +1730,7 @@ WZ_CSS = """
 .wz-kopf .wz-t { font-size: 1.05rem; font-weight: 900; color: #FFFFFF; margin: 1px 0 2px; }
 .wz-kopf .wz-d { font-size: 0.8rem; color: #CCCED0; line-height: 1.45; }
 .wz-check { font-size: 0.82rem; color: #D9DADB; margin: 3px 0; line-height: 1.4; }
-.wz-vs { border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,0.025); }
+.wz-vs { border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,0.025); }
 .wz-vs-t { font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 800; color: #FFFFFF;
            margin-bottom: 4px; }
 .wz-vs-k { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
@@ -1749,7 +1749,7 @@ WZ_CSS = """
 .wz-hinweis { font-size: 0.8rem; color: #409CFF; background: rgba(10, 132, 255, 0.08); border-radius: 8px;
               padding: 5px 8px; margin: 4px 0 8px; }
 .wz-hinweis.wz-rot { color: #F5A3A8; background: rgba(234,57,67,0.1); }
-.wz-leer { border: 1px dashed rgba(255,255,255,0.25); border-radius: 12px; padding: 14px; text-align: center;
+.wz-leer { border: 1px dashed var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 12px; padding: 14px; text-align: center;
            color: #CCCED0; font-size: 0.84rem; margin: 6px 0 10px; }
 .st-key-pl_wz_weiter button { background: #36373A !important; border: 1px solid #0A84FF !important; min-height: 46px; }
 .st-key-pl_wz_weiter button, .st-key-pl_wz_weiter button * { color: #FFFFFF !important; font-weight: 800 !important; }

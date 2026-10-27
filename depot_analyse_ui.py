@@ -42,7 +42,7 @@ CSS = """
 .da-chip.neg { background:#3f1d22; color:#fca5a5; border-color:#7f1d1d; }
 .da-chip.pos { background:#163a2c; color:#86efac; border-color:#166534; }
 .da-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
-.da-k .k { border:1px solid var(--line,#353739); border-radius:12px; padding:10px 12px; background:var(--surface-2,#191A1B); }
+.da-k .k { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:12px; padding:10px 12px; background:var(--surface-2,#191A1B); }
 .da-k .l { color:#A9ACB0; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
 .da-k .w { font-size:1.18rem; font-weight:800; margin-top:2px; }
 .da-k .s { color:#A9ACB0; font-size:.78rem; margin-top:2px; }
@@ -62,7 +62,7 @@ table.da td.nm { min-width:150px; }
   font-weight:800; background:#26282A; }
 .da-score.g { background:#163a2c; color:#86efac; } .da-score.m { background:#3a3418; color:#fde68a; }
 .da-score.s { background:#3f1d22; color:#fca5a5; } .da-score.na { color:#A9ACB0; }
-.da-box { border:1px solid var(--line,#353739); border-left:3px solid var(--accent,#0A84FF); border-radius:10px;
+.da-box { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-left:3px solid var(--accent,#0A84FF); border-radius:10px;
   padding:10px 12px; margin:6px 0; background:var(--surface-2,#191A1B); }
 .da-box.warn { border-left-color:#f4c67b; } .da-box.neg { border-left-color:#f87171; } .da-box.pos { border-left-color:#4ade80; }
 .da-box b { display:block; margin-bottom:2px; }

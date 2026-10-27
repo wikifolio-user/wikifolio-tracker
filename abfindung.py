@@ -1099,7 +1099,7 @@ ABF_CSS = """<style>
 }
 .st-key-abf_form .zr-symbol { border-radius: 50%; background: #0A84FF; color: #fff; font-weight: 800;
                               font-size: 1.05rem; width: 34px; height: 34px; flex-basis: 34px; }
-.st-key-abf_form [data-testid="stExpander"] details { border-color: #434549 !important; }
+.st-key-abf_form [data-testid="stExpander"] details { border-color: var(--rand, rgba(255, 255, 255, 0.55)) !important; }
 .st-key-abf_form [data-testid="stCheckbox"] label p { font-size: .88rem !important; color: #e8e6df !important; }
 .st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipIcon"],
 .st-key-abf_form [data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"],
@@ -1121,7 +1121,7 @@ ABF_FJ_CSS = """<style>
 .abf-schritt { font-size: .88rem; color: #d6d4cc; margin: 10px 0 6px; }
 .abf-fazit { margin: 4px 0 8px; padding: 10px 12px; border-radius: 10px; font-size: .9rem; color: #e8e6df;
              background: rgba(22,199,132,.12); border: 1px solid rgba(22,199,132,.45); }
-.st-key-abf_fj [data-testid="stDataFrame"] { border: 1.5px solid #55585D; border-radius: 10px; }
+.st-key-abf_fj [data-testid="stDataFrame"] { border: 1.5px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius: 10px; }
 </style>"""
 
 

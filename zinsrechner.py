@@ -970,7 +970,7 @@ FORM_CSS = """<style>
 /* Zinsrechner: Abschnitte als Karten, Feldbeschriftungen einheitlich und klein */
 .st-key-zr_form [data-testid="stVerticalBlockBorderWrapper"],
 .st-key-zr_form [class*="st-key-zr_karte_"] {
-    background: #161718; border: 1px solid #323437 !important; border-radius: 16px !important;
+    background: #161718; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; border-radius: 16px !important;
 }
 .zr-kopf { display: flex; gap: 12px; align-items: center; margin: 2px 0 8px; padding-bottom: 10px;
            border-bottom: 1px solid #323437; }
@@ -989,13 +989,13 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-testid="stSelectbox"] label { margin: 0 0 4px 0 !important; }
 .st-key-zr_form [data-testid="stSelectbox"] > div,
 .st-key-zr_form [data-testid="stSelectbox"] [data-baseweb="select"] {
-    outline: 1px solid #434549 !important; box-shadow: none !important; animation: none !important;
+    outline: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; box-shadow: none !important; animation: none !important;
     border-radius: 10px !important;
 }
 /* ---- Alle bearbeitbaren Felder gleich deutlich als Eingabefeld zeigen ---- */
 .st-key-zr_form [data-baseweb="input"],
 .st-key-zr_form [data-testid="stNumberInputContainer"] {
-    background: #0E0E0F !important; border: 1.5px solid #55585D !important; border-radius: 10px !important;
+    background: #0E0E0F !important; border: 1.5px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; border-radius: 10px !important;
     box-shadow: none !important;
 }
 .st-key-zr_form [data-baseweb="input"] input { color: #ffffff !important; font-weight: 600 !important; }
@@ -1010,7 +1010,7 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-testid="stNumberInputStepDown"] { display: none !important; }
 .st-key-zr_form [data-testid="stSelectbox"] > div,
 .st-key-zr_form [data-testid="stSelectbox"] [data-baseweb="select"] { background: #0E0E0F !important; }
-.st-key-zr_form [data-testid="stSelectbox"] > div { outline: 1.5px solid #55585D !important; }
+.st-key-zr_form [data-testid="stSelectbox"] > div { outline: 1.5px solid var(--rand, rgba(255, 255, 255, 0.55)) !important; }
 /* berechnetes Feld: gestrichelt + Akzentfarbe -> "nicht eingeben, wird ausgerechnet" */
 .st-key-zr_form [data-baseweb="input"]:has(input:disabled) {
     border: 1.5px dashed #d95926 !important; background: rgba(217,89,38,.08) !important;
@@ -1033,10 +1033,10 @@ FORM_CSS = """<style>
 .zr-oben-w { font-size: 1.35rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
 .zr-oben-s { font-size: .8rem; color: #D1D2D4; }
 .zr-hilfe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 0.8rem; color: #c3c2b7;
-            margin: 0 0 4px; padding: 10px 12px; border-radius: 12px; background: #161718; border: 1px solid #323437; }
+            margin: 0 0 4px; padding: 10px 12px; border-radius: 12px; background: #161718; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); }
 .zr-hilfe span { display: inline-flex; align-items: center; gap: 6px; }
 .zr-muster { display: inline-block; width: 26px; height: 16px; border-radius: 5px; background: #0E0E0F;
-             border: 1.5px solid #55585D; }
+             border: 1.5px solid var(--rand, rgba(255, 255, 255, 0.55)); }
 .zr-muster.calc { border: 1.5px dashed #d95926; background: rgba(217,89,38,.08); }
 /* Paare (Wert + Einheit) auch auf dem iPhone nebeneinander lassen */
 .st-key-zr_form [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 10px !important; }

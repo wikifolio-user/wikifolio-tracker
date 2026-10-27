@@ -291,7 +291,7 @@ WIDGETS = """
 :is([data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
     [data-testid="stTextInputRootElement"], [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"],
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div):not(#fd-hell) {
-    background: #FFFFFF !important; border-color: #D1D1D6 !important; color: #1C1C1E !important; }
+    background: #FFFFFF !important; border-color: var(--rand) !important; color: #1C1C1E !important; }
 :is(input, textarea):not(#fd-hell) { color: #1C1C1E !important; -webkit-text-fill-color: #1C1C1E !important;
     background: transparent !important; caret-color: #007AFF !important; }
 :is(input, textarea)::placeholder { color: #8E8E93 !important; -webkit-text-fill-color: #8E8E93 !important; }
@@ -309,7 +309,9 @@ WIDGETS = """
 :root:not(#fd-hell) {
     --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(242, 242, 245, 0.72) 60%, rgba(229, 229, 234, 0.80) 100%) !important;
     --glas-rand-flach: rgba(0, 0, 0, 0.08) !important;
-    --glas-kante: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.55) 40%, rgba(160, 160, 168, 0.55) 100%) !important;
+    --glas-kante: linear-gradient(180deg, rgba(72, 72, 74, 0.55) 0%, rgba(28, 28, 30, 0.80) 100%) !important;
+    --rand: rgba(28, 28, 30, 0.55) !important;
+    --rand-glow: 0 0 8px rgba(0, 0, 0, 0.10) !important;
     --glas-licht: rgba(255, 255, 255, 0.95) !important;
     --glas-tiefe: rgba(0, 0, 0, 0.07) !important;
     --glas-schatten: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 22px rgba(0, 0, 0, 0.10) !important;
@@ -324,16 +326,16 @@ WIDGETS = """
     --karte: linear-gradient(180deg, rgba(255, 255, 255, 0.80) 0%, rgba(246, 246, 248, 0.72) 100%) !important;
 }
 button:disabled:not(#fd-hell) { background: #E5E5EA !important; border-color: #D1D1D6 !important; }
-button:disabled:not(#fd-hell), button:disabled p:not(#fd-hell), button:disabled span:not(#fd-hell) { color: #8E8E93 !important; }
+button:disabled:not(#fd-hell), button:disabled p:not(#fd-hell), button:disabled span:not(#fd-hell) { color: #6E6E73 !important; }
 /* Klappbereiche, Reiter, Formulare, Hinweise */
-[data-testid="stExpander"] details:not(#fd-hell) { background: var(--glas-bg) !important; border-color: rgba(0, 0, 0, 0.08) !important; }
+[data-testid="stExpander"] details:not(#fd-hell) { background: var(--glas-bg) !important; border-color: var(--rand) !important; }
 [data-testid="stExpander"] summary:not(#fd-hell) { background-color: transparent !important; }
 [data-testid="stExpander"] summary:hover:not(#fd-hell) { background-color: #F2F2F7 !important; }
 [data-testid="stDateInputField"] *:not(#fd-hell), [data-testid="stDateInput"] [role="spinbutton"]:not(#fd-hell),
 [data-testid="stTimeInput"] [role="spinbutton"]:not(#fd-hell) { color: #1C1C1E !important; }
 [data-testid="stDateInput"] [role="spinbutton"][aria-valuenow=""]:not(#fd-hell) { color: #8E8E93 !important; }
 [data-testid="stExpander"] summary svg:not(#fd-hell) { fill: #3A3A3C !important; color: #3A3A3C !important; }
-[data-testid="stForm"]:not(#fd-hell) { background: var(--glas-bg) !important; border-color: rgba(0, 0, 0, 0.08) !important; }
+[data-testid="stForm"]:not(#fd-hell) { background: var(--glas-bg) !important; border-color: var(--rand) !important; }
 [data-testid="stTabs"] [data-baseweb="tab-border"]:not(#fd-hell) { background: #D1D1D6 !important; }
 [data-testid="stAlertContainer"]:not(#fd-hell) { color: #1C1C1E !important; }
 [data-testid="stAlertContainer"] *:not(#fd-hell) { color: inherit !important; }

@@ -66,7 +66,7 @@ CSS_BASIS = """
 
     /* ---------- KURS-KOPF: die Zahl ist der Held der Seite ---------- */
     .quote {
-        background: var(--surface); border: 1px solid var(--line);
+        background: var(--surface); border: 1px solid var(--rand);
         border-radius: 12px; padding: 14px 16px;
         /* Diese Kachel wird in einem eigenen Fragment-Container gezeichnet -
            dort greift der Grundabstand aus stVerticalBlock nicht. Deshalb hier
@@ -142,7 +142,7 @@ CSS_BASIS = """
 
     /* ---------- HERO: eine einzige hervorgehobene Kennzahl ---------- */
     .hero {
-        background: var(--surface); border: 1px solid var(--line);
+        background: var(--surface); border: 1px solid var(--rand);
         border-radius: 12px; padding: 14px 16px; margin-bottom: 0;
     }
 
@@ -184,7 +184,7 @@ CSS_BASIS = """
     /* ---------- DATENZEILEN statt Kachel-Wildwuchs ----------
        Sekundaerwerte als hairline-getrennte Liste: ruhiger, dichter
        und deutlich schneller zu scannen als 8 gleich grosse Boxen. */
-    .rows { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 22px; }
+    .rows { border: 1px solid var(--rand); border-radius: 12px; overflow: hidden; margin-bottom: 22px; }
     .row {
         display: flex; justify-content: space-between; align-items: flex-start;
         gap: 14px; padding: 14px 18px; background: var(--surface);
@@ -342,7 +342,7 @@ CSS_BASIS = """
        nach Version unterschiedlich tief verschachtelt. */
     [data-testid="stSelectbox"] > div,
     [data-testid="stSelectbox"] [data-baseweb="select"] {
-        outline: 2px solid #FFFFFF !important;
+        outline: 2px solid var(--rand) !important;
         outline-offset: 0 !important;
         border-radius: 12px !important;
         background-color: var(--surface) !important;
@@ -442,7 +442,7 @@ CSS_BASIS = """
        Leuchten) - das Dropdown ist die Hauptnavigation und soll das
        auffaelligste Element auf der Seite bleiben. */
     [data-testid="stExpander"] {
-        border: 1px solid rgba(255, 255, 255, 0.55) !important;
+        border: 1px solid var(--rand) !important;
         border-radius: 12px !important;
         background: var(--surface) !important;
         margin-bottom: 0 !important;
@@ -451,7 +451,7 @@ CSS_BASIS = """
         transition: box-shadow 0.15s ease, border-color 0.15s ease;
     }
     [data-testid="stExpander"]:hover {
-        border-color: rgba(255, 255, 255, 0.9) !important;
+        border-color: var(--rand) !important;
         box-shadow: 0 0 16px rgba(255, 255, 255, 0.30);
     }
 
@@ -543,7 +543,7 @@ CSS_BASIS = """
        Zeitraum-Spalten, keine Zeilenfuehrung ueber die volle Breite. */
     .pt-wrap {
         overflow-x: auto; -webkit-overflow-scrolling: touch;
-        border: 1px solid var(--line); border-radius: 10px;
+        border: 1px solid var(--rand); border-radius: 10px;
         margin-bottom: 12px;
     }
     .pt { width: 100%; border-collapse: collapse; background: #0C0D0E; }
@@ -624,7 +624,7 @@ CSS_BASIS = """
         gap: 8px; margin: 6px 0 12px;
     }
     .q-kpi {
-        background: #0C0D0E; border: 1px solid var(--line); border-radius: 10px;
+        background: #0C0D0E; border: 1px solid var(--rand); border-radius: 10px;
         padding: 10px 12px; min-width: 0;
     }
     .q-kpi-l {
@@ -643,7 +643,7 @@ CSS_BASIS = """
        iPhone), die Namensspalte bleibt beim Wischen links stehen */
     .ue-wrap {
         overflow-x: auto; -webkit-overflow-scrolling: touch;
-        border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px;
+        border: 1px solid var(--rand); border-radius: 10px; margin-bottom: 14px;
     }
     .pt.ue td { white-space: nowrap; }
     .pt.ue td.pt-wert { white-space: normal; min-width: 150px; max-width: 320px; }
@@ -972,6 +972,9 @@ CSS_BASIS = """
         --accent: #0A84FF; --accent-hell: #409CFF; --accent-soft: rgba(10, 132, 255, 0.16);
         --accent-rand: rgba(10, 132, 255, 0.55);
         --karte: linear-gradient(180deg, rgba(58, 58, 60, 0.52) 0%, rgba(28, 28, 30, 0.62) 100%);
+        /* Raender: dunkel klar hell mit leichtem Leuchten, hell (ui_hell) klar dunkel */
+        --rand: rgba(255, 255, 255, 0.55);
+        --rand-glow: 0 0 10px rgba(255, 255, 255, 0.14);
     }
     .stApp {
         background:
@@ -986,19 +989,19 @@ CSS_BASIS = """
     /* Karten: Kacheln, Aufklappbereiche und umrandete Bloecke (.karte setzt das Lade-Skript) */
     .quote, .hero, .karte {
         background: var(--karte) !important;
-        border: 1px solid var(--glas-rand-flach, rgba(255, 255, 255, 0.10)) !important;
+        border: 1px solid var(--rand) !important;
         border-radius: 22px !important;
         -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 12px 32px rgba(0, 0, 0, 0.35);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 12px 32px rgba(0, 0, 0, 0.35), var(--rand-glow);
         position: relative;
     }
     .karte { padding: 18px 18px 16px !important; }
     @media (max-width: 640px) { .karte { padding: 14px 14px 12px !important; } }
     [data-testid="stExpander"] {
         background: var(--karte) !important;
-        border: 1px solid var(--line) !important;
+        border: 1px solid var(--rand) !important;
         border-radius: 16px !important;
-        box-shadow: 0 6px 18px rgba(11, 11, 11, 0.28) !important;
+        box-shadow: 0 6px 18px rgba(11, 11, 11, 0.28), var(--rand-glow) !important;
     }
     [data-testid="stExpander"]:hover { border-color: var(--accent-rand) !important;
                                        box-shadow: 0 6px 18px rgba(11, 11, 11, 0.28) !important; }
@@ -1015,7 +1018,7 @@ CSS_BASIS = """
     [data-baseweb="input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
     [data-testid="stDateInputField"], [data-baseweb="base-input"] {
         background-color: var(--surface-2) !important;
-        border-color: var(--line) !important;
+        border-color: var(--rand) !important;
         border-radius: 12px !important;
     }
     [data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within,
@@ -1035,7 +1038,7 @@ CSS_BASIS = """
         background-color: var(--surface-2) !important; border-radius: 12px !important;
     }
     [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-        border: 1px solid var(--line) !important; border-radius: 12px !important;
+        border: 1px solid var(--rand) !important; border-radius: 12px !important;
         background-color: var(--surface-2) !important;
     }
     [data-testid="stSelectbox"] > div:hover [data-baseweb="select"] > div,
@@ -1044,7 +1047,7 @@ CSS_BASIS = """
     }
     [data-testid="stSelectbox"] > div:hover, [data-testid="stSelectbox"] > div:focus-within { box-shadow: none !important; }
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
-        background-color: var(--surface-2) !important; border-color: var(--line) !important; border-radius: 12px !important;
+        background-color: var(--surface-2) !important; border-color: var(--rand) !important; border-radius: 12px !important;
     }
     [data-testid="stMultiSelect"] [data-tag] { background: var(--accent) !important; }
     [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] [data-tag] * { color: #151516 !important; }
@@ -1214,7 +1217,7 @@ CSS_NAV = """
 .st-key-nav_leiste {
     padding: 6px 8px; border-radius: 18px;
     background: linear-gradient(165deg, #28292B, #191A1B);
-    border: 1px solid #37393C;
+    border: 1px solid var(--rand);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(11, 11, 11, 0.45);
 }
 .st-key-nav_leiste [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important;
@@ -1257,12 +1260,12 @@ CSS_NAV = """
 :root {
     --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.07) 100%);
     --glas-rand-flach: rgba(255, 255, 255, 0.10);
-    --glas-kante: linear-gradient(135deg, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 28%,
-                  rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.18) 78%, rgba(255, 255, 255, 0.55) 100%);
+    --glas-kante: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.55) 30%,
+                  rgba(255, 255, 255, 0.45) 60%, rgba(255, 255, 255, 0.85) 100%);
     --glas-licht: rgba(255, 255, 255, 0.22);
     --glas-tiefe: rgba(0, 0, 0, 0.28);
     --glas-schatten: 0 10px 28px rgba(0, 0, 0, 0.40), 0 2px 6px rgba(0, 0, 0, 0.25);
-    --glas-glow: rgba(255, 255, 255, 0.06);
+    --glas-glow: rgba(255, 255, 255, 0.14);
     --glas-glow-stark: rgba(255, 255, 255, 0.22);
     --glas-text: #F5F5F7;
     --glas-aktiv-bg: linear-gradient(180deg, rgba(10, 132, 255, 0.55) 0%, rgba(10, 132, 255, 0.32) 100%);
@@ -1305,7 +1308,7 @@ html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_lei
     background: var(--glas-kante); display: block !important; animation: none !important; border: 0 !important;
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor; mask-composite: exclude;
-    opacity: 0.9; transition: opacity .25s ease;
+    opacity: 1; transition: opacity .25s ease;
 }
 /* Innerer Glanz oben (gewoelbtes Glas) */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
@@ -1386,26 +1389,37 @@ html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [dat
 /* Rahmen von Karten, Klappbereichen, Formularen und Feldern im selben Glas-Look: feine Lichtkante statt Linie */
 .quote::after, .hero::after {
     content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px;
-    background: var(--glas-kante); opacity: 0.55;
+    background: var(--glas-kante); opacity: 0.9;
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor; mask-composite: exclude;
 }
 html body [data-testid="stExpander"] details, html body [data-testid="stForm"] {
-    border: 1px solid var(--glas-rand-flach) !important; border-radius: 20px !important;
+    border: 1px solid var(--rand) !important; border-radius: 20px !important;
     background: var(--glas-bg) !important;
     -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%);
-    box-shadow: inset 0 1px 1px var(--glas-licht), 0 8px 22px rgba(0, 0, 0, 0.22) !important;
+    box-shadow: inset 0 1px 1px var(--glas-licht), 0 8px 22px rgba(0, 0, 0, 0.22), var(--rand-glow) !important;
 }
 html body :is([data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
     [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"], [data-baseweb="textarea"],
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div) {
-    border-radius: 14px !important; border-color: var(--glas-rand-flach) !important;
-    box-shadow: inset 0 1px 2px var(--glas-tiefe), 0 0 0 0.5px var(--glas-rand-flach) !important;
+    border-radius: 14px !important; border-color: var(--rand) !important;
+    box-shadow: inset 0 1px 2px var(--glas-tiefe), var(--rand-glow) !important;
 }
 html body :is([data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
     [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"], [data-baseweb="textarea"]):focus-within {
     border-color: rgba(10, 132, 255, 0.8) !important; box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25) !important;
 }
+/* Restliche Rahmen (umrandete Container, Tabellen, Kopfleiste) mit derselben klaren Randfarbe */
+html body :is([data-testid="stVerticalBlockBorderWrapper"], [data-testid="stLayoutWrapper"]) > [data-testid="stVerticalBlock"][style*="border"],
+html body [data-testid="stElementContainer"]:has([data-testid="stDataFrame"], [data-testid="stTable"]) {
+    border: 1px solid var(--rand) !important; border-radius: 14px; box-shadow: var(--rand-glow); overflow: hidden;
+}
+/* Klappbereich: nur EIN Rand (am inneren details) - der aeussere Rahmen entfaellt */
+html body [data-testid="stExpander"][data-testid="stExpander"] { border: none !important; box-shadow: none !important; background: transparent !important; }
+html body [data-testid="stExpander"] summary { border-radius: 19px !important; }
+html body [data-testid="stExpander"] summary:hover, html body [data-testid="stExpander"] summary:hover p {
+    background-color: transparent !important; }
+html body .st-key-nav_leiste { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(11, 11, 11, 0.45), var(--rand-glow); }
 </style>
 """
 
@@ -1486,7 +1500,7 @@ CSS_RESPONSIV = """
     .gv.flat .gv-eur, .gv.flat .gv-pct, .gv.flat .gv-pfeil { color: var(--label); }
     .kz-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
     @container (min-width: 520px) { .kz-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-    .kz { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; min-width: 0;
+    .kz { border: 1px solid var(--rand); border-radius: 12px; padding: 8px 10px; min-width: 0;
           background: rgba(255, 255, 255, 0.025); }
     .kz-l { font-size: 0.78rem; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.5px; }
     .kz-e, .kz-p { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;

@@ -401,7 +401,7 @@ def pruefe_anmeldung(cfg, daten, name, passwort):
 # ---------------------------------------------------------------------------
 LOGIN_CSS = """<style>
 .st-key-login_box { max-width: 420px; margin: 8vh auto 0; padding: 22px 20px; border-radius: 18px;
-                    background: linear-gradient(180deg, #242527, #191A1B); border: 1px solid #37393C;
+                    background: linear-gradient(180deg, #242527, #191A1B); border: 1px solid var(--rand, rgba(255, 255, 255, 0.55));
                     box-shadow: 0 14px 34px rgba(11, 11, 11, 0.45); }
 .login-titel { font-size: 1.4rem; font-weight: 800; color: #fff; margin-bottom: 2px; }
 .login-text { font-size: .85rem; color: #BCBFC2; margin-bottom: 14px; }
@@ -410,7 +410,7 @@ LOGIN_CSS = """<style>
     font-size: .95rem !important; font-weight: 700 !important; color: #DFE0E2 !important; }
 /* Eingabefelder: heller Kasten mit deutlichem Rahmen */
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] {
-    background: #191A1B !important; border: 1px solid #46484B !important;
+    background: #191A1B !important; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)) !important;
     border-radius: 12px !important; min-height: 52px; transition: border-color .15s, box-shadow .15s; }
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] > div,
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="base-input"] {
@@ -614,7 +614,7 @@ def darf(nutzer, ansicht):
 RECHTE_CSS = """<style>
 .st-key-rechte_box [data-testid="stCheckbox"], [class*="st-key-rechte_"] [data-testid="stCheckbox"] {
     padding: 6px 10px; margin-bottom: 6px; border-radius: 10px;
-    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.14); }
+    background: rgba(255,255,255,.04); border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); }
 [class*="st-key-rechte_"] [data-testid="stCheckbox"] label p { font-size: .9rem !important; color: #e8e6df !important; }
 .rechte-info { font-size: .8rem; color: #a9a79c; margin: 2px 0 8px; }
 [class*="st-key-rspeichern_"] button {

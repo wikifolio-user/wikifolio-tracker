@@ -20,7 +20,7 @@ P = "ad_"
 CSS = """
 <style>
 .ad-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
-.ad-k .k { border:1px solid var(--line,#353739); border-radius:12px; padding:10px 12px; background:var(--surface-2,#191A1B); }
+.ad-k .k { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:12px; padding:10px 12px; background:var(--surface-2,#191A1B); }
 .ad-k .l { color:#A9ACB0; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
 .ad-k .w { font-size:1.15rem; font-weight:800; margin-top:2px; }
 @media (max-width: 760px) { .ad-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }

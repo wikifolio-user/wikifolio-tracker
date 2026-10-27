@@ -45,7 +45,7 @@ CSS = """
 .pb-kpis { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; margin:0 0 16px; }
 @media (max-width: 819px) { .pb-kpis { grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; } }
 .pb-kpi { background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.015));
-          border:1px solid var(--line,#252628); border-radius:16px; padding:14px 16px; min-width:0; }
+          border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:16px; padding:14px 16px; min-width:0; }
 .pb-kpi .l { font-size:.8rem; color:var(--label,#B1B3B7); font-weight:600; letter-spacing:.3px; }
 .pb-kpi .w { font-size:clamp(1.15rem, 4.6vw, 1.7rem); font-weight:800; color:var(--text,#EBECED);
              font-variant-numeric:tabular-nums; margin-top:4px; overflow-wrap:anywhere; line-height:1.15; }

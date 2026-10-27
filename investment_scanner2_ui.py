@@ -26,11 +26,11 @@ CSS = """
 .is2-chip.warn { background:#423523; color:#f4c67b; }
 .pb-karte-t .is2-nr { color:var(--accent-hell,#409CFF); margin-right:6px; }
 .is2-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:8px 0; }
-.is2-k .k { border:1px solid #2B2C2E; border-radius:12px; padding:10px 12px; background:#111213; }
+.is2-k .k { border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:12px; padding:10px 12px; background:#111213; }
 .is2-k .l { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.4px; }
 .is2-k .w { font-size:1.2rem; font-weight:800; margin-top:2px; }
 .is2-k .s { color:#9AA0A6; font-size:.78rem; }
-.is2-szen .c { min-height:150px; border:1px solid #2B2C2E; border-radius:12px; padding:12px; background:#111213; }
+.is2-szen .c { min-height:150px; border:1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-radius:12px; padding:12px; background:#111213; }
 .is2-szen .c.sel { border-color:var(--accent,#0A84FF); background:rgba(10, 132, 255, 0.1); box-shadow:none; }
 .is2-szen .c.off { opacity:.55; }
 .is2-szen .t { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.6px; }

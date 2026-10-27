@@ -2697,7 +2697,7 @@ def render_chronik():
                     letzter_tag = tag
                 kopf = " · ".join(t for t in (ev.get("zeit", ""), ev.get("typ", "")) if t)
                 st.markdown(f"""
-                    <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
+                    <div style="background: #09090B; border: 1px solid var(--rand, rgba(255, 255, 255, 0.55)); border-left: 3px solid {farben.get(k_, '#29B6F6')}; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px;">
                         <div style="font-size: 0.8rem; color: #A1A1AA;">{html.escape(kopf)}</div>
                         <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{html.escape(str(ev.get('titel','')))}</div>
                         <div style="font-size: 0.85rem; color: #D1D5DB;">{html.escape(str(ev.get('inhalt','')))}</div>
