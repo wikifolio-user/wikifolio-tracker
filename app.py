@@ -22,6 +22,7 @@ import nutzerdaten
 import kurs_dienst as KD
 import formate as FMT
 import ui_stil as UI
+import ui_hell
 import prognose_basis as PROG_BASIS
 import branchen as BR
 import dividenden as DV
@@ -2335,6 +2336,30 @@ def depot_kurzinfo_karte(jetzt):
                   on_click=_nav_waehle, args=(ANSICHT_DEPOT,))
 
 
+def darstellung_modus():
+    """Gewaehlte Darstellung des Benutzers: "dunkel" (Standard), "hell" oder "auto" (wie das Geraet).
+    Je Benutzer gespeichert (gemerkte Eingaben, Bereich "darstellung") - gilt so auf allen Geraeten."""
+    if "ui_modus" not in st.session_state:
+        try:
+            gespeichert = nutzerdaten.eingaben_laden(gh_read_cached, _nutzer(), "darstellung").get("modus")
+        except Exception:
+            gespeichert = None
+        st.session_state["ui_modus"] = gespeichert if gespeichert in ui_hell.MODI else "dunkel"
+    return st.session_state["ui_modus"]
+
+
+def _darstellung_gewaehlt():
+    neu = st.session_state.get("ui_modus_wahl")
+    if neu not in ui_hell.MODI:
+        return
+    st.session_state["ui_modus"] = neu
+    try:
+        nutzerdaten.eingaben_merken(gh_aktualisiere, st.session_state, _nutzer(), "darstellung", {"modus": neu},
+                                    sofort=True)
+    except Exception as e:
+        logging.warning(f"Darstellung nicht gespeichert: {type(e).__name__}")
+
+
 def _sichtbar(ansicht):
     """Darf der angemeldete Benutzer diese Ansicht sehen? Die Benutzerverwaltung
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
@@ -2459,6 +2484,9 @@ def navigation():
     -> gewaehlte Ansicht oder None (Startseite)."""
     st.markdown(NAV_CSS, unsafe_allow_html=True)
     login.pruefen(st, gh_read_cached)       # gesperrt/geloescht? -> sofort abmelden (auch bei Teil-Neuaufbau)
+    _hell = ui_hell.stil(darstellung_modus())          # helle Ansicht: Regeln gelten unabhaengig von der Reihenfolge
+    if _hell:
+        st.markdown(_hell, unsafe_allow_html=True)
     jetzt = datetime.datetime.now(BERLIN_TZ)
     # Kurse aktualisiert der Kursdienst im Hintergrund (9, 11, 13 … 23 Uhr) - hier nur anzeigen
     dienst = kurs_dienst_bereit()
@@ -2604,6 +2632,13 @@ def navigation():
                         farb_css.append(f".st-key-nav_menue .st-key-nav_b{idx} button {{ border-color: {farbe} !important; "
                                         f"box-shadow: 0 8px 18px rgba(0,0,0,.55), 0 0 14px {farbe}55 !important; }}")
             st.markdown("<style>" + "\n".join(farb_css) + "</style>", unsafe_allow_html=True)
+            # Darstellung (hell / dunkel / wie das Geraet) - je Benutzer gespeichert
+            st.markdown('<div class="nav-gruppe"><span class="nav-wander">Darstellung</span></div>',
+                        unsafe_allow_html=True)
+            st.session_state["ui_modus_wahl"] = darstellung_modus()
+            st.segmented_control("Darstellung", ui_hell.MODI, format_func=ui_hell.MODUS_TEXT.get,
+                                 key="ui_modus_wahl", on_change=_darstellung_gewaehlt, label_visibility="collapsed",
+                                 width="stretch")
         return None
 
     # ---- In einer Ansicht: Kopfleiste ----
