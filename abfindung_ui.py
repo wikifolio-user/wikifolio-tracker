@@ -11,6 +11,8 @@ from decimal import Decimal
 
 import abfindung as A
 import abfindung_modelle as M
+import formate as FMT
+import ui_stil as UI
 
 NAV = ["🧮 Abfindung berechnen", "📊 Alle Modelle", "💶 Brutto-Netto", "🏭 Sozialplan & Regelwerke",
        "🎚️ Verhandlung", "🧾 ALG & Risiken", "🔀 Szenarien", "📄 Bericht"]
@@ -132,7 +134,7 @@ def _karte(st, nr, titel, text, key):
 
 
 def _eur(x, nk=0):
-    return "–" if x is None else f"{M.de(x, nk)} €"
+    return FMT.eur(x, nk)
 
 
 def fall_aus_session(ss, null=False):
@@ -468,7 +470,7 @@ def _bereich_modelle(st, pd, null):
                           plot_bgcolor="#000", font=dict(color="#D6D9DE", size=11), margin=dict(l=8, r=8, t=10, b=10),
                           legend=dict(orientation="h", y=1.05), separators=",.", xaxis=dict(gridcolor="#1A1A1A"),
                           yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False}, key="abf_mo_chart")
+        st.plotly_chart(UI.chart_stil(fig, schrumpfen=False), width="stretch", config={"displayModeBar": False}, key="abf_mo_chart")
     except Exception:
         pass
     c1, c2 = st.columns([3, 1])
@@ -640,7 +642,7 @@ def _bereich_verhandlung(st, pd, null):
         fig.update_layout(height=280, paper_bgcolor="#000", plot_bgcolor="#000", font=dict(color="#D6D9DE", size=11),
                           margin=dict(l=8, r=8, t=10, b=30), legend=dict(orientation="h", y=1.08), separators=",.",
                           xaxis=dict(title="Faktor", gridcolor="#1A1A1A"), yaxis=dict(gridcolor="#1A1A1A"))
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False}, key="abf_vh_chart")
+        st.plotly_chart(UI.chart_stil(fig, schrumpfen=False), width="stretch", config={"displayModeBar": False}, key="abf_vh_chart")
     except Exception:
         pass
     st.dataframe(pd.DataFrame([{"Faktor": M.de(x, 2), "Brutto €": float(w["brutto"]), "Steuer €": float(w["steuer"]),

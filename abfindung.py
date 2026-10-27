@@ -1107,7 +1107,7 @@ ABF_CSS = """<style>
     outline: none !important; background: transparent !important; box-shadow: none !important; border: none !important; }
 .abf-oben { border: 1px solid rgba(91,155,255,.45); border-radius: 14px; padding: 10px 14px; margin: 4px 0 10px;
   background: linear-gradient(135deg, rgba(91,155,255,.16), rgba(91,155,255,.04)); }
-.abf-oben-l { font-size: .7rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
+.abf-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
 .abf-oben-w { font-size: 1.3rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
 .abf-oben-s { font-size: .8rem; color: #BFD0E6; }
 [data-testid="stMetricLabel"] p { overflow-wrap: normal !important; word-break: normal !important; hyphens: auto; }

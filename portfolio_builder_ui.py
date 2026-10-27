@@ -13,6 +13,8 @@ import pandas as pd
 import streamlit as st
 
 import portfolio_builder as P
+import formate as FMT
+import ui_stil as UI
 
 try:
     import nutzerdaten as N
@@ -100,11 +102,11 @@ def _de(x, dez=0):
 
 
 def eur(x, dez=0):
-    return ("−" if x < -1e-9 else "") + _de(abs(x), dez) + " €"
+    return FMT.eur(x, dez)
 
 
 def pct(x, dez=1):
-    return _de(x, dez) + " %"
+    return FMT.pct(x, dez)
 
 
 def _esc(t):
@@ -965,7 +967,7 @@ def _diagramme(r):
                     annotations=[dict(text=f"<b>{eur(r['portfoliowert'])}</b><br><span style='font-size:12px'>"
                                            f"Portfoliowert</span>", showarrow=False, font=dict(size=15,
                                                                                                color="#E9EBEF"))])
-                st.plotly_chart(fig, width="stretch", key="pb_donut", config={"displayModeBar": False})
+                st.plotly_chart(UI.chart_stil(fig), width="stretch", key="pb_donut", config={"displayModeBar": False})
             else:
                 st.caption("Noch keine Positionen mit Wert.")
         with rechts, st.container(border=True):
@@ -991,7 +993,7 @@ def _diagramme(r):
                 legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0, font=dict(size=12)),
                 xaxis=dict(showgrid=False, tickformat="%Y"),
                 yaxis=dict(gridcolor="#1E2228", tickformat=",.0f", ticksuffix=" €", side="right", zeroline=False))
-            st.plotly_chart(fig, width="stretch", key="pb_linie", config={"displayModeBar": False})
+            st.plotly_chart(UI.chart_stil(fig), width="stretch", key="pb_linie", config={"displayModeBar": False})
 
 
 def _monat_plus(d, n):

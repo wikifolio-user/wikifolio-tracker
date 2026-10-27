@@ -21,6 +21,7 @@ import datetime
 import math
 import re
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+import ui_stil as UI
 
 INTERVALLE = {1: "monatlich", 3: "vierteljährlich", 6: "halbjährlich", 12: "jährlich"}
 ZIEL_FELDER = {"e": "Endkapital", "a": "Anfangskapital", "s": "Sparrate", "dy": "Dynamik", "z": "Zinssatz",
@@ -861,7 +862,7 @@ def tabelle_html(za, r):
            (["Ent&shy;nahmen"] if mit_ent else []) + ["Zins&shy;gut&shy;schriften"] + \
            (["Steuer"] if mit_st else []) + ["Guthaben am Jahres&shy;ende"]
     spalten = len(kopf)
-    groesse = {5: ".74rem", 6: ".68rem"}.get(spalten, ".62rem")
+    groesse = {5: ".76rem", 6: ".74rem"}.get(spalten, ".72rem")   # mind. ~11,5 px (UX 10/2026)
     pad = "6px 4px" if spalten <= 5 else "5px 2px"
     th = "".join(f'<th style="text-align:{"center" if i == 0 else "right"};padding:{pad};font-weight:600;'
                  f'color:{FARBEN["text2"]};border-bottom:1px solid {FARBEN["grid"]};vertical-align:bottom">{k}</th>'
@@ -875,7 +876,7 @@ def tabelle_html(za, r):
         return f"<tr>{td}</tr>"
 
     for nr, z in enumerate(zeilen_j, 1):
-        jahr = (f'{nr}<div style="font-size:.85em;color:{FARBEN["text2"]};line-height:1.1">'
+        jahr = (f'{nr}<div style="font-size:max(.85em, .75rem);color:{FARBEN["text2"]};line-height:1.1">'
                 f'{z["datum"].strftime("%d.%m.%Y")}</div>')
         zellen = [jahr, _de(beginn)] + ([_de(z["ein"])] if mit_ein else []) + \
                  (["−" + _de(z["ent"]) if z.get("ent") else _de(0)] if mit_ent else []) + \
@@ -1028,7 +1029,7 @@ FORM_CSS = """<style>
 .st-key-zr_form [data-testid="stDateInput"] { margin-top: 0 !important; padding-top: 0 !important; }
 .zr-oben { border: 1px solid rgba(91,155,255,.45); border-radius: 14px; padding: 10px 14px; margin: 2px 0 10px;
   background: linear-gradient(135deg, rgba(91,155,255,.16), rgba(91,155,255,.04)); }
-.zr-oben-l { font-size: .7rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
+.zr-oben-l { font-size: .75rem; letter-spacing: .6px; text-transform: uppercase; color: #9AA9BF; }
 .zr-oben-w { font-size: 1.35rem; font-weight: 800; line-height: 1.25; margin: 2px 0; }
 .zr-oben-s { font-size: .8rem; color: #BFD0E6; }
 .zr-hilfe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 0.8rem; color: #c3c2b7;
@@ -1368,7 +1369,7 @@ def render(basis_url="", gespeichert=None, null=False):
                    "Ansparzeit eingetragen sind.")
     else:
         try:
-            st.plotly_chart(chart(q, r), width="stretch", config={"displayModeBar": False}, key="zr_chart")
+            st.plotly_chart(UI.chart_stil(chart(q, r)), width="stretch", config={"displayModeBar": False}, key="zr_chart")
         except Exception as ex:
             st.caption(f"Chart nicht verfügbar: {ex}")
         za = zeitachse(q, r)

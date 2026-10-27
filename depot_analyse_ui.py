@@ -18,6 +18,7 @@ import branchen as BR
 import depot_analyse as D
 import dividenden as DV
 import portfolio_builder_ui as B
+import ui_stil as UI
 
 P = "da_"
 REITER = ["📊 Übersicht", "🔍 Positionen", "🧪 Simulator", "🧭 Szenarien", "💬 Assistent", "⚙️ Daten & Profil"]
@@ -35,26 +36,26 @@ STATE_PFAD = "state/depot_analyse.json"
 
 CSS = """
 <style>
-.da-chip { display:inline-block; padding:3px 10px; border-radius:999px; font-size:.72rem; font-weight:700;
+.da-chip { display:inline-block; padding:3px 10px; border-radius:12px; font-size:.75rem; font-weight:700;
   background:rgba(91,155,255,.16); color:#BFD6FF; border:1px solid rgba(91,155,255,.35); margin:0 6px 4px 0; }
 .da-chip.warn { background:#423523; color:#f4c67b; border-color:#6b5328; }
 .da-chip.neg { background:#3f1d22; color:#fca5a5; border-color:#7f1d1d; }
 .da-chip.pos { background:#163a2c; color:#86efac; border-color:#166534; }
 .da-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
 .da-k .k { border:1px solid var(--line,#22344C); border-radius:12px; padding:10px 12px; background:var(--surface-2,#0E1826); }
-.da-k .l { color:#9AA9BF; font-size:.68rem; text-transform:uppercase; letter-spacing:.5px; }
+.da-k .l { color:#9AA9BF; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
 .da-k .w { font-size:1.18rem; font-weight:800; margin-top:2px; }
-.da-k .s { color:#9AA9BF; font-size:.74rem; margin-top:2px; }
+.da-k .s { color:#9AA9BF; font-size:.78rem; margin-top:2px; }
 @media (max-width: 760px) { .da-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }
 .da-pos { color:#4ade80; } .da-neg { color:#f87171; } .da-warn { color:#f4c67b; } .da-m { color:#9AA9BF; font-size:.78rem; }
 .da-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 table.da { display:table !important; width:100%; border-collapse:separate; border-spacing:0; font-size:.84rem; }
-table.da th { text-align:left; color:#9AA9BF; font-size:.68rem; letter-spacing:.4px; text-transform:uppercase;
+table.da th { text-align:left; color:#9AA9BF; font-size:.75rem; letter-spacing:.4px; text-transform:uppercase;
   padding:6px 8px; border-bottom:1px solid var(--line,#22344C); white-space:nowrap; }
 table.da td { padding:6px 8px; border-bottom:1px solid #16243A; vertical-align:top; }
 table.da .r { text-align:right; white-space:nowrap; }
 table.da td.nm { min-width:150px; }
-.da-wrap table.da { min-width:560px; }
+.da-wrap.breit table.da { min-width:560px; }
 .da-bahn { height:8px; border-radius:4px; background:#16243A; overflow:hidden; min-width:60px; }
 .da-bahn > div { height:100%; background:var(--accent,#5B9BFF); }
 .da-score { display:inline-block; min-width:38px; text-align:center; padding:1px 6px; border-radius:8px;
@@ -87,7 +88,8 @@ def _tabelle(kopf, zeilen, breit=True):
     th = "".join(f'<th class="{k}">{_e(t)}</th>' for t, k in kopf)
     tr = "".join("<tr>" + "".join(f'<td class="{k}">{z}</td>' for (_, k), z in zip(kopf, zeile)) + "</tr>"
                  for zeile in zeilen)
-    st.markdown(f'<div class="{"da-wrap" if breit else ""}" tabindex="0" role="region" '
+    # immer im eigenen Scroll-Rahmen: auch "schmale" Tabellen sind bei 320 px breiter als das Handy (UX 10/2026)
+    st.markdown(f'<div class="da-wrap{" breit" if breit else ""}" tabindex="0" role="region" '
                 f'aria-label="Tabelle (seitlich scrollbar)"><table class="da"><thead><tr>{th}</tr></thead>'
                 f'<tbody>{tr}</tbody></table></div>', unsafe_allow_html=True)
 
@@ -473,7 +475,7 @@ def _positionen(h, a):
                               plot_bgcolor="rgba(0,0,0,0)", font={"color": "#C9D4E5"}, showlegend=False,
                               separators=",.", xaxis={"gridcolor": "#16243A"},
                               yaxis={"gridcolor": "#16243A", "ticksuffix": " €"})
-            st.plotly_chart(fig, width="stretch", key=P + "kurs_chart", config={"displayModeBar": False})
+            st.plotly_chart(UI.chart_stil(fig), width="stretch", key=P + "kurs_chart", config={"displayModeBar": False})
 
 
 # ---------------------------------------------------------------- Simulator

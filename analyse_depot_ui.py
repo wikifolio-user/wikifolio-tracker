@@ -21,7 +21,7 @@ CSS = """
 <style>
 .ad-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
 .ad-k .k { border:1px solid var(--line,#22344C); border-radius:12px; padding:10px 12px; background:var(--surface-2,#0E1826); }
-.ad-k .l { color:#9AA9BF; font-size:.68rem; text-transform:uppercase; letter-spacing:.5px; }
+.ad-k .l { color:#9AA9BF; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; }
 .ad-k .w { font-size:1.15rem; font-weight:800; margin-top:2px; }
 @media (max-width: 760px) { .ad-k { grid-template-columns:repeat(2, minmax(0,1fr)); } }
 .ad-hinweis { border:1px dashed #5B9BFF; border-radius:10px; padding:8px 12px; margin:4px 0 10px; color:#BFD6FF;

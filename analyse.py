@@ -18,6 +18,7 @@ import math
 import statistics
 
 import bewertung as BW
+import formate as FMT
 
 FAKT, PROGNOSE, MODELL, EINSCHAETZUNG = "Fakt", "Externe Prognose", "Modell/Annahme", "Einschätzung"
 
@@ -54,7 +55,7 @@ def _p(x, dec=1, vz=True):
 
 
 def _eur(x):
-    return "–" if x is None else f"{_de(x, 0)} €"
+    return FMT.eur(x, 0)
 
 
 def _klasse_mehrzahl(typ):

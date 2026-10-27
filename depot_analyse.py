@@ -19,6 +19,7 @@ import re
 import branchen as BR
 import dividenden as DV
 import klassen_score as KS
+import formate as FMT
 
 ARTEN = {"aktie": "Aktie", "etf": "ETF", "wikifolio": "wikifolio", "fonds": "Fonds", "sonstiges": "Sonstiges",
          "cash": "Liquidität"}
@@ -86,14 +87,12 @@ def de(x, nk=1):
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def eur(x, nk=0):
-    return "–" if x is None else ("−" if x < -0.005 else "") + de(abs(x), nk) + " €"
+def eur(x, nk=0, vz=False):
+    return FMT.eur(x, nk, vz)
 
 
 def pct(x, nk=1, vz=False):
-    if x is None:
-        return "–"
-    return ("+" if vz and x > 0 else "−" if x < -0.0005 else "") + de(abs(x), nk) + " %"
+    return FMT.pct(x, nk, vz)
 
 
 def schluessel(p):

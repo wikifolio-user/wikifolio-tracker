@@ -37,7 +37,7 @@ def _lade_funktionen():
     if fehlend:
         raise AssertionError(f"Funktionen fehlen in app.py: {fehlend}")
     modul = ast.Module(body=[defs[f] for f in FUNKTIONEN], type_ignores=[])
-    ns = {"html": html, "bisect": bisect, "datetime": datetime, "pd": pd, "np": np, "math": math}
+    ns = {"FMT": __import__("formate"), "html": html, "bisect": bisect, "datetime": datetime, "pd": pd, "np": np, "math": math}
     exec(compile(modul, pfad, "exec"), ns)
     return ns
 
@@ -352,11 +352,11 @@ class LivePunkt(unittest.TestCase):                   # DEP-10 / DEP-09
 
 class Darstellung(unittest.TestCase):                 # DEP-13 / SEC-04
     def test_vorzeichen(self):
-        self.assertEqual(A["fmt_vz"](-500), "-500,00€")
-        self.assertEqual(A["fmt_vz"](1234.5), "+1.234,50€")
-        self.assertEqual(A["fmt_vz"](0), "+0,00€")
-        self.assertEqual(A["fmt_vz"](-0.001), "+0,00€")
-        self.assertEqual(A["vz_zahl"](-1234.5), "-1.234,50")
+        self.assertEqual(A["fmt_vz"](-500), "\u2212500,00\u00a0€")
+        self.assertEqual(A["fmt_vz"](1234.5), "+1.234,50\u00a0€")
+        self.assertEqual(A["fmt_vz"](0), "+0,00\u00a0€")
+        self.assertEqual(A["fmt_vz"](-0.001), "+0,00\u00a0€")
+        self.assertEqual(A["vz_zahl"](-1234.5), "\u22121.234,50")
         self.assertEqual(A["vz_zahl"](2.0, 3), "+2,000")
         for v in (-1e6, -3.14159, -0.004, 0.0, 0.004, 7.5, 1e6):
             self.assertNotIn("+-", A["fmt_vz"](v))

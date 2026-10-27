@@ -11,6 +11,7 @@ import streamlit as st
 import investment_scanner2 as E
 import portfolio_builder_ui as B
 import scanner as S
+import formate as FMT
 
 P = "is2_"                                         # Schluessel-Praefix in st.session_state
 TOP_N = {"Top 50": 50, "Top 100": 100, "Top 250": 250, "Top 500": 500}
@@ -20,28 +21,28 @@ ANSATZ_HINT = {"auto": "Innerhalb Risikolimit", "defensiv": "Stabilität im Foku
 
 CSS = """
 <style>
-.is2-chip { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.72rem; font-weight:700;
+.is2-chip { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.75rem; font-weight:700;
   letter-spacing:.6px; background:rgba(91,155,255,.16); color:#BFD6FF; border:1px solid rgba(91,155,255,.35); }
 .is2-chip.warn { background:#423523; color:#f4c67b; }
 .pb-karte-t .is2-nr { color:var(--accent-hell,#8AB8FF); margin-right:6px; }
 .is2-k { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:8px 0; }
 .is2-k .k { border:1px solid #262B33; border-radius:12px; padding:10px 12px; background:#0F1115; }
-.is2-k .l { color:#9AA0A6; font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; }
+.is2-k .l { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.4px; }
 .is2-k .w { font-size:1.2rem; font-weight:800; margin-top:2px; }
-.is2-k .s { color:#9AA0A6; font-size:.74rem; }
+.is2-k .s { color:#9AA0A6; font-size:.78rem; }
 .is2-szen .c { min-height:150px; border:1px solid #262B33; border-radius:12px; padding:12px; background:#0F1115; }
 .is2-szen .c.sel { border-color:var(--accent,#5B9BFF); background:rgba(91,155,255,.10); box-shadow:none; }
 .is2-szen .c.off { opacity:.55; }
-.is2-szen .t { color:#9AA0A6; font-size:.7rem; text-transform:uppercase; letter-spacing:.6px; }
+.is2-szen .t { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.6px; }
 .is2-szen .n { font-weight:800; margin-top:2px; }
 .is2-szen .v { font-size:1.35rem; font-weight:800; margin-top:4px; }
 .is2-pos { color:#4ade80; } .is2-neg { color:#f87171; }
 table.is2 { display:table !important; width:100% !important; border-collapse:separate; border-spacing:0; font-size:.84rem; }
-table.is2 th { text-align:left; color:#9AA0A6; font-size:.7rem; letter-spacing:.4px; text-transform:uppercase;
+table.is2 th { text-align:left; color:#9AA0A6; font-size:.75rem; letter-spacing:.4px; text-transform:uppercase;
   padding:6px 8px; border-bottom:1px solid #262B33; white-space:nowrap; }
 table.is2 td { padding:6px 8px; border-bottom:1px solid #1A1E24; vertical-align:top; }
 table.is2 .r { text-align:right; white-space:nowrap; }
-table.is2 .m { color:#9AA0A6; font-size:.74rem; }
+table.is2 .m { color:#9AA0A6; font-size:.78rem; }
 .is2-wrap, .is2-scroll { overflow-x:auto; }
 @media (max-width: 420px) { table.is2 td.nm { min-width:110px; } table.is2 td, table.is2 th { padding:6px 5px; } }
 .is2-wrap table.is2 { min-width:620px; }
@@ -70,11 +71,11 @@ def _de(x, dez=0):
 
 
 def _eur(x, dez=0):
-    return ("−" if x < -1e-9 else "") + _de(abs(x), dez) + " €"
+    return FMT.eur(x, dez)
 
 
 def _pct(x, dez=1):
-    return "–" if x is None else ("−" if x < 0 else "") + _de(abs(x), dez) + " %"
+    return FMT.pct(x, dez)
 
 
 def _esc(t):
@@ -379,7 +380,8 @@ def _kaufplan(h, erg):
                   for o in m["orders"]])
     else:
         st.info("Keine kaufbaren Positionen im gewählten Universum oder kein freies Kapital.")
-    c = _spalten(2)
+    with st.container(key="is2_aktionen"):      # beide Knoepfe gleich hoch, auch wenn einer umbricht (ui_stil)
+        c = _spalten(2)
     if c[0].button("↻ Kurse laden", key=P + "live_btn", width="stretch", disabled=not m["orders"],
                    help="Aktuelle Euro-Kurse aller Kaufpositionen von ls-tc.de laden"):
         with st.spinner("Lade aktuelle EUR-Kurse …"):

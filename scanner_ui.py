@@ -12,6 +12,8 @@ import streamlit as st
 import portfolio_builder as P
 import scanner as S
 from portfolio_builder_ui import _smartphone
+import formate as FMT
+import ui_stil as UI
 
 PROFIL_TITEL = {"niedrig": "Niedrig", "mittel": "Mittel", "hoch": "Hoch", "eigene": "Eigene",
                 S.FAVORITEN: "Favoriten"}
@@ -24,13 +26,11 @@ def _de(x, dez=0):
 
 
 def _eur(x, dez=0):
-    return ("−" if x < -1e-9 else "") + _de(abs(x), dez) + " €"
+    return FMT.eur(x, dez)
 
 
 def _pct(x, dez=1, vz=False):
-    if x is None:
-        return "–"
-    return ("+" if vz and x > 0 else "−" if x < 0 else "") + _de(abs(x), dez) + " %"
+    return FMT.pct(x, dez, vz)
 
 
 def _esc(t):
@@ -650,7 +650,7 @@ def _faecher(erg, ziel):
                       legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0),
                       xaxis=dict(showgrid=False, tickformat="%Y"),
                       yaxis=dict(gridcolor="#1E2228", tickformat=",.0f", ticksuffix=" €", side="right"))
-    st.plotly_chart(fig, width="stretch", key="pb_scan_faecher", config={"displayModeBar": False})
+    st.plotly_chart(UI.chart_stil(fig), width="stretch", key="pb_scan_faecher", config={"displayModeBar": False})
 
 
 def _risiken(erg, kapital):
@@ -842,7 +842,7 @@ CSS = """
 .pb-scan-wrap { overflow-x:auto; margin:4px 0 10px; }
 table.pb-scan { width:100%; border-collapse:separate; border-spacing:0; font-size:.84rem; }
 table.pb-scan.breit { min-width:640px; }
-table.pb-scan th { text-align:left; color:#9AA0A6; font-weight:700; font-size:.72rem; letter-spacing:.4px;
+table.pb-scan th { text-align:left; color:#9AA0A6; font-weight:700; font-size:.75rem; letter-spacing:.4px;
   text-transform:uppercase; padding:6px 8px; border-bottom:1px solid #262B33; vertical-align:bottom; }
 table.pb-scan td { padding:6px 8px; border-bottom:1px solid #1A1E24; vertical-align:top; white-space:nowrap; }
 table.pb-scan td.t { white-space:normal; min-width:180px; max-width:280px; }
@@ -855,7 +855,7 @@ table.pb-scan.depot td.t, table.pb-scan.depot td.n { white-space:normal; max-wid
 table.pb-scan.depot tr.summe td { border-top:1px solid #3A3F47; }
 .pb-scan-kpis { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:6px 0 10px; }
 .pb-scan-kpis .k { border:1px solid #262B33; border-radius:10px; padding:10px 12px; background:#0F1115; }
-.pb-scan-kpis .l { color:#9AA0A6; font-size:.72rem; text-transform:uppercase; letter-spacing:.4px; }
+.pb-scan-kpis .l { color:#9AA0A6; font-size:.75rem; text-transform:uppercase; letter-spacing:.4px; }
 .pb-scan-kpis .w { font-size:1.25rem; font-weight:800; margin-top:2px; }
 .pb-scan-kpis .s { color:#9AA0A6; font-size:.76rem; margin-top:2px; }
 @media (max-width: 640px) { .pb-scan-kpis { grid-template-columns:repeat(2, minmax(0,1fr)); }
