@@ -2419,8 +2419,17 @@ def navigation():
                 /* gleiches sanftes Aufleuchten wie die Ueberschriften (navlogopuls) */
                 /* Touch: 44-px-Trefferflaeche um den kleinen Kreis (Audit UX) */
                 @media (pointer: coarse) {
-                    html body .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::after {
-                        content: ""; position: absolute; inset: -7px; display: block !important; }
+                    /* Die ::after-Flaeche wurde vom Elternelement abgeschnitten (gemessen: 30 px) - deshalb
+                       ist der Knopf selbst 44 px gross, der rote Kreis wird innen gezeichnet (UX 10/2026) */
+                    html body .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button,
+                    html body .st-key-logout_ecke [data-testid="stButton"] button {
+                        width: 44px !important; height: 44px !important; min-width: 44px !important;
+                        min-height: 44px !important; margin: -7px !important; background: transparent !important;
+                        border: none !important; isolation: isolate; }
+                    html body .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::before,
+                    html body .st-key-logout_ecke [data-testid="stButton"] button::before {
+                        inset: 7px; z-index: -1; border: 1px solid rgba(255,77,77,.9);
+                        background: linear-gradient(175deg, #3a2226 0%, #1f1214 45%, #120a0b 100%); }
                 }
                 @keyframes logoutglow {
                     0%, 100% { box-shadow: 0 0 2px rgba(255,60,60,.25); }

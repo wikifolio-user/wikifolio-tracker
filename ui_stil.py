@@ -740,6 +740,9 @@ CSS_BASIS = """
         .pt-stark { font-size: 0.95rem; }
         .pt td, .pt thead th { padding: 10px 8px; }
         .pt-wrap { overflow-x: visible; }
+        /* Tabellen ohne Fokus-Spalte (z. B. "Qualität × Kurs") sind breiter als das Handy - sie scrollen
+           in ihrem Rahmen, sonst verschiebt sich die ganze Seite seitlich (UX 10/2026) */
+        .pt-wrap:has(> table.pt-kompakt) { overflow-x: auto; }
     }
 
     /* ---------- ALLGEMEINE LADEANZEIGE (jede Ansicht) ----------
@@ -1341,8 +1344,10 @@ CSS_NAV = """
     text-shadow: none;
 }
 .nav-stand { display: flex; justify-content: center; margin: 6px 0 4px; }
-.nav-stand span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--label, #9AA0A6);
-    padding: 2px 10px; border: 1px solid rgba(150, 188, 240, 0.25); border-radius: 999px; white-space: nowrap; }
+.nav-stand span { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.78rem;
+    color: var(--label, #9AA0A6); padding: 2px 10px; border: 1px solid rgba(150, 188, 240, 0.25); border-radius: 999px;
+    max-width: 100%; box-sizing: border-box; text-align: center; flex-wrap: wrap; }
+.nav-stand span > i { flex: 0 0 auto; }
 .nav-stand b { color: #FFFFFF; font-weight: 600; }
 .nav-stand i { width: 6px; height: 6px; border-radius: 50%; background: #16C784; display: inline-block; }
 @media (max-width: 700px) {
@@ -1357,5 +1362,44 @@ CSS_NAV = """
 
 CSS_RESPONSIV = """
 <style>
+    /* ================= RESPONSIV (UX 10/2026) =================
+       Umbruchpunkte: S < 600 | M 600-899 | L 900-1199 | XL >= 1200 */
+
+    /* --- Spalten mit nur einem Knopf (z. B. "🗑️ Entfernen" neben einem Namen, "➕ Hinzufügen" neben einer
+       Auswahl): die App verhindert Spaltenumbrueche global (min-width: 0) - am Handy wurden solche Knoepfe
+       auf 35 px Breite gequetscht und der Text stand Buchstabe fuer Buchstabe untereinander. Jetzt bekommt
+       der Knopf seine Textbreite, der Rest der Zeile teilt sich den uebrigen Platz; passt beides nicht,
+       bricht die Zeile um. Menue und Kopfleiste haben ihr eigenes Raster und sind ausgenommen. */
+    @media (max-width: 599px) {
+        /* (:has() darf nicht verschachtelt werden - deshalb Geschwister-Selektoren statt "Zeile hat ...") */
+        /* Knopf-Spalte hinter Text/Feld: Textbreite; die Spalte davor schrumpft (kein Umbruch der Zeile).
+           Reine Knopf-Reihen (z. B. zwei Knoepfe nebeneinander) behalten ihr gleichmaessiges Raster. */
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]) > [data-testid="stColumn"]:not(:has(> [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child [data-testid="stButton"])) ~ [data-testid="stColumn"]:has(> [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child [data-testid="stButton"]) {
+            flex: 0 0 auto !important; width: auto !important; min-width: max-content !important; max-width: 100% !important; }
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]) > [data-testid="stColumn"]:not(:has(> [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child [data-testid="stButton"])) ~ [data-testid="stColumn"]:has(> [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child [data-testid="stButton"]) button { white-space: nowrap; }
+        /* Zeilen mit Knopf, aber ohne Eingabefeld bleiben einzeilig - die Textspalte schrumpft */
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]):has(> [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child [data-testid="stButton"]):not(:has(> [data-testid="stColumn"] :is([data-testid="stSelectbox"], [data-testid="stTextInput"], [data-testid="stNumberInput"], [data-testid="stMultiSelect"]))) { flex-wrap: nowrap !important; }
+        /* Eingabefeld + Knopf (z. B. Auswahl + "➕ Hinzufügen"): untereinander, beide volle Breite - nebeneinander
+           blieben fuer das Feld bei 320 px nur ~120 px */
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]):has(> [data-testid="stColumn"] :is([data-testid="stSelectbox"], [data-testid="stTextInput"], [data-testid="stNumberInput"], [data-testid="stMultiSelect"])):has(> [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child [data-testid="stButton"]) { flex-wrap: wrap !important; }
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]):has(> [data-testid="stColumn"] :is([data-testid="stSelectbox"], [data-testid="stTextInput"], [data-testid="stNumberInput"], [data-testid="stMultiSelect"])):has(> [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child [data-testid="stButton"]) > [data-testid="stColumn"][data-testid="stColumn"] {
+            flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }
+    }
+
+    /* --- Touch: "Kurse aktualisieren" auf der Startseite mind. 44 px (gemessen: 34 px auf iPad/quer) */
+    @media (pointer: coarse) {
+        .st-key-nav_menue .st-key-nav_refresh button { min-height: 44px !important; }
+        /* Mehrfachauswahl: das "x" zum Entfernen eines gewaehlten Werts war 16 x 8 px */
+        [data-testid="stMultiSelect"] [data-baseweb="tag"] { min-height: 32px; }
+        [data-testid="stMultiSelect"] [data-baseweb="tag"] [role="presentation"],
+        [data-testid="stMultiSelect"] [data-baseweb="tag"] span[aria-label^="Remove"],
+        [data-testid="stMultiSelect"] [data-baseweb="tag"] svg { min-width: 24px; min-height: 24px; }
+        /* Code-Feld "Kopieren" (Zinsrechner) */
+        [data-testid="stCode"] button { min-width: 44px !important; min-height: 44px !important; }
+    }
+
+    /* --- Titel in der Kopfleiste: ganze Woerter, nie "Vermögensaufba / u" (Umbruch mitten im Wort bei 320 px) */
+    .nav-titel { overflow-wrap: normal !important; word-break: normal !important; hyphens: auto; }
+    @media (max-width: 380px) { .nav-titel { font-size: 0.84rem !important; letter-spacing: 0 !important; } }
 </style>
 """
