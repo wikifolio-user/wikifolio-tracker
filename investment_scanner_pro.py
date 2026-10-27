@@ -20,13 +20,13 @@ import investment_scanner_pro_engine as E
 PROFILES = {'Defensiv': 'niedrig', 'Ausgewogen': 'mittel', 'Wachstum': 'hoch'}
 
 
-def _spalten(n):
-    """n Felder nebeneinander; auf dem Smartphone je Zeile 2 (sonst brechen die Beschriftungen zeichenweise)."""
-    if not B._smartphone():
-        return st.columns(n)
+def _spalten(n, je_zeile=None):
+    """n Felder als Raster: je Zeile je_zeile (Standard: alle n), auf dem Smartphone 2 - sonst brechen
+    die Beschriftungen zeichenweise. vertical_alignment="bottom" haelt die Felder einer Zeile auf einer Linie, auch wenn ein Label umbricht."""
+    breite = 2 if B._smartphone() else (je_zeile or n)
     slots = []
     while len(slots) < n:
-        slots += st.columns(2)
+        slots += st.columns(breite, vertical_alignment="bottom")
     return slots[:n]
 
 
@@ -149,25 +149,26 @@ def seite(h):
         return
     with st.form('isp_form'):
         st.markdown('#### Kapital, Ziel und Entnahmen')
-        c = _spalten(3)
         # neu angelegte Benutzer (h["null"]): nichts vorbelegt, Regeln ohne Einschraenkung
         null = bool((h or {}).get('null'))
+        c = _spalten(12, 3)                    # ein Raster: Desktop 3, Handy 2 Felder je Zeile
         capital = c[0].number_input('Neues Anlagekapital (€)', 0.0, 100_000_000.0, 0.0 if null else 25000.0,
-                                    step=1000.0)
-        old_cash = c[1].number_input('Bereits vorhandenes Depot-Cash (€)', 0.0, 100_000_000.0, 0.0, step=100.0)
-        goal = c[2].number_input('Zielvermögen (€)', 0.0, 500_000_000.0, 0.0 if null else 50000.0, step=1000.0)
-        c = _spalten(3)
-        years = c[0].number_input('Anlagezeit (Jahre)', 1, 50, 1 if null else 10)
-        save = c[1].number_input('Monatlich einzahlen (€)', 0.0, 1_000_000.0, 0.0 if null else 250.0, step=50.0)
-        withdraw = c[2].number_input('Monatlich entnehmen (€)', 0.0, 1_000_000.0, 0.0, step=50.0)
-        c = _spalten(3)
-        once = c[0].number_input('Sofortentnahme (€)', 0.0, 100_000_000.0, 0.0, step=100.0)
-        reserve = c[1].slider('Nachkaufreserve in % des Gesamtdepots', 0, 60, 0 if null else 15)
-        profile = c[2].selectbox('Risikoprofil', list(PROFILES), index=1)
-        c = _spalten(3)
-        maxw = c[0].number_input('Max. Gewicht je Wertpapier (%)', 1.0, 100.0, 100.0 if null else 5.0, step=0.5)
-        minscore = c[1].slider('Mindestscore für Kaufkandidaten', 0, 100, 0 if null else 55)
-        fee = c[2].number_input('Modellkosten jährlich (%)', 0.0, 5.0, 0.0 if null else 0.3, step=0.1)
+                                    step=1000.0, format="%.0f")
+        old_cash = c[1].number_input('Vorhandenes Depot-Cash (€)', 0.0, 100_000_000.0, 0.0, step=100.0,
+                                     format="%.0f")
+        goal = c[2].number_input('Zielvermögen (€)', 0.0, 500_000_000.0, 0.0 if null else 50000.0, step=1000.0,
+                                 format="%.0f")
+        years = c[3].number_input('Anlagezeit (Jahre)', 1, 50, 1 if null else 10)
+        save = c[4].number_input('Monatlich einzahlen (€)', 0.0, 1_000_000.0, 0.0 if null else 250.0, step=50.0,
+                                 format="%.0f")
+        withdraw = c[5].number_input('Monatlich entnehmen (€)', 0.0, 1_000_000.0, 0.0, step=50.0, format="%.0f")
+        once = c[6].number_input('Sofortentnahme (€)', 0.0, 100_000_000.0, 0.0, step=100.0, format="%.0f")
+        reserve = c[7].slider('Nachkaufreserve (% vom Depot)', 0, 60, 0 if null else 15)
+        profile = c[8].selectbox('Risikoprofil', list(PROFILES), index=1)
+        maxw = c[9].number_input('Max. Gewicht je Wert (%)', 1.0, 100.0, 100.0 if null else 5.0, step=0.5,
+                                 format="%.1f")
+        minscore = c[10].slider('Mindestscore für Kauf', 0, 100, 0 if null else 55)
+        fee = c[11].number_input('Kosten jährlich (%)', 0.0, 5.0, 0.0 if null else 0.3, step=0.1, format="%.2f")
         allow_partial = st.checkbox('Bruchstücke zulassen (falls Broker unterstützt)', value=False)
         submitted = st.form_submit_button('🔍 Investment Scanner berechnen', type='primary', width="stretch")
 
