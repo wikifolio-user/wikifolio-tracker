@@ -305,21 +305,24 @@ WIDGETS = """
     background-color: #FFFFFF !important; color: #0F1B2D !important; }
 :is([role="option"]):hover:not(#fd-hell), [role="option"][aria-selected="true"]:not(#fd-hell),
 [role="option"][data-focused="true"]:not(#fd-hell) { background-color: #E6EEF9 !important; }
-/* Knoepfe, Pills, Segmente (ausser den eigenen Menue-/Primaerknoepfen - die rechnet die Umrechnung um) */
-:is([data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stBaseButton-pills"], [data-testid="stBaseButton-segmented_control"],
-    [data-testid="stDownloadButton"] button):not(#fd-hell) {
-    background: #FFFFFF !important; color: #0F1B2D !important; border-color: #B8C6D8 !important; }
-:is([data-testid="stBaseButton-pillsActive"], [data-testid="stBaseButton-segmented_controlActive"]):not(#fd-hell) {
-    background: #E3ECFB !important; color: #1D4ED8 !important; border-color: #2563EB !important; }
-:is([data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-pills"],
-    [data-testid="stBaseButton-pillsActive"], [data-testid="stBaseButton-segmented_control"],
-    [data-testid="stBaseButton-segmented_controlActive"]) p:not(#fd-hell) { color: inherit !important; }
-:is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(#fd-hell) {
-    background: #2563EB !important; border-color: #2563EB !important; }
-:is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled),
-:is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled) p {
-    color: #FFFFFF !important; }
+/* Knoepfe, Kacheln, Pillen: Glas-Optik (ui_stil GLAS) - hier nur die Werte fuer helles, milchiges Glas */
+:root:not(#fd-hell) {
+    --glas-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.62) 50%, rgba(255, 255, 255, 0.84) 100%) !important;
+    --glas-rand: rgba(255, 255, 255, 0.95) !important;
+    --glas-licht: rgba(255, 255, 255, 1) !important;
+    --glas-tiefe: rgba(30, 60, 110, 0.06) !important;
+    --glas-ring: rgba(30, 60, 110, 0.16) !important;
+    --glas-schatten: 0 8px 22px rgba(15, 27, 45, 0.12) !important;
+    --glas-glow: rgba(37, 99, 235, 0.14) !important;
+    --glas-glow-stark: rgba(37, 99, 235, 0.36) !important;
+    --glas-glanz: rgba(255, 255, 255, 0.9) !important;
+    --glas-text: #0F1B2D !important;
+    --glas-aktiv-bg: linear-gradient(150deg, rgba(37, 99, 235, 0.22) 0%, rgba(37, 99, 235, 0.08) 100%) !important;
+    --glas-aktiv-rand: rgba(37, 99, 235, 0.55) !important;
+    --glas-aktiv-text: #1D4ED8 !important;
+    --glas-primaer-bg: linear-gradient(150deg, #4F8DF7 0%, #1D4ED8 100%) !important;
+    --glas-primaer-text: #FFFFFF !important;
+}
 button:disabled:not(#fd-hell) { background: #E6ECF4 !important; border-color: #C9D5E4 !important; }
 button:disabled:not(#fd-hell), button:disabled p:not(#fd-hell), button:disabled span:not(#fd-hell) { color: #6B7C93 !important; }
 /* Klappbereiche, Reiter, Formulare, Hinweise */
