@@ -411,7 +411,9 @@ LOGIN_CSS = """<style>
     -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
     box-shadow: var(--karte-schatten, 0 10px 40px -12px rgba(0, 0, 0, 0.6)); gap: 16px !important; }
 .login-titel { font-family: var(--g-schrift, 'Inter', sans-serif); font-size: 1.35rem; font-weight: 650;
-    letter-spacing: -0.02em; color: var(--text, #E8ECF6); margin-bottom: 8px; }
+    letter-spacing: -0.02em; color: var(--text, #E8ECF6); margin: 0 0 20px; }
+.st-key-login_box [data-testid="stForm"] [data-testid="stVerticalBlock"] { gap: 20px !important; }
+.st-key-login_box [data-testid="stTextInput"] label { margin-bottom: 8px !important; }
 .st-key-login_box [data-testid="stTextInput"] label p {
     font-size: .85rem !important; font-weight: 600 !important; color: var(--label, #A9B1C4) !important; }
 .st-key-login_box [data-testid="stTextInput"] [data-baseweb="input"] { min-height: 52px; }
