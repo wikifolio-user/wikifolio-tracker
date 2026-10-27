@@ -296,7 +296,8 @@ WIDGETS = """
     background: transparent !important; caret-color: #007AFF !important; }
 :is(input, textarea)::placeholder { color: #8E8E93 !important; -webkit-text-fill-color: #8E8E93 !important; }
 :is([data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"]):not(#fd-hell) {
-    background: #F2F2F7 !important; color: #1C1C1E !important; }
+    background: transparent !important; color: #1C1C1E !important; }
+:is([data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"]):hover:not(#fd-hell) { background: #F2F2F7 !important; }
 [data-testid="stSelectbox"] svg:not(#fd-hell), [data-testid="stMultiSelect"] svg:not(#fd-hell),
 [data-testid="stDateInput"] svg:not(#fd-hell) { color: #3A3A3C !important; fill: currentColor; }
 /* Auswahllisten (Popover der Auswahlfelder, Kalender) */
@@ -307,23 +308,34 @@ WIDGETS = """
 [role="option"][data-focused="true"]:not(#fd-hell) { background-color: #E5E5EA !important; }
 /* Knoepfe, Kacheln, Pillen: Glas-Optik (ui_stil GLAS) - hier nur die Werte fuer helles, milchiges Glas */
 :root:not(#fd-hell) {
-    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(242, 242, 245, 0.72) 60%, rgba(229, 229, 234, 0.80) 100%) !important;
-    --glas-rand-flach: rgba(0, 0, 0, 0.08) !important;
-    --glas-kante: linear-gradient(180deg, rgba(72, 72, 74, 0.55) 0%, rgba(28, 28, 30, 0.80) 100%) !important;
-    --rand: rgba(28, 28, 30, 0.55) !important;
-    --rand-glow: 0 0 8px rgba(0, 0, 0, 0.10) !important;
-    --glas-licht: rgba(255, 255, 255, 0.95) !important;
-    --glas-tiefe: rgba(0, 0, 0, 0.07) !important;
-    --glas-schatten: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 22px rgba(0, 0, 0, 0.10) !important;
-    --glas-glow: rgba(255, 255, 255, 0.45) !important;
-    --glas-glow-stark: rgba(0, 122, 255, 0.20) !important;
+    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.80) 100%) !important;
+    --glas-bg-hover: linear-gradient(180deg, #FFFFFF 0%, rgba(255, 255, 255, 0.92) 100%) !important;
+    --glas-kante: linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.10) 60%, rgba(0, 0, 0, 0.16) 100%) !important;
+    --glas-licht: #FFFFFF !important;
+    --glas-tiefe: rgba(0, 0, 0, 0.06) !important;
+    --glas-schatten: 0 1px 1px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.05), 0 12px 24px -10px rgba(0, 0, 0, 0.14) !important;
+    --glas-schatten-hover: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 14px rgba(0, 0, 0, 0.07), 0 18px 32px -12px rgba(0, 0, 0, 0.18) !important;
     --glas-text: #1C1C1E !important;
-    --glas-aktiv-bg: linear-gradient(180deg, #2E95FF 0%, #0071E3 100%) !important;
-    --glas-aktiv-kante: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(0, 122, 255, 0.35) 50%, rgba(255, 255, 255, 0.7) 100%) !important;
+    --glas-glow: rgba(0, 0, 0, 0) !important;
+    --glas-glow-stark: rgba(0, 0, 0, 0.06) !important;
+    --glas-rand-flach: rgba(0, 0, 0, 0.08) !important;
+    --trenn: rgba(60, 60, 67, 0.16) !important;
+    --seg-spur: rgba(118, 118, 128, 0.12) !important;
+    --seg-daumen: #FFFFFF !important;
+    --seg-daumen-schatten: 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.04) !important;
+    --seg-text: #1C1C1E !important;
+    --chip-aktiv-bg: rgba(0, 122, 255, 0.10) !important;
+    --chip-aktiv-rand: rgba(0, 122, 255, 0.55) !important;
+    --chip-aktiv-text: #0062CC !important;
     --glas-aktiv-text: #FFFFFF !important;
-    --glas-primaer-bg: linear-gradient(180deg, #2E95FF 0%, #0071E3 100%) !important;
+    --glas-primaer-bg: linear-gradient(180deg, #1A88FF 0%, #007AFF 100%) !important;
     --glas-primaer-text: #FFFFFF !important;
-    --karte: linear-gradient(180deg, rgba(255, 255, 255, 0.80) 0%, rgba(246, 246, 248, 0.72) 100%) !important;
+    --glas-primaer-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 1px 2px rgba(0, 0, 0, 0.10), 0 6px 14px rgba(0, 122, 255, 0.22) !important;
+    --glas-fokus: 0 0 0 3px rgba(0, 122, 255, 0.30) !important;
+    --glas-feld-innen: inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    --karte: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.80) 100%) !important;
+    --rand: rgba(60, 60, 67, 0.18) !important;
+    --rand-glow: 0 0 0 transparent !important;
 }
 button:disabled:not(#fd-hell) { background: #E5E5EA !important; border-color: #D1D1D6 !important; }
 button:disabled:not(#fd-hell), button:disabled p:not(#fd-hell), button:disabled span:not(#fd-hell) { color: #6E6E73 !important; }

@@ -973,8 +973,8 @@ CSS_BASIS = """
         --accent-rand: rgba(10, 132, 255, 0.55);
         --karte: linear-gradient(180deg, rgba(58, 58, 60, 0.52) 0%, rgba(28, 28, 30, 0.62) 100%);
         /* Raender: dunkel klar hell mit leichtem Leuchten, hell (ui_hell) klar dunkel */
-        --rand: rgba(255, 255, 255, 0.55);
-        --rand-glow: 0 0 10px rgba(255, 255, 255, 0.14);
+        --rand: rgba(255, 255, 255, 0.24);
+        --rand-glow: 0 0 0 transparent;
     }
     .stApp {
         background:
@@ -1139,11 +1139,11 @@ CSS_NAV = """
    aus dem Bild, kommt links wieder herein, bleibt stehen und pulsiert leicht */
 .nav-gruppe {
     position: relative; height: 38px; margin: 0 4px; overflow: hidden;
-    font-size: 0.8rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: #FFFFFF;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 2.2px; text-transform: uppercase; color: var(--label);
 }
 .nav-gruppe::after {
     content: ""; position: absolute; left: 0; right: 0; bottom: 7px; height: 1px;
-    background: linear-gradient(90deg, rgba(64, 156, 255, 0.7), rgba(10, 132, 255, 0.1));
+    background: var(--trenn);
 }
 .nav-wander {
     position: absolute; bottom: 12px; left: 0; white-space: nowrap;
@@ -1251,45 +1251,64 @@ CSS_NAV = """
     .st-key-nav_leiste [data-testid="stButton"] button { padding: 4px 9px !important; }
 }
 
-/* ================= GLAS: Apple "Liquid Glass" (10/2026) =================
-   Klares Glas in Kapselform: leicht getoente, durchscheinende Flaeche mit Unschaerfe dahinter, eine feine
-   Lichtkante (Verlaufsrand: oben links und unten rechts hell, dazwischen fast unsichtbar), innen oben ein
-   weicher Lichtsaum, darunter ein zarter Schatten. Beim Darueberfahren leuchtet die Kante auf und ein weisser
-   Glow umgibt das Glas. Systemblau nur fuer Auswahl und Hauptaktion. Alle Farben ueber Variablen - die helle
-   Ansicht setzt nur andere Werte (ui_hell.WIDGETS). */
+/* ================= GLAS: Apple-Stil (Liquid Glass, Ueberarbeitung 10/2026) =================
+   Ruhig statt laut: Systemschrift (SF), feine Haarlinien statt dicker Rahmen, oben eine helle Lichtkante,
+   darunter mehrlagige weiche Schatten. Kein Pulsieren, kein Dauer-Glow. Umschalter (segmented_control) wie
+   bei Apple: graue Spur mit hellem "Daumen"; Pillen als Glas-Chips, Auswahl blau getoent; Hauptaktion
+   Systemblau. ALLE Farben nur ueber Variablen - die helle Ansicht setzt eigene Werte (ui_hell.WIDGETS),
+   Farbliterale hier wuerden von ui_hell automatisch (und fuer Schatten falsch) umgerechnet. */
 :root {
-    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.07) 100%);
-    --glas-rand-flach: rgba(255, 255, 255, 0.10);
-    --glas-kante: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.55) 30%,
-                  rgba(255, 255, 255, 0.45) 60%, rgba(255, 255, 255, 0.85) 100%);
-    --glas-licht: rgba(255, 255, 255, 0.22);
+    --g-schrift: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.115) 0%, rgba(255, 255, 255, 0.055) 100%);
+    --glas-bg-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.08) 100%);
+    --glas-kante: linear-gradient(180deg, rgba(255, 255, 255, 0.50) 0%, rgba(255, 255, 255, 0.16) 40%,
+                  rgba(255, 255, 255, 0.10) 70%, rgba(255, 255, 255, 0.20) 100%);
+    --glas-licht: rgba(255, 255, 255, 0.20);
     --glas-tiefe: rgba(0, 0, 0, 0.28);
-    --glas-schatten: 0 10px 28px rgba(0, 0, 0, 0.40), 0 2px 6px rgba(0, 0, 0, 0.25);
-    --glas-glow: rgba(255, 255, 255, 0.14);
-    --glas-glow-stark: rgba(255, 255, 255, 0.22);
+    --glas-schatten: 0 1px 2px rgba(0, 0, 0, 0.40), 0 4px 12px rgba(0, 0, 0, 0.28), 0 16px 32px -12px rgba(0, 0, 0, 0.55);
+    --glas-schatten-hover: 0 2px 4px rgba(0, 0, 0, 0.40), 0 8px 20px rgba(0, 0, 0, 0.32), 0 22px 44px -14px rgba(0, 0, 0, 0.6);
     --glas-text: #F5F5F7;
-    --glas-aktiv-bg: linear-gradient(180deg, rgba(10, 132, 255, 0.55) 0%, rgba(10, 132, 255, 0.32) 100%);
-    --glas-aktiv-kante: linear-gradient(135deg, rgba(170, 210, 255, 0.95) 0%, rgba(10, 132, 255, 0.35) 45%, rgba(120, 185, 255, 0.85) 100%);
-    --glas-aktiv-text: #FFFFFF;
-    --glas-primaer-bg: linear-gradient(180deg, #2E95FF 0%, #0A6FE0 100%);
+    --glas-glow-stark: rgba(255, 255, 255, 0.10);
+    --glas-rand-flach: rgba(255, 255, 255, 0.12);
+    --trenn: rgba(255, 255, 255, 0.12);
+    --seg-spur: rgba(118, 118, 128, 0.24);
+    --seg-daumen: linear-gradient(180deg, #6C6C70 0%, #5A5A5E 100%);
+    --seg-daumen-schatten: inset 0 0.5px 0 rgba(255, 255, 255, 0.28), 0 3px 8px rgba(0, 0, 0, 0.30), 0 1px 1px rgba(0, 0, 0, 0.20);
+    --seg-text: #F5F5F7;
+    --chip-aktiv-bg: rgba(10, 132, 255, 0.24);
+    --chip-aktiv-rand: rgba(64, 156, 255, 0.70);
+    --chip-aktiv-text: #FFFFFF;
+    --glas-primaer-bg: linear-gradient(180deg, #2A8BFF 0%, #0A7AFF 100%);
     --glas-primaer-text: #FFFFFF;
+    --glas-primaer-schatten: inset 0 1px 0 rgba(255, 255, 255, 0.30), 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 16px rgba(10, 122, 255, 0.30);
+    --glas-fokus: 0 0 0 3px rgba(10, 132, 255, 0.45);
+    --glas-feld-innen: inset 0 1px 2px rgba(0, 0, 0, 0.30);
 }
-/* Glasflaeche */
+
+/* ---- Glasflaeche: Knoepfe, Menuekacheln, Kopfleiste, Download, Chips ---- */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, .nav-chip,
-    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *) {
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"], .nav-chip
+    ):not(.st-key-logout_ecke *) {
     background: var(--glas-bg) !important;
     border: 1px solid transparent !important;
-    -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
-    box-shadow: inset 0 1px 1px var(--glas-licht), inset 0 -1px 2px var(--glas-tiefe), var(--glas-schatten),
-                0 0 0 0.5px var(--glas-rand-flach), 0 0 16px var(--glas-glow) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten) !important;
     color: var(--glas-text) !important;
-    transform: none !important;
-    transition: box-shadow .25s ease, transform .15s ease, background .25s ease !important;
+    font-family: var(--g-schrift) !important;
+    transform: none !important; animation: none !important;
+    transition: box-shadow .2s ease, transform .12s ease, background .2s ease !important;
     position: relative; isolation: isolate;
 }
-/* Kapselform fuer einzeilige Knoepfe und Pillen; die Menuekacheln bleiben gross gerundet */
+html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, [data-testid="stBaseButton-primary"],
+    [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *) :is(p, span, div) {
+    font-family: var(--g-schrift) !important; font-weight: 600 !important; letter-spacing: -0.01em !important;
+    color: inherit !important; text-shadow: none !important;
+}
+/* Form: einzeilige Knoepfe als Kapsel, Menuekacheln mit Apple-Eckenradius */
 html body :is(.st-key-nav_leiste [data-testid="stButton"] button, [data-testid="stBaseButton-secondary"],
     [data-testid="stBaseButton-secondaryFormSubmit"], [data-testid="stDownloadButton"] button,
     [data-testid="stButtonGroup"] button, [data-testid="stBaseButton-primary"],
@@ -1297,81 +1316,93 @@ html body :is(.st-key-nav_leiste [data-testid="stButton"] button, [data-testid="
     border-radius: 999px !important;
 }
 html body .st-key-nav_menue [data-testid="stButton"] button:not(.st-key-logout_ecke *):not(.st-key-nav_refresh *) {
-    border-radius: 24px !important;
+    border-radius: 20px !important; min-height: 60px !important;
 }
-/* Lichtkante: Verlaufsrand als Maske (nur die 1-px-Kante sichtbar) */
+/* Lichtkante: 1-px-Verlaufsrand (oben hell, seitlich und unten fein) als Maske */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, .nav-chip,
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"], .nav-chip,
     [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *)::after {
     content: "" !important; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px;
     background: var(--glas-kante); display: block !important; animation: none !important; border: 0 !important;
+    box-shadow: none !important; opacity: 1;
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor; mask-composite: exclude;
-    opacity: 1; transition: opacity .25s ease;
 }
-/* Innerer Glanz oben (gewoelbtes Glas) */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button,
     [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *)::before {
-    content: ""; position: absolute; inset: 1px 6% auto 6%; height: 48%; border-radius: inherit; pointer-events: none;
-    z-index: -1; background: linear-gradient(180deg, var(--glas-licht), transparent);
-    opacity: 0.55;
+    content: none !important; display: none !important;
 }
+/* Darueberfahren: Flaeche minimal heller, Schatten tiefer; Druecken: leicht einsinken */
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *) :is(p, span, div) {
-    color: inherit !important;
-}
-/* Darueberfahren / Fokus: Kante leuchtet, weisser Glow, Glas hebt sich minimal */
-html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
-    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *):is(:hover, :focus-visible):not(:disabled) {
-    box-shadow: inset 0 1px 1px var(--glas-licht), inset 0 -1px 2px var(--glas-tiefe), var(--glas-schatten),
-                0 0 0 0.5px var(--glas-rand-flach), 0 0 24px var(--glas-glow-stark) !important;
-    transform: translateY(-1px) !important;
-}
-html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
-    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
-    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button):not(.st-key-logout_ecke *):is(:hover, :focus-visible):not(:disabled)::after {
-    opacity: 1;
+    [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button[data-variant="pills"]
+    ):not(.st-key-logout_ecke *):is(:hover, :focus-visible):not(:disabled) {
+    background: var(--glas-bg-hover) !important;
+    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten-hover) !important;
 }
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button,
     [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):active:not(:disabled) {
-    transform: scale(0.97) !important;
+    transform: scale(0.98) !important;
 }
-/* Gewaehlte Pille / Segment: Systemblau-Glas */
-html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] :is(button[aria-checked="true"], button[aria-pressed="true"],
-    button[data-testid$="Active"]):not(.st-key-logout_ecke *):not(.st-key-x) {
-    background: var(--glas-aktiv-bg) !important; color: var(--glas-aktiv-text) !important;
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), var(--glas-schatten), 0 0 20px rgba(10, 132, 255, 0.35) !important;
+html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [data-testid="stDownloadButton"],
+    [data-testid="stButtonGroup"]) button:not(.st-key-logout_ecke *):focus-visible {
+    outline: none !important; box-shadow: var(--glas-fokus), var(--glas-schatten) !important;
 }
-html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] :is(button[aria-checked="true"], button[aria-pressed="true"],
-    button[data-testid$="Active"]):not(.st-key-logout_ecke *):not(.st-key-x)::after {
-    background: var(--glas-aktiv-kante); opacity: 1;
+
+/* ---- Pillen (st.pills): Glas-Chips, Auswahl blau getoent mit feiner blauer Kante ---- */
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="pills"]:is([aria-checked="true"], [aria-pressed="true"]):not(.st-key-x) {
+    background: var(--chip-aktiv-bg) !important; color: var(--chip-aktiv-text) !important;
+    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten) !important;
 }
-/* Hauptaktion: Systemblau-Glas mit weisser Schrift */
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="pills"]:is([aria-checked="true"], [aria-pressed="true"]):not(.st-key-x)::after {
+    background: var(--chip-aktiv-rand);
+}
+
+/* ---- Umschalter (st.segmented_control): Apple-Segment - graue Spur, heller "Daumen" ---- */
+html body [data-testid="stButtonGroup"] [role="radiogroup"]:has(> button[data-variant="segmented_control"]),
+html body [data-testid="stButtonGroup"] [role="group"]:has(> button[data-variant="segmented_control"]) {
+    background: var(--seg-spur) !important; border-radius: 999px !important; padding: 2px !important;
+    gap: 2px !important; box-shadow: none !important; border: none !important;
+}
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:not(.st-key-x) {
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    color: var(--seg-text) !important; font-family: var(--g-schrift) !important;
+    min-height: 34px !important; border-radius: 999px !important; opacity: 0.82;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    transition: background .2s ease, box-shadow .2s ease, opacity .2s ease !important;
+}
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:not(.st-key-x)::after {
+    content: none !important; display: none !important;
+}
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:is([aria-checked="true"], [aria-pressed="true"]):not(.st-key-x) {
+    background: var(--seg-daumen) !important; box-shadow: var(--seg-daumen-schatten) !important; opacity: 1;
+}
+html body [data-testid="stButtonGroup"][data-testid="stButtonGroup"] button[data-variant="segmented_control"]:not([aria-checked="true"]):hover:not(:disabled) {
+    opacity: 1; background: transparent !important;
+}
+
+/* ---- Hauptaktion: Systemblau, flach mit feinem Lichtsaum ---- */
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):not(.st-key-x) {
-    background: var(--glas-primaer-bg) !important;
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), inset 0 -1px 2px rgba(0, 40, 110, 0.35),
-                0 10px 26px rgba(10, 132, 255, 0.30), 0 0 18px rgba(10, 132, 255, 0.25) !important;
+    background: var(--glas-primaer-bg) !important; border: 1px solid transparent !important;
+    box-shadow: var(--glas-primaer-schatten) !important; font-family: var(--g-schrift) !important;
+    transform: none !important; animation: none !important; position: relative; isolation: isolate;
 }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *):not(.st-key-x)::after {
-    background: var(--glas-aktiv-kante);
+    content: none !important; display: none !important;
 }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled),
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):not(:disabled) :is(p, span) {
     color: var(--glas-primaer-text) !important;
 }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):is(:hover, :focus-visible):not(:disabled):not(.st-key-x) {
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.55), 0 12px 30px rgba(10, 132, 255, 0.40),
-                0 0 30px rgba(10, 132, 255, 0.45) !important;
-    transform: translateY(-1px) !important;
+    filter: brightness(1.06); box-shadow: var(--glas-primaer-schatten) !important;
 }
-/* Deaktiviert: mattes Glas, keine Kante, kein Glow */
+/* Deaktiviert: matt, ohne Kante und Schatten */
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x):not(.st-key-y) {
     background: var(--glas-bg) !important; }
 html body :is([data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primaryFormSubmit"]):disabled:not(.st-key-x) :is(p, span) {
@@ -1380,34 +1411,41 @@ html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [dat
     [data-testid="stButtonGroup"]) button:disabled:not(.st-key-logout_ecke *):not(.st-key-x):not(.st-key-y) {
     box-shadow: none !important; opacity: 0.5; transform: none !important;
 }
-html body :is([data-testid="stButton"], [data-testid="stFormSubmitButton"], [data-testid="stDownloadButton"],
-    [data-testid="stButtonGroup"]) button:disabled:not(.st-key-logout_ecke *):not(.st-key-x):not(.st-key-y)::after { opacity: 0.35; }
-/* Segment-Schalter: keine Flaeche hinter den Glas-Pillen */
-[data-testid="stButtonGroup"], [data-testid="stButtonGroup"] [role="radiogroup"],
-[data-testid="stButtonGroup"] div:not(button div) { background: transparent !important; box-shadow: none !important; }
+/* Pillen-Spur ohne eigene Flaeche (die Segment-Spur oben setzt ihre Flaeche selbst) */
+[data-testid="stButtonGroup"], [data-testid="stButtonGroup"] div:not(button div):not([role="radiogroup"]):not([role="group"]) {
+    background: transparent !important; box-shadow: none !important; }
+[data-testid="stButtonGroup"] [role="radiogroup"]:not(:has(> button[data-variant="segmented_control"])) {
+    background: transparent !important; box-shadow: none !important; }
 
-/* Rahmen von Karten, Klappbereichen, Formularen und Feldern im selben Glas-Look: feine Lichtkante statt Linie */
+/* ---- Gruppen-Ueberschriften im Menue: ruhig wie in den iOS-Einstellungen (kein Pulsieren) ---- */
+html body .nav-gruppe { font-family: var(--g-schrift); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em;
+    color: var(--label); }
+html body .nav-gruppe::after { background: var(--trenn); height: 1px; }
+html body .nav-wander { animation: none !important; opacity: 1 !important; text-shadow: none !important; filter: none !important; }
+html body .nav-logo { animation: none !important; opacity: 1 !important; text-shadow: none !important; }
+
+/* ---- Karten, Klappbereiche, Formulare, Felder: feine Haarlinie, weicher Schatten ---- */
 .quote::after, .hero::after {
     content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; padding: 1px;
-    background: var(--glas-kante); opacity: 0.9;
+    background: var(--glas-kante); opacity: 0.8;
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor; mask-composite: exclude;
 }
 html body [data-testid="stExpander"] details, html body [data-testid="stForm"] {
     border: 1px solid var(--rand) !important; border-radius: 20px !important;
     background: var(--glas-bg) !important;
-    -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%);
-    box-shadow: inset 0 1px 1px var(--glas-licht), 0 8px 22px rgba(0, 0, 0, 0.22), var(--rand-glow) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%);
+    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten) !important;
 }
 html body :is([data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
     [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"], [data-baseweb="textarea"],
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div) {
-    border-radius: 14px !important; border-color: var(--rand) !important;
-    box-shadow: inset 0 1px 2px var(--glas-tiefe), var(--rand-glow) !important;
+    border-radius: 12px !important; border-color: var(--rand) !important;
+    box-shadow: var(--glas-feld-innen) !important;
 }
 html body :is([data-testid="stNumberInputContainer"], [data-testid="stTextInputRootElement"],
     [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"], [data-baseweb="textarea"]):focus-within {
-    border-color: rgba(10, 132, 255, 0.8) !important; box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25) !important;
+    border-color: var(--accent) !important; box-shadow: var(--glas-fokus) !important;
 }
 /* Restliche Rahmen (umrandete Container, Tabellen, Kopfleiste) mit derselben klaren Randfarbe */
 html body :is([data-testid="stVerticalBlockBorderWrapper"], [data-testid="stLayoutWrapper"]) > [data-testid="stVerticalBlock"][style*="border"],

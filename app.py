@@ -2506,8 +2506,8 @@ def navigation():
                 .st-key-logout_ecke [data-testid="stButton"] button {
                     width: 30px !important; height: 30px !important; min-height: 30px !important;
                     min-width: 30px !important; padding: 0 !important; border-radius: 50% !important;
-                    background: linear-gradient(175deg, #3a2226 0%, #1f1214 45%, #120a0b 100%) !important;
-                    border: 1px solid rgba(255,77,77,.9) !important; transform: none !important;
+                    background: var(--glas-bg) !important;
+                    border: 1px solid var(--rand) !important; transform: none !important;
                     position: relative !important; overflow: visible !important;
                     box-shadow: none !important; filter: none !important; }
                 /* Leuchten ueber eigenen Ring - box-shadow des Knopfs ist global per !important belegt
@@ -2515,7 +2515,7 @@ def navigation():
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::before,
                 .st-key-logout_ecke [data-testid="stButton"] button::before {
                     content: ""; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
-                    animation: logoutglow 3s ease-in-out infinite; }
+                    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten); }
                 /* gleiches sanftes Aufleuchten wie die Ueberschriften (navlogopuls) */
                 /* Touch: 44-px-Trefferflaeche um den kleinen Kreis (Audit UX) */
                 @media (pointer: coarse) {
@@ -2528,8 +2528,8 @@ def navigation():
                         border: none !important; isolation: isolate; }
                     html body .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::before,
                     html body .st-key-logout_ecke [data-testid="stButton"] button::before {
-                        inset: 7px; z-index: -1; border: 1px solid rgba(255,77,77,.9);
-                        background: linear-gradient(175deg, #3a2226 0%, #1f1214 45%, #120a0b 100%); }
+                        inset: 7px; z-index: -1; border: 1px solid var(--rand);
+                        background: var(--glas-bg); }
                 }
                 @keyframes logoutglow {
                     0%, 100% { box-shadow: 0 0 2px rgba(255,60,60,.25); }
@@ -2546,7 +2546,7 @@ def navigation():
                     overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
                 .st-key-logout_ecke [data-testid="stButton"] button [data-testid="stIconMaterial"] {
                     font-size: 16px !important; color: #ff5c5c !important; margin: 0 0 0 2px !important;
-                    animation: logouticon 3s ease-in-out infinite; }
+                    animation: none; }
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:hover,
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button:active {
                     transform: none !important;
