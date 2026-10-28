@@ -128,7 +128,7 @@ def _daten(_lesen, tag):
     kat = teile("state/planer/katalog_gross_{}.json", 4)
     qual = teile("state/qualitaet/alle_{}.json", 6)
     perf = teile("state/top50_alle_{}.json", 4)
-    det = teile("state/qualitaet/details_{}.json", 6)
+    det = teile("state/qualitaet/details_{}.json", 32)    # DETAIL_TEILE im Qualitaets-Agenten
     yahoo = _lesen("state/top50_yahoo.json", None) or {}
     u = SC.universum(kat, qual, perf, det, yahoo.get("isin") or {})
     stand = max((str(d.get("stand") or "") for d in kat + qual), default="")
