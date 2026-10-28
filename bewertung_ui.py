@@ -133,8 +133,35 @@ def _daten(_lesen, tag):
     yahoo = _lesen("state/top50_yahoo.json", None) or {}
     u = SC.universum(kat, qual, perf, det, yahoo.get("isin") or {})
     stand = max((str(d.get("stand") or "") for d in kat + qual), default="")
-    return {"u": u, "ver": SC.verteilungen(u), "je_id": {e["id"]: e for e in u}, "stand": stand,
+    je_kennung = {}
+    for e in u:
+        for k in (e["ticker"], e["wkn"], e["isin"]):
+            if k:
+                je_kennung.setdefault(str(k).upper(), e["id"])
+    return {"u": u, "ver": SC.verteilungen(u), "je_id": {e["id"]: e for e in u}, "je_kennung": je_kennung,
+            "stand": stand,
             "anzahl": {a: sum(1 for e in u if e["art"] == a) for a in SC.KLASSE_KUERZEL}}
+
+
+def daten(h):
+    """Top-500-Daten der Bewertung (auch fuer andere Seiten, z. B. die Depot-Analyse)."""
+    return _daten(h["gh_read_taeglich"], datetime.date.today().isoformat())
+
+
+def bewertung_fuer(d, kennungen):
+    """Bewertung eines Werts anhand seiner Kennungen (ISIN, WKN, Ticker). -> (eintrag, bewertung) oder None"""
+    for k in kennungen:
+        eid = d["je_kennung"].get(str(k or "").upper()) if k else None
+        if eid:
+            e = d["je_id"][eid]
+            return e, SC.bewerten(e, d["ver"])
+    return None
+
+
+def oeffnen(eintrag):
+    """Bewertungsseite mit diesem Wert vorbelegen (vor dem Seitenwechsel aufrufen)."""
+    st.session_state[P + "suche"] = eintrag.get("ticker") or eintrag.get("isin") or eintrag.get("wkn") or eintrag["name"]
+    st.session_state[P + "wahl"] = eintrag["id"]
 
 
 def _stand_text(stand):
