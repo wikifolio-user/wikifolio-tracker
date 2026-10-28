@@ -4773,7 +4773,9 @@ def render_dashboard():
             _zugang_pruefen(ANSICHT_BEWERTUNG)
             try:
                 import bewertung_ui
-                bewertung_ui.seite({"gh_read_taeglich": gh_read_taeglich})
+                bewertung_ui.seite({"gh_read_taeglich": gh_read_taeglich, "gh_read": gh_read,
+                                    "gh_aktualisiere": gh_aktualisiere, "speichern": GH_STATE_READY,
+                                    "pfad_notizen": upfad("state/bewertung_notizen.json")})
             except Exception as e:
                 st.error(f"⚠️ Fehler in der Bewertung: {e}")
                 notify_app_error("Tab-Bewertung", e)
