@@ -411,7 +411,7 @@ LOGIN_CSS = """<style>
     -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
     box-shadow: var(--karte-schatten, 0 10px 40px -12px rgba(0, 0, 0, 0.6)); gap: 16px !important; }
 .login-titel { font-family: var(--g-schrift, 'Inter', sans-serif); font-size: 1.35rem; font-weight: 650;
-    letter-spacing: -0.02em; color: var(--text, #E8ECF6); margin: 0 0 20px; }
+    letter-spacing: -0.02em; color: var(--text, #E8ECF6); margin: 0 0 20px; text-align: center; }
 .st-key-login_box [data-testid="stForm"] [data-testid="stVerticalBlock"] { gap: 20px !important; }
 .st-key-login_box [data-testid="stTextInput"] label { margin-bottom: 8px !important; }
 .st-key-login_box [data-testid="stTextInput"] label p {
@@ -425,11 +425,19 @@ LOGIN_CSS = """<style>
 .st-key-login_box [data-testid="stTextInput"] input::placeholder { color: var(--muted, #8A93A8) !important; opacity: 1; }
 .st-key-login_box [data-testid="stTextInput"] button { background: transparent !important; color: var(--label, #A9B1C4) !important; }
 .st-key-login_box [data-testid="InputInstructions"] { display: none; }
-/* Ueberschriften der Anmeldung pulsieren wie Logo und Menue-Ueberschriften (navpuls-glas aus ui_stil) */
-html body :is(.login-titel, .login-kopf .nav-credit, .st-key-login_box [data-testid="stTextInput"] label p) {
-    animation: navpuls-glas 2.4s ease-in-out infinite !important; }
+/* Beschriftungen Benutzername/Passwort (und "created by") pulsieren wie Logo und Menue-Ueberschriften;
+   "Anmelden" bleibt ruhig und steht mittig */
+html body .login-kopf .nav-credit { animation: navpuls-glas 2.4s ease-in-out infinite !important; }
+html body .st-key-login_box [data-testid="stTextInput"] [data-testid="stWidgetLabel"] {
+    animation: loginleuchten 2.4s ease-in-out infinite !important; }
+/* Beschriftungen deutlich aufleuchten lassen - ueber filter, weil Farbe und Textschatten der Beschriftung
+   global per !important festgelegt sind (das wuerde eine Farb-Animation ueberstimmen) */
+@keyframes loginleuchten {
+    0%, 100% { filter: brightness(1) drop-shadow(0 0 0 transparent); }
+    50%      { filter: brightness(1.45) drop-shadow(0 0 6px var(--puls-licht, rgba(255, 255, 255, 0.9))); }
+}
 @media (prefers-reduced-motion: reduce) {
-    html body :is(.login-titel, .login-kopf .nav-credit, .st-key-login_box [data-testid="stTextInput"] label p) {
+    html body :is(.login-kopf .nav-credit, .st-key-login_box [data-testid="stTextInput"] [data-testid="stWidgetLabel"]) {
         animation: none !important; } }
 /* das Formular liegt schon in der Glas-Karte - kein zweiter Rahmen */
 html body .st-key-login_box [data-testid="stForm"] { border: none !important; background: transparent !important;
