@@ -46,6 +46,12 @@ FUEHRUNG = {
         ("Aufteilung", "Gewichte anpassen, bis die Summe 100 % ergibt"),
         ("Ergebnis", "Verteilung, Vermögensentwicklung und Bewertung prüfen"),
     ],
+    "bewertung": [
+        ("Suchen", "Name, Ticker, WKN oder ISIN eingeben und den Wert aus der Trefferliste wählen"),
+        ("Gesamtscore", "Kopfdaten, Gesamtscore mit Ampel und das Kurzfazit lesen"),
+        ("Teilscores", "Teilbereiche, Netzdiagramm sowie Stärken und Schwächen ansehen"),
+        ("Kennzahlen", "Jede Kennzahl mit Einordnung, Median-Vergleich und Perzentil-Rang prüfen"),
+    ],
     "scanner": [
         ("Eckdaten", "Startkapital, Einzahlung, Entnahme, Laufzeit und Zielvermögen eingeben"),
         ("Risiko & Regeln", "Risikobereitschaft, Aufteilung je Anlageklasse und Grenzen festlegen"),
