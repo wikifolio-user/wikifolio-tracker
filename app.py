@@ -2346,6 +2346,13 @@ def _nav_waehle(ansicht):
     st.session_state.pop("q_fokus", None)        # Qualitaets-Tabelle startet immer mit "Alle Kennzahlen"
 
 
+def _zur_bewertung(eintrag):
+    """Bewertungsseite mit diesem Wert oeffnen (aus der Depot-Analyse)."""
+    import bewertung_ui
+    bewertung_ui.oeffnen(eintrag)
+    _nav_waehle(ANSICHT_BEWERTUNG)
+
+
 def _nutzer():
     return st.session_state.get("_nutzer")
 
@@ -7442,7 +7449,8 @@ def render_dashboard():
                  "chronik": chronik_eintrag, "suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs,
                  "get_kurshistorie": get_kurshistorie,
                  "analyse_depot_lesen": lambda: gh_read(upfad("state/analyse_depot.json"), None),
-                 "monatsplan": (sparrate_aktiv if haupt_aktiv else 0.0) - (entnahme_rate if haupt_aktiv else 0.0)}
+                 "monatsplan": (sparrate_aktiv if haupt_aktiv else 0.0) - (entnahme_rate if haupt_aktiv else 0.0),
+                 "zur_bewertung": _zur_bewertung if _sichtbar(ANSICHT_BEWERTUNG) else None}
 
         @st.fragment
         def _render_analyse():

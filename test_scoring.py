@@ -201,5 +201,17 @@ class Suche(unittest.TestCase):
         self.assertEqual(sc.suchen(self.u, ""), [])
 
 
+class Depot(unittest.TestCase):
+    def test_gewichtet_und_ohne_bewertung(self):
+        paare = [(60, {"gesamt": 80, "fazit": "teuer"}), (30, {"gesamt": 50, "fazit": "unterbewertet"}),
+                 (10, None)]
+        d = sc.depot_bewertung(paare)
+        self.assertAlmostEqual(d["score"], (60 * 80 + 30 * 50) / 90)
+        self.assertAlmostEqual(d["abdeckung"], 90.0)
+        self.assertEqual(d["anteile"], {"teuer": 60.0, "unterbewertet": 30.0})
+        self.assertIsNone(sc.depot_bewertung([(50, None)])["score"])
+        self.assertEqual(sc.depot_bewertung([])["abdeckung"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

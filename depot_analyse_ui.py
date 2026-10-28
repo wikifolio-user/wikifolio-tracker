@@ -172,6 +172,41 @@ def copy_tief(x):
     return json.loads(json.dumps(x, default=str))
 
 
+# ---------------------------------------------------------------- Bewertung (Top-500-Vergleich, scoring.py)
+# Zusaetzliche Sicht: der bisherige Depot-Score (Simulator, Optimierung) bleibt unveraendert.
+FAZIT_CSS = {"unterbewertet": "pos", "fair bewertet": "", "teuer": "neg"}
+
+
+def _bewertungen(h, pos):
+    """{schluessel(p): (eintrag, bewertung)} fuer alle Positionen, die in der Top-500-Liste stehen."""
+    try:
+        import bewertung_ui as BW
+        d = BW.daten(h)
+    except Exception as e:                     # ohne Top-500-Daten laeuft die Depot-Analyse wie bisher
+        logging.warning(f"Depot-Analyse: Bewertung nicht verfuegbar: {e}")
+        return {}
+    aus = {}
+    for p in pos:
+        r = BW.bewertung_fuer(d, (p.get("isin"), p.get("wkn"), p.get("symbol")))
+        if r:
+            aus[D.schluessel(p)] = r
+    return aus
+
+
+def _kurzfazit(eintrag, b):
+    import scoring as SC
+    return SC.kurzfazit(eintrag, b)
+
+
+def _bew_zelle(r):
+    if not r or r[1]["gesamt"] is None:
+        return '<span class="da-m">–</span>'
+    b = r[1]
+    fazit = (f'<br><span class="da-chip {FAZIT_CSS.get(b["fazit"], "")}">{_e(b["fazit"])}</span>'
+             if b["fazit"] else "")
+    return _score(b["gesamt"]) + fazit
+
+
 # ---------------------------------------------------------------- Marktdaten
 @st.cache_data(ttl=900, show_spinner=False)
 def _markt(_lesen, schluessel_tag):
@@ -338,6 +373,19 @@ def _uebersicht(h, a):
     _kpis(kacheln[:4])                       # das Wichtigste sichtbar, der Rest aufklappbar
     with st.expander("📈 Weitere Kennzahlen: Dividende, Diversifikation, größte Position, Kosten"):
         _kpis(kacheln[4:])
+    bew = _bewertungen(h, [p for p in pos if not p.get("ohne_kurs")])
+    if bew:
+        import scoring as SC
+        db = SC.depot_bewertung([(k["gewichte"].get(D.schluessel(p)), (bew.get(D.schluessel(p)) or (None, None))[1])
+                                 for p in pos if not p.get("ohne_kurs")])
+        an = db["anteile"]
+        _kpis([("Bewertung (Top-500-Vergleich)", f'{_score(db["score"])} <span class="da-m">/ 100</span>',
+                f'gewichtet · für {D.pct(db["abdeckung"], 0)} des Depots'),
+               ("Unterbewertet", D.pct(an.get("unterbewertet", 0.0), 0), "des Depotwerts (Fazit nur für Aktien)"),
+               ("Fair bewertet", D.pct(an.get("fair bewertet", 0.0), 0), "des Depotwerts (Fazit nur für Aktien)"),
+               ("Teuer", D.pct(an.get("teuer", 0.0), 0), "des Depotwerts (Fazit nur für Aktien)")])
+        st.caption("Zusätzliche Sicht aus dem Menüpunkt „⚖️ Bewertung“ (alle Kennzahlen im Vergleich zur "
+                   "Top-500-Liste). Der Depot-Score oben, Simulator und Optimierung rechnen unverändert.")
     if k["ohne_kurs"]:
         st.warning("Ohne Kurs und daher nicht bewertet: " + ", ".join(p["name"] for p in k["ohne_kurs"])
                    + ". Kursquelle unter „Depot verwalten“ ergänzen.")
@@ -391,10 +439,11 @@ def _uebersicht(h, a):
             zeilen.append([f'<b>{_e(p["name"])}</b><br><span class="da-m">{_e(D.ARTEN.get(p["art"]))} · '
                            f'{_e(p.get("isin") or p.get("wkn"))}</span>',
                            D.eur(p.get("wert")), D.pct(k["gewichte"].get(D.schluessel(p))), _score(p.get("score")),
+                           _bew_zelle(bew.get(D.schluessel(p))),
                            f'<span class="da-chip {EMPF_CSS.get(e["kategorie"], "")}">{_e(e["kategorie"])}</span>',
                            _e(e["prio"])])
-        _tabelle([("Position", "nm"), ("Wert", "r"), ("Gewicht", "r"), ("Score", "r"), ("Empfehlung", ""),
-                  ("Priorität", "")], zeilen)
+        _tabelle([("Position", "nm"), ("Wert", "r"), ("Gewicht", "r"), ("Score", "r"), ("Bewertung", "r"),
+                  ("Empfehlung", ""), ("Priorität", "")], zeilen)
         st.caption("Details, Begründung, Chancen und Risiken je Position im Reiter „🔍 Positionen“.")
         if k.get("ueberschneidungen"):
             with st.expander(f"ETF-Überschneidungen nach Index-Familie ({len(k['ueberschneidungen'])})"):
@@ -423,6 +472,15 @@ def _positionen(h, a):
            ("Score", f'{_score(p.get("score"))} <span class="da-m">/ 100</span>', _e(p.get("score_quelle"))),
            ("Empfehlung", f'<span class="da-chip {EMPF_CSS.get(e["kategorie"], "")}">{_e(e["kategorie"])}</span>',
             f'Priorität {e["prio"]} · {e["horizont"]}')])
+    r = _bewertungen(h, [p]).get(D.schluessel(p))
+    if r:
+        eintrag, b = r
+        st.markdown(f'<div class="da-box"><b>Bewertung im Top-500-Vergleich: {_bew_zelle(r)}</b>'
+                    f'{_e(_kurzfazit(eintrag, b))}</div>', unsafe_allow_html=True)
+        if h.get("zur_bewertung") and st.button("⚖️ In der Bewertung öffnen (alle Kennzahlen, Investoren-Checks)",
+                                                key=P + "zur_bewertung"):
+            h["zur_bewertung"](eintrag)
+            st.rerun()
     c1, c2 = (st.container(), st.container()) if B._smartphone() else st.columns(2)
     with c1, st.container(border=True):
         _titel("Kennzahlen (Fakten)")

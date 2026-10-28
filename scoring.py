@@ -417,3 +417,21 @@ def suchen(eintraege, text, limit=15):
         return (vorne + [t[-1] for t in aehnlich] + hinten)[:limit]
     treffer.sort(key=lambda t: t[:3])
     return [t[-1] for t in treffer[:limit]]
+
+
+# ---------------------------------------------------------------------------
+# Depot-Sicht (Depot-Analyse: zusaetzliche Spalte, der bisherige Depot-Score bleibt unveraendert)
+# ---------------------------------------------------------------------------
+def depot_bewertung(paare):
+    """paare: [(gewicht in %, bewertung oder None)] der Depotpositionen.
+    -> {score (gewichtet, nur bewertete Positionen), abdeckung %, anteile: {fazit: % des Depots}}"""
+    mit = [(g, b) for g, b in paare if b and b.get("gesamt") is not None and g]
+    summe = sum(g for g, _ in mit)
+    gesamt = sum(g for g, _ in paare if g) or 0.0
+    anteile = {}
+    for g, b in paare:
+        if b and b.get("fazit") and g:
+            anteile[b["fazit"]] = anteile.get(b["fazit"], 0.0) + g
+    return {"score": sum(g * b["gesamt"] for g, b in mit) / summe if summe else None,
+            "abdeckung": 100.0 * summe / gesamt if gesamt else 0.0,
+            "anteile": {k: 100.0 * v / gesamt for k, v in anteile.items()} if gesamt else {}}
