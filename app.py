@@ -2033,6 +2033,7 @@ ANSICHT_SCANNER_PRO = "🔎 Investment Scanner Pro"
 ANSICHT_SCANNER2 = "🧭 Investment Scanner 2.0"
 ANSICHT_ANALYSE = "🧠 Depot-Analyse & Optimierung"
 ANSICHT_ANALYSE_DEPOT = "📥 Analyse-Depot"
+ANSICHT_BEWERTUNG = "⚖️ Bewertung"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
@@ -2059,6 +2060,7 @@ ANSICHTEN = [
     ANSICHT_SCANNER2,           # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_ANALYSE,
     ANSICHT_ANALYSE_DEPOT,
+    ANSICHT_BEWERTUNG,          # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2082,6 +2084,7 @@ ANSICHT_KURZ = {
     ANSICHT_SCANNER2: "🧭 Scanner 2.0",
     ANSICHT_ANALYSE: "🧠 Depot-Analyse",
     ANSICHT_ANALYSE_DEPOT: "📥 Analyse-Depot",
+    ANSICHT_BEWERTUNG: "⚖️ Bewertung",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2101,6 +2104,7 @@ NAV_NAMEN = {
     ANSICHT_SCANNER2: "🧭 Investment Scanner 2.0",
     ANSICHT_ANALYSE: "🧠 Depot-Analyse",          # Kachel: kurz, voller Name in der Kopfleiste (NAV_TITEL)
     ANSICHT_ANALYSE_DEPOT: "📥 Analyse-Depot",
+    ANSICHT_BEWERTUNG: "⚖️ Bewertung",
     "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
@@ -2110,6 +2114,7 @@ NAV_NAMEN = {
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
 NAV_TITEL = {
     ANSICHT_ANALYSE: "🧠 Depot-Analyse & Optimierung",
+    ANSICHT_BEWERTUNG: "⚖️ Bewertung (Top 500)",
     "🔍 Seit 01.01.2026": "🔍 Performance seit 01.01.2026",
     "🔎 Seit 01.01.2021": "🔎 Performance seit 01.01.2021",
 }
@@ -2121,21 +2126,22 @@ NAV_ZEILEN = [
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
                            ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "💼 Portfolio-Planer",
-                           "🏆 Watchlist Top 50"]),
+                           "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
-                     ANSICHT_BENUTZER}
+                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
 
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
-              "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2}
+              "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
+              ANSICHT_BEWERTUNG}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -4757,6 +4763,21 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Investment Scanner 2.0: {e}")
             notify_app_error("Tab-Investment-Scanner-2", e)
+        lade_fertig()
+
+    # --- BEWERTUNG: einen Wert der Top-500-Liste anhand aller vorhandenen Kennzahlen bewerten
+    # (scoring.py / bewertung_ui.py) - liest nur die oeffentlichen Agenten-Dateien, schreibt nichts
+    if gewaehlte_ansicht == ANSICHT_BEWERTUNG:
+        @st.fragment
+        def _render_bewertung():
+            _zugang_pruefen(ANSICHT_BEWERTUNG)
+            try:
+                import bewertung_ui
+                bewertung_ui.seite({"gh_read_taeglich": gh_read_taeglich})
+            except Exception as e:
+                st.error(f"⚠️ Fehler in der Bewertung: {e}")
+                notify_app_error("Tab-Bewertung", e)
+        _render_bewertung()
         lade_fertig()
 
     # --- ANALYSE-DEPOT: eigenes, vom echten Depot getrenntes Depot fuer die Depot-Analyse
