@@ -311,15 +311,15 @@ WIDGETS = """
 /* Knoepfe, Kacheln, Pillen: Glas-Optik (ui_stil GLAS) - hier nur die Werte fuer helles, milchiges Glas */
 :root:not(#fd-hell) {
     --glas-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.72) 100%), rgba(255, 255, 255, 0.55) !important;
-    --glas-bg-hover: linear-gradient(180deg, #FFFFFF 0%, rgba(255, 255, 255, 0.85) 100%), rgba(255, 255, 255, 0.7) !important;
+    --glas-bg-hover: linear-gradient(180deg, #F3F4F7 0%, #E4E7ED 100%), #E9ECF1 !important;   /* Darueberfahren: grau */
     --glas-rand: rgba(15, 23, 42, 0.10) !important;
-    --glas-rand-stark: rgba(76, 110, 245, 0.35) !important;
+    --glas-rand-stark: rgba(15, 23, 42, 0.24) !important;
     --glas-glanz: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0)) !important;
-    --glas-reflex: linear-gradient(110deg, transparent, rgba(255, 255, 255, 0.85), transparent) !important;
+    --glas-reflex: linear-gradient(110deg, transparent, rgba(15, 23, 42, 0.10), transparent) !important;
     --glas-licht: #FFFFFF !important;
     --glas-tiefe: rgba(15, 23, 42, 0.06) !important;
     --glas-schatten: inset 0 1px 0 #FFFFFF, 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px -10px rgba(15, 23, 42, 0.18) !important;
-    --glas-schatten-hover: inset 0 1px 0 #FFFFFF, 0 0 0 1px rgba(76, 110, 245, 0.18), 0 14px 32px -12px rgba(76, 110, 245, 0.35) !important;
+    --glas-schatten-hover: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(15, 23, 42, 0.10), 0 14px 32px -10px rgba(15, 23, 42, 0.32) !important;
     --glas-schatten-press: inset 0 2px 6px rgba(15, 23, 42, 0.12) !important;
     --glas-text: #0F172A !important;
     --glas-text-hover: #0F172A !important;
