@@ -2548,7 +2548,7 @@ def navigation():
                     width: 30px !important; height: 30px !important; min-height: 30px !important;
                     min-width: 30px !important; padding: 0 !important; border-radius: 50% !important;
                     background: var(--glas-bg) !important;
-                    border: 1px solid var(--rand) !important; transform: none !important;
+                    border: 1px solid rgba(255,77,77,.9) !important; transform: none !important;
                     position: relative !important; overflow: visible !important;
                     box-shadow: none !important; filter: none !important; }
                 /* Leuchten ueber eigenen Ring - box-shadow des Knopfs ist global per !important belegt
@@ -2556,8 +2556,8 @@ def navigation():
                 .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::before,
                 .st-key-logout_ecke [data-testid="stButton"] button::before {
                     content: ""; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
-                    box-shadow: inset 0 1px 0 var(--glas-licht), var(--glas-schatten); }
-                /* gleiches sanftes Aufleuchten wie die Ueberschriften (navlogopuls) */
+                    animation: logoutglow 2.4s ease-in-out infinite; }
+                /* roter Rand mit gleichem Puls-Takt wie Logo und Ueberschriften (2,4 s) */
                 /* Touch: 44-px-Trefferflaeche um den kleinen Kreis (Audit UX) */
                 @media (pointer: coarse) {
                     /* Die ::after-Flaeche wurde vom Elternelement abgeschnitten (gemessen: 30 px) - deshalb
@@ -2569,7 +2569,7 @@ def navigation():
                         border: none !important; isolation: isolate; }
                     html body .st-key-nav_menue .st-key-logout_ecke [data-testid="stButton"] button::before,
                     html body .st-key-logout_ecke [data-testid="stButton"] button::before {
-                        inset: 9px; z-index: -1; border: 1px solid var(--rand);
+                        inset: 9px; z-index: -1; border: 1px solid rgba(255,77,77,.9);
                         background: var(--glas-bg); }
                 }
                 @keyframes logoutglow {
