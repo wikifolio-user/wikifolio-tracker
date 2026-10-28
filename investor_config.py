@@ -60,6 +60,36 @@ PHILIP_FISHER = {"min_umsatzwachstum": 10.0, "max_verwaesserung": 2.0}
 TEMPLETON_BILANZ = {"min_ek_quote": 30.0, "min_zinsdeckung": 3.0}
 
 # ---------------------------------------------------------------------------
+# Wachstums- & Momentum-Investoren
+# ---------------------------------------------------------------------------
+LYNCH = {"slow": 5.0, "stalwart": 12.0, "fast": 15.0,     # Kategorie nach Gewinnwachstum p. a.
+         "peg_gut": 1.0, "peg_sehr_gut": 0.5, "peg_stalwart": 1.5,
+         "max_de": 0.5,                    # Schulden / Eigenkapital
+         "fast_max_wachstum": 25.0,        # Lynch: mehr als 25 % p. a. haelt kaum eine Firma lange durch
+         "slow_min_div": 3.0, "slow_max_quote": 60.0}
+CANSLIM = {"c_min": 25.0, "a_min": 25.0, "n_max_abstand": 15.0, "l_min_rs": 80.0, "s_tage": 50,
+           "m_sma": 200}
+MINERVINI = {"min_ueber_tief": 30.0, "max_unter_hoch": 25.0, "min_rs": 70.0, "sma200_steigt_tage": 21}
+LEVY = {"wochen": 27, "min_rsl": 1.0, "min_rang": 70.0}
+
+# ---------------------------------------------------------------------------
+# Dividende & Aktionaersrendite
+# ---------------------------------------------------------------------------
+DIVIDENDE = {"min_jahre_ohne_kuerzung": 10, "min_cagr5": 5.0, "max_quote_gewinn": 75.0, "max_quote_fcf": 100.0,
+             "chowder": 12.0, "chowder_versorger": 8.0, "min_shareholder_yield": 4.0}
+
+# ---------------------------------------------------------------------------
+# Smart-Money-Signale
+# ---------------------------------------------------------------------------
+SMART_MONEY = {"insider_monate": 6, "max_rating": 2.5,   # Yahoo-Skala 1 = Strong Buy ... 5 = Sell
+               "min_kursziel_abstand": 10.0, "max_short_float": 10.0}
+
+# ---------------------------------------------------------------------------
+# Fairer Wert: Reverse-DCF
+# ---------------------------------------------------------------------------
+REVERSE_DCF = {"diskont": 9.0, "ewig": 2.5, "jahre": 10}
+
+# ---------------------------------------------------------------------------
 # Risiko- & Bilanzmodelle
 # ---------------------------------------------------------------------------
 PIOTROSKI = {"stark_ab": 8, "schwach_bis": 2}
@@ -110,4 +140,5 @@ SEKTOR_GRUND = {
 # ---------------------------------------------------------------------------
 # Konsens-Kategorien (Filter-Chips)
 # ---------------------------------------------------------------------------
-KATEGORIEN = ["Value", "Qualität", "Wachstum", "Momentum", "Risiko", "Dividende"]
+KATEGORIEN = ["Value", "Qualität", "Wachstum", "Momentum", "Risiko", "Dividende", "Signale"]
+NICHT_INVESTOR = ("Risiko", "Signale")   # Modelle/Signale, keine "Investoren" im Konsens
