@@ -8,16 +8,14 @@ Geladen wird erst, wenn eine Aktie gewaehlt ist - nie beim Login. Geschrieben wi
 import datetime
 import html
 import logging
-from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 
 import investor_checks as IC
 import investor_config as C
 import ui_stil as UI
+from investor_checks import abruf as AB
 from investor_checks import buffett as BUF
-from investor_checks import daten as DT
-from investor_checks import greenblatt as GB
 from investor_checks import konsens as KO
 
 P = "ic_"
@@ -37,6 +35,7 @@ CHECKLISTE = [
      "kann, versteht es nicht."),
 ]
 NOTIZ_PFAD = "state/bewertung_notizen.json"
+SC_META = "state/investoren/meta.json"            # Vorberechnung (investoren_agent.py)
 
 CSS = """
 <style>
@@ -132,72 +131,35 @@ def wert_text(w, fmt, waehrung=""):
     return _de(w) if isinstance(w, (int, float)) else str(w)
 
 
-# ---------------------------------------------------------------- Daten (yfinance)
-def _yf():
-    import yfinance as yf          # erst bei Bedarf laden (spart Startzeit der App)
-    return yf
-
-
+# ---------------------------------------------------------------- Daten (yfinance, siehe investor_checks/abruf.py)
 @st.cache_data(ttl=24 * 3600, show_spinner=False, max_entries=300)
 def lade_fundamental(symbol):
-    """Fundamentaldaten (24 h): info, Jahres-GuV/Bilanz/Cashflow, Quartals-GuV, Dividendenhistorie, Insider,
-    Schaetzungsrevisionen - parallel abgerufen. -> {info, gj, bilanz, cashflow, q_gj, dividenden, insider,
-    revisionen, fehler}"""
-    t = _yf().Ticker(symbol)
-    abrufe = {"info": lambda: t.info, "gj": lambda: t.income_stmt, "bilanz": lambda: t.balance_sheet,
-              "cashflow": lambda: t.cashflow, "q_gj": lambda: t.quarterly_income_stmt,
-              "dividenden": lambda: t.dividends, "insider": lambda: t.insider_transactions,
-              "revisionen": lambda: t.eps_revisions}
-    aus, fehler = {}, []
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        laeufe = {k: ex.submit(fn) for k, fn in abrufe.items()}
-        for k, lauf in laeufe.items():
-            try:
-                aus[k] = lauf.result(timeout=20)
-            except Exception as e:      # Yahoo drosselt/sperrt gelegentlich - Teilausfall statt Absturz
-                logging.warning("yfinance %s %s: %s", symbol, k, type(e).__name__)
-                aus[k] = None
-                fehler.append(k)
-    aus["fehler"] = fehler
-    return aus
+    """Fundamentaldaten (24 h) - parallel abgerufen."""
+    return AB.roh_laden(symbol)
 
 
 @st.cache_data(ttl=15 * 60, show_spinner=False, max_entries=300)
 def lade_kurse(symbol):
     """Tageskurse 5 Jahre (15 Min.)."""
-    try:
-        return _yf().Ticker(symbol).history(period="5y", auto_adjust=True)
-    except Exception as e:
-        logging.warning("yfinance Kurse %s: %s", symbol, type(e).__name__)
-        return None
+    return AB.kurse_laden(symbol, "5y")
 
 
 @st.cache_data(ttl=15 * 60, show_spinner=False, max_entries=10)
 def lade_index(symbol):
     """Leitindex 2 Jahre (15 Min.) fuer die Marktrichtung (CAN SLIM "M")."""
-    try:
-        return _yf().Ticker(symbol).history(period="2y", auto_adjust=True)
-    except Exception as e:
-        logging.warning("yfinance Index %s: %s", symbol, type(e).__name__)
-        return None
+    return AB.kurse_laden(symbol, "2y")
 
 
 @st.cache_resource(ttl=900, show_spinner=False)
 def _vergleich(_d, tag):
-    """Top-500-Vergleichsdaten fuer alle Aktien (einmal je Datenstand): Magic-Formula-Raenge und
-    Rang nach Boersenwert im Sektor."""
-    u = _d["u"]
-    sektoren = {}
-    for e in u:
-        mcap = (e.get("info") or {}).get("mcap")
-        if e["art"] == "aktie" and e.get("sektor") and mcap:
-            sektoren.setdefault(e["sektor"], []).append((float(mcap), e["id"]))
-    rang = {}
-    for liste in sektoren.values():
-        liste.sort(reverse=True)
-        for i, (_, eid) in enumerate(liste, 1):
-            rang[eid] = (i, len(liste))
-    return {"greenblatt": GB.raenge(u), "sektor_rang": rang}
+    """Top-500-Vergleichsdaten fuer alle Aktien (einmal je Datenstand)."""
+    return AB.vergleich(_d["u"])
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _meta(_lesen, tag):
+    """Sektor-Mediane der Vorberechnung (F&E-Quote fuer Philip Fisher)."""
+    return _lesen(SC_META, None) or {}
 
 
 def fakten_fuer(e, h, d):
@@ -210,9 +172,7 @@ def fakten_fuer(e, h, d):
         try:
             roh = lade_fundamental(sym)
             kurse = lade_kurse(sym)
-            info = roh.get("info") or {}
-            idx_sym, idx_name = DT.leitindex({"land": info.get("country") or "",
-                                              "kurs_waehrung": info.get("currency") or ""})
+            idx_sym, idx_name = AB.leitindex_fuer(roh)
             idx = lade_index(idx_sym)
         except Exception as ex:          # yfinance fehlt/Netz weg: mit Top-500-Daten weiter
             logging.warning("Investoren-Checks %s: %s", sym, ex)
@@ -221,15 +181,10 @@ def fakten_fuer(e, h, d):
         hinweis = "Für diesen Wert gibt es kein Yahoo-Symbol – nur Checks aus den Top-500-Daten."
     if roh.get("fehler") and not hinweis:
         hinweis = "Yahoo Finance hat nicht alle Daten geliefert – betroffene Kriterien stehen auf n/a."
-    f = DT.fakten_aus_yfinance(roh.get("info") or {}, roh.get("gj"), roh.get("bilanz"), roh.get("cashflow"),
-                               q_gj=roh.get("q_gj"), hist=kurse, dividenden=roh.get("dividenden"), fx=fx, agent=e,
-                               insider=roh.get("insider"), eps_revisionen=roh.get("revisionen"), index_hist=idx,
-                               index_name=idx_name)
-    if not f["sektor"] and not f["branche"]:
-        f["branche"] = e.get("sektor") or ""
-    v = _vergleich(d, datetime.date.today().isoformat())
-    kx = {"agent": e, "verteilungen": d["ver"], "greenblatt": v["greenblatt"],
-          "sektor_rang": v["sektor_rang"].get(e["id"])}
+    f = AB.fakten(roh, kurse, idx, idx_name, fx, e)
+    tag = datetime.date.today().isoformat()
+    kx = AB.kontext(e, d["ver"], _vergleich(d, tag),
+                    (_meta(h["gh_read_taeglich"], tag) or {}).get("fue_median"))
     return f, kx, hinweis
 
 
@@ -505,3 +460,137 @@ def bereich(h, e, d):
                f"{_de(C.STAATSANLEIHE_10J)} %) Stand {C.ANNAHMEN_STAND} · geladen in {_de(dauer)} s")
     st.caption("Vereinfachte Annäherungen an die Methoden der genannten Investoren auf Basis öffentlich verfügbarer "
                "Daten – keine Anlageberatung und keine Aussage, was diese Personen tatsächlich kaufen würden.")
+
+
+# ---------------------------------------------------------------- Vorberechnung (Legenden-Screener)
+@st.cache_data(ttl=3600, show_spinner=False)
+def _vorberechnet(_lesen, tag):
+    """Alle vorberechneten Ergebnisse (investoren_agent.py): {symbol: kurzform} und meta."""
+    werte = {}
+    for i in range(16):
+        werte.update(((_lesen(f"state/investoren/ergebnis_{i:02d}.json", None) or {}).get("werte")) or {})
+    return werte, _lesen(SC_META, None) or {}
+
+
+def vorberechnet(h):
+    return _vorberechnet(h["gh_read_taeglich"], datetime.date.today().isoformat())
+
+
+def _investoren_optionen():
+    return {cid: r["investor"] for cid, r in sorted(IC.REGISTRY.items(), key=lambda kv: kv[1]["reihenfolge"])}
+
+
+def screener(h, d, oeffnen):
+    """Legenden-Screener: alle Top-500-Aktien, die die Kriterien der gewaehlten Investoren erfuellen."""
+    import pandas as pd
+    st.markdown(CSS, unsafe_allow_html=True)
+    werte, meta = vorberechnet(h)
+    if not werte:
+        st.info("Noch keine Vorberechnung vorhanden. Sie läuft wöchentlich (sonntags) als GitHub Action "
+                "„Investoren-Checks vorberechnen“ – dort lässt sie sich auch sofort manuell starten "
+                "(Actions → Workflow wählen → Run workflow).")
+        return
+    opt = _investoren_optionen()
+    st.caption(f"Vorberechnet für {meta.get('abdeckung', len(werte)):,} von {meta.get('aktien', '–'):,} Aktien · "
+               f"Stand {_datum(meta.get('stand') or '')} · wöchentlich aktualisiert".replace(",", "."))
+    wahl = st.multiselect("Investoren / Modelle", list(opt), default=["buffett", "graham"], format_func=opt.get,
+                          key=P + "sc_inv")
+    sp = st.columns(2) if not UI.ist_smartphone() else [st.container(), st.container()]
+    minimum = sp[0].slider("Mindest-Score je gewähltem Investor", 0, 100, C.KAUFEN_AB_SCORE, 5, key=P + "sc_min")
+    ohne_warn = sp[1].toggle("Nur ohne Warnsignale", value=False, key=P + "sc_warn")
+    sektoren = sorted({w.get("sek") for w in werte.values() if w.get("sek")})
+    sek = st.multiselect("Sektor (optional)", sektoren, key=P + "sc_sek", placeholder="Alle Sektoren")
+    if not wahl:
+        st.info("Mindestens einen Investor wählen.")
+        return
+    zeilen = []
+    for sym, w in werte.items():
+        c = w.get("c") or {}
+        sc = [(c.get(i) or [None])[0] for i in wahl]
+        if any(x is None or x < minimum for x in sc):
+            continue
+        if ohne_warn and w.get("w"):
+            continue
+        if sek and w.get("sek") not in sek:
+            continue
+        z = {"Name": w.get("n") or sym, "Ticker": sym, "Sektor": w.get("sek") or "", "Note": w.get("note"),
+             "Ø Score": round(sum(sc) / len(sc), 1)}
+        for i, x in zip(wahl, sc):
+            z[opt[i]] = x
+        z.update({"Kaufen": f"{w.get('kaufen', 0)}/{w.get('inv', 0)}", "Warnsignale": w.get("w", 0),
+                  "Fairer Wert vs. Kurs %": w.get("fv"), "Stand": w.get("st"), "_id": w.get("id")})
+        zeilen.append(z)
+    if not zeilen:
+        st.info("Keine Aktie erfüllt alle gewählten Bedingungen – Mindest-Score senken oder weniger Investoren wählen.")
+        return
+    df = pd.DataFrame(zeilen).sort_values("Ø Score", ascending=False).reset_index(drop=True)
+    st.markdown(f"**{len(df)} Treffer**, sortiert nach Ø Score der gewählten Investoren")
+    sichtbar = df.drop(columns=["_id"])
+    cfg = UI.tabellen_spalten(sichtbar, fortschritt=["Ø Score"] + [opt[i] for i in wahl])
+    st.dataframe(sichtbar, hide_index=True, column_config=cfg, use_container_width=True, height=min(560, 38 + 35 * len(df)))
+    csv = sichtbar.to_csv(sep=";", decimal=",", index=False).encode("utf-8-sig")
+    st.download_button("CSV herunterladen", csv, file_name=f"legenden_screener_{datetime.date.today()}.csv",
+                       mime="text/csv", key=P + "sc_csv")
+    ids = [x for x in df["_id"].tolist() if x in d["je_id"]][:200]
+    if ids:
+        ziel = st.selectbox("Aktie im Detail öffnen", ids, format_func=lambda i: d["je_id"][i]["name"], key=P + "sc_ziel")
+        if st.button("Im Einzelwert öffnen", key=P + "sc_oeffnen"):
+            oeffnen(d["je_id"][ziel])
+            st.rerun()
+    st.caption("Vorberechnete Ergebnisse (Stand je Aktie in der Tabelle). Die Detailansicht lädt die Daten "
+               "aktuell nach. Keine Anlageberatung.")
+
+
+def vergleich(h, d, suchen):
+    """Vergleichsmodus: 2-3 Aktien nebeneinander (Bewertung + Investoren-Checks)."""
+    import scoring as SC
+    st.markdown(CSS, unsafe_allow_html=True)
+    s = st.session_state
+    s.setdefault(P + "vgl", [])
+    liste = s[P + "vgl"]
+    text = st.text_input("Aktie hinzufügen (Name, Ticker, WKN, ISIN)", key=P + "vgl_suche")
+    treffer = [e for e in suchen(d["u"], text, limit=10) if e["art"] == "aktie"] if text else []
+    if treffer:
+        neu = st.selectbox("Treffer", [e["id"] for e in treffer], format_func=lambda i: d["je_id"][i]["name"],
+                           key=P + "vgl_treffer")
+        if st.button("Hinzufügen", disabled=len(liste) >= 3 or neu in liste, key=P + "vgl_add"):
+            liste.append(neu)
+            st.rerun()
+    if liste:
+        ent = st.pills("Im Vergleich (antippen zum Entfernen)", liste, format_func=lambda i: d["je_id"][i]["name"],
+                       key=P + "vgl_weg", selection_mode="single")
+        if ent:
+            liste.remove(ent)
+            s.pop(P + "vgl_weg", None)
+            st.rerun()
+    if len(liste) < 2:
+        st.info("Zwei oder drei Aktien hinzufügen, um sie nebeneinander zu vergleichen.")
+        return
+    spalten = []
+    with st.spinner("Lade Daten für den Vergleich …"):
+        for eid in liste:
+            e = d["je_id"][eid]
+            b = SC.bewerten(e, d["ver"])
+            f, kx, _ = fakten_fuer(e, h, d)
+            erg = IC.alle_checks(f, kx)
+            spalten.append((e, b, f, erg, KO.konsens(erg)))
+    zeilen = [("Kurs", [wert_text(e["kurs"], "kurs", e["waehrung"]) for e, *_ in spalten]),
+              ("Sektor", [e["sektor"] or "n/a" for e, *_ in spalten]),
+              ("Bewertungs-Score", [_de(b["gesamt"], 0) if b["gesamt"] is not None else "n/a" for _, b, *_ in spalten]),
+              ("Fazit", [b["fazit"] or "–" for _, b, *_ in spalten])]
+    for i, kat in enumerate(spalten[0][1]["kategorien"]):
+        zeilen.append((kat["titel"], [_de(x[1]["kategorien"][i]["score"], 0) if x[1]["kategorien"][i]["score"]
+                                      is not None else "n/a" for x in spalten]))
+    zeilen.append(("Investoren-Note", [k["note"] for *_, k in spalten]))
+    zeilen.append(("Würden kaufen", [f"{k['kaufen']} von {k['investoren']}" for *_, k in spalten]))
+    zeilen.append(("Warnsignale", [str(len(set(k["warnungen"]))) for *_, k in spalten]))
+    for j, r in enumerate(spalten[0][3]):
+        zeilen.append((r["investor"], [f"{x[3][j]['erfuellt']}/{x[3][j]['gesamt']}" + (
+            f" · {_de(x[3][j]['score_0_100'], 0)}" if x[3][j]["score_0_100"] is not None else "")
+            for x in spalten]))
+    kopf = "".join(f"<th class='r'>{_e(e['name'])}</th>" for e, *_ in spalten)
+    koerper = "".join(f"<tr><td>{_e(n)}</td>" + "".join(f"<td class='r'>{_e(v)}</td>" for v in werte) + "</tr>"
+                      for n, werte in zeilen)
+    st.markdown(f"<div class='ic-wrap'><table class='ic'><thead><tr><th>Kennzahl</th>{kopf}</tr></thead>"
+                f"<tbody>{koerper}</tbody></table></div>", unsafe_allow_html=True)
+    st.caption("Investoren: erfüllt/bewertbar · Score. Daten wie in der Einzelansicht (Yahoo Finance, zwischengespeichert).")

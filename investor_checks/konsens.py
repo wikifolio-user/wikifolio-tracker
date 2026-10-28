@@ -47,3 +47,21 @@ def konsens(ergebnisse, kategorien=None):
         satz += f" – Gesamtnote {n}" + (f", {len(warn)} Warnsignal(e) beachten." if warn else ".")
     return {"kaufen": len(kaufen), "investoren": len(inv), "note": n, "score": score, "satz": satz,
             "warnungen": warn, "staerken": staerken, "schwaechen": schwaechen, "badges": badges}
+
+
+def kurzform(ergebnisse, fair=None, fakten=None):
+    """Kompakter Datensatz fuer Screener und Depot-Analyse (Vorberechnung, investoren_agent.py).
+    -> {note, score, kaufen, inv, w (Warnungen), c: {check_id: [score, erfuellt, gesamt]}, fv, fue, sek}"""
+    k = konsens(ergebnisse)
+    f = fakten or {}
+    aus = {"note": k["note"], "score": None if k["score"] is None else round(k["score"], 1), "kaufen": k["kaufen"],
+           "inv": k["investoren"], "w": len(set(k["warnungen"])),
+           "c": {e["id"]: [None if e["score_0_100"] is None else round(e["score_0_100"]), e["erfuellt"], e["gesamt"]]
+                 for e in ergebnisse}}
+    if fair and fair.get("median") and fair.get("kurs"):
+        aus["fv"] = round(fair["median"] / fair["kurs"] * 100 - 100, 1)     # Median fairer Wert vs. Kurs in %
+    j = (f.get("jahre") or [{}])[-1]
+    if j.get("fue") is not None and j.get("umsatz"):
+        aus["fue"] = round(j["fue"] / j["umsatz"] * 100, 2)
+    aus["sek"] = f.get("sektor") or ""
+    return aus
