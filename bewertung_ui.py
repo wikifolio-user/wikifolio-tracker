@@ -6,6 +6,7 @@ Einordnung, Median-Vergleich und Perzentil-Rang, Staerken und Schwaechen. Datenb
 oeffentlichen Agenten-Dateien (Branch app-state, taeglich) - nichts wird geschrieben."""
 import datetime
 import html
+import logging
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -325,7 +326,7 @@ def _seite(h):
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Bewertung <span>Top 500</span></div>'
                 '<div class="pb-unter">Aktien · ETFs · wikifolios – alle vorhandenen Kennzahlen im Vergleich</div>'
                 '</div>', unsafe_allow_html=True)
-    schritte.leiste(st, "bewertung", spaeter=() if st.session_state.get(P + "wahl") else (2, 3, 4))
+    schritte.leiste(st, "bewertung", spaeter=() if st.session_state.get(P + "wahl") else (2, 3, 4, 5))
     schritte.titel(st, "bewertung", 1)
     with st.spinner("Lade Top-500-Daten …"):
         d = _daten(h["gh_read_taeglich"], datetime.date.today().isoformat())
@@ -364,6 +365,14 @@ def _seite(h):
     if e["art"] == "aktie":
         _app_einschaetzung(e)
     _methodik(e)
+    if e["art"] == "aktie":
+        schritte.titel(st, "bewertung", 5)
+        try:
+            import investoren_ui
+            investoren_ui.bereich(h, e, d)
+        except Exception as ex:          # die Bewertung oben bleibt sichtbar, auch wenn die Checks scheitern
+            logging.exception("Investoren-Checks")
+            st.warning(f"Die Investoren-Checks sind gerade nicht verfügbar ({type(ex).__name__}).")
     st.caption("Keine Anlageberatung. Der Score ist eine regelbasierte Auswertung der vorhandenen Kennzahlen im "
                "Vergleich zur Top-500-Liste; die Daten können verzögert oder unvollständig sein.")
 

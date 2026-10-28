@@ -51,6 +51,7 @@ FUEHRUNG = {
         ("Gesamtscore", "Kopfdaten, Gesamtscore mit Ampel und das Kurzfazit lesen"),
         ("Teilscores", "Teilbereiche, Netzdiagramm sowie Stärken und Schwächen ansehen"),
         ("Kennzahlen", "Jede Kennzahl mit Einordnung, Median-Vergleich und Perzentil-Rang prüfen"),
+        ("Investoren-Checks", "Prüfen, welche Investoren-Legenden die Aktie kaufen würden – und warum"),
     ],
     "scanner": [
         ("Eckdaten", "Startkapital, Einzahlung, Entnahme, Laufzeit und Zielvermögen eingeben"),
