@@ -1477,8 +1477,22 @@ html body :is([data-testid="stBaseButton-elementToolbar"], [data-testid="stBaseB
 html body .nav-gruppe { font-family: var(--g-schrift); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em;
     color: var(--label); }
 html body .nav-gruppe::after { background: var(--trenn); height: 1px; }
-html body .nav-wander { animation: none !important; opacity: 1 !important; text-shadow: none !important; filter: none !important; }
-html body .nav-logo { animation: none !important; opacity: 1 !important; text-shadow: none !important; }
+/* Logo und Gruppen-Ueberschriften pulsieren gemeinsam (gleiches Leuchten); die Ueberschriften schweben beim
+   Oeffnen des Menues einmal von rechts nach links herein. Leuchtfarbe ueber --puls-licht (hell: Akzent statt Weiss). */
+:root { --puls-licht: rgba(255, 255, 255, 0.9); --puls-licht-weit: rgba(255, 255, 255, 0.4); }
+html body .nav-logo { animation: navpuls-glas 2.4s ease-in-out infinite !important; }
+html body .nav-wander { opacity: 1; filter: none !important;
+    animation: navrein 0.9s cubic-bezier(.2, .8, .2, 1) 1 both, navpuls-glas 2.4s ease-in-out 0.9s infinite !important; }
+@keyframes navrein {
+    0%   { transform: translateX(110vw); opacity: 0; filter: blur(2px); }
+    70%  { opacity: 1; filter: blur(0); }
+    100% { transform: translateX(0); opacity: 1; }
+}
+@keyframes navpuls-glas {
+    0%, 100% { text-shadow: 0 0 2px transparent; opacity: 0.8; }
+    50%      { text-shadow: 0 0 8px var(--puls-licht), 0 0 20px var(--puls-licht-weit); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { html body :is(.nav-logo, .nav-wander) { animation: none !important; } }
 
 /* ---- Karten, Klappbereiche, Formulare, Metriken: Glas-Karte (20 px Radius) ---- */
 .quote::after, .hero::after { content: none; }

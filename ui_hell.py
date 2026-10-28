@@ -358,6 +358,8 @@ WIDGETS = """
     --glass-border-strong: rgba(76, 110, 245, 0.35) !important;
     --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px -14px rgba(15, 23, 42, 0.16) !important;
     --accent-2: #0D9488 !important;
+    --puls-licht: rgba(76, 110, 245, 0.55) !important;
+    --puls-licht-weit: rgba(76, 110, 245, 0.22) !important;
     --sf-nr-text: #FFFFFF !important;
     --accent-hell: #3B5BDB !important;
     --pos: #047857 !important;
