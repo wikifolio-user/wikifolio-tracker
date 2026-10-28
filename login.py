@@ -425,6 +425,12 @@ LOGIN_CSS = """<style>
 .st-key-login_box [data-testid="stTextInput"] input::placeholder { color: var(--muted, #8A93A8) !important; opacity: 1; }
 .st-key-login_box [data-testid="stTextInput"] button { background: transparent !important; color: var(--label, #A9B1C4) !important; }
 .st-key-login_box [data-testid="InputInstructions"] { display: none; }
+/* Ueberschriften der Anmeldung pulsieren wie Logo und Menue-Ueberschriften (navpuls-glas aus ui_stil) */
+html body :is(.login-titel, .login-kopf .nav-credit, .st-key-login_box [data-testid="stTextInput"] label p) {
+    animation: navpuls-glas 2.4s ease-in-out infinite !important; }
+@media (prefers-reduced-motion: reduce) {
+    html body :is(.login-titel, .login-kopf .nav-credit, .st-key-login_box [data-testid="stTextInput"] label p) {
+        animation: none !important; } }
 /* das Formular liegt schon in der Glas-Karte - kein zweiter Rahmen */
 html body .st-key-login_box [data-testid="stForm"] { border: none !important; background: transparent !important;
     box-shadow: none !important; padding: 0 !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
