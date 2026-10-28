@@ -127,6 +127,8 @@ def wert_text(w, fmt, waehrung=""):
         return f"{_de(w / 1e6)} Mio."
     if fmt == "zahl":
         return _de(w, 2)
+    if fmt == "zahl0":
+        return _de(w, 0)
     return _de(w) if isinstance(w, (int, float)) else str(w)
 
 
@@ -138,13 +140,16 @@ def _yf():
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False, max_entries=300)
 def lade_fundamental(symbol):
-    """Fundamentaldaten (24 h): info, Jahres-GuV/Bilanz/Cashflow, Dividendenhistorie - parallel abgerufen.
-    -> {info, gj, bilanz, cashflow, dividenden, fehler}"""
+    """Fundamentaldaten (24 h): info, Jahres-GuV/Bilanz/Cashflow, Quartals-GuV, Dividendenhistorie, Insider,
+    Schaetzungsrevisionen - parallel abgerufen. -> {info, gj, bilanz, cashflow, q_gj, dividenden, insider,
+    revisionen, fehler}"""
     t = _yf().Ticker(symbol)
     abrufe = {"info": lambda: t.info, "gj": lambda: t.income_stmt, "bilanz": lambda: t.balance_sheet,
-              "cashflow": lambda: t.cashflow, "dividenden": lambda: t.dividends}
+              "cashflow": lambda: t.cashflow, "q_gj": lambda: t.quarterly_income_stmt,
+              "dividenden": lambda: t.dividends, "insider": lambda: t.insider_transactions,
+              "revisionen": lambda: t.eps_revisions}
     aus, fehler = {}, []
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         laeufe = {k: ex.submit(fn) for k, fn in abrufe.items()}
         for k, lauf in laeufe.items():
             try:
@@ -164,6 +169,16 @@ def lade_kurse(symbol):
         return _yf().Ticker(symbol).history(period="5y", auto_adjust=True)
     except Exception as e:
         logging.warning("yfinance Kurse %s: %s", symbol, type(e).__name__)
+        return None
+
+
+@st.cache_data(ttl=15 * 60, show_spinner=False, max_entries=10)
+def lade_index(symbol):
+    """Leitindex 2 Jahre (15 Min.) fuer die Marktrichtung (CAN SLIM "M")."""
+    try:
+        return _yf().Ticker(symbol).history(period="2y", auto_adjust=True)
+    except Exception as e:
+        logging.warning("yfinance Index %s: %s", symbol, type(e).__name__)
         return None
 
 
@@ -190,11 +205,15 @@ def fakten_fuer(e, h, d):
     sym = e.get("ticker")
     fx = {k: v[1] for k, v in ((h["gh_read_taeglich"]("state/top50_fx.json", None) or {}).items())
           if isinstance(v, (list, tuple)) and len(v) > 1}
-    roh, kurse, hinweis = {}, None, None
+    roh, kurse, hinweis, idx, idx_name = {}, None, None, None, ""
     if sym:
         try:
             roh = lade_fundamental(sym)
             kurse = lade_kurse(sym)
+            info = roh.get("info") or {}
+            idx_sym, idx_name = DT.leitindex({"land": info.get("country") or "",
+                                              "kurs_waehrung": info.get("currency") or ""})
+            idx = lade_index(idx_sym)
         except Exception as ex:          # yfinance fehlt/Netz weg: mit Top-500-Daten weiter
             logging.warning("Investoren-Checks %s: %s", sym, ex)
             roh, hinweis = {}, "Yahoo Finance ist gerade nicht erreichbar – nur Checks aus den Top-500-Daten."
@@ -203,7 +222,9 @@ def fakten_fuer(e, h, d):
     if roh.get("fehler") and not hinweis:
         hinweis = "Yahoo Finance hat nicht alle Daten geliefert – betroffene Kriterien stehen auf n/a."
     f = DT.fakten_aus_yfinance(roh.get("info") or {}, roh.get("gj"), roh.get("bilanz"), roh.get("cashflow"),
-                               hist=kurse, dividenden=roh.get("dividenden"), fx=fx, agent=e)
+                               q_gj=roh.get("q_gj"), hist=kurse, dividenden=roh.get("dividenden"), fx=fx, agent=e,
+                               insider=roh.get("insider"), eps_revisionen=roh.get("revisionen"), index_hist=idx,
+                               index_name=idx_name)
     if not f["sektor"] and not f["branche"]:
         f["branche"] = e.get("sektor") or ""
     v = _vergleich(d, datetime.date.today().isoformat())
@@ -342,6 +363,8 @@ def _karte(r, f):
                             f"<span class='ic-m'>– {_e(x['text'])}</span>", unsafe_allow_html=True)
         if r["id"] == "buffett":
             _dcf(r, f)
+        if r["id"] == "minervini" and r.get("chart"):
+            _trend_chart(f)
         st.caption(r["datenbasis"] + (" · Sektor-Sonderregel: " + r["sektor_typ"] if r["sektor_typ"] not in
                                       ("normal", "") else ""))
 
@@ -368,6 +391,67 @@ def _dcf(r, f):
     st.markdown(f"Innerer Wert je Aktie: **{_de(je, 2)} {_e(f.get('waehrung'))}**"
                 + (f" · Kurs {_de(kurs, 2)} · Sicherheitsmarge **{_de(marge, 0)} %**" if marge is not None else ""))
     st.caption(f"{cfg['dcf_jahre']} Jahre Wachstum, danach ewige Rente. Annahme: Erhaltungs-Capex = gesamter Capex.")
+
+
+def _trend_chart(f):
+    """Mini-Chart: Kurs mit 50-/150-/200-Tage-Linie (letztes Jahr)."""
+    import plotly.graph_objects as go
+    from investor_checks import kurs as KU
+    k = f.get("kurse") or []
+    w = [c for _, c, _ in k]
+    linien = {n: KU.smas(w, n) for n in (50, 150, 200)}
+    ab = max(0, len(k) - 260)
+    x = [d for d, _, _ in k][ab:]
+    fig = go.Figure(go.Scatter(x=x, y=w[ab:], name="Kurs", line=dict(width=2, color=UI.AKZENT)))
+    for n, farbe in ((50, UI.CHART_FARBEN[1]), (150, UI.CHART_FARBEN[3]), (200, UI.CHART_FARBEN[4])):
+        fig.add_trace(go.Scatter(x=x, y=linien[n][ab:], name=f"{n} Tage", line=dict(width=1.3, color=farbe)))
+    fig.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10), showlegend=True,
+                      legend=dict(orientation="h", y=-0.2))
+    UI.chart_stil(fig, schrumpfen=False)
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key=P + "trend")
+
+
+def _fairer_wert(f, kx):
+    """Uebersicht "Fairer Wert": alle Modelle als Balken, aktueller Kurs als Linie, Median gestrichelt."""
+    import plotly.graph_objects as go
+    from investor_checks import fairer_wert as FW
+    s = st.session_state
+    dcf = (s.get(P + "dcf_g", C.BUFFETT["dcf_wachstum"]), s.get(P + "dcf_r", C.BUFFETT["dcf_diskont"]),
+           s.get(P + "dcf_ge", C.BUFFETT["dcf_ewig"]))
+    u = FW.uebersicht(f, kx, dcf)
+    mit = [m for m in u["modelle"] if m["wert"]]
+    wae = u["waehrung"]
+    if not mit:
+        st.caption("Für keine Bewertungsmethode reichen die Daten.")
+        return
+    namen = [m["methode"] for m in mit][::-1]
+    werte = [m["wert"] for m in mit][::-1]
+    kurs = u["kurs"]
+    farben = [UI.CHART_FARBEN[0] if not kurs or w >= kurs else "#F87171" for w in werte]
+    fig = go.Figure(go.Bar(x=werte, y=namen, orientation="h", marker_color=farben,
+                           text=[wert_text(w, "kurs", wae) for w in werte], textposition="auto",
+                           hovertemplate="%{y}: %{x:,.2f} " + wae + "<extra></extra>"))
+    if kurs:
+        fig.add_vline(x=kurs, line=dict(color="#E5A50A", width=2), annotation_text=f"Kurs {_de(kurs, 2)}",
+                      annotation_position="top")
+    if u["median"]:
+        fig.add_vline(x=u["median"], line=dict(color="#A9B1C4", width=1.5, dash="dash"),
+                      annotation_text=f"Median {_de(u['median'], 2)}", annotation_position="bottom")
+    fig.update_layout(height=60 + 42 * len(namen), margin=dict(l=10, r=10, t=30, b=30), showlegend=False)
+    UI.chart_stil(fig, schrumpfen=False)
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key=P + "fair")
+    if kurs and u["median"]:
+        abst = (u["median"] / kurs - 1) * 100
+        st.markdown(f"Median aller Methoden: **{wert_text(u['median'], 'kurs', wae)}** – "
+                    f"{'über' if abst >= 0 else 'unter'} dem Kurs um **{_de(abs(abst), 0)} %**.")
+    st.markdown(f"**Reverse-DCF:** {_e(u['reverse']['text'])}")
+    with st.expander("Methoden im Detail"):
+        for m in u["modelle"]:
+            st.markdown(f"- **{_e(m['methode'])}:** {_e(wert_text(m['wert'], 'kurs', wae))} "
+                        f"<span class='ic-m'>– {_e(m['text'])}</span>", unsafe_allow_html=True)
+    st.caption("Je Aktie in der Berichtswährung (der Kurs ist dafür umgerechnet). Rot = unter dem Kurs. "
+               f"Reverse-DCF mit {_de(C.REVERSE_DCF['diskont'])} % Diskont und {_de(C.REVERSE_DCF['ewig'])} % "
+               "ewigem Wachstum. Modelle sind Näherungen – die Spanne zeigt die Unsicherheit.")
 
 
 def bereich(h, e, d):
@@ -409,6 +493,8 @@ def bereich(h, e, d):
         for i, r in enumerate(sicht):
             with spalten[i % n]:
                 _karte(r, f)
+    st.markdown("**Fairer Wert – alle Methoden**")
+    _fairer_wert(f, kx)
     with st.expander("Qualitative Checkliste (eigene Einschätzung)"):
         st.caption("Nicht automatisch berechenbar – hier selbst abhaken. Gespeichert je Aktie in deinem Bereich.")
         checkliste(h, e)

@@ -13,7 +13,10 @@ fakten = {
   quartale: dieselben Felder je Quartal (soweit vorhanden), aelteste zuerst
   kurse:    [(datum 'YYYY-MM-DD', schluss, volumen), ...] taeglich, aelteste zuerst
   dividenden_hist: [(datum, betrag je Aktie), ...]
-  analysten, insider: Rohangaben fuer spaetere Checks
+  analysten: Konsens, Kursziele (Yahoo-Info)
+  insider:  [{datum, art kauf/verkauf/sonstig, stueck, wert}]
+  revisionen: {periode: {hoch30, runter30, hoch7, runter7}}   (Anzahl Analysten, die die EPS-Schaetzung aendern)
+  index_kurse: [(datum, schluss, volumen)] des Leitindex (CAN SLIM "M"), index_name
 }
 """
 import math
@@ -117,8 +120,39 @@ def dividendenreihe(div):
     return [(str(getattr(i, "date", lambda: i)())[:10], float(v)) for i, v in div.items() if zahl(v)]
 
 
+def insider_liste(df):
+    """yfinance insider_transactions -> [{datum, art (kauf/verkauf/sonstig), stueck, wert}].
+    Yahoo liefert die Art nur als Text ("Sale at price ...", "Purchase at price ..."); Zuteilungen, Schenkungen
+    und Optionsausuebungen zaehlen als "sonstig" (kein Signal)."""
+    if df is None or getattr(df, "empty", True):
+        return []
+    aus = []
+    for _, z in df.iterrows():
+        text = f"{z.get('Text') or ''} {z.get('Transaction') or ''}".lower()
+        art = ("kauf" if ("purchase" in text or "buy" in text) else
+               "verkauf" if ("sale" in text or "sell" in text) else "sonstig")
+        d = z.get("Start Date")
+        aus.append({"datum": str(getattr(d, "date", lambda: d)())[:10] if d is not None else "",
+                    "art": art, "stueck": zahl(z.get("Shares")) or 0.0, "wert": zahl(z.get("Value")) or 0.0})
+    return aus
+
+
+def revisionen(df):
+    """yfinance eps_revisions -> {periode: {"hoch30": n, "runter30": n, "hoch7": n, "runter7": n}}.
+    Spaltennamen schreibt Yahoo uneinheitlich (upLast30days / downLast30Days) - daher klein vergleichen."""
+    if df is None or getattr(df, "empty", True):
+        return {}
+    aus = {}
+    for periode, z in df.iterrows():
+        werte = {str(k).lower(): zahl(v) for k, v in z.items()}
+        aus[str(periode)] = {"hoch30": werte.get("uplast30days"), "runter30": werte.get("downlast30days"),
+                             "hoch7": werte.get("uplast7days"), "runter7": werte.get("downlast7days")}
+    return aus
+
+
 def fakten_aus_yfinance(info, gj, bilanz, cashflow, q_gj=None, q_bilanz=None, q_cashflow=None, hist=None,
-                        dividenden=None, fx=None, agent=None):
+                        dividenden=None, fx=None, agent=None, insider=None, eps_revisionen=None, index_hist=None,
+                        index_name=""):
     """Baut die normierten Fakten. fx: {Waehrung: Kurs je EUR} (state/top50_fx.json) fuer die USD-Umrechnung.
     agent: Eintrag aus der Bewertung (scoring.universum) - Sektor-Fallback und Zyklik-Kennzeichen."""
     info = info or {}
@@ -141,7 +175,12 @@ def fakten_aus_yfinance(info, gj, bilanz, cashflow, q_gj=None, q_bilanz=None, q_
         "beschreibung": info.get("longBusinessSummary") or "",
         "mitarbeiter": zahl(info.get("fullTimeEmployees")),
         "analysten": {k: info.get(k) for k in ("recommendationMean", "recommendationKey", "targetMeanPrice",
-                                              "numberOfAnalystOpinions", "earningsGrowth", "revenueGrowth")},
+                                              "targetLowPrice", "targetHighPrice", "numberOfAnalystOpinions",
+                                              "earningsGrowth", "revenueGrowth")},
+        "insider": insider_liste(insider),
+        "revisionen": revisionen(eps_revisionen),
+        "index_kurse": kursreihe(index_hist), "index_name": index_name,
+        "div_rendite": zahl(info.get("dividendYield")),
         "short": {k: info.get(k) for k in ("shortRatio", "shortPercentOfFloat", "heldPercentInstitutions",
                                           "heldPercentInsiders")},
     }
@@ -199,3 +238,20 @@ def kurs_tief_hoch(f, tage):
 def ist_leer(f):
     return not (f.get("jahre") or f.get("kurse")) or all(
         (v is None or (isinstance(v, float) and math.isnan(v))) for v in (f.get("kurs"),))
+
+
+def sma(werte, n):
+    """Gleitender Durchschnitt der letzten n Werte (None bei zu kurzer Reihe)."""
+    if len(werte) < n:
+        return None
+    return sum(werte[-n:]) / n
+
+
+def leitindex(f):
+    """Yahoo-Symbol und Name des Leitindex fuer die Marktrichtung (CAN SLIM "M")."""
+    land = (f.get("land") or "").lower()
+    if land in ("united states", "usa", "") and (f.get("kurs_waehrung") in ("USD", "")):
+        return "^GSPC", "S&P 500"
+    if land == "germany":
+        return "^GDAXI", "DAX"
+    return "^STOXX", "STOXX Europe 600"

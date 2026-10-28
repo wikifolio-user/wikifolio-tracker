@@ -306,3 +306,114 @@ class Registry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------- Teil 2
+from investor_checks import can_slim, dividende, fairer_wert, levy, lynch, minervini, smart_money  # noqa: E402
+from investor_checks import kurs as KU  # noqa: E402
+
+
+class Lynch(unittest.TestCase):
+    def test_peg_und_fair_value(self):
+        self.assertAlmostEqual(lynch.peg(20, 20), 1.0)
+        self.assertAlmostEqual(lynch.peg(20, 15, 5), 1.0)          # dividendenbereinigt: 20 / (15 + 5)
+        self.assertIsNone(lynch.peg(-5, 10))                       # Verlust
+        self.assertAlmostEqual(lynch.fair_value(2.0, 12), 24.0)    # EPS x Wachstum
+        self.assertAlmostEqual(lynch.fair_value(2.0, 40), 50.0)    # Wachstum auf 25 begrenzt
+
+    def test_kategorien(self):
+        self.assertEqual(lynch.kategorie({"jahre": [], "kbv": 2}, 3), "Slow Grower")
+        self.assertEqual(lynch.kategorie({"jahre": [], "kbv": 2}, 8), "Stalwart")
+        self.assertEqual(lynch.kategorie({"jahre": [], "kbv": 2}, 20), "Fast Grower")
+        self.assertEqual(lynch.kategorie({"jahre": [], "kbv": 0.7}, 8), "Asset Play")
+        self.assertEqual(lynch.kategorie({"jahre": [{"eps": -1}, {"eps": 1}], "kbv": 2}, None), "Turnaround")
+        self.assertEqual(lynch.kategorie({"jahre": [], "kbv": 2, "sektor": "Energy"}, 8), "Zykliker")
+
+
+class CanSlim(unittest.TestCase):
+    def test_quartal_und_jahre(self):
+        f = {"quartale": [{"eps": 1.0}, {"eps": 1.1}, {"eps": 1.2}, {"eps": 1.3}, {"eps": 1.3}],
+             "jahre": [{"eps": 1.0}, {"eps": 1.3}, {"eps": 1.69}, {"eps": 2.197}]}
+        self.assertAlmostEqual(can_slim.quartals_wachstum(f), 30.0)
+        self.assertEqual([round(x) for x in can_slim.jahres_wachstum(f)], [30, 30, 30])
+
+    def test_volumen(self):
+        k = [("d", 10.0 + (i % 2), 100.0 if i % 2 else 50.0) for i in range(51)]    # auf mit 100, ab mit 50
+        self.assertAlmostEqual(can_slim.volumen_verhaeltnis({"kurse": k}), 2.0)
+
+    def test_markt_m(self):
+        f = firma(index_kurse=[("d", 100.0 + i, 0) for i in range(250)], index_name="S&P 500")
+        m = next(k for k in can_slim.check(f, {})["kriterien"] if k["id"] == "m")
+        self.assertEqual(m["status"], "pass")
+
+
+class Minervini(unittest.TestCase):
+    def test_aufwaertstrend_besteht(self):
+        r = minervini.check(firma(), {"verteilungen": {("aktie", "p12"): list(range(-50, 30))}})
+        st = {k["id"]: k["status"] for k in r["kriterien"]}
+        self.assertEqual(st["k150_200"], "pass")
+        self.assertEqual(st["200_steigt"], "pass")
+        self.assertEqual(st["tief"], "fail")           # nur ~5 % ueber dem Jahrestief (linearer Anstieg)
+
+    def test_sma(self):
+        self.assertEqual(KU.smas([1, 2, 3, 4], 2), [None, 1.5, 2.5, 3.5])
+
+
+class Levy(unittest.TestCase):
+    def test_rsl_konstant(self):
+        f = {"kurse": [("d", 10.0, 0)] * 200}
+        self.assertAlmostEqual(levy.rsl(f), 1.0)
+        self.assertIsNone(levy.rsl({"kurse": [("d", 10.0, 0)] * 50}))
+
+
+class Dividende(unittest.TestCase):
+    def test_jahre_ohne_kuerzung_und_cagr(self):
+        hist = [(f"{j}-05-01", 1.0 * 1.1 ** (j - 2015)) for j in range(2015, 2026)]
+        hist.append(("2019-05-02", -0.0))
+        f = firma(dividenden_hist=hist)
+        s = dividende.jahressummen(f, datetime.date(2026, 3, 1))
+        self.assertEqual(dividende.jahre_ohne_kuerzung(s), 10)
+        s[2020] = 0.5                                   # Kuerzung 2020
+        self.assertEqual(dividende.jahre_ohne_kuerzung(s), 5)
+
+    def test_chowder_und_shareholder_yield(self):
+        f = firma(dividenden_hist=[(f"{j}-05-01", 1.0 * 1.1 ** (j - 2015)) for j in range(2015, 2027)], kurs=50.0)
+        r = dividende.check(f, {}, heute=datetime.date(2026, 6, 1))
+        k = {x["id"]: x for x in r["kriterien"]}
+        # Rendite = 2,85 / 50 = 5,7 %; 5-J.-Wachstum = 10 % -> Chowder 15,7 %
+        self.assertAlmostEqual(k["chowder"]["wert"], 1.1 ** 11 / 50 * 100 + 10.0, places=4)
+        self.assertEqual(k["chowder"]["status"], "pass")
+        sy = dividende.shareholder_yield(firma())
+        # Dividende 50 + Rueckkauf 20 (keine Emission) + Schuldenabbau 0 = 70 / 2000 = 3,5 %
+        self.assertAlmostEqual(sy[0], 3.5)
+
+
+class SmartMoney(unittest.TestCase):
+    def test_insider_und_analysten(self):
+        f = firma(insider=[{"datum": "2026-08-01", "art": "kauf", "stueck": 10, "wert": 5e6},
+                           {"datum": "2026-09-01", "art": "verkauf", "stueck": 5, "wert": 1e6},
+                           {"datum": "2025-01-01", "art": "verkauf", "stueck": 5, "wert": 9e9}],
+                  analysten={"recommendationMean": 1.8, "targetMeanPrice": 25.0, "numberOfAnalystOpinions": 20},
+                  revisionen={"0y": {"hoch30": 5, "runter30": 1}})
+        k = {x["id"]: x["status"] for x in smart_money.check(f, {}, heute=datetime.date(2026, 10, 1))["kriterien"]}
+        self.assertEqual((k["insider"], k["rating"], k["kursziel"], k["revisionen"]), ("pass",) * 4)
+        self.assertEqual(k["short"], "na")
+
+    def test_insider_liste_aus_text(self):
+        df = pd.DataFrame({"Text": ["Sale at price 10", "Purchase at price 9", "Stock Award"],
+                           "Shares": [1, 2, 3], "Value": [10.0, 18.0, None],
+                           "Start Date": pd.to_datetime(["2026-01-02", "2026-02-03", "2026-03-04"])})
+        self.assertEqual([x["art"] for x in daten.insider_liste(df)], ["verkauf", "kauf", "sonstig"])
+
+
+class FairerWert(unittest.TestCase):
+    def test_reverse_dcf_findet_eingesetztes_wachstum(self):
+        wert = buffett.dcf(100, 7.0, 9.0, 2.5, 10)
+        self.assertAlmostEqual(fairer_wert.reverse_dcf(100, wert, 9.0, 2.5, 10), 7.0, places=4)
+        self.assertIsNone(fairer_wert.reverse_dcf(-5, 1000))
+
+    def test_uebersicht(self):
+        u = fairer_wert.uebersicht(firma())
+        self.assertEqual(len(u["modelle"]), 6)
+        self.assertIsNotNone(u["median"])
+        self.assertIsNone(next(m for m in u["modelle"] if m["methode"] == "Analysten-Kursziel")["wert"])

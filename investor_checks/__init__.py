@@ -21,7 +21,8 @@ def registriere(cid, investor, kategorie, reihenfolge=50):
 
 
 MODULE = ["graham", "buffett", "greenblatt", "dreman", "templeton", "fisher_kuv", "terry_smith",
-          "philip_fisher", "piotroski", "altman", "beneish", "red_flags"]
+          "philip_fisher", "piotroski", "altman", "beneish", "red_flags", "lynch", "can_slim", "minervini", "levy",
+          "dividende", "smart_money"]
 for _m in MODULE:
     importlib.import_module(f"{__name__}.{_m}")
 
