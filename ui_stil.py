@@ -1482,11 +1482,15 @@ html body .nav-gruppe::after { background: var(--trenn); height: 1px; }
 :root { --puls-licht: rgba(255, 255, 255, 0.9); --puls-licht-weit: rgba(255, 255, 255, 0.4); }
 html body .nav-logo { animation: navpuls-glas 2.4s ease-in-out infinite !important; }
 html body .nav-wander { opacity: 1; filter: none !important;
-    animation: navrein 0.9s cubic-bezier(.2, .8, .2, 1) 1 both, navpuls-glas 2.4s ease-in-out 0.9s infinite !important; }
+    animation: navrein 2.6s ease-in-out 1 both, navpuls-glas 2.4s ease-in-out 2.6s infinite !important; }
+/* von rechts herein -> nach links, zurueck nach rechts, wieder nach links, dann stehen bleiben */
 @keyframes navrein {
-    0%   { transform: translateX(110vw); opacity: 0; filter: blur(2px); }
-    70%  { opacity: 1; filter: blur(0); }
-    100% { transform: translateX(0); opacity: 1; }
+    0%   { transform: translateX(110vw); filter: blur(2px); }
+    30%  { transform: translateX(0);     filter: blur(0); }
+    50%  { transform: translateX(40vw); }
+    75%  { transform: translateX(0); }
+    87%  { transform: translateX(6vw); }
+    100% { transform: translateX(0); }
 }
 @keyframes navpuls-glas {
     0%, 100% { text-shadow: 0 0 2px transparent; opacity: 0.8; }
