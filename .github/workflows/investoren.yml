@@ -1,0 +1,44 @@
+name: Investoren-Checks vorberechnen (wöchentlich)
+
+# Neuer, eigenständiger Workflow (Legenden-Screener): berechnet die Investoren-Checks fuer die Aktien der
+# Top-500-Liste und schreibt nur state/investoren/... auf den State-Branch. Die Preisalarme und die
+# anderen Agenten bleiben unberuehrt.
+on:
+  # Sonntag 10:23 UTC - ausserhalb der taeglichen Agenten (00:20 / 01:40 / 04:40 UTC), damit sich die
+  # Yahoo-Abrufe nicht ueberschneiden.
+  schedule:
+    - cron: "23 10 * * 0"
+  # Manuell startbar: Actions -> "Investoren-Checks vorberechnen (wöchentlich)" -> Run workflow
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Eigene Gruppe: ein neuer Lauf wartet, bis der laufende fertig ist (kein Abbruch). Bewusst NICHT die
+# Gruppe "yahoo-abrufe" der anderen Agenten - dort koennte ein wartender Lauf verworfen werden.
+concurrency:
+  group: investoren-checks
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    # Rollierend: je Lauf bis zu INVESTOREN_MAX Aktien (Standard 1.500) mit eigenem Zeitbudget
+    # (INVESTOREN_ZEITBUDGET_MIN, Standard 150) - deutlich unter diesem Timeout.
+    timeout-minutes: 200
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests==2.34.2 tzdata==2026.5 pandas==3.0.5 numpy==2.5.3 yfinance==1.7.0   # wie requirements.txt
+
+      - name: Investoren-Checks berechnen
+        env:
+          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python investoren_agent.py

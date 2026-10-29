@@ -198,13 +198,26 @@ def _kurzfazit(eintrag, b):
     return SC.kurzfazit(eintrag, b)
 
 
-def _bew_zelle(r):
+def _investoren(h):
+    """Vorberechnete Investoren-Checks (Legenden-Screener) je Yahoo-Symbol - leer, solange keine vorliegen."""
+    try:
+        import investoren_ui
+        return investoren_ui.vorberechnet(h)[0]
+    except Exception as e:
+        logging.warning(f"Depot-Analyse: Investoren-Checks nicht verfuegbar: {e}")
+        return {}
+
+
+def _bew_zelle(r, inv=None):
     if not r or r[1]["gesamt"] is None:
         return '<span class="da-m">–</span>'
     b = r[1]
     fazit = (f'<br><span class="da-chip {FAZIT_CSS.get(b["fazit"], "")}">{_e(b["fazit"])}</span>'
              if b["fazit"] else "")
-    return _score(b["gesamt"]) + fazit
+    w = (inv or {}).get(r[0].get("ticker") or "")
+    legenden = (f'<br><span class="da-m">Investoren: Note {_e(w.get("note"))} · {w.get("kaufen", 0)} von '
+                f'{w.get("inv", 0)} kaufen' + (f' · ⚠️ {w["w"]}' if w.get("w") else "") + "</span>") if w else ""
+    return _score(b["gesamt"]) + fazit + legenden
 
 
 # ---------------------------------------------------------------- Marktdaten
@@ -374,6 +387,7 @@ def _uebersicht(h, a):
     with st.expander("📈 Weitere Kennzahlen: Dividende, Diversifikation, größte Position, Kosten"):
         _kpis(kacheln[4:])
     bew = _bewertungen(h, [p for p in pos if not p.get("ohne_kurs")])
+    inv = _investoren(h) if bew else {}
     if bew:
         import scoring as SC
         db = SC.depot_bewertung([(k["gewichte"].get(D.schluessel(p)), (bew.get(D.schluessel(p)) or (None, None))[1])
@@ -439,7 +453,7 @@ def _uebersicht(h, a):
             zeilen.append([f'<b>{_e(p["name"])}</b><br><span class="da-m">{_e(D.ARTEN.get(p["art"]))} · '
                            f'{_e(p.get("isin") or p.get("wkn"))}</span>',
                            D.eur(p.get("wert")), D.pct(k["gewichte"].get(D.schluessel(p))), _score(p.get("score")),
-                           _bew_zelle(bew.get(D.schluessel(p))),
+                           _bew_zelle(bew.get(D.schluessel(p)), inv),
                            f'<span class="da-chip {EMPF_CSS.get(e["kategorie"], "")}">{_e(e["kategorie"])}</span>',
                            _e(e["prio"])])
         _tabelle([("Position", "nm"), ("Wert", "r"), ("Gewicht", "r"), ("Score", "r"), ("Bewertung", "r"),
@@ -475,7 +489,7 @@ def _positionen(h, a):
     r = _bewertungen(h, [p]).get(D.schluessel(p))
     if r:
         eintrag, b = r
-        st.markdown(f'<div class="da-box"><b>Bewertung im Top-500-Vergleich: {_bew_zelle(r)}</b>'
+        st.markdown(f'<div class="da-box"><b>Bewertung im Top-500-Vergleich: {_bew_zelle(r, _investoren(h))}</b>'
                     f'{_e(_kurzfazit(eintrag, b))}</div>', unsafe_allow_html=True)
         if h.get("zur_bewertung") and st.button("⚖️ In der Bewertung öffnen (alle Kennzahlen, Investoren-Checks)",
                                                 key=P + "zur_bewertung"):

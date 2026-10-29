@@ -17,6 +17,7 @@ import scoring as SC
 import ui_stil as UI
 
 P = "bw_"
+MODI = ["Einzelwert", "Legenden-Screener", "Vergleich"]
 ART_TEXT = {"aktie": "Aktie", "etf": "ETF", "wikifolio": "wikifolio"}
 AMPEL_TEXT = {"gruen": "stark", "gelb": "mittel", "rot": "schwach", "grau": "n/a"}
 EINORDNUNG_CSS = {"gut": "pos", "neutral": "mit", "schlecht": "neg", "n/a": "na"}
@@ -353,13 +354,25 @@ def _seite(h):
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Bewertung <span>Top 500</span></div>'
                 '<div class="pb-unter">Aktien · ETFs · wikifolios – alle vorhandenen Kennzahlen im Vergleich</div>'
                 '</div>', unsafe_allow_html=True)
-    schritte.leiste(st, "bewertung", spaeter=() if st.session_state.get(P + "wahl") else (2, 3, 4, 5))
-    schritte.titel(st, "bewertung", 1)
+    if st.session_state.get(P + "modus_neu"):
+        st.session_state[P + "modus"] = st.session_state.pop(P + "modus_neu")
+    st.session_state.setdefault(P + "modus", MODI[0])
+    modus = st.segmented_control("Bereich", MODI, key=P + "modus", label_visibility="collapsed") or MODI[0]
     with st.spinner("Lade Top-500-Daten …"):
         d = _daten(h["gh_read_taeglich"], datetime.date.today().isoformat())
     if not d["u"]:
         st.warning("Die Top-500-Daten sind gerade nicht lesbar – bitte später erneut versuchen.")
         return
+    if modus != MODI[0]:
+        import investoren_ui
+        if modus == MODI[1]:
+            investoren_ui.screener(h, d, lambda e: (oeffnen(e), st.session_state.__setitem__(P + "modus_neu",
+                                                                                              MODI[0])))
+        else:
+            investoren_ui.vergleich(h, d, SC.suchen)
+        return
+    schritte.leiste(st, "bewertung", spaeter=() if st.session_state.get(P + "wahl") else (2, 3, 4, 5))
+    schritte.titel(st, "bewertung", 1)
     text = st.text_input("Name, Ticker, WKN oder ISIN", key=P + "suche", placeholder="z. B. Apple, SAP, A0RPWH …")
     treffer = SC.suchen(d["u"], text, limit=20) if text else []
     if text and not treffer:
