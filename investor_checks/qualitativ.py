@@ -9,22 +9,49 @@
 import json
 import re
 import statistics
+from html.parser import HTMLParser
 
 import investor_config as C
 
 # ---------------------------------------------------------------------------
 # 10-K-Text
 # ---------------------------------------------------------------------------
+class _Text(HTMLParser):
+    """Fliesstext aus HTML (Standardbibliothek): ueberspringt script/style und versteckte Bloecke (display:none -
+    dort stehen im Inline-XBRL die maschinenlesbaren Kopfdaten)."""
+    LEER = {"br", "img", "hr", "meta", "link", "input", "col", "area", "base", "wbr", "source"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.teile, self.stapel, self.versteckt = [], [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.LEER:
+            self.teile.append(" ")
+            return
+        stil = (dict(attrs).get("style") or "").replace(" ", "").lower()
+        verst = tag in ("script", "style") or "display:none" in stil
+        self.stapel.append(verst)
+        self.versteckt += verst
+        self.teile.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in self.LEER or not self.stapel:
+            return
+        self.versteckt -= self.stapel.pop()
+        self.teile.append(" ")
+
+    def handle_data(self, data):
+        if not self.versteckt:
+            self.teile.append(data)
+
+
 def text_aus_html(html):
     """10-K-HTML -> Fliesstext (Tabellen und Inline-XBRL-Tags werden zu Text, Leerraum zusammengefasst)."""
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html or "", "html.parser")
-    for t in soup(["script", "style"]):
-        t.decompose()
-    for t in soup.find_all(style=re.compile(r"display:\s*none", re.I)):    # versteckte XBRL-Kopfdaten
-        t.decompose()
-    text = soup.get_text(" ")
-    return re.sub(r"\s+", " ", text.replace("\xa0", " ")).strip()
+    p = _Text()
+    p.feed(html or "")
+    p.close()
+    return re.sub(r"\s+", " ", "".join(p.teile).replace("\xa0", " ")).strip()
 
 
 _ITEM = r"item\s*{nr}\s*[\.:\-–—]?\s*"
