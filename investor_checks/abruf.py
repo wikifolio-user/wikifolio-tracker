@@ -21,7 +21,7 @@ def roh_laden(symbol, parallel=8, timeout=20):
     abrufe = {"info": lambda: t.info, "gj": lambda: t.income_stmt, "bilanz": lambda: t.balance_sheet,
               "cashflow": lambda: t.cashflow, "q_gj": lambda: t.quarterly_income_stmt,
               "dividenden": lambda: t.dividends, "insider": lambda: t.insider_transactions,
-              "revisionen": lambda: t.eps_revisions}
+              "revisionen": lambda: t.eps_revisions, "news": lambda: t.news}
     aus, fehler = {}, []
     with ThreadPoolExecutor(max_workers=parallel) as ex:
         laeufe = {k: ex.submit(fn) for k, fn in abrufe.items()}
@@ -70,6 +70,7 @@ def fakten(roh, kurse, index_hist, index_name, fx, agent):
                                q_gj=roh.get("q_gj"), hist=kurse, dividenden=roh.get("dividenden"), fx=fx,
                                agent=agent, insider=roh.get("insider"), eps_revisionen=roh.get("revisionen"),
                                index_hist=index_hist, index_name=index_name)
+    f["news"] = DT.news_liste(roh.get("news"))
     if not f["sektor"] and not f["branche"]:
         f["branche"] = (agent or {}).get("sektor") or ""
     return f

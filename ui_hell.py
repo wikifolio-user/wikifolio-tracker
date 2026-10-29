@@ -291,7 +291,8 @@ WIDGETS = """
 [role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #4C6EF5 !important; }
 /* Eingabefelder */
 :is([data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
-    [data-testid="stTextInputRootElement"], [data-testid="stDateInputField"], [data-testid="stSelectbox"] [role="group"],
+    [data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"], [data-testid="stDateInputField"],
+    [data-testid="stSelectbox"] [role="group"],
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div):not(#fd-hell) {
     background: #FFFFFF !important; border-color: var(--rand) !important; color: #1C1C1E !important; }
 :is(input, textarea):not(#fd-hell) { color: #1C1C1E !important; -webkit-text-fill-color: #1C1C1E !important;
