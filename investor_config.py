@@ -142,3 +142,40 @@ SEKTOR_GRUND = {
 # ---------------------------------------------------------------------------
 KATEGORIEN = ["Value", "Qualität", "Wachstum", "Momentum", "Risiko", "Dividende", "Signale"]
 NICHT_INVESTOR = ("Risiko", "Signale")   # Modelle/Signale, keine "Investoren" im Konsens
+
+# ---------------------------------------------------------------------------
+# Qualitative Analyse (Abschnitt 15) - ohne Zusatzkosten
+# ---------------------------------------------------------------------------
+# Wortlisten je Burggraben-Typ fuer die Textanalyse der 10-K-Abschnitte (englisch, Kleinschreibung,
+# Teilstring - "brand" findet auch "brands"). Haeufigkeit je 10.000 Woerter, verglichen mit dem Sektor.
+MOAT_WOERTER = {
+    "Marktführer": ["market leader", "leading provider", "largest", "#1", "number one", "leading position",
+                    "market share"],
+    "Marke": ["brand", "premium", "loyalty", "reputation"],
+    "Wechselkosten": ["subscription", "recurring revenue", "long-term contract", "integration", "switching cost",
+                      "renewal"],
+    "Netzwerkeffekt": ["network effect", "platform", "marketplace", "users", "ecosystem"],
+    "Patente/Lizenzen": ["patent", "proprietary", "license", "regulatory approval", "trade secret"],
+    "Kostenvorteil": ["low-cost", "low cost", "scale", "efficiency", "cost advantage"],
+}
+RISIKO_WOERTER = ["competition intensif", "intense competition", "pricing pressure", "customer concentration",
+                  "disruption", "obsolete", "substitute", "new entrants"]
+MOAT_AUFFAELLIG = 1.5          # Typ gilt als "betont", wenn er >= 1,5x so oft vorkommt wie im Sektor-Median
+# Gewichtung des Moat-Scores (0-100): Kennzahlen-Proxy (Buffett), Textanalyse, KI-Einschaetzung.
+# Fehlt ein Teil, werden die anderen hochgerechnet. Die eigene Einschaetzung ueberschreibt alles.
+MOAT_GEWICHTE = {"kennzahlen": 0.5, "text": 0.25, "ki": 0.25}
+GROSSKUNDE_SCHWELLE = 10.0     # "x % des Umsatzes" ab dieser Schwelle -> Warnung Grosskunden-Abhaengigkeit
+
+# SEC EDGAR (nur US-Firmen): offizielle kostenlose API, max. 10 Anfragen/Sekunde (hier vorsichtiger).
+SEC = {"min_abstand_sek": 0.15, "max_je_lauf": 300, "neu_nach_tagen": 90}
+PROMPT_MAX_WOERTER = 8000      # Claude-Prompt (Option B)
+
+# KI-Auswertung Option A (kostenloses Kontingent). Keys NUR aus Secrets (GEMINI_API_KEY / GROQ_API_KEY).
+# Freie Limits aendern sich haeufig und waren bei der Umsetzung nicht offiziell abrufbar - daher vorsichtig:
+# Gemini Flash (frei) ~10 Anfragen/Min., ~250-1.500/Tag; Groq (frei) ~30/Min., aber nur ~6.000 Tokens/Min.
+KI = {
+    "gemini": {"modell": "gemini-2.5-flash", "min_abstand_sek": 7.0, "max_je_lauf": 200, "max_woerter": 6000},
+    "groq": {"modell": "llama-3.3-70b-versatile", "min_abstand_sek": 45.0, "max_je_lauf": 60, "max_woerter": 2500},
+    "versuche": 3, "backoff_sek": 10.0, "timeout_sek": 90,
+}
+KI_REIHENFOLGE = ("gemini", "groq")   # erster Anbieter mit hinterlegtem Key wird genutzt

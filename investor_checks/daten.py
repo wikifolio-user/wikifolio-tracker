@@ -255,3 +255,24 @@ def leitindex(f):
     if land == "germany":
         return "^GDAXI", "DAX"
     return "^STOXX", "STOXX Europe 600"
+
+
+def news_liste(roh, n=6):
+    """yfinance news -> [{titel, quelle, link, datum}] (neues und altes Yahoo-Format)."""
+    aus = []
+    for x in roh or []:
+        if not isinstance(x, dict):
+            continue
+        c = x.get("content") if isinstance(x.get("content"), dict) else x
+        titel = c.get("title")
+        if not titel:
+            continue
+        quelle = (c.get("provider") or {}).get("displayName") if isinstance(c.get("provider"), dict) else \
+            c.get("publisher")
+        link = (c.get("canonicalUrl") or {}).get("url") if isinstance(c.get("canonicalUrl"), dict) else c.get("link")
+        datum = str(c.get("pubDate") or "")[:10]
+        if not datum and c.get("providerPublishTime"):
+            import datetime as _dt
+            datum = _dt.datetime.fromtimestamp(int(c["providerPublishTime"]), _dt.timezone.utc).date().isoformat()
+        aus.append({"titel": str(titel), "quelle": quelle or "", "link": link or "", "datum": datum})
+    return aus[:n]

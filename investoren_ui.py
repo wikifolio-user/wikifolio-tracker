@@ -202,14 +202,16 @@ def _notizen(h):
     return s[P + "notizen"]
 
 
-def _notiz_speichern(h, schluessel, eintrag):
-    _notizen(h)[schluessel] = eintrag
+def _notiz_speichern(h, schluessel, felder):
+    """felder in den gespeicherten Eintrag dieser Aktie uebernehmen (andere Felder bleiben erhalten)."""
+    n = _notizen(h)
+    n[schluessel] = {**(n.get(schluessel) or {}), **felder}
     if not h.get("speichern") or st.session_state.get(P + "lesefehler"):
         return False
 
     def aendern(alt):
         neu = dict(alt or {})
-        neu[schluessel] = eintrag
+        neu[schluessel] = {**(neu.get(schluessel) or {}), **felder}
         return neu
     try:
         ok, _ = h["gh_aktualisiere"](h["pfad_notizen"], aendern, {}, "bewertung notizen [skip ci]")
@@ -450,6 +452,14 @@ def bereich(h, e, d):
                 _karte(r, f)
     st.markdown("**Fairer Wert – alle Methoden**")
     _fairer_wert(f, kx)
+    st.markdown("**Qualitative Analyse**")
+    try:
+        import qualitativ_ui
+        qualitativ_ui.bereich(h, e, f, ergebnisse, _notizen(h), lambda felder: _notiz_speichern(
+            h, e.get("ticker") or e["id"], felder))
+    except Exception as ex:              # die Checks oben bleiben sichtbar
+        logging.exception("Qualitative Analyse")
+        st.caption(f"Qualitative Analyse gerade nicht verfügbar ({type(ex).__name__}).")
     with st.expander("Qualitative Checkliste (eigene Einschätzung)"):
         st.caption("Nicht automatisch berechenbar – hier selbst abhaken. Gespeichert je Aktie in deinem Bereich.")
         checkliste(h, e)
