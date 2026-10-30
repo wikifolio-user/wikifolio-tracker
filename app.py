@@ -2645,7 +2645,7 @@ def navigation():
                     continue
                 farbe = NAV_FARBEN.get(titel, "#F4F8FF")
                 verzug = f"{[t for t, _ in NAV_ZEILEN].index(titel) * 0.25 + 0.3:.2f}s"
-                st.markdown(f'<div class="nav-gruppe"><span class="nav-wander" style="animation-delay:{verzug}">'
+                st.markdown(f'<div class="nav-gruppe"><span class="nav-wander" style="--verzug:{verzug}">'
                             f'{titel}</span></div>', unsafe_allow_html=True)
                 # alle Kacheln der Gruppe in EINER Zeile - das CSS bricht je nach Breite um
                 # (Handy 2, Tablet 3, Desktop 4, breite Monitore 5 nebeneinander)
