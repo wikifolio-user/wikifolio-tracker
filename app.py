@@ -2499,12 +2499,13 @@ def _kurslauf_fortschritt(stx):
                    "angezeigt wird bis dahin der bisherige Stand.")
         return
     d = kurs_dienst()
-    balken = st.progress(0.0)
+    balken = st.empty()
     t0 = time.monotonic()
     while d.laeuft() and time.monotonic() - t0 < KURSLAUF_WARTEN_MAX_SEK:
         x = d.status()
-        balken.progress(x["fertig"] / x["gesamt"] if x["gesamt"] else 0.0,
-                        text=f"⏳ Kurse werden geladen … {x['fertig']} von {x['gesamt']}")
+        balken.markdown(UI.lade_balken_html(100 * x["fertig"] / x["gesamt"] if x["gesamt"] else 0.0,
+                                            f"⏳ Kurse werden geladen … {x['fertig']} von {x['gesamt']}"),
+                        unsafe_allow_html=True)
         time.sleep(0.5)
     st.session_state.pop("_kurslauf_warten", None)
     st.rerun()
@@ -7956,15 +7957,36 @@ _LADE_JS = """
     st.textContent =
       'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +
       'html.lade-js .loading-overlay { display:none !important; }' +
-      '#lade-banner { position:fixed; top:0; left:0; right:0; z-index:10000; height:66px; box-sizing:border-box;' +
-      ' padding:10px 16px 0; background:rgba(11,18,32,.97); border-bottom:1px solid #22344C;' +
+      '#lade-banner { position:fixed; top:0; left:0; right:0; z-index:100000; height:96px; box-sizing:border-box;' +
+      ' padding:10px 16px 0; background:#0B1220; border-bottom:1px solid #22344C;' +
       ' box-shadow:0 2px 14px rgba(0,0,0,.6); display:none; pointer-events:none; }' +
       '#lade-banner .lb-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }' +
       '#lade-banner .lb-pct { font-family:"JetBrains Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;' +
       ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; flex-shrink:0; }' +
       '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }' +
-      '#lade-banner .lb-bar { margin-top:8px; height:9px; border-radius:999px; background:#1A2A40; overflow:hidden; }' +
-      '#lade-banner .lb-fill { height:100%; width:0; border-radius:999px; background:#5B9BFF; transition:width .2s linear; }' +
+      '#lade-banner .lb-pfeil { color:#34D399; font-size:.95rem; margin-right:4px; }' +
+      /* Kurs-Chart als Ladebalken: Linie waechst mit dem Fortschritt, Bulle vorne, Baer hinterher */
+      '#lade-banner .lb-chart { position:relative; height:44px; margin-top:4px; }' +
+      '#lade-banner .lb-chart svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }' +
+      '#lade-banner .lb-spur { stroke:#22344C; stroke-width:1; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }' +
+      '#lade-banner .lb-linie { fill:none; stroke:#34D399; stroke-width:2.2; stroke-linejoin:round; stroke-linecap:round;' +
+      ' vector-effect:non-scaling-stroke; filter:drop-shadow(0 0 3px rgba(52,211,153,.55)); }' +
+      '#lade-banner .lb-flaeche { fill:url(#lb-verlauf); stroke:none; }' +
+      '#lade-banner .lb-tier { position:absolute; font-size:22px; line-height:1; transform:translate(-50%,-88%);' +
+      ' transition:left .2s linear, top .2s linear; will-change:left,top; }' +
+      '#lade-banner .lb-tier i { display:inline-block; font-style:normal; animation:lbhopp .32s ease-in-out infinite alternate; }' +
+      '#lade-banner .lb-bulle i { transform:scaleX(-1); }' +
+      '#lade-banner .lb-baer { font-size:19px; }' +
+      '#lade-banner .lb-baer i { animation-duration:.27s; }' +
+      '#lade-banner .lb-staub { position:absolute; right:100%; top:35%; font-size:12px; opacity:.75;' +
+      ' animation:lbstaub .5s ease-out infinite; }' +
+      /* helle Ansicht: heller Glas-Streifen */
+      '#lade-banner.lb-hell { background:#F8FAFC; border-bottom-color:#D5DBE5; box-shadow:0 2px 14px rgba(15,23,42,.12); }' +
+      '#lade-banner.lb-hell .lb-pct { color:#0F172A; } #lade-banner.lb-hell .lb-text { color:#5B6474; }' +
+      '#lade-banner.lb-hell .lb-pfeil { color:#059669; } #lade-banner.lb-hell .lb-spur { stroke:#CBD3DF; }' +
+      '#lade-banner.lb-hell .lb-linie { stroke:#059669; filter:none; }' +
+      '@keyframes lbhopp { from { translate:0 0; } to { translate:0 -4px; } }' +
+      '@keyframes lbstaub { from { opacity:.8; translate:4px 0; } to { opacity:0; translate:-8px -2px; } }' +
       /* reine Navigation (Ansicht/Schritt/Unterseite): Inhalt nicht abdunkeln */
       'html.lade-still [data-stale="true"], html.lade-still .stale-element { opacity:1 !important; transition:none !important; }' +
       /* kurze Neuberechnungen (die meisten Klicks) nicht abdunkeln - erst nach 1,2 s */
@@ -7975,10 +7997,50 @@ _LADE_JS = """
     D.head.appendChild(st);
     var b = D.createElement('div');
     b.id = 'lade-banner';
-    b.innerHTML = '<div class="lb-kopf"><span class="lb-pct">0 %</span><span class="lb-text">Lade Daten …</span></div>' +
-                  '<div class="lb-bar"><div class="lb-fill"></div></div>';
+    var SVG = 'http://www.w3.org/2000/svg';
+    b.innerHTML = '<div class="lb-kopf"><span><span class="lb-pfeil">▲</span><span class="lb-pct">0 %</span></span>' +
+                  '<span class="lb-text">Lade Daten …</span></div>' +
+                  '<div class="lb-chart"><svg viewBox="0 0 100 30" preserveAspectRatio="none">' +
+                  '<defs><linearGradient id="lb-verlauf" x1="0" y1="0" x2="0" y2="1">' +
+                  '<stop offset="0" stop-color="#34D399" stop-opacity=".35"/><stop offset="1" stop-color="#34D399" stop-opacity="0"/>' +
+                  '</linearGradient><clipPath id="lb-clip"><rect x="0" y="-10" width="0" height="50"/></clipPath></defs>' +
+                  '<line class="lb-spur" x1="0" y1="29" x2="100" y2="29"/>' +
+                  '<g clip-path="url(#lb-clip)"><path class="lb-flaeche"/><polyline class="lb-linie"/></g></svg>' +
+                  '<span class="lb-tier lb-baer" title="Bär"><i>🐻</i></span>' +
+                  '<span class="lb-tier lb-bulle" title="Bulle"><span class="lb-staub">💨</span><i>🐂</i></span></div>';
     D.body.appendChild(b);
-    var pct = b.querySelector('.lb-pct'), fill = b.querySelector('.lb-fill'), txt = b.querySelector('.lb-text');
+    var pct = b.querySelector('.lb-pct'), txt = b.querySelector('.lb-text');
+    var clip = b.querySelector('#lb-clip rect'), linie = b.querySelector('.lb-linie'), flaeche = b.querySelector('.lb-flaeche');
+    var bulle = b.querySelector('.lb-bulle'), baer = b.querySelector('.lb-baer');
+    /* Jede Ladung ein neuer "Kursverlauf": Zufallsweg mit Aufwaertstrend (0..1), 61 Punkte */
+    var kurs = [];
+    function neuerKurs() {
+      kurs = []; var v = 0.12;
+      for (var i = 0; i <= 60; i++) {
+        v += 0.013 + (Math.random() - 0.5) * 0.09;
+        v = Math.max(0.03, Math.min(0.97, v));
+        kurs.push(v);
+      }
+      /* auf die volle Chart-Hoehe strecken, damit der Verlauf auch auf breiten Bildschirmen lebt */
+      var lo = Math.min.apply(null, kurs), hi = Math.max.apply(null, kurs), sp = Math.max(hi - lo, 0.2);
+      kurs = kurs.map(function (k) { return 0.04 + (k - lo) / sp * 0.72; });
+      var pts = kurs.map(function (k, i) { return (i * 100 / 60).toFixed(2) + ',' + (28 - k * 25).toFixed(2); });
+      linie.setAttribute('points', pts.join(' '));
+      flaeche.setAttribute('d', 'M0,29 L' + pts.join(' L') + ' L100,29 Z');
+    }
+    function hoehe(p) {           /* y des Kurses an Position p (0..100) in % der Chart-Hoehe */
+      var x = Math.max(0, Math.min(100, p)) * 60 / 100, i = Math.floor(x), f = x - i;
+      var k = kurs[i] + ((kurs[Math.min(i + 1, 60)] - kurs[i]) * f);
+      return (28 - k * 25) / 30 * 100;
+    }
+    function tiere(p) {
+      var pb = Math.max(p - 15, 0);
+      clip.setAttribute('width', p);
+      bulle.style.left = p + '%'; bulle.style.top = hoehe(p) + '%';
+      baer.style.left = pb + '%'; baer.style.top = hoehe(pb) + '%';
+      baer.style.opacity = p > 4 ? '1' : '0';
+    }
+    neuerKurs();
     /* EINE Anzeige fuer alles: der genaue Balken der App (.loading-overlay) wird nur noch
        ausgelesen, nicht mehr gezeigt. Angezeigt wird immer der hoechste Wert aus Hochrechnung
        und genauem Stand - die Zahl laeuft so nur vorwaerts, von 0 bis 100 %. Folgt direkt
@@ -8000,7 +8062,7 @@ _LADE_JS = """
     }
     D.addEventListener('pointerdown', merkeNav, true);
     D.addEventListener('keydown', merkeNav, true);
-    function setze(p) { wert = p; pct.textContent = Math.floor(p) + ' %'; fill.style.width = p + '%'; }
+    function setze(p) { wert = p; pct.textContent = Math.floor(p) + ' %'; tiere(p); }
     function tick() {
       var t = (Date.now() - start) / 1000 - AB_SEK;
       var ov = D.querySelector('.loading-overlay');
@@ -8013,7 +8075,12 @@ _LADE_JS = """
       }
       if (still && !sichtbar && t < 2.8) return;
       if (t < 0 && genau === null && !sichtbar) return;
-      if (!sichtbar) { b.style.display = 'block'; sichtbar = true; }
+      if (!sichtbar) {
+        /* helle oder dunkle Ansicht? an der Hintergrundfarbe der App erkennen */
+        var bg = getComputedStyle(D.querySelector('[data-testid="stApp"]') || D.body).backgroundColor.match(/[0-9]+/g) || [0, 0, 0];
+        b.classList.toggle('lb-hell', (0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]) > 150);
+        b.style.display = 'block'; sichtbar = true;
+      }
       var schaetz = 95 * (1 - Math.exp(-Math.max(t, 0) / 3.5));
       var ziel = Math.max(schaetz, genau === null ? 0 : genau);
       /* nie rueckwaerts; bei genauem Stand weich nachziehen statt springen */
@@ -8039,7 +8106,7 @@ _LADE_JS = """
       var laeuft = (s === 'running' || s === 'rerunRequested');
       if (laeuft && !timer) {
         if (!sichtbar) {
-          start = Date.now(); setze(0);
+          start = Date.now(); neuerKurs(); setze(0);
           still = (Date.now() - navKlick) < 2500;
           D.documentElement.classList.toggle('lade-still', still);
         }   /* sonst: laeuft vom bisherigen Stand weiter */
