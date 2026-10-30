@@ -7942,26 +7942,20 @@ _LADE_JS = """
       '#lade-banner .lb-pfeil { color:#34D399; font-size:.95rem; margin-right:4px; }' +
       /* Kurs-Chart als Ladebalken: Linie waechst mit dem Fortschritt, Bulle vorne, Baer hinterher */
       '#lade-banner .lb-chart { position:relative; height:44px; margin-top:4px; }' +
-      '#lade-banner .lb-chart svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }' +
+      '#lade-banner .lb-chart > svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }' +
       '#lade-banner .lb-spur { stroke:#22344C; stroke-width:1; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }' +
       '#lade-banner .lb-linie { fill:none; stroke:#34D399; stroke-width:2.2; stroke-linejoin:round; stroke-linecap:round;' +
       ' vector-effect:non-scaling-stroke; filter:drop-shadow(0 0 3px rgba(52,211,153,.55)); }' +
       '#lade-banner .lb-flaeche { fill:url(#lb-verlauf); stroke:none; }' +
-      '#lade-banner .lb-tier { position:absolute; font-size:22px; line-height:1; transform:translate(-50%,-88%);' +
+      '#lade-banner .lb-tier { position:absolute; line-height:0; transform:translate(-62%,-92%);' +
       ' transition:left .2s linear, top .2s linear; will-change:left,top; }' +
-      '#lade-banner .lb-tier i { display:inline-block; font-style:normal; animation:lbhopp .32s ease-in-out infinite alternate; }' +
-      '#lade-banner .lb-bulle i { transform:scaleX(-1); }' +
-      '#lade-banner .lb-baer { font-size:19px; }' +
-      '#lade-banner .lb-baer i { animation-duration:.27s; }' +
-      '#lade-banner .lb-staub { position:absolute; right:100%; top:35%; font-size:12px; opacity:.75;' +
-      ' animation:lbstaub .5s ease-out infinite; }' +
+      '__TIER_CSS__' +
       /* helle Ansicht: heller Glas-Streifen */
       '#lade-banner.lb-hell { background:#F8FAFC; border-bottom-color:#D5DBE5; box-shadow:0 2px 14px rgba(15,23,42,.12); }' +
       '#lade-banner.lb-hell .lb-pct { color:#0F172A; } #lade-banner.lb-hell .lb-text { color:#5B6474; }' +
       '#lade-banner.lb-hell .lb-pfeil { color:#059669; } #lade-banner.lb-hell .lb-spur { stroke:#CBD3DF; }' +
       '#lade-banner.lb-hell .lb-linie { stroke:#059669; filter:none; }' +
-      '@keyframes lbhopp { from { translate:0 0; } to { translate:0 -4px; } }' +
-      '@keyframes lbstaub { from { opacity:.8; translate:4px 0; } to { opacity:0; translate:-8px -2px; } }' +
+
       /* reine Navigation (Ansicht/Schritt/Unterseite): Inhalt nicht abdunkeln */
       'html.lade-still [data-stale="true"], html.lade-still .stale-element { opacity:1 !important; transition:none !important; }' +
       /* kurze Neuberechnungen (die meisten Klicks) nicht abdunkeln - erst nach 1,2 s */
@@ -7981,8 +7975,8 @@ _LADE_JS = """
                   '</linearGradient><clipPath id="lb-clip"><rect x="0" y="-10" width="0" height="50"/></clipPath></defs>' +
                   '<line class="lb-spur" x1="0" y1="29" x2="100" y2="29"/>' +
                   '<g clip-path="url(#lb-clip)"><path class="lb-flaeche"/><polyline class="lb-linie"/></g></svg>' +
-                  '<span class="lb-tier lb-baer" title="Bär"><i>🐻</i></span>' +
-                  '<span class="lb-tier lb-bulle" title="Bulle"><span class="lb-staub">💨</span><i>🐂</i></span></div>';
+                  '<span class="lb-tier lb-baer" title="Bär">__BAER__</span>' +
+                  '<span class="lb-tier lb-bulle" title="Bulle">__BULLE__</span></div>';
     D.body.appendChild(b);
     var pct = b.querySelector('.lb-pct'), txt = b.querySelector('.lb-text');
     var clip = b.querySelector('#lb-clip rect'), linie = b.querySelector('.lb-linie'), flaeche = b.querySelector('.lb-flaeche');
@@ -8118,6 +8112,9 @@ _LADE_JS = """
 })();
 </script>
 """
+# Silberner Bulle und Baer (ui_stil.tier_svg) - ein Markup fuer Banner und Kurs-Ladebalken
+_LADE_JS = (_LADE_JS.replace("__BULLE__", UI.tier_svg("bulle", 44)).replace("__BAER__", UI.tier_svg("baer", 40))
+            .replace("__TIER_CSS__", UI.TIER_CSS))
 try:
     import streamlit.components.v1 as _components
     with st.container(key="lade_js"):
