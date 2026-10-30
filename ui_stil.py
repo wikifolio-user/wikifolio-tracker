@@ -1867,9 +1867,80 @@ def chart_stil(fig, schrumpfen=True, flaeche=None):
     return fig
 
 
+
+# ---------- BOERSEN-BULLE UND -BAER (Silber, laufend) ----------
+# Eigene SVG-Figuren statt Emojis: seitlich nach rechts laufend, Beine einzeln animiert (CSS-Klasse
+# "tb-bein", vorderes und hinteres Paar gegenlaeufig). Nur doppelte Anfuehrungszeichen - das Markup
+# wird auch in das Lade-Skript (JavaScript in einfachen Anfuehrungszeichen) eingesetzt.
+_SILBER = ('<linearGradient id="tb-silber" x1="0" y1="0" x2="0" y2="1">'
+           '<stop offset="0" stop-color="#FBFCFD"/><stop offset=".42" stop-color="#C9CED6"/>'
+           '<stop offset=".58" stop-color="#8E949E"/><stop offset="1" stop-color="#E4E7EC"/></linearGradient>')
+_RAND = 'stroke="#5B6270" stroke-width="0.9" stroke-linejoin="round"'
+
+
+def _beine(xs, oben, laenge, breite):
+    """Vier Beine; a/b = gegenlaeufige Paare (diagonal wie beim Galopp)."""
+    aus = []
+    for i, x in enumerate(xs):
+        art = "a" if i in (0, 3) else "b"
+        aus.append(f'<rect class="tb-bein {art}" x="{x}" y="{oben}" width="{breite}" height="{laenge}" '
+                   f'rx="{breite / 2:.1f}" fill="url(#tb-silber)" {_RAND}/>')
+    return "".join(aus)
+
+
+def tier_svg(art, breite=46):
+    """Silberner Boersen-Bulle ("bulle") oder -Baer ("baer") als SVG, nach rechts laufend."""
+    if art == "bulle":
+        koerper = (
+            _beine((15, 21, 37, 43), 23, 13, 4.2)
+            + '<path d="M9 17 Q4 18 4 25" fill="none" stroke="#8E949E" stroke-width="1.6" stroke-linecap="round"/>'
+            + '<path d="M3 24 l1.5 4 l2-3.5z" fill="#8E949E"/>'
+            + f'<path d="M9 14 Q12 7 24 8 Q33 4 42 7 Q48 9 49 16 L48 25 Q40 29 28 28 Q16 29 11 25 Q8 21 9 14z" '
+              f'fill="url(#tb-silber)" {_RAND}/>'
+            + f'<path d="M46 9 Q52 7 57 12 L61 20 Q61 24 57 24 Q53 25 50 22 L46 17z" fill="url(#tb-silber)" {_RAND}/>'
+            + '<path d="M50 9 Q47 2 52 0" fill="none" stroke="#5B6270" stroke-width="3.4" stroke-linecap="round"/>'
+            + '<path d="M55 10 Q60 5 64 6" fill="none" stroke="#5B6270" stroke-width="3.4" stroke-linecap="round"/>'
+            + '<path d="M50 9 Q47 2 52 0" fill="none" stroke="#F4F5F7" stroke-width="2" stroke-linecap="round"/>'
+            + '<path d="M55 10 Q60 5 64 6" fill="none" stroke="#F4F5F7" stroke-width="2" stroke-linecap="round"/>'
+            + '<circle cx="54.5" cy="14" r="1.1" fill="#2B2F36"/>'
+            + '<ellipse cx="59" cy="21.5" rx="1" ry=".8" fill="#2B2F36"/>'
+        )
+        vb = "0 -2 66 40"
+    else:
+        koerper = (
+            _beine((12, 19, 34, 41), 24, 11, 5.8)
+            + f'<path d="M6 21 Q5 13 15 11 Q22 5 31 7 Q41 8 45 15 Q48 23 41 28 L15 29 Q6 28 6 21z" '
+              f'fill="url(#tb-silber)" {_RAND}/>'
+            + f'<circle cx="47.5" cy="11.5" r="2.7" fill="url(#tb-silber)" {_RAND}/>'
+            + f'<circle cx="53.5" cy="11.2" r="2.5" fill="url(#tb-silber)" {_RAND}/>'
+            + f'<circle cx="51" cy="18" r="7" fill="url(#tb-silber)" {_RAND}/>'
+            + f'<ellipse cx="58" cy="20.3" rx="4.6" ry="3.1" fill="url(#tb-silber)" {_RAND}/>'
+            + '<circle cx="47.5" cy="11.5" r="1.1" fill="#7A808A"/><circle cx="53.5" cy="11.2" r="1" fill="#7A808A"/>'
+            + '<circle cx="52.8" cy="16.2" r="1.1" fill="#2B2F36"/>'
+            + '<ellipse cx="62" cy="19.6" rx="1.4" ry="1.1" fill="#2B2F36"/>'
+            + '<circle cx="6.5" cy="18" r="2" fill="#B8BDC6"/>'
+        )
+        vb = "0 0 66 38"
+    hoch = round(breite * float(vb.split()[3]) / 66, 1)
+    return (f'<svg class="tb-tier tb-{art}" viewBox="{vb}" width="{breite}" height="{hoch}" '
+            f'xmlns="http://www.w3.org/2000/svg">'
+            f'<defs>{_SILBER}</defs>{koerper}</svg>')
+
+
+# Laufbewegung: Beine schwingen um die Huefte, der Koerper wippt
+TIER_CSS = (".tb-tier { display:block; overflow:visible; filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45)); "
+            "animation:tbwipp .3s ease-in-out infinite alternate; }"
+            " .tb-bein { transform-box:fill-box; transform-origin:50% 8%; animation:tbbein .3s ease-in-out infinite alternate; }"
+            " .tb-bein.b { animation-delay:-.3s; }"
+            " .tb-baer, .tb-baer .tb-bein { animation-duration:.26s; }"
+            " .tb-baer .tb-bein.b { animation-delay:-.26s; }"
+            " @keyframes tbbein { from { transform:rotate(30deg); } to { transform:rotate(-30deg); } }"
+            " @keyframes tbwipp { from { translate:0 0; } to { translate:0 -2.5px; } }")
+
+
 # ---------- KURS-LADEBALKEN (fuer Fortschritt im Seiteninhalt, z. B. Kurs-Aktualisierung) ----------
 # Gleiche Optik wie das Lade-Banner oben (app.py, _LADE_JS): Kurslinie waechst mit dem Fortschritt,
-# vorne laeuft der Bulle, dahinter der Baer; die Prozentzahl steht gross daneben.
+# vorne laeuft der silberne Bulle, dahinter der Baer; die Prozentzahl steht gross daneben.
 LADE_KURS_CSS = """<style>
 .kl-box { margin: 6px 0 12px; }
 .kl-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -1879,14 +1950,10 @@ LADE_KURS_CSS = """<style>
 .kl-text { font-size:.88rem; font-weight:600; color:var(--muted); white-space:nowrap; overflow:hidden;
            text-overflow:ellipsis; min-width:0; }
 .kl-chart { position:relative; height:44px; margin-top:4px; }
-.kl-chart svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.kl-chart > svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
 .kl-spur { stroke:var(--line); stroke-width:1; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
 .kl-linie { fill:none; stroke:var(--up); stroke-width:2.2; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
-.kl-tier { position:absolute; font-size:22px; line-height:1; transform:translate(-50%,-88%); }
-.kl-tier i { display:inline-block; font-style:normal; animation:klhopp .32s ease-in-out infinite alternate; }
-.kl-bulle i { transform:scaleX(-1); }
-.kl-baer { font-size:19px; }
-@keyframes klhopp { from { translate:0 0; } to { translate:0 -4px; } }
+.kl-tier { position:absolute; line-height:0; transform:translate(-62%,-92%); }
 </style>"""
 
 
@@ -1924,9 +1991,9 @@ def lade_balken_html(pct, text="", saat=7):
     global _KL_NR
     _KL_NR += 1
     gid = f"kl{saat}_{_KL_NR}"        # eindeutige SVG-IDs (sonst gilt die erste clipPath fuer alle Balken)
-    baer = (f'<span class="kl-tier kl-baer" style="left:{pb:.1f}%;top:{hoehe(pb):.1f}%"><i>🐻</i></span>'
+    baer = (f'<span class="kl-tier kl-baer" style="left:{pb:.1f}%;top:{hoehe(pb):.1f}%">{tier_svg("baer", 40)}</span>'
             if p > 4 else "")
-    return (LADE_KURS_CSS + f'<div class="kl-box"><div class="kl-kopf"><span><span class="kl-pfeil">▲</span>'
+    return (LADE_KURS_CSS.replace("</style>", TIER_CSS + "</style>") + f'<div class="kl-box"><div class="kl-kopf"><span><span class="kl-pfeil">▲</span>'
             f'<span class="kl-pct">{int(p)} %</span></span><span class="kl-text">{_html.escape(text)}</span></div>'
             f'<div class="kl-chart"><svg viewBox="0 0 100 30" preserveAspectRatio="none">'
             f'<defs><linearGradient id="{gid}v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34D399" '
@@ -1935,4 +2002,5 @@ def lade_balken_html(pct, text="", saat=7):
             f'<line class="kl-spur" x1="0" y1="29" x2="100" y2="29"/><g clip-path="url(#{gid}c)">'
             f'<path d="M0,29 L{pts.replace(" ", " L")} L100,29 Z" fill="url(#{gid}v)"/>'
             f'<polyline class="kl-linie" points="{pts}"/></g></svg>{baer}'
-            f'<span class="kl-tier kl-bulle" style="left:{p:.1f}%;top:{hoehe(p):.1f}%"><i>🐂</i></span></div></div>')
+            f'<span class="kl-tier kl-bulle" style="left:{p:.1f}%;top:{hoehe(p):.1f}%">{tier_svg("bulle", 44)}</span>'
+            '</div></div>')
