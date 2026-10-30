@@ -37,8 +37,8 @@ FUEHRUNG = {
     ],
     "szenario": [
         ("Wert wählen", "Standard-Szenarien oder einen eigenen Wert als Grundlage wählen"),
-        ("Beträge", "Startkapital, Entnahme und Sparrate eintragen; bei einem Wert auch die Rendite"),
-        ("Ergebnis", "Endwerte je Szenario und den Verlauf über 5 Jahre ablesen"),
+        ("Beträge", "Startkapital, Entnahme und Sparrate eintragen, optional Steuern auf Entnahmen; bei einem Wert auch die Rendite"),
+        ("Ergebnis", "Zeitraum wählen (5–30 Jahre), Endwerte je Szenario und den Verlauf ablesen"),
     ],
     "builder": [
         ("Kapital", "Anfangskapital, Einzahlung, Entnahme, Rendite und Laufzeit eingeben"),
