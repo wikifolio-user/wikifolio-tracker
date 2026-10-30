@@ -114,6 +114,14 @@ FUEHRUNG = {
         ("Pläne (optional)", "Sparrate oder Entnahme je Zeitraum unterschiedlich planen"),
         ("Ergebnis", "Endkapital, Entwicklung und Tabelle ablesen"),
     ],
+    "atz": [
+        ("Überblick", "Rentenbeginn, Netto, Versorgungslücke und Break-even ablesen"),
+        ("Eingaben", "Person, Rente, Altersteilzeit, Vorsorge, Kapital und Weiteres in den Reitern eintragen"),
+        ("Zeitstrahl", "Phasen bis zur Rente und die Ampel prüfen; Details zu Rentenarten aufklappen"),
+        ("Verlauf", "Netto-Einkommen und Kapital (nominal und in heutiger Kaufkraft) je Jahr ansehen"),
+        ("Vergleich", "Planung gegen Vollzeit bis zur Regelaltersrente vergleichen"),
+        ("Tabelle & Speichern", "Jahrestabelle als CSV laden, Checkliste abhaken, Szenarien sichern"),
+    ],
     "benutzer": [
         ("Anlegen", "Neuen Benutzer mit Passwort anlegen"),
         ("Rechte", "Benutzer aufklappen, Ansichten freigeben und „💾 Rechte speichern“ tippen"),

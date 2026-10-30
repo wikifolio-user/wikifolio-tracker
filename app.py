@@ -2034,9 +2034,10 @@ ANSICHT_SCANNER2 = "🧭 Investment Scanner 2.0"
 ANSICHT_ANALYSE = "🧠 Depot-Analyse & Optimierung"
 ANSICHT_ANALYSE_DEPOT = "📥 Analyse-Depot"
 ANSICHT_BEWERTUNG = "⚖️ Bewertung"
+ANSICHT_ATZ = "🏖️ Altersteilzeit & Rente"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
-ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG}
+ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
 PFAD_MUSTERDEPOT = "state/musterdepot.json"
 ANSICHTEN = [
     ANSICHT_DEPOT,
@@ -2061,6 +2062,7 @@ ANSICHTEN = [
     ANSICHT_ANALYSE,
     ANSICHT_ANALYSE_DEPOT,
     ANSICHT_BEWERTUNG,          # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_ATZ,
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2085,6 +2087,7 @@ ANSICHT_KURZ = {
     ANSICHT_ANALYSE: "🧠 Depot-Analyse",
     ANSICHT_ANALYSE_DEPOT: "📥 Analyse-Depot",
     ANSICHT_BEWERTUNG: "⚖️ Bewertung",
+    ANSICHT_ATZ: "🏖️ Altersteilzeit",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2109,12 +2112,14 @@ NAV_NAMEN = {
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
     ANSICHT_ZINS: "🧮 Zinseszinsrechner",
+    ANSICHT_ATZ: "🏖️ Altersteilzeit & Rente",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
 NAV_TITEL = {
     ANSICHT_ANALYSE: "🧠 Depot-Analyse & Optimierung",
     ANSICHT_BEWERTUNG: "⚖️ Bewertung (Top 500)",
+    ANSICHT_ATZ: "🏖️ Altersteilzeit & Rentenplanung",
     "🔍 Seit 01.01.2026": "🔍 Performance seit 01.01.2026",
     "🔎 Seit 01.01.2021": "🔎 Performance seit 01.01.2021",
 }
@@ -2127,13 +2132,13 @@ NAV_ZEILEN = [
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
                            ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "💼 Portfolio-Planer",
                            "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
-    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS]),
+    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
-                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG}
+                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -2141,7 +2146,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_SCANNER, ANSICHT_SCANNER_PR
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
-              ANSICHT_BEWERTUNG}
+              ANSICHT_BEWERTUNG, ANSICHT_ATZ}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -4787,6 +4792,26 @@ def render_dashboard():
                 st.error(f"⚠️ Fehler in der Bewertung: {e}")
                 notify_app_error("Tab-Bewertung", e)
         _render_bewertung()
+        lade_fertig()
+
+    # --- ALTERSTEILZEIT & RENTENPLANUNG (atz_rechner/ + atz_ui.py) - eigenstaendiger Rechner; den Depotwert
+    # liest er nur (letzter Stand der Depot-Ansicht in dieser App-Instanz), er veraendert nichts
+    if gewaehlte_ansicht == ANSICHT_ATZ:
+        def _atz_depotwert():
+            if not _sichtbar(ANSICHT_DEPOT):
+                return None
+            return (_depot_kurzinfo_speicher().get(st.session_state.get("login_name") or "_") or {}).get("wert")
+
+        @st.fragment
+        def _render_atz():
+            _zugang_pruefen(ANSICHT_ATZ)
+            try:
+                import atz_ui
+                atz_ui.seite({"depotwert": _atz_depotwert})
+            except Exception as e:
+                st.error(f"⚠️ Fehler im Altersteilzeit- & Rentenrechner: {e}")
+                notify_app_error("Tab-Altersteilzeit", e)
+        _render_atz()
         lade_fertig()
 
     # --- ANALYSE-DEPOT: eigenes, vom echten Depot getrenntes Depot fuer die Depot-Analyse
