@@ -24,6 +24,7 @@ import formate as FMT
 import ui_stil as UI
 import ui_hell
 import schritte
+import szenario as SZ
 import prognose_basis as PROG_BASIS
 import branchen as BR
 import dividenden as DV
@@ -7477,11 +7478,7 @@ def render_dashboard():
     def _render_scenarios():
         _zugang_pruefen("📊 Szenario-Simulator (5 Jahre)")
         try:
-            st.markdown(
-                '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
-                '📊 Szenario-Analyse (5 Jahre)</div>',
-                unsafe_allow_html=True,
-            )
+            _titel_platz = st.empty()        # Titel nennt den gewaehlten Zeitraum - wird unten gefuellt
             schritte.leiste(st, "szenario")
             schritte.titel(st, "szenario", 1)
             # ---------- BASIS: hinterlegten Wert oder eigene Eingabe ----------
@@ -7496,7 +7493,7 @@ def render_dashboard():
             # nur die 7 Standard-Raten (-10 bis +30 % p.a.), ohne Bezug zu
             # einem bestimmten Wert und ohne historisches ⭐-Szenario.
             # Steht bewusst an erster Stelle und ist damit die Vorauswahl.
-            STANDARD = "📐 Standard (−10 bis +30 % p.a., 10.000 €)"
+            STANDARD = "📐 Standard (−10 bis +100 % p.a., 10.000 €)"
             _basis_namen = [STANDARD] + [o["name"] for o in prognose_optionen]
             basis_name = st.selectbox(
                 "Wert auswählen:", _basis_namen, **_startauswahl("szenario_basis_wahl", _basis_namen),
@@ -7554,7 +7551,53 @@ def render_dashboard():
             ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", **_startwert("szenario_ohne_entnahme", False),
                                   key="szenario_ohne_entnahme")
             entnahme_fuer_szenario = 0.0 if ohne_entnahme else entnahme_eingabe
-            netto_cashflow_szenario = sparrate_szenario - entnahme_fuer_szenario
+
+            # ZEITRAUM: 5 bis 30 Jahre (vorher fest 5 Jahre)
+            szenario_jahre = st.segmented_control(
+                "Zeitraum", SZ.ZEITRAEUME, key="szenario_jahre", format_func=lambda j: f"{j} Jahre",
+                default=_startwert("szenario_jahre", 10)["value"],
+            ) or 10
+            szenario_monate = szenario_jahre * 12
+            _titel_platz.markdown(
+                '<div style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">'
+                f'📊 Szenario-Analyse ({szenario_jahre} Jahre)</div>', unsafe_allow_html=True)
+
+            # STEUERN AUF ENTNAHMEN (per Schalter): Abgeltungsteuer auf den Gewinnanteil jeder Entnahme -
+            # damit die gewuenschte Entnahme netto ankommt, wird entsprechend mehr verkauft (szenario.py)
+            szenario_steuer, szenario_einstand = None, None
+            if entnahme_fuer_szenario > 0:
+                if st.toggle("Steuern auf Entnahmen einrechnen", **_startwert("szenario_steuer_an", False),
+                             key="szenario_steuer_an",
+                             help="Abgeltungsteuer 25 % + Soli (ggf. Kirchensteuer) auf den Gewinnanteil jeder "
+                                  "Entnahme, mit Sparerpauschbetrag je Kalenderjahr. Die eingegebene Entnahme "
+                                  "kommt netto an – verkauft wird entsprechend mehr."):
+                    _st1, _st2 = st.columns(2)
+                    _kirche = _st1.selectbox("Kirchensteuer", [0, 8, 9], key="szenario_kirche",
+                                             **_startauswahl("szenario_kirche", [0, 8, 9]),
+                                             format_func=lambda k: "keine" if not k else f"{k} %")
+                    _frei = _st2.selectbox("Sparerpauschbetrag", [1000, 2000, 0], key="szenario_frei",
+                                           **_startauswahl("szenario_frei", [1000, 2000, 0]),
+                                           format_func=lambda b: {1000: "1.000 € (Einzelperson)",
+                                                                  2000: "2.000 € (Verheiratete)",
+                                                                  0: "schon ausgeschöpft"}[b])
+                    _st3, _st4 = st.columns(2)
+                    _tfs = _st3.selectbox("Teilfreistellung", [0, 30], key="szenario_tfs",
+                                          **_startauswahl("szenario_tfs", [0, 30]),
+                                          format_func=lambda t: "keine (Aktie, Zertifikat, wikifolio)" if not t
+                                          else "30 % (Aktien-ETF/-Fonds)")
+                    _einstand_vor = float(basis.get("einstand") or 0.0) if (basis is not None and not
+                                                                           basis.get("symbolisch")) else 0.0
+                    if not 0 < _einstand_vor <= startkapital_szenario:
+                        _einstand_vor = startkapital_szenario
+                    szenario_einstand = _st4.number_input(
+                        "Einstand / Kaufwert (€)", min_value=0.0, step=100.0,
+                        **_startwert(f"szenario_einstand_{_k}", round(_einstand_vor, 2)),
+                        key=f"szenario_einstand_{_k}",
+                        help="Was das Startkapital gekostet hat. Nur der Gewinn darüber wird besteuert – "
+                             "bei einem Neueinstieg heute = Startkapital.")
+                    szenario_steuer = {"kirchensteuer": _kirche, "freibetrag": _frei, "teilfreistellung": _tfs}
+                    st.caption(f"Steuersatz auf Gewinne: {FMT.pct(SZ.steuersatz(_kirche) * 100, 2)} · "
+                               "Näherung ohne Vorabpauschale und Verlustverrechnung.")
 
             # STANDARD (Audit A-15): sieben Jahresraten inkl. Verlust- und Nullszenario statt
             # 19 Raten von 12,7-213,8 % p.a. - die Bandbreite soll realistische Verlaeufe zeigen.
@@ -7565,8 +7608,13 @@ def render_dashboard():
             # damit sich auch konservativere Annahmen durchrechnen lassen.
             eigene_rate_mo = None
             if basis is None:
-                szenario_raten_mo = [((1 + pa / 100.0) ** (1 / 12) - 1) * 100.0
-                                     for pa in (-10.0, 0.0, 5.0, 10.0, 15.0, 20.0, 30.0)]
+                # Renditen in 5-%-Schritten bis 100 % p.a.; die Spanne laesst sich eingrenzen
+                _von, _bis = st.select_slider(
+                    "Rendite-Spanne (% p.a.)", options=SZ.STANDARD_RATEN, key="szenario_spanne",
+                    value=tuple(_startwert("szenario_spanne", (SZ.STANDARD_RATEN[0], SZ.STANDARD_RATEN[-1]))["value"]),
+                    format_func=lambda p: f"{p:+.0f} %".replace("+0 %", "0 %"),
+                )
+                szenario_raten_mo = [SZ.monatsrate(pa) * 100.0 for pa in SZ.STANDARD_RATEN if _von <= pa <= _bis]
             else:
                 # NEUEINSTIEG HEUTE: Die Rate kommt aus der Kurshistorie des
                 # PRODUKTS, nicht aus dem eigenen Kauf. Der bisherige Wert
@@ -7652,7 +7700,7 @@ def render_dashboard():
 
                 rate_pa_szenario = st.number_input(
                     "✏️ Angenommene Rendite p.a. (%)",
-                    min_value=-99.0, max_value=100000.0, step=0.5,
+                    min_value=-99.0, max_value=100000.0, step=5.0,
                     **_startwert(f"szenario_rate_{_k}", round(max(_prod_pa, -99.0), 2)), key=f"szenario_rate_{_k}",
                     help="Vorbelegt mit der bisherigen Entwicklung dieses Produkts - "
                          "unabhängig davon, wann du selbst gekauft hast. "
@@ -7682,20 +7730,13 @@ def render_dashboard():
                 ist_eigene_rate = (eigene_rate_mo is not None
                                    and abs(r_mo_pct - round(eigene_rate_mo, 4)) < 1e-9)
     
-                cap_sim = startkapital_szenario
-                m_to_100k = None
-                for m in range(1, 1200):
-                    cap_sim = (cap_sim * (1 + r_mo)) + netto_cashflow_szenario
-                    if cap_sim >= 100000.0:
-                        m_to_100k = m
-                        break
+                m_to_100k = SZ.monate_bis(100000.0, startkapital_szenario, r_mo, sparrate_szenario,
+                                          entnahme_fuer_szenario, szenario_steuer, szenario_einstand,
+                                          heute=heute_date)
+                _sim = SZ.simuliere(startkapital_szenario, r_mo, szenario_monate, sparrate_szenario,
+                                    entnahme_fuer_szenario, szenario_steuer, szenario_einstand, heute=heute_date)
+                monthly_vals = _sim["werte"]
 
-                monthly_vals = [startkapital_szenario]
-                cap_5y = startkapital_szenario
-                for m in range(1, 61):
-                    cap_5y = (cap_5y * (1 + r_mo)) + netto_cashflow_szenario
-                    monthly_vals.append(max(0, cap_5y))
-        
                 _serien_name = f"{FMT.pct(r_pa_pct, 1)} p.a. ({FMT.pct(r_mo_pct, 2)} p.M.)"
                 if ist_eigene_rate:
                     _serien_name = f"⭐ {_h(basis_name)}: {_serien_name}"   # Plotly deutet Teile von HTML
@@ -7717,11 +7758,12 @@ def render_dashboard():
                 summary_list.append({
                     "eigene": ist_eigene_rate,
                     "rate": r_mo_pct, "rate_pa": r_pa_pct, "ziel_100k": m_str, "ziel_datum": target_date,
-                    "j1": monthly_vals[12], "j2": monthly_vals[24], "j3": monthly_vals[36],
-                    "j4": monthly_vals[48], "j5": monthly_vals[60],
+                    "jahre": {j: monthly_vals[j * 12] for j in SZ.jahres_stuetzpunkte(szenario_jahre)},
+                    "steuern": _sim["steuern"], "leer_ab": _sim["leer_ab"],
                 })
 
-            karten_html = '<div style="display: flex; flex-direction: column; gap: 10px;">'
+            karten_html = ('<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); '
+                           'gap: 10px;">')
             for e in summary_list:
                 # Historische Rate des gewaehlten Werts sichtbar absetzen
                 _rahmen = ("2px solid #34D399; box-shadow: 0 0 12px rgba(52, 211, 153,0.25)"
@@ -7736,9 +7778,16 @@ def render_dashboard():
                 # HTML-Quelltext als Text an (genau dieser Fehler trat auf).
                 _jahre = "".join(
                     f'<div><div style="font-size: 0.8rem; color: #A1A1AA;">{j}J</div>'
-                    f'<div style="font-size: clamp(0.68rem, 2.9vw, 0.8rem); color: #E5E7EB; font-weight: 700; overflow-wrap: anywhere;">{fmt(e[f"j{j}"], 0)}</div></div>'
-                    for j in range(1, 6)
+                    f'<div style="font-size: clamp(0.68rem, 2.9vw, 0.8rem); color: #E5E7EB; font-weight: 700; overflow-wrap: anywhere;">{fmt(w, 0)}</div></div>'
+                    for j, w in e["jahre"].items()
                 )
+                _zusatz = ""
+                if szenario_steuer:
+                    _zusatz += (f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-top: 8px;">Steuern auf Entnahmen '
+                                f'({szenario_jahre} J.): <b>{fmt(e["steuern"], 0)}</b></div>')
+                if e["leer_ab"]:
+                    _zusatz += (f'<div style="font-size: 0.8rem; color: #F87171; margin-top: 4px;">Kapital aufgebraucht '
+                                f'nach {e["leer_ab"] // 12} J. {e["leer_ab"] % 12} M.</div>')
                 karten_html += (
                     f'<div style="background: var(--karte); border: {_rahmen}; border-radius: 16px; padding: 16px;">'
                     f'{_marke}'
@@ -7748,7 +7797,7 @@ def render_dashboard():
                     f'<div style="font-size: 0.85rem; color: #34D399; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
                     f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e["ziel_datum"]}</div>'
                     f'<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; border-top: 1px solid var(--trenn); padding-top: 8px; font-variant-numeric: tabular-nums;">'
-                    f'{_jahre}</div>'
+                    f'{_jahre}</div>{_zusatz}'
                     f'</div>'
                 )
             karten_html += "</div>"
@@ -7756,7 +7805,7 @@ def render_dashboard():
             st.markdown(karten_html, unsafe_allow_html=True)
 
             fig_scen = go.Figure()
-            months_x = list(range(61))
+            months_x = list(range(szenario_monate + 1))
 
             for label, vals in scenario_series.items():
                 if label.startswith("⭐"):
@@ -7780,7 +7829,8 @@ def render_dashboard():
             )
 
             fig_scen.update_layout(
-                title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
+                title=f"{szenario_jahre}-Jahres-Wertentwicklung<br>bei monatlichen Wachstumsraten"
+                      + ("<br><sup>nach Steuern auf Entnahmen</sup>" if szenario_steuer else ""),
                 paper_bgcolor="#000000", plot_bgcolor="#000000",
                 margin=dict(l=10, r=60, t=80, b=120), 
                 height=580, 
