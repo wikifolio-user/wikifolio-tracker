@@ -1481,22 +1481,44 @@ html body .nav-gruppe::after { background: var(--trenn); height: 1px; }
    Oeffnen des Menues einmal von rechts nach links herein. Leuchtfarbe ueber --puls-licht (hell: Akzent statt Weiss). */
 :root { --puls-licht: rgba(255, 255, 255, 0.9); --puls-licht-weit: rgba(255, 255, 255, 0.4); }
 html body .nav-logo { animation: navpuls-glas 2.4s ease-in-out infinite !important; }
-html body .nav-wander { opacity: 1; filter: none !important;
-    animation: navrein 2.6s ease-in-out 1 both, navpuls-glas 2.4s ease-in-out 2.6s infinite !important; }
-/* von rechts herein -> nach links, zurueck nach rechts, wieder nach links, dann stehen bleiben */
-@keyframes navrein {
-    0%   { transform: translateX(110vw); filter: blur(2px); }
-    30%  { transform: translateX(0);     filter: blur(0); }
-    50%  { transform: translateX(40vw); }
-    75%  { transform: translateX(0); }
-    87%  { transform: translateX(6vw); }
-    100% { transform: translateX(0); }
+/* Raketenflug beim Oeffnen des Menues: einmal ganz nach rechts (mit Feuerschweif hinten), dort umdrehen, zurueck
+   zur Ausgangsposition, wieder umdrehen - dann stehen bleiben und pulsieren. --verzug staffelt die Gruppen (app.py). */
+html body .nav-wander { opacity: 1; filter: none !important; transform-style: preserve-3d;
+    animation: navrakete 3.2s linear 1 both, navpuls-glas 2.4s ease-in-out infinite !important;
+    animation-delay: var(--verzug, 0s), calc(var(--verzug, 0s) + 3.2s) !important; }
+html body .nav-wander::before {
+    content: ""; position: absolute; right: 100%; top: 50%; width: 72px; height: 70%; margin-right: 4px;
+    transform: translateY(-50%); border-radius: 50% 0 0 50%; pointer-events: none; opacity: 0;
+    background: linear-gradient(to left, rgba(255,255,255,.95), #FFD166 18%, #FF7A2C 45%, rgba(255,60,40,.55) 70%,
+                                transparent);
+    filter: blur(3px); box-shadow: 0 0 18px 6px rgba(255,140,40,.45);
+    animation: navflamme 3.2s linear 1 both, navflackern 0.12s steps(2) 18;
+    animation-delay: var(--verzug, 0s), var(--verzug, 0s);
 }
+@keyframes navrakete {
+    0%   { left: 0;    transform: translateX(0) rotateY(0deg); animation-timing-function: cubic-bezier(.55, 0, .9, .6); }
+    42%  { left: 100%; transform: translateX(-100%) rotateY(0deg); animation-timing-function: ease-in-out; }
+    54%  { left: 100%; transform: translateX(-100%) rotateY(180deg); animation-timing-function: cubic-bezier(.55, 0, .9, .6); }
+    90%  { left: 0;    transform: translateX(0) rotateY(180deg); animation-timing-function: ease-out; }
+    100% { left: 0;    transform: translateX(0) rotateY(360deg); }
+}
+/* Schweif nur im Flug: an beim Start, aus beim Wenden, wieder an auf dem Rueckweg, aus bei der Ankunft */
+@keyframes navflamme {
+    0%, 100% { opacity: 0; width: 20px; }
+    6%, 38%  { opacity: 1; width: 72px; }
+    46%, 58% { opacity: 0; width: 20px; }
+    64%, 84% { opacity: 1; width: 72px; }
+    92%      { opacity: 0; width: 20px; }
+}
+@keyframes navflackern { 50% { filter: blur(4px) brightness(1.3); } }
 @keyframes navpuls-glas {
     0%, 100% { text-shadow: 0 0 2px transparent; opacity: 0.8; }
     50%      { text-shadow: 0 0 8px var(--puls-licht), 0 0 20px var(--puls-licht-weit); opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { html body :is(.nav-logo, .nav-wander) { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+    html body :is(.nav-logo, .nav-wander) { animation: none !important; }
+    html body .nav-wander::before { display: none; }
+}
 
 /* ---- Karten, Klappbereiche, Formulare, Metriken: Glas-Karte (20 px Radius) ---- */
 .quote::after, .hero::after { content: none; }
