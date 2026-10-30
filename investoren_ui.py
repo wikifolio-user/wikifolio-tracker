@@ -477,9 +477,10 @@ def bereich(h, e, d):
 def _vorberechnet(_lesen, tag):
     """Alle vorberechneten Ergebnisse (investoren_agent.py): {symbol: kurzform} und meta."""
     werte = {}
-    for i in range(16):
-        werte.update(((_lesen(f"state/investoren/ergebnis_{i:02d}.json", None) or {}).get("werte")) or {})
-    return werte, _lesen(SC_META, None) or {}
+    gelesen = UI.parallel_lesen(_lesen, [f"state/investoren/ergebnis_{i:02d}.json" for i in range(16)] + [SC_META])
+    for d in gelesen[:-1]:
+        werte.update(((d or {}).get("werte")) or {})
+    return werte, gelesen[-1] or {}
 
 
 def vorberechnet(h):

@@ -20,6 +20,7 @@ import chronik
 import login
 import nutzerdaten
 import kurs_dienst as KD
+import kurs_vorrat as KV
 import formate as FMT
 import ui_stil as UI
 import ui_hell
@@ -1381,12 +1382,25 @@ def top500_prognose_optionen():
     if gemerkt and gemerkt[0] == heute:
         return gemerkt[1]
     import scanner
-    teile = [gh_read_taeglich(f"state/planer/katalog_gross_{i}.json", {}) or {} for i in range(4)]
+    teile = [d or {} for d in UI.parallel_lesen(gh_read_taeglich, [f"state/planer/katalog_gross_{i}.json"
+                                                                   for i in range(4)], {})]
     ids = scanner.top500_ids(gh_read_taeglich("state/top50_ids.json", {}) or {},
                              gh_read_taeglich("state/top50_wikifolios.json", {}) or {})
     werte = PROG_BASIS.top500_optionen(teile, ids)
     st.session_state["_prog_top500"] = (heute, werte)
     return werte
+
+
+def top500_optionen_bei_bedarf(schluessel):
+    """Top-500-Auswahl erst laden, wenn sie gebraucht wird: sie besteht aus sechs grossen Dateien und steht
+    in zugeklappten Bereichen - vorher wurde sie bei jedem Aufruf der Ansicht mitgeladen. Einmal geladen
+    (je Sitzung und Tag gemerkt) erscheint sie sofort. -> Liste oder None (noch nicht angefordert)."""
+    gemerkt = st.session_state.get("_prog_top500")
+    if (gemerkt and gemerkt[0] == datetime.date.today().isoformat()) or st.session_state.get(schluessel):
+        return top500_prognose_optionen()
+    st.button("📋 Aus der Top-500-Liste wählen", key=f"{schluessel}_knopf",
+              on_click=lambda: st.session_state.__setitem__(schluessel, True))
+    return None
 
 
 def ist_wikifolio(wkn="", name=""):
@@ -1829,6 +1843,10 @@ def suche_instrument(suchbegriff):
     """Instrumentensuche auf ls-tc.de -> Trefferliste, [] bei Fehler. Fehler
     (Zeitueberschreitung, Sperre der Kursquelle) werden NICHT zwischengespeichert -
     sonst lieferte die Suche eine Stunde lang "nicht gefunden"."""
+    if GH_STATE_READY and suchbegriff:
+        gespeichert = kurs_vorrat().suche(suchbegriff)     # vom Kurs-Agenten vorab gesucht (Portfolio-Planer)
+        if gespeichert is not None:
+            return gespeichert
     try:
         return _suche_instrument_cache(suchbegriff)
     except Exception as e:
@@ -1849,28 +1867,12 @@ def _suche_instrument_cache(suchbegriff):
         return []
     try:
         r = requests.get(
-            "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main",
+            KV.SUCH_URL,
             params={"q": suchbegriff.strip(), "localeId": "2"},
             headers=config.LS_TC_HEADERS, timeout=8,
         )
         r.raise_for_status()
-        daten = r.json()
-        # Der Endpunkt liefert je nach Aufruf ein blankes Array oder ein
-        # Objekt mit "results"/"data" - beide Formen abfangen.
-        if isinstance(daten, dict):
-            daten = daten.get("results") or daten.get("data", {}).get("results") or []
-        treffer = []
-        for eintrag in daten or []:
-            inst_id = eintrag.get("instrumentId") or eintrag.get("id")
-            if not inst_id:
-                continue
-            treffer.append({
-                "instrument_id": int(inst_id),
-                "name": eintrag.get("displayname") or "(ohne Namen)",
-                "wkn": str(eintrag.get("wkn") or ""),
-                "isin": eintrag.get("isin") or "",
-                "kategorie": eintrag.get("categoryName") or "",
-            })
+        treffer = KV.suche_auswerten(r.json())
         return treffer
     except Exception as e:
         logging.warning(f"Instrumentensuche für '{suchbegriff}' fehlgeschlagen: {e}")
@@ -2184,17 +2186,63 @@ def _nach_kurslauf():
         pass
 
 
-def _kurslauf_faellig(seit):
-    """Ist seit dem letzten Lauf (bzw. dem Start der App) ein Termin (9, 11, 13 … 23 Uhr) vergangen?"""
-    return seit < letzter_termin(datetime.datetime.now(BERLIN_TZ))
+# --- KURS-AGENT (kurs_agent.py, GitHub Action alle 30 Min.): legt alle Kurse im Datenspeicher ab ---
+# Die App liest beim Seitenaufbau nur diesen Vorrat. Der eigene Lauf der App (Zeitplan unten) springt nur
+# noch ein, wenn der Agent laenger ausfaellt (AGENT_MAX_ALTER_MIN).
+AGENT_MAX_ALTER_MIN = 75
+AGENT_UTC_STUNDEN = range(5, 22)        # wie .github/workflows/kurse.yml: werktags 05:00-21:30 UTC
+NACHLADEN_WARTEN_SEK = 2.0              # Wert fehlt im Vorrat: im Hintergrund laden, hoechstens so lange warten
+
+
+@st.cache_resource(show_spinner=False)
+def kurs_vorrat():
+    """Gespeicherte Kurse des Kurs-Agenten (live 2 Min., Historien 15 Min. im Speicher)."""
+    return KV.Vorrat(lambda pfad: gh_read_streng(pfad, None))
+
+
+def _aus_vorrat(vorrat, art, instrument_id):
+    """(wert, abgerufen_um) aus dem Vorrat im Format des Kursdienstes - oder None."""
+    if art == "live":
+        e = vorrat.live(instrument_id)
+        if e is None:
+            return None
+        eintrag, zeit = e
+        hist = None
+        if not eintrag.get("p"):                     # ohne Vortageskurs: aus der Historie
+            h = vorrat.historie(instrument_id)
+            hist = h[0] if h else None
+        return ls_tc_live_auswerten(KV.live_antwort(eintrag, hist)), zeit
+    return vorrat.historie(instrument_id)            # "historie" und "benchmark": dieselbe Tageshistorie
+
+
+def agent_aktuell(stand, jetzt):
+    return KV.aktuell(stand, jetzt, AGENT_MAX_ALTER_MIN)
+
+
+def naechster_agent_lauf(jetzt):
+    return KV.naechster_lauf(jetzt, AGENT_UTC_STUNDEN)
+
+
+def _kurslauf_faellig(seit, vorrat=None):
+    """Ist seit dem letzten Lauf (bzw. dem Start der App) ein Termin (9, 11, 13 … 23 Uhr) vergangen - und
+    liefert der Kurs-Agent gerade nicht? (Sonst haelt er die Kurse aktuell, die App ruft nichts ab.)"""
+    jetzt = datetime.datetime.now(BERLIN_TZ)
+    if not seit < letzter_termin(jetzt):
+        return False
+    return vorrat is None or not agent_aktuell(vorrat.stand(), jetzt)
 
 
 @st.cache_resource(show_spinner=False)
 def kurs_dienst():
-    """EIN Kursdienst je App-Prozess (fuer alle Sitzungen): haelt alle Kurse im Speicher und
-    aktualisiert sie im Hintergrund nach Zeitplan - niemand wartet beim Seitenaufbau auf Neuabrufe."""
+    """EIN Kursdienst je App-Prozess (fuer alle Sitzungen): liest die Kurse aus dem Vorrat des Kurs-Agenten,
+    haelt sie im Speicher und laedt Fehlendes im Hintergrund nach - niemand wartet beim Seitenaufbau auf
+    Kursabrufe. Ohne Datenspeicher (lokal) wie bisher: fehlende Werte sofort abrufen."""
+    vorrat = kurs_vorrat() if GH_STATE_READY else None
     d = KD.KursDienst({"live": _live_roh, "historie": _historie_roh, "benchmark": _benchmark_netz},
-                      jetzt=lambda: datetime.datetime.now(BERLIN_TZ), nach_lauf=_nach_kurslauf)
+                      jetzt=lambda: datetime.datetime.now(BERLIN_TZ), nach_lauf=_nach_kurslauf,
+                      vorrat=(lambda art, iid: _aus_vorrat(vorrat, art, iid)) if vorrat else None,
+                      wartezeit=NACHLADEN_WARTEN_SEK if vorrat else None)
+    d.vorrat = vorrat
     # Kein Lauf beim Start der App bzw. bei der Anmeldung - der erste kommt zum naechsten Termin
     d.gestartet = datetime.datetime.now(BERLIN_TZ)
     d.merken("live", config.LS_INSTRUMENT_ID)            # Hauptposition und Standard-Vergleichswerte
@@ -2221,7 +2269,7 @@ def kurs_dienst_bereit():
     """Kursdienst holen und sicherstellen, dass sein Zeitplan laeuft (auch nach einem Absturz)."""
     d = kurs_dienst()
     if not d.zeitplan_aktiv():
-        d.zeitplan_starten(lambda letzter: _kurslauf_faellig(letzter or d.gestartet))
+        d.zeitplan_starten(lambda letzter: _kurslauf_faellig(letzter or d.gestartet, d.vorrat))
     return d
 
 
@@ -2477,11 +2525,22 @@ def _zeit_kurz(t, jetzt):
     return t.strftime("%H:%M") if t.date() == jetzt.date() else t.strftime("%d.%m. %H:%M")
 
 
-def kursstand_text(stx, jetzt):
-    """Kurzer Stand aller Kurse fuer Kopf/Startseite."""
+def kursstand_text(stx, jetzt, agent_stand=None):
+    """Kurzer Stand aller Kurse fuer Kopf/Startseite (Kurs-Agent bzw. aeltester Wert im Speicher)."""
+    if agent_aktuell(agent_stand, jetzt):
+        return f"Kurse vom <b>{_zeit_kurz(agent_stand, jetzt)}&nbsp;Uhr</b>"
     if stx["aeltester"] is None:
-        return "Kurse werden beim ersten Aufruf geladen"
-    return f"Kurse vom <b>{_zeit_kurz(stx['aeltester'], jetzt)}&nbsp;Uhr</b>"
+        return ("Kurse vom <b>" + _zeit_kurz(agent_stand, jetzt) + "&nbsp;Uhr</b>" if agent_stand
+                else "Kurse werden beim ersten Aufruf geladen")
+    t = max(stx["aeltester"], agent_stand) if agent_stand else stx["aeltester"]
+    return f"Kurse vom <b>{_zeit_kurz(t, jetzt)}&nbsp;Uhr</b>"
+
+
+def naechste_aktualisierung(jetzt, agent_stand):
+    """Naechster Lauf: des Kurs-Agenten, solange er liefert - sonst der eigene Zeitplan der App."""
+    if agent_aktuell(agent_stand, jetzt):
+        return naechster_agent_lauf(jetzt) or naechster_termin(jetzt)
+    return naechster_termin(jetzt)
 
 
 KURSLAUF_WARTEN_MAX_SEK = 180
@@ -2526,11 +2585,17 @@ def navigation():
     dienst = kurs_dienst_bereit()
     stx = dienst.status()
     laeuft = stx["laeuft"]
-    stand_html = (f'<div class="nav-stand"><span><i></i>{kursstand_text(stx, jetzt)} · '
-                  f'nächste {naechster_termin(jetzt).strftime("%H:%M")}&nbsp;Uhr</span></div>')
+    try:
+        agent_stand = dienst.vorrat.stand() if getattr(dienst, "vorrat", None) else None
+    except Exception:
+        agent_stand = None
+    _stand_txt = kursstand_text(stx, jetzt, agent_stand)
+    _naechste = naechste_aktualisierung(jetzt, agent_stand).strftime("%H:%M")
+    stand_html = (f'<div class="nav-stand"><span><i></i>{_stand_txt} · '
+                  f'nächste {_naechste}&nbsp;Uhr</span></div>')
     hilfe = ("Die Kurse werden gerade im Hintergrund geladen – der Knopf ist bis zum Ende gesperrt." if laeuft else
-             f"Alle Kurse jetzt im Hintergrund neu laden (sonst automatisch täglich ab {AKTUALISIERUNG_START} Uhr "
-             f"alle {AKTUALISIERUNG_TAKT} Stunden)")
+             "Alle Kurse jetzt im Hintergrund neu laden (sonst automatisch: der Kurs-Agent aktualisiert werktags "
+             "alle 30 Minuten)")
 
     # Permanentlink (?ansicht=zins&...): beim ersten Aufruf direkt diese Ansicht oeffnen
     if not st.session_state.get("_link_geprueft"):
@@ -2550,8 +2615,8 @@ def navigation():
             st.markdown(
                 '<div class="nav-kopf"><div class="nav-logo"><span class="nav-lauf">FINANZ <span>DASHBOARD</span></span></div>'
                 '<div class="nav-credit">created by MarsTech</div>'
-                f'<div class="nav-chip"><span class="nav-dot"></span><span>{kursstand_text(stx, jetzt)}'
-                f' · nächste {naechster_termin(jetzt).strftime("%H:%M")}&nbsp;Uhr</span></div></div>',
+                f'<div class="nav-chip"><span class="nav-dot"></span><span>{_stand_txt}'
+                f' · nächste {_naechste}&nbsp;Uhr</span></div></div>',
                 unsafe_allow_html=True)
             st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
                       width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
@@ -2921,9 +2986,9 @@ def render_dashboard():
     @st.cache_data(ttl=900, show_spinner=False)
     def _lade_teile(muster, anzahl):
         zeilen, felder, stand = [], None, None
-        for i in range(anzahl):
-            # streng: ein Lesefehler wirft und landet so NICHT 15 Min. im Cache (DATA-01)
-            d = gh_read_streng(muster.format(i), None) or {}
+        # gleichzeitig gelesen; streng: ein Lesefehler wirft und landet so NICHT 15 Min. im Cache (DATA-01)
+        for d in UI.parallel_lesen(gh_read_streng, [muster.format(i) for i in range(anzahl)]):
+            d = d or {}
             felder = d.get("felder") or felder
             stand = d.get("stand") or stand
             zeilen += d.get("zeilen") or []
@@ -4480,7 +4545,8 @@ def render_dashboard():
     def _ks_rangliste(art):
         """ETF-/wikifolio-Score aus dem Top-500-Katalog - je Sitzung und Datenstand gemerkt."""
         import klassen_score as KS
-        teile = [gh_read_taeglich(f"state/planer/katalog_gross_{i}.json", {}) or {} for i in range(4)]
+        teile = [d or {} for d in UI.parallel_lesen(gh_read_taeglich, [f"state/planer/katalog_gross_{i}.json"
+                                                                       for i in range(4)], {})]
         stand = next((t.get("stand") for t in teile if t.get("stand")), "")
         gemerkt = st.session_state.get(f"_ks_{art}")
         if gemerkt and gemerkt[0] == stand:
@@ -6613,7 +6679,9 @@ def render_dashboard():
             st.caption("Deine Vergleichswerte – gespeichert und in allen Vergleichs-Charts verwendet. Aus der "
                        f"Top-500-Liste übernehmen oder einen beliebigen Wert suchen. Höchstens "
                        f"{PROG_BASIS.MAX_EINTRAEGE} Werte.")
-            optionen = [w for w in top500_prognose_optionen() if not PROG_BASIS.enthalten(liste, w)]
+            optionen = top500_optionen_bei_bedarf("vgl_top500")
+            if optionen is not None:
+                optionen = [w for w in optionen if not PROG_BASIS.enthalten(liste, w)]
 
             def _hinzu(w):
                 if not w.get("instrument_id"):                     # Kurs-ID fehlt: exakte Suche ueber WKN/ISIN
@@ -6631,14 +6699,15 @@ def render_dashboard():
                     st.error("Nicht gespeichert – schon in der Liste, Liste voll oder Speicher gerade nicht "
                              "erreichbar.")
 
-            c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
-            wahl = c1.selectbox(
-                f"Aus der Top-500-Liste ({len(optionen)} Werte)", range(len(optionen)), index=None,
-                format_func=lambda i: " · ".join(x for x in (optionen[i]["name"], PROG_BASIS.ARTEN[optionen[i]["art"]],
-                                                             optionen[i]["wkn"] or optionen[i]["isin"]) if x),
-                placeholder="Name, WKN oder ISIN eintippen …", key="vgl_wahl")
-            if c2.button("➕ Hinzufügen", key="vgl_add", disabled=wahl is None, type="primary", width="stretch"):
-                _hinzu(dict(optionen[wahl]))
+            if optionen is not None:
+                c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+                wahl = c1.selectbox(
+                    f"Aus der Top-500-Liste ({len(optionen)} Werte)", range(len(optionen)), index=None,
+                    format_func=lambda i: " · ".join(x for x in (optionen[i]["name"], PROG_BASIS.ARTEN[optionen[i]["art"]],
+                                                                 optionen[i]["wkn"] or optionen[i]["isin"]) if x),
+                    placeholder="Name, WKN oder ISIN eintippen …", key="vgl_wahl")
+                if c2.button("➕ Hinzufügen", key="vgl_add", disabled=wahl is None, type="primary", width="stretch"):
+                    _hinzu(dict(optionen[wahl]))
             begriff = st.text_input("Oder eigenen Wert suchen (Name, WKN oder ISIN)", key="vgl_such",
                                     placeholder="z. B. Siemens, 723610, LS9…").strip()
             if len(begriff) >= 2:
@@ -7155,33 +7224,36 @@ def render_dashboard():
             st.caption("Werte aus der Top-500-Liste übernehmen – sie erscheinen in „Prognose Basis auswählen“ "
                        "(symbolisch 10.000 €, angelegt ab heute). Deine Depot-Positionen sind immer dabei. "
                        f"Höchstens {PROG_BASIS.MAX_EINTRAEGE} eigene Werte.")
-            optionen = [w for w in top500_prognose_optionen() if not PROG_BASIS.enthalten(liste, w)]
+            optionen = top500_optionen_bei_bedarf("prog_top500")
+            if optionen is not None:
+                optionen = [w for w in optionen if not PROG_BASIS.enthalten(liste, w)]
 
             def _beschriftung(i):
                 w = optionen[i]
                 return " · ".join(x for x in (w["name"], PROG_BASIS.ARTEN[w["art"]], w["wkn"] or w["isin"]) if x)
 
-            c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
-            wahl = c1.selectbox(f"Aus der Top-500-Liste ({len(optionen)} Werte)", range(len(optionen)), index=None,
-                                format_func=_beschriftung, placeholder="Name, WKN oder ISIN eintippen …",
-                                key="prog_basis_wahl")
-            if c2.button("➕ Hinzufügen", key="prog_basis_add", disabled=wahl is None, type="primary",
-                         width="stretch"):
-                w = dict(optionen[wahl])
-                if not w["instrument_id"]:              # Kurs-ID nicht in den Top-500-Daten: exakte Suche
-                    import investment_scanner_pro_engine as PRO
-                    t, art = PRO.treffer_waehlen(w, suche_instrument(w["isin"] or w["wkn"] or w["name"]) or [])
-                    w["instrument_id"] = int(t["instrument_id"]) if t and art == "exakt" else None
-                if not w["instrument_id"]:
-                    st.error(f"Für „{w['name']}“ wurde keine Kursquelle gefunden – nicht hinzugefügt.")
-                elif aendere_prognose_basis(
-                        lambda l: PROG_BASIS.hinzufuegen(l, PROG_BASIS.eintrag(w, time.time())),
-                        "prognose-basis hinzugefuegt [skip ci]"):
-                    st.session_state.pop("prog_basis_wahl", None)
-                    st.rerun()
-                else:
-                    st.error("Nicht gespeichert – schon in der Liste, Liste voll oder Speicher gerade nicht "
-                             "erreichbar.")
+            if optionen is not None:
+                c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+                wahl = c1.selectbox(f"Aus der Top-500-Liste ({len(optionen)} Werte)", range(len(optionen)), index=None,
+                                    format_func=_beschriftung, placeholder="Name, WKN oder ISIN eintippen …",
+                                    key="prog_basis_wahl")
+                if c2.button("➕ Hinzufügen", key="prog_basis_add", disabled=wahl is None, type="primary",
+                             width="stretch"):
+                    w = dict(optionen[wahl])
+                    if not w["instrument_id"]:              # Kurs-ID nicht in den Top-500-Daten: exakte Suche
+                        import investment_scanner_pro_engine as PRO
+                        t, art = PRO.treffer_waehlen(w, suche_instrument(w["isin"] or w["wkn"] or w["name"]) or [])
+                        w["instrument_id"] = int(t["instrument_id"]) if t and art == "exakt" else None
+                    if not w["instrument_id"]:
+                        st.error(f"Für „{w['name']}“ wurde keine Kursquelle gefunden – nicht hinzugefügt.")
+                    elif aendere_prognose_basis(
+                            lambda l: PROG_BASIS.hinzufuegen(l, PROG_BASIS.eintrag(w, time.time())),
+                            "prognose-basis hinzugefuegt [skip ci]"):
+                        st.session_state.pop("prog_basis_wahl", None)
+                        st.rerun()
+                    else:
+                        st.error("Nicht gespeichert – schon in der Liste, Liste voll oder Speicher gerade nicht "
+                                 "erreichbar.")
             for e in liste:
                 z1, z2 = st.columns([5, 1], vertical_alignment="center")
                 z1.markdown(f"**{_h(e.get('name', ''))}** · {_h(e.get('wkn') or e.get('isin') or '')}")

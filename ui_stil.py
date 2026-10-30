@@ -2031,3 +2031,26 @@ def lade_balken_html(pct, text="", saat=7):
             f'<polyline class="kl-linie" points="{pts}"/></g></svg>{baer}'
             f'<span class="kl-tier kl-bulle" style="left:{p:.1f}%;top:{hoehe(p):.1f}%">{tier_svg("bulle", 54)}</span>'
             '</div></div>')
+
+
+def parallel_lesen(lesen, pfade, standard=None, max_parallel=8):
+    """Mehrere Dateien GLEICHZEITIG lesen (vorher nacheinander - je Datei ein GitHub-Abruf, bei 50 Dateien
+    viele Sekunden). lesen(pfad, standard) wie gh_read_taeglich; die Reihenfolge bleibt erhalten."""
+    pfade = list(pfade)
+    if len(pfade) < 2:
+        return [lesen(p, standard) for p in pfade]
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+        ctx = get_script_run_ctx()
+    except Exception:
+        add_script_run_ctx, ctx = None, None
+
+    def eins(p):
+        if ctx is not None:
+            import threading
+            add_script_run_ctx(threading.current_thread(), ctx)     # Zwischenspeicher der Sitzung nutzbar
+        return lesen(p, standard)
+
+    with ThreadPoolExecutor(max_workers=min(max_parallel, len(pfade))) as ex:
+        return list(ex.map(eins, pfade))

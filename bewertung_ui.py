@@ -125,13 +125,17 @@ def median_text(z):
 def _daten(_lesen, tag):
     """Universum + Vergleichsverteilungen aus den oeffentlichen Agenten-Dateien. tag nur als Cache-Schluessel;
     cache_resource statt cache_data: die ~26.000 Eintraege werden nicht bei jedem Neuaufbau kopiert."""
-    def teile(muster, n):
-        return [d for d in (_lesen(muster.format(i), None) for i in range(n)) if isinstance(d, dict)]
-    kat = teile("state/planer/katalog_gross_{}.json", 4)
-    qual = teile("state/qualitaet/alle_{}.json", 6)
-    perf = teile("state/top50_alle_{}.json", 4)
-    det = teile("state/qualitaet/details_{}.json", 32)    # DETAIL_TEILE im Qualitaets-Agenten
-    yahoo = _lesen("state/top50_yahoo.json", None) or {}
+    # alle 47 Dateien gleichzeitig lesen (vorher nacheinander)
+    gruppen = [("state/planer/katalog_gross_{}.json", 4), ("state/qualitaet/alle_{}.json", 6),
+               ("state/top50_alle_{}.json", 4), ("state/qualitaet/details_{}.json", 32)]   # DETAIL_TEILE
+    pfade = [m.format(i) for m, n in gruppen for i in range(n)] + ["state/top50_yahoo.json"]
+    gelesen = UI.parallel_lesen(_lesen, pfade)
+    teile, pos = [], 0
+    for _, n in gruppen:
+        teile.append([d for d in gelesen[pos:pos + n] if isinstance(d, dict)])
+        pos += n
+    kat, qual, perf, det = teile
+    yahoo = gelesen[-1] or {}
     u = SC.universum(kat, qual, perf, det, yahoo.get("isin") or {})
     stand = max((str(d.get("stand") or "") for d in kat + qual), default="")
     je_kennung = {}
