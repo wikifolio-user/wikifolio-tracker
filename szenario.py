@@ -90,3 +90,21 @@ def monate_bis(ziel, start, r_mo, sparrate=0.0, entnahme=0.0, steuer=None, einst
         if w >= ziel:
             return m
     return None
+
+
+ZIEL_STUFEN = (100000, 250000, 500000, 750000, 1000000, 1500000, 2000000, 3000000, 5000000, 10000000)
+
+
+def naechstes_ziel(start):
+    """Vorbelegung des Zielwerts: die naechste runde Stufe ueber dem Startkapital (sonst das Doppelte)."""
+    for z in ZIEL_STUFEN:
+        if z > start:
+            return float(z)
+    return float(round(2 * start, -5))
+
+
+def ziel_text(ziel):
+    """100000 -> '100k', 1500000 -> '1,5 Mio.'"""
+    if ziel >= 1e6:
+        return f"{ziel / 1e6:,.2f}".rstrip("0").rstrip(".").replace(".", ",") + " Mio."
+    return f"{ziel / 1e3:,.0f}k".replace(",", ".")
