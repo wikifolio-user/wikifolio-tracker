@@ -1865,3 +1865,74 @@ def chart_stil(fig, schrumpfen=True, flaeche=None):
     fig.update_xaxes(tickfont=dict(size=10), nticks=5)
     fig.update_yaxes(tickfont=dict(size=10), nticks=6)
     return fig
+
+
+# ---------- KURS-LADEBALKEN (fuer Fortschritt im Seiteninhalt, z. B. Kurs-Aktualisierung) ----------
+# Gleiche Optik wie das Lade-Banner oben (app.py, _LADE_JS): Kurslinie waechst mit dem Fortschritt,
+# vorne laeuft der Bulle, dahinter der Baer; die Prozentzahl steht gross daneben.
+LADE_KURS_CSS = """<style>
+.kl-box { margin: 6px 0 12px; }
+.kl-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.kl-pct { font-family:'JetBrains Mono', ui-monospace, monospace; font-variant-numeric:tabular-nums;
+          font-size:1.25rem; font-weight:700; color:var(--text); }
+.kl-pfeil { color:var(--up); font-size:.9rem; margin-right:4px; }
+.kl-text { font-size:.88rem; font-weight:600; color:var(--muted); white-space:nowrap; overflow:hidden;
+           text-overflow:ellipsis; min-width:0; }
+.kl-chart { position:relative; height:44px; margin-top:4px; }
+.kl-chart svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.kl-spur { stroke:var(--line); stroke-width:1; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
+.kl-linie { fill:none; stroke:var(--up); stroke-width:2.2; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+.kl-tier { position:absolute; font-size:22px; line-height:1; transform:translate(-50%,-88%); }
+.kl-tier i { display:inline-block; font-style:normal; animation:klhopp .32s ease-in-out infinite alternate; }
+.kl-bulle i { transform:scaleX(-1); }
+.kl-baer { font-size:19px; }
+@keyframes klhopp { from { translate:0 0; } to { translate:0 -4px; } }
+</style>"""
+
+
+def _kurs_punkte(saat, n=60):
+    """Zufaelliger Kursverlauf mit Aufwaertstrend, auf 0,04..0,76 gestreckt (oben Platz fuer die Tiere) (fester Startwert = ruhiges Bild)."""
+    import random
+    zufall = random.Random(saat)
+    v, werte = 0.12, []
+    for _ in range(n + 1):
+        v = max(0.03, min(0.97, v + 0.013 + (zufall.random() - 0.5) * 0.09))
+        werte.append(v)
+    lo, hi = min(werte), max(werte)
+    sp = max(hi - lo, 0.2)
+    return [0.04 + (w - lo) / sp * 0.72 for w in werte]
+
+
+_KL_NR = 0
+
+
+def lade_balken_html(pct, text="", saat=7):
+    """Ladebalken als kleiner Aktienchart mit Prozentangabe, Bulle vorne und Baer dahinter."""
+    import html as _html
+    p = max(0.0, min(100.0, float(pct)))
+    k = _kurs_punkte(saat)
+    n = len(k) - 1
+    pts = " ".join(f"{i * 100 / n:.2f},{28 - w * 25:.2f}" for i, w in enumerate(k))
+
+    def hoehe(x):
+        x = max(0.0, min(100.0, x)) * n / 100
+        i = int(x)
+        w = k[i] + (k[min(i + 1, n)] - k[i]) * (x - i)
+        return (28 - w * 25) / 30 * 100
+
+    pb = max(p - 15, 0.0)
+    global _KL_NR
+    _KL_NR += 1
+    gid = f"kl{saat}_{_KL_NR}"        # eindeutige SVG-IDs (sonst gilt die erste clipPath fuer alle Balken)
+    baer = (f'<span class="kl-tier kl-baer" style="left:{pb:.1f}%;top:{hoehe(pb):.1f}%"><i>🐻</i></span>'
+            if p > 4 else "")
+    return (LADE_KURS_CSS + f'<div class="kl-box"><div class="kl-kopf"><span><span class="kl-pfeil">▲</span>'
+            f'<span class="kl-pct">{int(p)} %</span></span><span class="kl-text">{_html.escape(text)}</span></div>'
+            f'<div class="kl-chart"><svg viewBox="0 0 100 30" preserveAspectRatio="none">'
+            f'<defs><linearGradient id="{gid}v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34D399" '
+            f'stop-opacity=".35"/><stop offset="1" stop-color="#34D399" stop-opacity="0"/></linearGradient>'
+            f'<clipPath id="{gid}c"><rect x="0" y="-10" width="{p:.2f}" height="50"/></clipPath></defs>'
+            f'<line class="kl-spur" x1="0" y1="29" x2="100" y2="29"/><g clip-path="url(#{gid}c)">'
+            f'<path d="M0,29 L{pts.replace(" ", " L")} L100,29 Z" fill="url(#{gid}v)"/>'
+            f'<polyline class="kl-linie" points="{pts}"/></g></svg>{baer}'
+            f'<span class="kl-tier kl-bulle" style="left:{p:.1f}%;top:{hoehe(p):.1f}%"><i>🐂</i></span></div></div>')
