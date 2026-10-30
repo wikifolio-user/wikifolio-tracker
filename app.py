@@ -2151,6 +2151,9 @@ OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_
 
 NAV_CSS = UI.CSS_NAV
 
+# Ansichten, die die Prognose-Basis (Beobachtungswerte mit voller Kurshistorie) brauchen
+PROGNOSE_ANSICHTEN = {"🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)"}
+
 
 def _termine(tag):
     """Aktualisierungstermine eines Tages in Berliner Zeit. Wichtig: pytz-Zonen
@@ -5684,7 +5687,10 @@ def render_dashboard():
     # entsprechend gekennzeichnet.
     SYMBOLISCHES_PROGNOSE_KAPITAL = 10000.0
     prognose_beobachtung_optionen = []
-    prognose_basis_liste = [e for e in lade_prognose_basis() if e.get("instrument_id")]
+    # Nur Zukunfts-Prognose und Szenario-Simulator nutzen die Prognose-Basis - je Wert ein Live-Kurs und die
+    # komplette Kurshistorie. In allen anderen Ansichten (v. a. am Handy spuerbar) wird nichts davon geladen.
+    prognose_basis_liste = ([e for e in lade_prognose_basis() if e.get("instrument_id")]
+                            if gewaehlte_ansicht in PROGNOSE_ANSICHTEN else [])
     _beob_gesamt = len(prognose_basis_liste)
     for _beob_i, _eintrag in enumerate(prognose_basis_liste):
         _beob_name = _eintrag.get("name") or _eintrag.get("wkn") or "Beobachtungswert"
@@ -7987,6 +7993,15 @@ _LADE_JS = """
       '#lade-banner .lb-tier { position:absolute; line-height:0; transform:translate(-62%,-92%);' +
       ' transition:left .2s linear, top .2s linear; will-change:left,top; }' +
       '__TIER_CSS__' +
+      /* Endgeraet: Handy kompakt (flacher, kleinere Tiere); Laptop/Desktop hoeher, Inhalt zentriert und
+         begrenzt (sonst wird die Kurslinie auf breiten Monitoren zum flachen Strich), groessere Tiere */
+      '@media (max-width: 699px) { #lade-banner { height:88px; padding:8px 12px 0; }' +
+      ' #lade-banner .lb-chart { height:40px; } #lade-banner .lb-pct { font-size:1.2rem; }' +
+      ' #lade-banner .lb-tier svg { width:44px; height:auto; } #lade-banner .lb-baer svg { width:40px; } }' +
+      '@media (min-width: 900px) { #lade-banner { height:118px; padding:12px 24px 0; }' +
+      ' #lade-banner .lb-kopf, #lade-banner .lb-chart { max-width:1100px; margin-left:auto; margin-right:auto; }' +
+      ' #lade-banner .lb-chart { height:62px; margin-top:6px; } #lade-banner .lb-pct { font-size:1.5rem; }' +
+      ' #lade-banner .lb-tier svg { width:76px; height:auto; } #lade-banner .lb-baer svg { width:70px; } }' +
       /* helle Ansicht: heller Glas-Streifen */
       '#lade-banner.lb-hell { background:#F8FAFC; border-bottom-color:#D5DBE5; box-shadow:0 2px 14px rgba(15,23,42,.12); }' +
       '#lade-banner.lb-hell .lb-pct { color:#0F172A; } #lade-banner.lb-hell .lb-text { color:#5B6474; }' +
@@ -8019,28 +8034,31 @@ _LADE_JS = """
     var clip = b.querySelector('#lb-clip rect'), linie = b.querySelector('.lb-linie'), flaeche = b.querySelector('.lb-flaeche');
     var bulle = b.querySelector('.lb-bulle'), baer = b.querySelector('.lb-baer');
     /* Jede Ladung ein neuer "Kursverlauf": Zufallsweg mit Aufwaertstrend (0..1), 61 Punkte */
-    var kurs = [];
+    var kurs = [], N = 60, ABSTAND = 15;
     function neuerKurs() {
+      /* Desktop: mehr Kurspunkte (feinere Linie) und der Baer naeher dran (die Strecke ist breiter) */
+      var gross = window.matchMedia && window.matchMedia('(min-width: 900px)').matches;
+      N = gross ? 120 : 60; ABSTAND = gross ? 9 : 15;
       kurs = []; var v = 0.12;
-      for (var i = 0; i <= 60; i++) {
-        v += 0.013 + (Math.random() - 0.5) * 0.09;
+      for (var i = 0; i <= N; i++) {
+        v += 0.78 / N + (Math.random() - 0.5) * (gross ? 0.065 : 0.09);
         v = Math.max(0.03, Math.min(0.97, v));
         kurs.push(v);
       }
       /* auf die volle Chart-Hoehe strecken, damit der Verlauf auch auf breiten Bildschirmen lebt */
       var lo = Math.min.apply(null, kurs), hi = Math.max.apply(null, kurs), sp = Math.max(hi - lo, 0.2);
       kurs = kurs.map(function (k) { return 0.04 + (k - lo) / sp * 0.72; });
-      var pts = kurs.map(function (k, i) { return (i * 100 / 60).toFixed(2) + ',' + (28 - k * 25).toFixed(2); });
+      var pts = kurs.map(function (k, i) { return (i * 100 / N).toFixed(2) + ',' + (28 - k * 25).toFixed(2); });
       linie.setAttribute('points', pts.join(' '));
       flaeche.setAttribute('d', 'M0,29 L' + pts.join(' L') + ' L100,29 Z');
     }
     function hoehe(p) {           /* y des Kurses an Position p (0..100) in % der Chart-Hoehe */
-      var x = Math.max(0, Math.min(100, p)) * 60 / 100, i = Math.floor(x), f = x - i;
-      var k = kurs[i] + ((kurs[Math.min(i + 1, 60)] - kurs[i]) * f);
+      var x = Math.max(0, Math.min(100, p)) * N / 100, i = Math.floor(x), f = x - i;
+      var k = kurs[i] + ((kurs[Math.min(i + 1, N)] - kurs[i]) * f);
       return (28 - k * 25) / 30 * 100;
     }
     function tiere(p) {
-      var pb = Math.max(p - 15, 0);
+      var pb = Math.max(p - ABSTAND, 0);
       clip.setAttribute('width', p);
       bulle.style.left = p + '%'; bulle.style.top = hoehe(p) + '%';
       baer.style.left = pb + '%'; baer.style.top = hoehe(pb) + '%';
