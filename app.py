@@ -8138,7 +8138,7 @@ _LADE_JS = """
 </script>
 """
 # Silberner Bulle und Baer (ui_stil.tier_svg) - ein Markup fuer Banner und Kurs-Ladebalken
-_LADE_JS = (_LADE_JS.replace("__BULLE__", UI.tier_svg("bulle", 44)).replace("__BAER__", UI.tier_svg("baer", 40))
+_LADE_JS = (_LADE_JS.replace("__BULLE__", UI.tier_svg("bulle", 54)).replace("__BAER__", UI.tier_svg("baer", 50))
             .replace("__TIER_CSS__", UI.TIER_CSS))
 try:
     import streamlit.components.v1 as _components

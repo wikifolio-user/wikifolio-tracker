@@ -1878,63 +1878,90 @@ _SILBER = ('<linearGradient id="tb-silber" x1="0" y1="0" x2="0" y2="1">'
 _RAND = 'stroke="#5B6270" stroke-width="0.9" stroke-linejoin="round"'
 
 
-def _beine(xs, oben, laenge, breite):
-    """Vier Beine; a/b = gegenlaeufige Paare (diagonal wie beim Galopp)."""
-    aus = []
-    for i, x in enumerate(xs):
-        art = "a" if i in (0, 3) else "b"
-        aus.append(f'<rect class="tb-bein {art}" x="{x}" y="{oben}" width="{breite}" height="{laenge}" '
-                   f'rx="{breite / 2:.1f}" fill="url(#tb-silber)" {_RAND}/>')
-    return "".join(aus)
+def _bein(x, y, art, hinten, baer, fern):
+    """Ein Bein mit Gelenk (Pivot oben bei x, y). hinten: Sprunggelenk nach hinten geknickt;
+    baer: kraeftig mit Tatze, sonst schlank mit Huf. fern: Bein auf der abgewandten Seite (dunkler)."""
+    t = y - 9                      # Oberschenkel setzt im Rumpf an - beim Schwingen keine Luecke
+    if baer:
+        d = (f"M{x - 6} {t} C{x - 7} {t + 12} {x - 5} {t + 21} {x - 5} {t + 25} "
+             f"C{x - 5} {t + 29.5} {x + 7} {t + 29.5} {x + 7.5} {t + 27} "
+             f"C{x + 4.5} {t + 25} {x + 4.5} {t + 18} {x + 5.5} {t} Z")
+        fuss = (f'<path d="M{x + 1} {t + 27.6} l1.2 1.4 M{x + 3.4} {t + 27.4} l1.2 1.4 M{x + 5.6} {t + 27} l1 1.3" '
+                f'stroke="#3A3F48" stroke-width=".8"/>')
+    elif hinten:
+        d = (f"M{x - 6} {t} C{x - 7} {t + 8} {x - 1} {t + 18} {x - 3.8} {t + 24} "
+             f"L{x - 1.5} {t + 35} L{x + 2.2} {t + 35} L{x + 1.2} {t + 24} "
+             f"C{x + 4.5} {t + 17} {x + 6} {t + 8} {x + 5.5} {t} Z")
+        fuss = f'<path d="M{x - 2} {t + 34.5} h4.6 l.7 2.8 h-5.8z" fill="#3A3F48"/>'
+    else:
+        d = (f"M{x - 5.5} {t} C{x - 6} {t + 9} {x - 3} {t + 17} {x - 2.4} {t + 24} "
+             f"L{x - 2.2} {t + 35} L{x + 2} {t + 35} L{x + 2} {t + 24} "
+             f"C{x + 3} {t + 16} {x + 5.5} {t + 9} {x + 5.5} {t} Z")
+        fuss = f'<path d="M{x - 2.6} {t + 34.5} h4.8 l.7 2.8 h-6z" fill="#3A3F48"/>'
+    stil = ' opacity=".72"' if fern else ""
+    return f'<g class="tb-bein {art}"{stil}><path d="{d}" fill="url(#tb-silber)" {_RAND}/>{fuss}</g>'
 
 
-def tier_svg(art, breite=46):
-    """Silberner Boersen-Bulle ("bulle") oder -Baer ("baer") als SVG, nach rechts laufend."""
+def _beinpaar(vorne, hinten_, baer, fern):
+    """Vorder- und Hinterbein einer Seite; diagonal gegenlaeufig (nah: vorne a/hinten b, fern umgekehrt)."""
+    a, b = ("b", "a") if fern else ("a", "b")
+    return _bein(*vorne, a, False, baer, fern) + _bein(*hinten_, b, True, baer, fern)
+
+
+def tier_svg(art, breite=52):
+    """Silberner Boersen-Bulle ("bulle") oder -Baer ("baer") als SVG, seitlich nach rechts laufend."""
     if art == "bulle":
         koerper = (
-            _beine((15, 21, 37, 43), 23, 13, 4.2)
-            + '<path d="M9 17 Q4 18 4 25" fill="none" stroke="#8E949E" stroke-width="1.6" stroke-linecap="round"/>'
-            + '<path d="M3 24 l1.5 4 l2-3.5z" fill="#8E949E"/>'
-            + f'<path d="M9 14 Q12 7 24 8 Q33 4 42 7 Q48 9 49 16 L48 25 Q40 29 28 28 Q16 29 11 25 Q8 21 9 14z" '
+            _beinpaar((76, 48), (32, 46), False, True) + _beinpaar((84, 47), (24, 44), False, False)
+            # Schwanz erhoben, mit Quaste
+            + '<path d="M15 31 C7 28 3 20 6 11" fill="none" stroke="#8E949E" stroke-width="2.4" stroke-linecap="round"/>'
+            + '<path d="M6 12 C2 9 3 4 8 5 C7 8 9 10 6 12z" fill="#8E949E"/>'
+            # Rumpf: kraeftiger Schulterbuckel, gesenkter Kopf, Wamme
+            + '<path d="M14 30 C18 22 34 20 50 21 C60 16 72 9 84 13 C90 15 94 21 97 27 L104 33 '
+              'C108 37 110 43 106 47.5 C103 50 99 49 96 46 C92 44 88 46 86 50 C84 54 80 55 76 53 '
+              'C66 52 54 50.5 44 50.5 C34 51 24 50 18 46 C13 42 11 36 14 30 Z" '
               f'fill="url(#tb-silber)" {_RAND}/>'
-            + f'<path d="M46 9 Q52 7 57 12 L61 20 Q61 24 57 24 Q53 25 50 22 L46 17z" fill="url(#tb-silber)" {_RAND}/>'
-            + '<path d="M50 9 Q47 2 52 0" fill="none" stroke="#5B6270" stroke-width="3.4" stroke-linecap="round"/>'
-            + '<path d="M55 10 Q60 5 64 6" fill="none" stroke="#5B6270" stroke-width="3.4" stroke-linecap="round"/>'
-            + '<path d="M50 9 Q47 2 52 0" fill="none" stroke="#F4F5F7" stroke-width="2" stroke-linecap="round"/>'
-            + '<path d="M55 10 Q60 5 64 6" fill="none" stroke="#F4F5F7" stroke-width="2" stroke-linecap="round"/>'
-            + '<circle cx="54.5" cy="14" r="1.1" fill="#2B2F36"/>'
-            + '<ellipse cx="59" cy="21.5" rx="1" ry=".8" fill="#2B2F36"/>'
+            # Muskeln / Fellkanten
+            # Hoerner nach vorn geschwungen
+            + f'<path d="M94 27 C95 19 100 14 107 14 C102 17 99 21 98 28 Z" fill="#E9EBEF" {_RAND}/>'
+            + f'<path d="M98 29 C100 21 106 17 114 18 C109 20 105 25 103 32 Z" fill="#F4F5F7" {_RAND}/>'
+            # Ohr, Auge, Nuestern
+            + f'<path d="M93 30 C89 27 85 29 84 33 C88 33.5 91 32.5 93 31 Z" fill="url(#tb-silber)" {_RAND}/>'
+            + '<ellipse cx="100.5" cy="36" rx="1.4" ry="1.1" fill="#22262C"/>'
+            + '<ellipse cx="106.3" cy="45" rx="1.3" ry=".9" fill="#22262C"/>'
         )
-        vb = "0 -2 66 40"
+        vb = (0, 2, 118, 77)
     else:
         koerper = (
-            _beine((12, 19, 34, 41), 24, 11, 5.8)
-            + f'<path d="M6 21 Q5 13 15 11 Q22 5 31 7 Q41 8 45 15 Q48 23 41 28 L15 29 Q6 28 6 21z" '
+            _beinpaar((70, 45), (30, 45), True, True) + _beinpaar((80, 43), (22, 42), True, False)
+            # Rumpf: Grizzly mit Schulterbuckel, langer Schnauze
+            + '<path d="M12 34 C12 26 20 22 30 22 C40 20 50 22 58 18 C66 12.5 76 13.5 82 20 C86 23 89 25 92 26 '
+              'C96 24 101 25 104 28 C107 30 111 31 113.5 33 C115.5 35 114.5 38.5 111 38.5 C106 39 101 38 97 39.5 '
+              'C93 41 90 43 86 44.5 C82 47 76 49 70 48 C58 49 44 49 34 48 C24 48 14 44 12 34 Z" '
               f'fill="url(#tb-silber)" {_RAND}/>'
-            + f'<circle cx="47.5" cy="11.5" r="2.7" fill="url(#tb-silber)" {_RAND}/>'
-            + f'<circle cx="53.5" cy="11.2" r="2.5" fill="url(#tb-silber)" {_RAND}/>'
-            + f'<circle cx="51" cy="18" r="7" fill="url(#tb-silber)" {_RAND}/>'
-            + f'<ellipse cx="58" cy="20.3" rx="4.6" ry="3.1" fill="url(#tb-silber)" {_RAND}/>'
-            + '<circle cx="47.5" cy="11.5" r="1.1" fill="#7A808A"/><circle cx="53.5" cy="11.2" r="1" fill="#7A808A"/>'
-            + '<circle cx="52.8" cy="16.2" r="1.1" fill="#2B2F36"/>'
-            + '<ellipse cx="62" cy="19.6" rx="1.4" ry="1.1" fill="#2B2F36"/>'
-            + '<circle cx="6.5" cy="18" r="2" fill="#B8BDC6"/>'
+            # Fell: Buckel und Flanke
+            + '<path d="M60 19 C65 16 71 16 76 19" fill="none" stroke="#7A808A" stroke-width=".9" opacity=".7"/>'
+            + '<path d="M12 31 C8.5 30 8 27.5 10.5 26.5" fill="none" stroke="#8E949E" stroke-width="2" stroke-linecap="round"/>'
+            # Ohr, Auge, Nase, Maul
+            + f'<path d="M92.5 26 C91 20.5 95.5 18.5 98.5 22 C97.5 24.5 95 25.5 92.5 26 Z" fill="url(#tb-silber)" {_RAND}/>'
+            + '<ellipse cx="101.5" cy="30.5" rx="1.3" ry="1.1" fill="#22262C"/>'
+            + '<ellipse cx="112.6" cy="34.6" rx="1.8" ry="1.4" fill="#22262C"/>'
+            + '<path d="M104 38.3 C107 37.6 109 37.8 111 38.3" fill="none" stroke="#5B6270" stroke-width=".8"/>'
         )
-        vb = "0 0 66 38"
-    hoch = round(breite * float(vb.split()[3]) / 66, 1)
-    return (f'<svg class="tb-tier tb-{art}" viewBox="{vb}" width="{breite}" height="{hoch}" '
-            f'xmlns="http://www.w3.org/2000/svg">'
-            f'<defs>{_SILBER}</defs>{koerper}</svg>')
+        vb = (0, 8, 118, 64)
+    hoch = round(breite * vb[3] / vb[2], 1)
+    return (f'<svg class="tb-tier tb-{art}" viewBox="{" ".join(map(str, vb))}" width="{breite}" height="{hoch}" '
+            f'xmlns="http://www.w3.org/2000/svg"><defs>{_SILBER}</defs>{koerper}</svg>')
 
 
 # Laufbewegung: Beine schwingen um die Huefte, der Koerper wippt
 TIER_CSS = (".tb-tier { display:block; overflow:visible; filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45)); "
             "animation:tbwipp .3s ease-in-out infinite alternate; }"
-            " .tb-bein { transform-box:fill-box; transform-origin:50% 8%; animation:tbbein .3s ease-in-out infinite alternate; }"
+            " .tb-bein { transform-box:fill-box; transform-origin:50% 12%; animation:tbbein .3s ease-in-out infinite alternate; }"
             " .tb-bein.b { animation-delay:-.3s; }"
             " .tb-baer, .tb-baer .tb-bein { animation-duration:.26s; }"
             " .tb-baer .tb-bein.b { animation-delay:-.26s; }"
-            " @keyframes tbbein { from { transform:rotate(30deg); } to { transform:rotate(-30deg); } }"
+            " @keyframes tbbein { from { transform:rotate(24deg); } to { transform:rotate(-24deg); } }"
             " @keyframes tbwipp { from { translate:0 0; } to { translate:0 -2.5px; } }")
 
 
@@ -1991,7 +2018,7 @@ def lade_balken_html(pct, text="", saat=7):
     global _KL_NR
     _KL_NR += 1
     gid = f"kl{saat}_{_KL_NR}"        # eindeutige SVG-IDs (sonst gilt die erste clipPath fuer alle Balken)
-    baer = (f'<span class="kl-tier kl-baer" style="left:{pb:.1f}%;top:{hoehe(pb):.1f}%">{tier_svg("baer", 40)}</span>'
+    baer = (f'<span class="kl-tier kl-baer" style="left:{pb:.1f}%;top:{hoehe(pb):.1f}%">{tier_svg("baer", 50)}</span>'
             if p > 4 else "")
     return (LADE_KURS_CSS.replace("</style>", TIER_CSS + "</style>") + f'<div class="kl-box"><div class="kl-kopf"><span><span class="kl-pfeil">▲</span>'
             f'<span class="kl-pct">{int(p)} %</span></span><span class="kl-text">{_html.escape(text)}</span></div>'
@@ -2002,5 +2029,5 @@ def lade_balken_html(pct, text="", saat=7):
             f'<line class="kl-spur" x1="0" y1="29" x2="100" y2="29"/><g clip-path="url(#{gid}c)">'
             f'<path d="M0,29 L{pts.replace(" ", " L")} L100,29 Z" fill="url(#{gid}v)"/>'
             f'<polyline class="kl-linie" points="{pts}"/></g></svg>{baer}'
-            f'<span class="kl-tier kl-bulle" style="left:{p:.1f}%;top:{hoehe(p):.1f}%">{tier_svg("bulle", 44)}</span>'
+            f'<span class="kl-tier kl-bulle" style="left:{p:.1f}%;top:{hoehe(p):.1f}%">{tier_svg("bulle", 54)}</span>'
             '</div></div>')
