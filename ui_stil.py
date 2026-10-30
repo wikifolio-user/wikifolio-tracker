@@ -1998,6 +1998,7 @@ TIER_CSS = (".tb-tier { display:block; overflow:visible; filter:drop-shadow(0 1p
 LADE_KURS_CSS = """<style>
 .kl-box { margin: 6px 0 12px; }
 .kl-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.kl-kopf > span:first-child { flex:0 0 auto; white-space:nowrap; }
 .kl-pct { font-family:'JetBrains Mono', ui-monospace, monospace; font-variant-numeric:tabular-nums;
           font-size:1.25rem; font-weight:700; color:var(--text); }
 .kl-pfeil { color:var(--up); font-size:.9rem; margin-right:4px; }

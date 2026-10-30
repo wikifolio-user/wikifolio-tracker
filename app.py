@@ -7975,13 +7975,15 @@ _LADE_JS = """
     st.textContent =
       'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +
       'html.lade-js .loading-overlay { display:none !important; }' +
-      '#lade-banner { position:fixed; top:0; left:0; right:0; z-index:100000; height:96px; box-sizing:border-box;' +
-      ' padding:10px 16px 0; background:#0B1220; border-bottom:1px solid #22344C;' +
+      '#lade-banner { position:fixed; top:0; left:0; right:0; z-index:100000; height:auto; box-sizing:border-box;' +
+      ' padding:10px 16px 8px; background:#0B1220; border-bottom:1px solid #22344C;' +
       ' box-shadow:0 2px 14px rgba(0,0,0,.6); display:none; pointer-events:none; }' +
       '#lade-banner .lb-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }' +
+      /* Prozentzahl nie umbrechen - ein langer Ladetext wird gekuerzt, nicht die Zahl */
+      '#lade-banner .lb-kopf > span:first-child { flex:0 0 auto; white-space:nowrap; }' +
       '#lade-banner .lb-pct { font-family:"JetBrains Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;' +
       ' font-size:1.35rem; font-weight:700; line-height:1.2; color:#E9EBEF; flex-shrink:0; }' +
-      '#lade-banner .lb-text { font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }' +
+      '#lade-banner .lb-text { flex:1 1 auto; text-align:right; font-size:.9rem; font-weight:600; color:#7C8493; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }' +
       '#lade-banner .lb-pfeil { color:#34D399; font-size:.95rem; margin-right:4px; }' +
       /* Kurs-Chart als Ladebalken: Linie waechst mit dem Fortschritt, Bulle vorne, Baer hinterher */
       '#lade-banner .lb-chart { position:relative; height:44px; margin-top:4px; }' +
@@ -7995,10 +7997,10 @@ _LADE_JS = """
       '__TIER_CSS__' +
       /* Endgeraet: Handy kompakt (flacher, kleinere Tiere); Laptop/Desktop hoeher, Inhalt zentriert und
          begrenzt (sonst wird die Kurslinie auf breiten Monitoren zum flachen Strich), groessere Tiere */
-      '@media (max-width: 699px) { #lade-banner { height:88px; padding:8px 12px 0; }' +
+      '@media (max-width: 699px) { #lade-banner { padding:8px 12px 6px; } #lade-banner .lb-text { font-size:.8rem; }' +
       ' #lade-banner .lb-chart { height:40px; } #lade-banner .lb-pct { font-size:1.2rem; }' +
       ' #lade-banner .lb-tier svg { width:44px; height:auto; } #lade-banner .lb-baer svg { width:40px; } }' +
-      '@media (min-width: 900px) { #lade-banner { height:118px; padding:12px 24px 0; }' +
+      '@media (min-width: 900px) { #lade-banner { padding:12px 24px 8px; }' +
       ' #lade-banner .lb-kopf, #lade-banner .lb-chart { max-width:1100px; margin-left:auto; margin-right:auto; }' +
       ' #lade-banner .lb-chart { height:62px; margin-top:6px; } #lade-banner .lb-pct { font-size:1.5rem; }' +
       ' #lade-banner .lb-tier svg { width:76px; height:auto; } #lade-banner .lb-baer svg { width:70px; } }' +
