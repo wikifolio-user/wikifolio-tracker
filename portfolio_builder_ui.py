@@ -238,7 +238,12 @@ def _ranglisten(lies):
             return {}
 
     aus = []
-    for key, kat in (datei("state/top50.json").get("kategorien") or {}).items():
+    kategorien = datei("state/top50.json").get("kategorien") or {}
+    # alle weiteren Dateien gleichzeitig lesen (vorher nacheinander - je Datei ein Abruf)
+    pfade = [f"state/top50_lang_{key}.json" for key in kategorien] + [f"state/top50_alle_{i}.json" for i in range(4)]
+    vorab = dict(zip(pfade, UI.parallel_lesen(lambda p, _s: datei(p), pfade)))
+    datei = vorab.get
+    for key, kat in kategorien.items():
         art = "wikifolio" if "wikifolio" in key else "etf" if key == "etf" else "aktie"
         je = {}
         for zr, liste in (kat.get("top") or {}).items():

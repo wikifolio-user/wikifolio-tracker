@@ -1,0 +1,44 @@
+name: Kurs-Agent (alle 30 Minuten)
+
+# Neuer, eigenstaendiger Workflow: laedt alle Kurse, die die App anzeigt (Hauptposition, Vergleichswerte,
+# Positionen/Beobachtung/Prognose-Basis/... aller Benutzer), und schreibt NUR state/kurse/... auf den
+# State-Branch. Die App liest beim Seitenaufbau nur diesen Vorrat - keine Kursabrufe mehr beim Aufruf.
+# Die Preisalarme (price-alert.yml) und die anderen Agenten bleiben unberuehrt.
+on:
+  schedule:
+    # werktags 05:00-21:30 UTC alle 30 Minuten (Berlin: ca. 6/7 bis 22/23 Uhr; GitHub startet geplante
+    # Laeufe oft einige Minuten spaeter)
+    - cron: "*/30 5-21 * * 1-5"
+    # Wochenende: einmal taeglich (Tagesschluss / Wochenendhandel)
+    - cron: "17 10 * * 0,6"
+  # Manuell startbar: Actions -> "Kurs-Agent (alle 30 Minuten)" -> Run workflow
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Ein neuer Lauf ersetzt einen noch wartenden (aeltere Kurse braucht niemand mehr)
+concurrency:
+  group: kurs-agent
+  cancel-in-progress: true
+
+jobs:
+  kurse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests==2.34.2 tzdata==2026.5   # wie requirements.txt
+
+      - name: Kurse laden und speichern
+        env:
+          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python kurs_agent.py
