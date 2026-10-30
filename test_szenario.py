@@ -80,5 +80,24 @@ class Steuern(unittest.TestCase):
         self.assertIsNone(S.monate_bis(2000, 1000, 0.0, max_monate=24, heute=HEUTE))
 
 
+class Zielwert(unittest.TestCase):
+    def test_naechstes_ziel(self):
+        self.assertEqual(S.naechstes_ziel(0), 100000.0)
+        self.assertEqual(S.naechstes_ziel(100000), 250000.0)
+        self.assertEqual(S.naechstes_ziel(180000), 250000.0)
+        self.assertEqual(S.naechstes_ziel(12000000), 24000000.0)
+
+    def test_ziel_text(self):
+        self.assertEqual(S.ziel_text(100000), "100k")
+        self.assertEqual(S.ziel_text(250000), "250k")
+        self.assertEqual(S.ziel_text(1000000), "1 Mio.")
+        self.assertEqual(S.ziel_text(1500000), "1,5 Mio.")
+
+    def test_anderes_ziel_anderer_monat(self):
+        a = S.monate_bis(150000, 100000, 0.01)
+        b = S.monate_bis(200000, 100000, 0.01)
+        self.assertLess(a, b)
+
+
 if __name__ == "__main__":
     unittest.main()

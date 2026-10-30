@@ -7573,6 +7573,15 @@ def render_dashboard():
                 step=10.0, key=f"szenario_sparrate_{_k}",
                 help="Zusätzliche monatliche Einzahlung - erhöht das Kapital jeden Monat, statt es zu verringern.",
             )
+            # ZIELWERT: frei waehlbar (vorher fest 100k - lag das Kapital schon darueber, zeigte jede
+            # Karte "0 Monate" und dasselbe Datum). Vorbelegt mit der naechsten runden Stufe.
+            szenario_ziel = st.number_input(
+                "🎯 Zielwert (€)", min_value=1000.0, step=10000.0, format="%.0f",
+                **_startwert(f"szenario_ziel_{_k}", SZ.naechstes_ziel(startkapital_szenario)),
+                key=f"szenario_ziel_{_k}",
+                help="Ab welchem Depotwert gilt das Ziel als erreicht? Je Szenario steht darunter, wann.",
+            )
+            _ziel_txt = SZ.ziel_text(szenario_ziel)
 
             ohne_entnahme = st.toggle("Ohne monatliche Entnahme berechnen", **_startwert("szenario_ohne_entnahme", False),
                                   key="szenario_ohne_entnahme")
@@ -7756,7 +7765,7 @@ def render_dashboard():
                 ist_eigene_rate = (eigene_rate_mo is not None
                                    and abs(r_mo_pct - round(eigene_rate_mo, 4)) < 1e-9)
     
-                m_to_100k = SZ.monate_bis(100000.0, startkapital_szenario, r_mo, sparrate_szenario,
+                m_to_100k = SZ.monate_bis(szenario_ziel, startkapital_szenario, r_mo, sparrate_szenario,
                                           entnahme_fuer_szenario, szenario_steuer, szenario_einstand,
                                           heute=heute_date)
                 _sim = SZ.simuliere(startkapital_szenario, r_mo, szenario_monate, sparrate_szenario,
@@ -7768,7 +7777,10 @@ def render_dashboard():
                     _serien_name = f"⭐ {_h(basis_name)}: {_serien_name}"   # Plotly deutet Teile von HTML
                 scenario_series[_serien_name] = monthly_vals
 
-                if m_to_100k is not None:
+                if startkapital_szenario >= szenario_ziel:
+                    m_str = "✅ Bereits erreicht"
+                    target_date = heute_date.strftime("%m/%Y")
+                elif m_to_100k is not None:
                     years_100k = m_to_100k // 12
                     rem_months = m_to_100k % 12
                     m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
@@ -7778,7 +7790,7 @@ def render_dashboard():
                     # bisherige Haltedauer zu frueh.
                     target_date = (pd.Timestamp(heute_date) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
                 else:
-                    m_str = "Nicht erreicht (>100J)"
+                    m_str = "Nicht erreicht (> 100 J.)"
                     target_date = "N/A"
 
                 summary_list.append({
@@ -7821,7 +7833,7 @@ def render_dashboard():
                     f'{FMT.pct(e["rate_pa"], 1)} p.a. <span style="color: #A1A1AA; font-weight: 600; font-size: 0.8rem;">({FMT.pct(e["rate"], 2)} p.M.)</span>'
                     f'</div>'
                     f'<div style="font-size: 0.85rem; color: #34D399; font-weight: 700; margin-bottom: 6px;">{e["ziel_100k"]}</div>'
-                    f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum (100k): {e["ziel_datum"]}</div>'
+                    f'<div style="font-size: 0.8rem; color: #CBD5E1; margin-bottom: 8px;">Ziel-Datum ({_ziel_txt}): {e["ziel_datum"]}</div>'
                     f'<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; border-top: 1px solid var(--trenn); padding-top: 8px; font-variant-numeric: tabular-nums;">'
                     f'{_jahre}</div>{_zusatz}'
                     f'</div>'
@@ -7846,10 +7858,10 @@ def render_dashboard():
                     ))
 
             fig_scen.add_hline(
-                y=100000, 
-                line_dash="dot", 
-                line_color="#34D399", 
-                annotation_text="🎯 100k Zielwert", 
+                y=szenario_ziel,
+                line_dash="dot",
+                line_color="#34D399",
+                annotation_text=f"🎯 Ziel {_ziel_txt}",
                 annotation_position="top left",
                 annotation_font=dict(color="#34D399", size=12)
             )
