@@ -1838,6 +1838,32 @@ def tabellen_spalten(df, fortschritt=(), maximum=100):
     return cfg
 
 
+HANDY_MAX_PUNKTE = 400     # mehr Punkte je Linie kann ein Handy-Bildschirm (~390 px breit) nicht darstellen
+
+
+def ausduennen(fig, max_punkte=HANDY_MAX_PUNKTE):
+    """Linien mit sehr vielen Punkten fuer das Handy ausduennen (jeder k-te Punkt, erster und letzter bleiben):
+    weniger Daten zum Geraet, schnellerer Aufbau und fluessigeres Wischen. Kerzen (OHLC), Balken und kurze
+    Linien bleiben unveraendert; Spuren gleicher Laenge werden gleich ausgeduennt (Flaechen passen weiter)."""
+    for spur in fig.data:
+        if getattr(spur, "type", "") not in ("scatter", "scattergl") or spur.x is None or spur.y is None:
+            continue
+        n = len(spur.x)
+        if n <= max_punkte or len(spur.y) != n:
+            continue
+        schritt = -(-n // max_punkte)
+        idx = list(range(0, n, schritt))
+        if idx[-1] != n - 1:
+            idx.append(n - 1)
+        werte = {"x": spur.x, "y": spur.y}
+        for feld in ("customdata", "text", "hovertext"):
+            w = getattr(spur, feld, None)
+            if w is not None and not isinstance(w, str) and len(w) == n:
+                werte[feld] = w
+        spur.update({k: [v[i] for i in idx] for k, v in werte.items()})
+    return fig
+
+
 def chart_stil(fig, schrumpfen=True, flaeche=None):
     """Gemeinsame Plotly-Vorlage (Premium Glass): Hintergrund durchsichtig, dezentes Raster, Schrift Inter,
     deutsche Zahlen, Tooltips im dunklen Glas-Look, Farbfolge mit Akzent #7c9cff; flaeche = Name der
@@ -1853,6 +1879,7 @@ def chart_stil(fig, schrumpfen=True, flaeche=None):
         _flaeche_unter(fig, flaeche)
     if not ist_smartphone():
         return fig
+    ausduennen(fig)
     lay = fig.layout
     legende_unten = lay.showlegend is not False and len(fig.data) > 1
     if schrumpfen and lay.height and not legende_unten:
@@ -1971,6 +1998,7 @@ TIER_CSS = (".tb-tier { display:block; overflow:visible; filter:drop-shadow(0 1p
 LADE_KURS_CSS = """<style>
 .kl-box { margin: 6px 0 12px; }
 .kl-kopf { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.kl-kopf > span:first-child { flex:0 0 auto; white-space:nowrap; }
 .kl-pct { font-family:'JetBrains Mono', ui-monospace, monospace; font-variant-numeric:tabular-nums;
           font-size:1.25rem; font-weight:700; color:var(--text); }
 .kl-pfeil { color:var(--up); font-size:.9rem; margin-right:4px; }
@@ -1981,6 +2009,9 @@ LADE_KURS_CSS = """<style>
 .kl-spur { stroke:var(--line); stroke-width:1; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
 .kl-linie { fill:none; stroke:var(--up); stroke-width:2.2; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
 .kl-tier { position:absolute; line-height:0; transform:translate(-62%,-92%); }
+/* Endgeraet: am Handy kleinere Tiere, am Laptop/Desktop hoeherer Chart und groessere Tiere */
+@media (max-width: 699px) { .kl-chart { height:40px; } .kl-tier svg { width:44px; height:auto; } .kl-baer svg { width:40px; } }
+@media (min-width: 900px) { .kl-chart { height:58px; } .kl-tier svg { width:70px; height:auto; } .kl-baer svg { width:64px; } }
 </style>"""
 
 
