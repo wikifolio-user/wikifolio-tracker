@@ -1,0 +1,381 @@
+import datetime
+import hashlib
+import json
+import os
+import re
+import logging
+import pandas as pd
+import plotly.graph_objects as go
+import pytz
+import requests
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="QUANT TERMINAL // LS9VFS", page_icon="⚡", layout="wide")
+
+# --- SECRETS & FILES ---
+DISCORD_WEBHOOK_URL = st.secrets.get("DISCORD_WEBHOOK_URL", "")
+DB_FILE = "trades_db.json"
+ALARM_STATE_FILE = "alarm_state.json"
+WIKIFOLIO_ACTIVITY_STATE_FILE = "wikifolio_activity_state.json"
+PRICE_ALERT_STATE_FILE = "price_alert_state.json"
+
+# Schwelle für Tagesveränderungs-Warnung (in %, negativ = Verlust)
+TAGESVERLUST_SCHWELLE_PCT = -1.0
+
+# --- KONSTANTEN ---
+ISIN = "DE000LS9VFS2"
+WKN = "LS9VFS"
+LS_INSTRUMENT_ID = "3865540"  # ls-tc.de interne ID für LS9VFS / DE000LS9VFS2
+ANFANGSKURS = 160.68
+
+STARTKAPITAL = 13000.0
+ENTNAHME_PM = 70.0
+KAUFDATUM = datetime.date(2025, 7, 9)
+STUECKZAHL = STARTKAPITAL / ANFANGSKURS
+
+BERLIN_TZ = pytz.timezone("Europe/Berlin")
+
+LS_TC_BASE_URL = "https://www.ls-tc.de/_rpc/json/instrument/chart/dataForInstrument"
+WIKIFOLIO_PUBLIC_URL = "https://www.wikifolio.com/de/de/w/wfindizglo"
+
+LS_TC_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Referer": f"https://www.ls-tc.de/de/wikifolio/{LS_INSTRUMENT_ID}",
+}
+
+# --- ZAHLENFORMATIERUNG (Punkt = Tausender, Komma = Dezimal) ---
+def fmt(val, dec=2):
+    if dec > 0:
+        s = f"{val:,.{dec}f}"
+    else:
+        s = f"{val:,.0f}"
+    return f"{s.replace(',', 'X').replace('.', ',').replace('X', '.')}€"
+
+st_autorefresh(interval=30000, key="data_refresh")
+
+# --- VOLLAUTOMATISCHER LIVE-KURS ABRUF (ls-tc.de, direkter Emittent LS9VFS) ---
+@st.cache_data(ttl=30)
+def get_live_market_data():
+    """
+    Holt den aktuellen Mid-Kurs + Vortageskurs direkt von ls-tc.de (Lang & Schwarz
+    TradeCenter), dem Emittenten des Zertifikats. Kostenlos, kein API-Key nötig.
+    Struktur der undokumentierten JSON-Antwort kann sich ändern - bei Fehlern
+    hier zuerst r.json() ausdrucken und die Pfade unten anpassen.
+    """
+    params = {
+        "container": "chart1",
+        "instrumentId": LS_INSTRUMENT_ID,
+        "marketId": "1",
+        "quotetype": "mid",
+        "series": "intraday,history,flags",
+        "type": "",
+        "localeId": "2",
+    }
+    try:
+        r = requests.get(LS_TC_BASE_URL, params=params, headers=LS_TC_HEADERS, timeout=6)
+        r.raise_for_status()
+        data = r.json()
+
+        # Intraday-Serie auslesen (Liste von [timestamp_ms, kurs])
+        intraday = (
+            data.get("series", {}).get("intraday", {}).get("data")
+            or data.get("intraday", {}).get("data")
+            or []
+        )
+        if intraday:
+            akt = float(intraday[-1][1])
+            # Vortageskurs: erster Wert der History-Serie eines Vortages, sonst
+            # erster Intraday-Wert als Näherung
+            history = (
+                data.get("series", {}).get("history", {}).get("data")
+                or data.get("history", {}).get("data")
+                or []
+            )
+            if len(history) >= 2:
+                vor = float(history[-2][1])
+            else:
+                vor = float(data.get("previousClose", intraday[0][1]))
+
+            if akt > 0 and vor > 0:
+                return akt, vor, "ls-tc.de Live (Emittent)"
+
+        logging.warning("ls-tc.de: Unerwartete JSON-Struktur, kein Kurs extrahiert.")
+    except Exception as e:
+        logging.error(f"Fehler beim Abruf von ls-tc.de: {e}")
+
+    return None, None, "Fehler – keine Live-Daten"
+
+
+# --- ECHTE HISTORISCHE DATEN VON ls-tc.de LADEN ---
+@st.cache_data(ttl=300)
+def get_historical_market_data(start_date, end_date, live_close_fallback):
+    """
+    Holt die Tages-History direkt von ls-tc.de. Da der Endpunkt primär
+    Schlusskurse liefert, werden Open/High/Low pragmatisch aus dem Close
+    approximiert (kleine Bandbreite), sofern die API keine echten OHLC liefert.
+    """
+    params = {
+        "container": "chart1",
+        "instrumentId": LS_INSTRUMENT_ID,
+        "marketId": "1",
+        "quotetype": "mid",
+        "series": "history",
+        "type": "",
+        "localeId": "2",
+    }
+    try:
+        r = requests.get(LS_TC_BASE_URL, params=params, headers=LS_TC_HEADERS, timeout=8)
+        r.raise_for_status()
+        raw = r.json()
+        history = (
+            raw.get("series", {}).get("history", {}).get("data")
+            or raw.get("history", {}).get("data")
+            or []
+        )
+        if history:
+            rows = []
+            for ts_ms, close in history:
+                ts = pd.to_datetime(ts_ms, unit="ms")
+                if ts.date() < start_date or ts.date() > end_date:
+                    continue
+                rows.append({"Date": ts, "Close": float(close)})
+            if rows:
+                df = pd.DataFrame(rows).set_index("Date").sort_index()
+                df = df[df["Close"] > 0]
+                if not df.empty:
+                    df["Open"] = df["Close"]
+                    df["High"] = df["Close"] * 1.003
+                    df["Low"] = df["Close"] * 0.997
+                    return df[["Open", "High", "Low", "Close"]], "ls-tc.de Live (Emittent)"
+
+        logging.warning("ls-tc.de: Keine verwertbare History-Struktur gefunden.")
+    except Exception as e:
+        logging.error(f"Fehler beim Laden der Historie von ls-tc.de: {e}")
+
+    # --- FALLBACK: klar gekennzeichnete synthetische Daten, NICHT echt ---
+    date_range = pd.date_range(start=start_date, end=end_date, freq="B")
+    n = len(date_range)
+    import numpy as np
+    np.random.seed(42)
+    base_prices = [
+        ANFANGSKURS * ((live_close_fallback / ANFANGSKURS) ** (i / max(1, n - 1)))
+        for i in range(n)
+    ]
+    noise = np.random.normal(0, live_close_fallback * 0.003, n)
+    prices = [max(10, p + n_val) for p, n_val in zip(base_prices, noise)]
+    prices[-1] = live_close_fallback
+
+    df = pd.DataFrame(index=date_range)
+    df["Close"] = prices
+    df["Open"] = prices
+    df["High"] = [p * 1.005 for p in prices]
+    df["Low"] = [p * 0.995 for p in prices]
+    return df, "⚠️ SYNTHETISCH (Fallback, KEINE ECHTEN DATEN)"
+
+
+# --- TRADER-AKTIVITÄTS-SIGNAL (nur öffentliche, login-freie Seite) ---
+@st.cache_data(ttl=300)
+def fetch_wikifolio_public_signature():
+    """
+    Liest NUR die öffentlich zugängliche wikifolio.com-Seite (kein Login,
+    keine Trades/Kommentare im Klartext). Extrahiert das 'Last Login'-Datum
+    des Traders sowie die sichtbaren Performance-Kennzahlen und bildet daraus
+    einen Hash. Ändert sich der Hash zwischen zwei Abrufen, deutet das auf
+    einen neuen Trade oder Kommentar hin - Details liest man dann selbst
+< truncated lines 191-550 >
+tab_wealth, tab_trades, tab_candle, tab_forecast, tab_scenarios = st.tabs([
+    "📈 VERMÖGENS- & SUBSTANZAUFBAU",
+    "📝 TRADER-LOG (TRADES & KOMMENTARE)",
+    "🕯️ TAGES-CANDLESTICK",
+    "🔮 ZUKUNFTS-PROGNOSE",
+    "📊 SZENARIO-SIMULATOR (5 JAHRE)",
+])
+
+with tab_wealth:
+    fig_wealth = go.Figure()
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Startkapital"], name="Startkapital", line=dict(color="#71717A", width=1.5, dash="dash")))
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Netto"], name="Netto-Wert", line=dict(color="#29B6F6", width=2)))
+    fig_wealth.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Depotwert_Brutto"], name="Brutto-Depotwert", line=dict(color="#00C853", width=2.5)))
+    
+    fig_wealth.update_layout(
+        paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=80, b=40), height=450,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E5E7EB", size=11)),
+        xaxis=dict(showgrid=True, gridcolor="#1A1A1A", type="date", tickfont=dict(color="#A1A1AA")),
+        yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig_wealth, width="stretch")
+
+def load_db():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f: return json.load(f)
+        except Exception: return []
+    return []
+
+def save_db(data):
+    with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
+
+db_events = load_db()
+
+with tab_trades:
+    st.markdown("### 📋 Historie")
+    if not db_events:
+        st.info("Keine Einträge vorhanden.")
+    else:
+        for ev in db_events:
+            st.markdown(f"""
+                <div style="background: #09090B; border: 1px solid #27272A; border-left: 3px solid #29B6F6; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
+                    <div style="font-size: 0.75rem; color: #71717A;"><b>[{ev.get('typ','')}]</b> - {ev.get('datum','')}</div>
+                    <div style="font-weight: 700; color: #FFFFFF; font-size: 0.95rem;">{ev.get('titel','')}</div>
+                    <div style="font-size: 0.85rem; color: #D1D5DB;">{ev.get('inhalt','')}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+    with st.form("trade_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns([2, 2, 3])
+        with col1: et = st.selectbox("Typ", ["Trade", "Kommentar", "Hinweis"])
+        with col2: ed = st.date_input("Datum", heute_date)
+        with col3: eti = st.text_input("Titel")
+        ei = st.text_area("Details")
+        if st.form_submit_button("Speichern") and eti:
+            db_events.insert(0, {"id": len(db_events) + 1, "typ": et, "datum": ed.strftime("%Y-%m-%d"), "titel": eti, "inhalt": ei})
+            save_db(db_events)
+            st.rerun()
+
+with tab_candle:
+    fig_c = go.Figure(data=[go.Candlestick(x=df_chart.index, open=df_chart["Open"], high=df_chart["High"], low=df_chart["Low"], close=df_chart["Close"], increasing_line_color="#00C853", decreasing_line_color="#FF3D00")])
+    fig_c.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", margin=dict(l=10, r=60, t=30, b=40), height=450, xaxis=dict(showgrid=True, gridcolor="#1A1A1A"), yaxis=dict(showgrid=True, gridcolor="#1A1A1A", side="right"), showlegend=False)
+    st.plotly_chart(fig_c, width="stretch")
+
+with tab_forecast:
+    st.info(f"Zukunfts-Prognose rechnet vollautomatisch auf Basis der bisherigen historischen Performance von **{erwartete_rendite_pa:.2f}% p.a.** weiter.")
+    
+    forecast_data = [
+        {"Index": 0, "Jahr": "Start", "Datum": KAUFDATUM.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(STARTKAPITAL, 2), "Gesamter Gewinn": "+0,00€", "Netto Depotwert": fmt(STARTKAPITAL, 2), "Kumulierte Entnahme": "0,00€"},
+        {"Index": 1, "Jahr": "Heute", "Datum": heute_date.strftime("%d.%m.%Y"), "Brutto Depotwert": fmt(brutto_ist, 2), "Gesamter Gewinn": f"+{fmt(gewinn_brutto, 2)}", "Netto Depotwert": fmt(netto_ist, 2), "Kumulierte Entnahme": fmt(gesamt_entnommen, 2)}
+    ]
+    
+    sim_b_prog, sim_n_prog, sim_e_prog = brutto_ist, netto_ist, gesamt_entnommen
+    milestone_added = brutto_ist >= 100000.0
+
+    for m_idx in range(1, 121):
+        sim_b_prog = (sim_b_prog * (1 + erwarteter_zins_mo))
+        sim_e_prog += ENTNAHME_PM
+        sim_n_prog = sim_b_prog - sim_e_prog
+        
+        current_date = now_berlin + pd.DateOffset(months=m_idx)
+        
+        if not milestone_added and sim_b_prog >= 100000.0:
+            forecast_data.append({
+                "Index": "🎯", "Jahr": "100k Meilenstein",
+                "Datum": current_date.strftime("%d.%m.%Y"),
+                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - STARTKAPITAL, 2)}",
+                "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+            })
+            milestone_added = True
+
+        if m_idx % 12 == 0:
+            forecast_data.append({
+                "Index": m_idx // 12 + 1, "Jahr": f"Jahr +{m_idx // 12}",
+                "Datum": current_date.strftime("%d.%m.%Y"),
+                "Brutto Depotwert": fmt(sim_b_prog, 2), "Gesamter Gewinn": f"+{fmt(sim_b_prog - STARTKAPITAL, 2)}",
+                "Netto Depotwert": fmt(sim_n_prog, 2), "Kumulierte Entnahme": fmt(sim_e_prog, 2)
+            })
+            
+    df_forecast = pd.DataFrame(forecast_data)
+    df_forecast["Index"] = df_forecast["Index"].astype(str)  # Mix aus int & "🎯" -> Arrow-Fehler sonst
+    st.dataframe(df_forecast, width="stretch", hide_index=True)
+
+with tab_scenarios:
+    st.markdown("### 📊 Szenario-Analyse: Monatliche Entwicklungs-Raten (2,0% bis 6,0% p.M.)")
+    st.info(f"Berechnung mit festen monatlichen Renditen ausgehend von **{fmt(STARTKAPITAL, 2)}** unter Berücksichtigung der monatlichen Entnahme von **{fmt(ENTNAHME_PM, 2)}**.")
+
+    szenario_raten_mo = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
+    
+    summary_list = []
+    scenario_series = {}
+
+    for r_mo_pct in szenario_raten_mo:
+        r_mo = r_mo_pct / 100.0
+        r_pa_pct = ((1 + r_mo) ** 12 - 1) * 100.0
+        
+        cap_sim = STARTKAPITAL
+        m_to_100k = None
+        for m in range(1, 1200):
+            cap_sim = (cap_sim * (1 + r_mo)) - ENTNAHME_PM
+            if cap_sim >= 100000.0:
+                m_to_100k = m
+                break
+
+        monthly_vals = [STARTKAPITAL]
+        cap_5y = STARTKAPITAL
+        for m in range(1, 61):
+            cap_5y = (cap_5y * (1 + r_mo)) - ENTNAHME_PM
+            monthly_vals.append(max(0, cap_5y))
+            
+        scenario_series[f"{r_mo_pct:.1f}% p.M. ({r_pa_pct:.1f}% p.a.)"] = monthly_vals
+        
+        if m_to_100k is not None:
+            years_100k = m_to_100k // 12
+            rem_months = m_to_100k % 12
+            m_str = f"🎯 {m_to_100k} Mon. ({years_100k}J {rem_months}M)"
+            target_date = (pd.to_datetime(KAUFDATUM) + pd.DateOffset(months=m_to_100k)).strftime("%m/%Y")
+        else:
+            m_str = "Nicht erreicht (>100J)"
+            target_date = "N/A"
+            
+        summary_list.append({
+            "Ziel 100k (Monate)": m_str,
+            "Monats-Rendite (p.M.)": f"{r_mo_pct:.1f}%",
+            "Jahres-Wert (eff. p.a.)": f"{r_pa_pct:.2f}%",
+            "Ziel-Datum (100k)": target_date,
+            "Wert nach 1 Jahr": fmt(monthly_vals[12], 2),
+            "Wert nach 2 Jahren": fmt(monthly_vals[24], 2),
+            "Wert nach 3 Jahren": fmt(monthly_vals[36], 2),
+            "Wert nach 4 Jahren": fmt(monthly_vals[48], 2),
+            "Wert nach 5 Jahren": fmt(monthly_vals[60], 2),
+        })
+
+    df_summary = pd.DataFrame(summary_list)
+    st.dataframe(df_summary, width="stretch", hide_index=True)
+
+    fig_scen = go.Figure()
+    months_x = list(range(61))
+    
+    for label, vals in scenario_series.items():
+        fig_scen.add_trace(go.Scatter(x=months_x, y=vals, mode="lines", name=label))
+
+    fig_scen.add_hline(
+        y=100000, 
+        line_dash="dot", 
+        line_color="#00C853", 
+        annotation_text="🎯 100k Zielwert", 
+        annotation_position="top left",
+        annotation_font=dict(color="#00C853", size=11)
+    )
+
+    fig_scen.update_layout(
+        title="5-Jahres Wertentwicklung<br>bei monatlichen Wachstumsraten",
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        margin=dict(l=10, r=60, t=80, b=120), 
+        height=580, 
+        legend=dict(
+            orientation="h", 
+            yanchor="top", 
+            y=-0.15,  
+            xanchor="center", 
+            x=0.5, 
+            font=dict(color="#E5E7EB", size=11)
+        ),
+        xaxis=dict(title="Monate ab Kauf", showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
+        yaxis=dict(title="Depotwert (€)", showgrid=True, gridcolor="#1A1A1A", side="right", tickfont=dict(color="#A1A1AA")),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig_scen, width="stretch")
