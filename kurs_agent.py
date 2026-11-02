@@ -153,11 +153,11 @@ def neue_suche(alt, gefunden, begriffe, stand):
 # ---------------------------------------------------------------------------
 # Abruf
 # ---------------------------------------------------------------------------
-def abrufen(instrument_id):
+def abrufen(instrument_id, serien="intraday,history"):
     """dataForInstrument (Intraday + Historie) fuer einen Wert; versucht notfalls einen zweiten Referer
     (Vergleichswerte/ETFs). Wirft bei Fehlern."""
     params = {"container": "chart1", "instrumentId": instrument_id, "marketId": "1", "quotetype": "mid",
-              "series": "intraday,history", "type": "", "localeId": "2"}
+              "series": serien, "type": "", "localeId": "2"}
     fehler = None
     for referer in (config.LS_TC_HEADERS.get("Referer"), f"https://www.ls-tc.de/de/etf/{instrument_id}"):
         try:
@@ -246,6 +246,67 @@ def _schreiben(pfad, daten, nachricht):
     return ok
 
 
+# ---------------------------------------------------------------------------
+# Top 50 der Watchlist: nur Live-Kurs (keine Historie), eigene Datei
+# ---------------------------------------------------------------------------
+TOP50_MAX = 1500                  # Obergrenze je Lauf (ls-tc nicht ueberlasten)
+
+
+def top50_ziele(top50, id_cache, wikifolios, ausser=()):
+    """-> {WKN: id} der Top-50-Werte mit ls-tc-Kurs-ID (Werte ohne ID, z. B. nur Yahoo, bleiben beim
+    Tagesschluss). Hoechstens TOP50_MAX, in der Reihenfolge der Listen."""
+    ids = KV.kennung_ids(id_cache, wikifolios)
+    aus = {}
+    for k in KV.top50_kennungen(top50):
+        iid = ids.get(k)
+        if iid and len(aus) < TOP50_MAX:
+            aus[k] = str(iid)
+    return aus
+
+
+def top50_lauf(ziele, jetzt_iso):
+    """Live-Kurse (nur Intraday) fuer die Top-50-Werte. -> {id: eintrag}"""
+    def eins(iid):
+        try:
+            live, _ = auswerten(abrufen(iid, "intraday"), jetzt_iso)
+            return iid, live
+        except Exception as e:
+            log.warning(f"Top-50-Kurs {iid} nicht ladbar: {type(e).__name__}")
+            return iid, None
+
+    with ThreadPoolExecutor(max_workers=PARALLEL) as ex:
+        return {iid: live for iid, live in ex.map(eins, sorted(set(ziele.values()))) if live}
+
+
+def neue_top50(alt, ziele, geladen, stand):
+    """Neue top50_live.json: frische Kurse, fuer fehlgeschlagene der alte Stand (nur noch gezeigte Werte)."""
+    alte = (alt or {}).get("werte") or {}
+    werte = {}
+    for iid in set(ziele.values()):
+        if iid in geladen:
+            werte[iid] = geladen[iid]
+        elif iid in alte:
+            werte[iid] = alte[iid]
+    return {"stand": stand, "ids": ziele, "werte": werte}
+
+
+def top50_aktualisieren(stand):
+    """Zweiter Teil des Laufs - nach den Depot-Kursen, damit ein Problem hier diese nie verzoegert."""
+    top50, ok1 = _lies("state/top50.json")
+    id_cache, ok2 = _lies("state/top50_ids.json")
+    wikifolios, ok3 = _lies("state/top50_wikifolios.json")
+    if not (ok1 and ok2 and ok3) or not top50:
+        log.warning("Top-50-Listen nicht lesbar - Top-50-Kurse in diesem Lauf ausgelassen")
+        return 0
+    ziele = top50_ziele(top50, id_cache, wikifolios)
+    geladen = top50_lauf(ziele, stand)
+    log.info(f"Top 50: {len(geladen)} von {len(set(ziele.values()))} Live-Kursen geladen")
+    alt, ok = _lies(KV.PFAD_TOP50)
+    if not ok or not geladen:
+        return 0 if geladen or not ziele else 1
+    return 0 if _schreiben(KV.PFAD_TOP50, neue_top50(alt, ziele, geladen, stand), "kurse top50 [skip ci]") else 1
+
+
 def main():
     if not (GITHUB_REPO and GITHUB_TOKEN):
         log.error("GITHUB_REPOSITORY / GH_STATE_TOKEN fehlen")
@@ -282,6 +343,11 @@ def main():
         neu = neue_historie(alt, ergebnis, teil_ids, stand)
         if neu is not None:
             fehler += not _schreiben(pfad, neu, f"kurse historie {nr:02d} [skip ci]")
+    try:
+        fehler += top50_aktualisieren(stand)
+    except Exception as e:
+        log.error(f"Top-50-Kurse fehlgeschlagen: {type(e).__name__}: {e}")
+        fehler += 1
     return 1 if fehler else 0
 
 

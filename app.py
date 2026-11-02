@@ -3182,6 +3182,22 @@ def render_dashboard():
                 unter = f'<span class="pt-sub">{html.escape(rhythmus)}</span>' if rhythmus else ""
                 return f'<td class="pt-num pt-stark pt-up">{FMT.pct(wert, 2)}{unter}</td>'
 
+            # Live-Kurse der Top 50 (Kurs-Agent, alle 30 Min.): Spalte "Heute" = Kurs gegen Vortagesschluss.
+            # Werte ohne ls-tc-Kursquelle (nur Yahoo) zeigen "–" - fuer sie gilt weiter der Tagesschluss.
+            _live = kurs_vorrat().top50() if GH_STATE_READY else {"ids": {}, "werte": {}, "stand": None}
+            _jetzt = datetime.datetime.now(BERLIN_TZ)
+            mit_live = bool(_live["werte"]) and KV.aktuell(_live["stand"], _jetzt, 24 * 60)
+
+            def _heute(e):
+                iid = _live["ids"].get(str(e.get("wkn") or "").strip().upper())
+                h = KV.heute(_live["werte"].get(iid) or {}) if iid else None
+                if not h:
+                    return '<td class="pt-num">–</td>'
+                kurs, vor = h
+                pct = (kurs / vor - 1) * 100
+                return (f'<td class="pt-num {"pt-up" if pct >= 0 else "pt-down"}">{vz_zahl(pct, 2)} %'
+                        f'<span class="pt-sub">{FMT.kurs(kurs)}</span></td>')
+
             vergleich = (kat.get("vergleich") or {}).get(zr_key)
             mit_trend = vergleich is not None
             zeilen = ""
@@ -3194,6 +3210,8 @@ def render_dashboard():
                     werte = _div(e.get("div"), e.get("rhythmus")) + _pct(e.get("perf"))
                 else:
                     werte = _pct(e.get("perf")) + (_div(e.get("div"), e.get("rhythmus")) if mit_div else "")
+                if mit_live:
+                    werte += _heute(e)
                 zeilen += (
                     f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">'
                     f'<td class="pt-num pt-seit">{rang}</td>{trend_td}'
@@ -3207,6 +3225,8 @@ def render_dashboard():
             else:
                 spalten = f'<th class="pt-num">{zr_wahl}</th>' + (
                     '<th class="pt-num">Div.-<br>Rendite</th>' if mit_div else "")
+            if mit_live:
+                spalten += '<th class="pt-num">Heute</th>'
             st.markdown(
                 '<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr>'
                 '<th class="pt-num">#</th>' + ('<th class="pt-num">7&nbsp;T.</th>' if mit_trend else "") +
@@ -3215,6 +3235,12 @@ def render_dashboard():
                 f'</tr></thead><tbody>{zeilen}</tbody></table></div>',
                 unsafe_allow_html=True,
             )
+
+            if mit_live:
+                st.caption(f"Heute = aktueller Kurs (ls-tc.de) gegenüber dem Vortagesschluss, Stand "
+                           f"{_live['stand'].astimezone(BERLIN_TZ).strftime('%H:%M')} Uhr – der Kurs-Agent "
+                           "aktualisiert alle 30 Minuten (für die Top 50 je Kategorie). „–“: nicht unter den Top 50 oder keine "
+                           "ls-tc-Kursquelle – dort gilt der Tagesschluss.")
 
             if mit_trend or vergleich_seit is None:
                 _wochen_bilanz([(r, e["name"], e.get("wkn"), e.get("vor")) for r, e in enumerate(liste, 1)],
