@@ -1476,48 +1476,49 @@ html body :is([data-testid="stBaseButton-elementToolbar"], [data-testid="stBaseB
 /* ---- Gruppen-Ueberschriften im Menue: ruhig, ohne Pulsieren ---- */
 html body .nav-gruppe { font-family: var(--g-schrift); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em;
     color: var(--label); }
-html body .nav-gruppe::after { background: var(--trenn); height: 1px; }
+html body .nav-gruppe { background: linear-gradient(var(--trenn), var(--trenn)) no-repeat left 0 bottom 7px / 100% 1px; }
 /* Logo und Gruppen-Ueberschriften pulsieren gemeinsam (gleiches Leuchten); die Ueberschriften schweben beim
    Oeffnen des Menues einmal von rechts nach links herein. Leuchtfarbe ueber --puls-licht (hell: Akzent statt Weiss). */
 :root { --puls-licht: rgba(255, 255, 255, 0.9); --puls-licht-weit: rgba(255, 255, 255, 0.4); }
 html body .nav-logo { animation: navpuls-glas 2.4s ease-in-out infinite !important; }
-/* Raketenflug beim Oeffnen des Menues: einmal ganz nach rechts (mit Feuerschweif hinten), dort umdrehen, zurueck
-   zur Ausgangsposition, wieder umdrehen - dann stehen bleiben und pulsieren. --verzug staffelt die Gruppen (app.py). */
-html body .nav-wander { opacity: 1; filter: none !important; transform-style: preserve-3d;
-    animation: navrakete 3.2s linear 1 both, navpuls-glas 2.4s ease-in-out infinite !important;
-    animation-delay: var(--verzug, 0s), calc(var(--verzug, 0s) + 3.2s) !important; }
-html body .nav-wander::before {
-    content: ""; position: absolute; right: 100%; top: 50%; width: 72px; height: 70%; margin-right: 4px;
-    transform: translateY(-50%); border-radius: 50% 0 0 50%; pointer-events: none; opacity: 0;
-    background: linear-gradient(to left, rgba(255,255,255,.95), #FFD166 18%, #FF7A2C 45%, rgba(255,60,40,.55) 70%,
-                                transparent);
-    filter: blur(3px); box-shadow: 0 0 18px 6px rgba(255,140,40,.45);
-    animation: navflamme 3.2s linear 1 both, navflackern 0.12s steps(2) 18;
-    animation-delay: var(--verzug, 0s), var(--verzug, 0s);
+/* Ueberschriften bleiben stehen und pulsieren; ganz kurze Laserstrahlen sausen ab und zu durch - einer nach
+   rechts (auf der Trennlinie), einer nach links (durch die Schrift). --verzug staffelt die Gruppen (app.py). */
+html body .nav-wander { opacity: 1; filter: none !important;
+    animation: navpuls-glas 2.4s ease-in-out infinite !important; animation-delay: var(--verzug, 0s) !important; }
+html body .nav-gruppe::before, html body .nav-gruppe::after {
+    content: ""; position: absolute; left: -60px; width: 46px; height: 2px; border-radius: 2px; pointer-events: none;
+    opacity: 0; animation: navlaser-rechts 7s linear infinite; animation-delay: calc(var(--verzug, 0s) + 1s);
 }
-@keyframes navrakete {
-    0%   { left: 0;    transform: translateX(0) rotateY(0deg); animation-timing-function: cubic-bezier(.55, 0, .9, .6); }
-    42%  { left: 100%; transform: translateX(-100%) rotateY(0deg); animation-timing-function: ease-in-out; }
-    54%  { left: 100%; transform: translateX(-100%) rotateY(180deg); animation-timing-function: cubic-bezier(.55, 0, .9, .6); }
-    90%  { left: 0;    transform: translateX(0) rotateY(180deg); animation-timing-function: ease-out; }
-    100% { left: 0;    transform: translateX(0) rotateY(360deg); }
+html body .nav-gruppe::before {          /* nach rechts, auf der Trennlinie */
+    bottom: 6.5px;
+    background: linear-gradient(to right, transparent, rgba(124, 156, 255, 0.7) 55%, #E8F4FF);
+    box-shadow: 0 0 6px rgba(124, 156, 255, 0.8), 0 0 12px rgba(34, 211, 238, 0.45);
 }
-/* Schweif nur im Flug: an beim Start, aus beim Wenden, wieder an auf dem Rueckweg, aus bei der Ankunft */
-@keyframes navflamme {
-    0%, 100% { opacity: 0; width: 20px; }
-    6%, 38%  { opacity: 1; width: 72px; }
-    46%, 58% { opacity: 0; width: 20px; }
-    64%, 84% { opacity: 1; width: 72px; }
-    92%      { opacity: 0; width: 20px; }
+html body .nav-gruppe::after {           /* nach links, durch die Schrift */
+    top: 14px; height: 1.5px; width: 34px;
+    background: linear-gradient(to left, transparent, rgba(34, 211, 238, 0.7) 55%, #E8FFFF);
+    box-shadow: 0 0 6px rgba(34, 211, 238, 0.8);
+    animation-name: navlaser-links; animation-delay: calc(var(--verzug, 0s) + 4.5s);
 }
-@keyframes navflackern { 50% { filter: blur(4px) brightness(1.3); } }
+@keyframes navlaser-rechts {
+    0%        { left: -60px; opacity: 0; }
+    1%        { opacity: 1; }
+    9%        { left: calc(100% + 10px); opacity: 1; }
+    9.5%, 100% { left: calc(100% + 10px); opacity: 0; }
+}
+@keyframes navlaser-links {
+    0%        { left: calc(100% + 10px); opacity: 0; }
+    1%        { opacity: 1; }
+    9%        { left: -60px; opacity: 1; }
+    9.5%, 100% { left: -60px; opacity: 0; }
+}
 @keyframes navpuls-glas {
     0%, 100% { text-shadow: 0 0 2px transparent; opacity: 0.8; }
     50%      { text-shadow: 0 0 8px var(--puls-licht), 0 0 20px var(--puls-licht-weit); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
     html body :is(.nav-logo, .nav-wander) { animation: none !important; }
-    html body .nav-wander::before { display: none; }
+    html body .nav-gruppe::before, html body .nav-gruppe::after { display: none; }
 }
 
 /* ---- Karten, Klappbereiche, Formulare, Metriken: Glas-Karte (20 px Radius) ---- */
