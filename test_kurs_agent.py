@@ -159,5 +159,47 @@ class Suche(unittest.TestCase):
         self.assertIsNone(v.suche("andere"))
 
 
+class Top50Live(unittest.TestCase):
+    TOP50 = {"kategorien": {
+        "aktien": {"top": {"1J": [{"wkn": "A1"}, {"wkn": "b2"}], "3M": [{"wkn": "A1"}, {"wkn": "C3"}]}},
+        "usa": {"top": {"1J": [{"wkn": "AAPL"}, {"wkn": ""}]}}}}
+
+    def test_kennungen_ohne_doppelte(self):
+        self.assertEqual(KV.top50_kennungen(self.TOP50), ["A1", "B2", "C3", "AAPL"])
+        self.assertEqual(KV.top50_kennungen(None), [])
+
+    def test_ziele_nur_mit_kurs_id(self):
+        id_cache = {"DE0001": {"id": 11, "wkn": "A1", "isin": "DE0001"}, "KAT:B2": {"id": 22}}
+        wikis = {"liste": [[33, "C3", "Wiki", "DE0003"]]}
+        ziele = A.top50_ziele(self.TOP50, id_cache, wikis)
+        self.assertEqual(ziele, {"A1": "11", "B2": "22", "C3": "33"})     # AAPL ohne ls-tc-ID: Tagesschluss
+
+    def test_obergrenze(self):
+        alt, A.TOP50_MAX = A.TOP50_MAX, 2
+        try:
+            self.assertEqual(len(A.top50_ziele(self.TOP50, {"x": {"id": 1, "wkn": "A1"}, "y": {"id": 2, "wkn": "B2"},
+                                                            "z": {"id": 3, "wkn": "C3"}}, {})), 2)
+        finally:
+            A.TOP50_MAX = alt
+
+    def test_neue_datei_behaelt_alten_kurs(self):
+        alt = {"werte": {"11": {"i": [[1, 5.0]], "t": "alt"}, "99": {"i": [[1, 1.0]], "t": "alt"}}}
+        neu = A.neue_top50(alt, {"A1": "11", "B2": "22"}, {"22": {"i": [[2, 7.0]], "t": "neu"}}, "s")
+        self.assertEqual(set(neu["werte"]), {"11", "22"})
+        self.assertEqual(neu["werte"]["11"]["t"], "alt")
+        self.assertEqual(neu["ids"], {"A1": "11", "B2": "22"})
+
+    def test_heute_nur_mit_vortageskurs(self):
+        self.assertEqual(KV.heute({"i": [[1, 9.0], [2, 10.5]], "p": 10.0}), (10.5, 10.0))
+        self.assertIsNone(KV.heute({"i": [[1, 9.0], [2, 10.5]]}))
+        self.assertIsNone(KV.heute({}))
+
+    def test_vorrat_top50(self):
+        v = KV.Vorrat(lambda p: {"stand": T0.isoformat(), "ids": {"A1": "11"}, "werte": {"11": {}}}
+                      if p == KV.PFAD_TOP50 else None)
+        t = v.top50()
+        self.assertEqual((t["ids"], t["stand"]), ({"A1": "11"}, T0))
+
+
 if __name__ == "__main__":
     unittest.main()

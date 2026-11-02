@@ -8,6 +8,8 @@ Die App liest beim Seitenaufbau nur diese Dateien - keine Kursabrufe bei ls-tc.d
                                   NN = teil(id) - die App liest nur die Teile der Werte, die sie braucht
   state/kurse/suche.json         {"stand": iso, "werte": {suchbegriff (klein): [treffer, ...]}}
                                   Suchergebnisse (Ticker/ISIN -> Kurs-ID) fuer den Portfolio-Planer
+  state/kurse/top50_live.json    {"stand": iso, "ids": {WKN/ISIN: id}, "werte": {id: wie live.json}}
+                                  Live-Kurse der Top 50 je Watchlist-Kategorie (ohne Historie)
 Gemeinsam genutzt von Agent und App (nur Standardbibliothek).
 """
 import datetime
@@ -18,6 +20,7 @@ import zlib
 PFAD_LIVE = "state/kurse/live.json"
 PFAD_HISTORIE = "state/kurse/historie_{:02d}.json"
 PFAD_SUCHE = "state/kurse/suche.json"
+PFAD_TOP50 = "state/kurse/top50_live.json"
 SUCH_URL = "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main"
 TEILE = 8
 
@@ -68,6 +71,47 @@ def bester_treffer(treffer, begriff):
         if b and b in (str(t.get("isin", "")).lower(), str(t.get("wkn", "")).lower()):
             return t
     return treffer[0] if treffer else None
+
+
+def kennung_ids(id_cache, wikifolios):
+    """Kurs-IDs (ls-tc) aus den Daten der Top-500-Listen: state/top50_ids.json ({isin | "KAT:wkn": {id, wkn,
+    isin}}) und state/top50_wikifolios.json ({"liste": [[id, wkn, name, isin], ...]}).
+    -> {WKN/ISIN (gross): instrument_id}"""
+    aus = {}
+    for schluessel, v in (id_cache or {}).items():
+        if not isinstance(v, dict) or not v.get("id"):
+            continue
+        for k in (v.get("wkn"), v.get("isin"), str(schluessel).replace("KAT:", "")):
+            if k:
+                aus.setdefault(str(k).upper(), int(v["id"]))
+    for z in (wikifolios or {}).get("liste") or []:
+        if isinstance(z, (list, tuple)) and len(z) >= 2 and z[0]:
+            for k in (z[1], z[3] if len(z) > 3 else None):
+                if k:
+                    aus.setdefault(str(k).upper(), int(z[0]))
+    return aus
+
+
+def top50_kennungen(top50):
+    """WKN/Symbole aller Werte, die die Watchlist als Top 50 zeigt (alle Kategorien und Zeitraeume)."""
+    aus = []
+    for kat in ((top50 or {}).get("kategorien") or {}).values():
+        for liste in ((kat or {}).get("top") or {}).values():
+            for e in liste or []:
+                k = str((e or {}).get("wkn") or "").strip().upper()
+                if k and k not in aus:
+                    aus.append(k)
+    return aus
+
+
+def heute(eintrag):
+    """(kurs, vortageskurs) aus einem Live-Eintrag - nur mit echtem Vortageskurs, sonst None (die Veraenderung
+    gegen den ersten Kurs des Tages waere kein "heute ±%")."""
+    try:
+        kurs, vor = float(eintrag["i"][-1][1]), float(eintrag.get("p") or 0)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+    return (kurs, vor) if kurs > 0 and vor > 0 else None
 
 
 def live_antwort(eintrag, historie=None):
@@ -144,6 +188,11 @@ class Vorrat:
         """Gespeicherte Suchergebnisse des Agenten -> Trefferliste oder None (Begriff nicht im Vorrat)."""
         w = (self._datei(PFAD_SUCHE, "historie").get("werte") or {}).get(such_schluessel(begriff))
         return w if isinstance(w, list) else None
+
+    def top50(self):
+        """Live-Kurse der Top-50-Werte -> {"ids": {WKN: id}, "werte": {id: eintrag}, "stand": datetime|None}"""
+        d = self._datei(PFAD_TOP50, "live")
+        return {"ids": d.get("ids") or {}, "werte": d.get("werte") or {}, "stand": zeit(d.get("stand"))}
 
     def stand(self):
         """Zeitpunkt des letzten Agenten-Laufs (live.json) oder None."""

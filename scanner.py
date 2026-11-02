@@ -750,22 +750,10 @@ def musterdepot_eintrag(depot, kapital, kurse, heute, name=MUSTERDEPOT_NAME, pro
 
 
 def top500_ids(id_cache, wikifolios):
-    """Kurs-IDs (ls-tc) aus den Daten der Top-500-Listen: state/top50_ids.json ({isin | "KAT:wkn": {id, wkn,
-    isin}}) und state/top50_wikifolios.json ({"liste": [[id, wkn, name, isin], ...]}).
-    -> {WKN/ISIN (gross): instrument_id}"""
-    aus = {}
-    for schluessel, v in (id_cache or {}).items():
-        if not isinstance(v, dict) or not v.get("id"):
-            continue
-        for k in (v.get("wkn"), v.get("isin"), str(schluessel).replace("KAT:", "")):
-            if k:
-                aus.setdefault(str(k).upper(), int(v["id"]))
-    for z in (wikifolios or {}).get("liste") or []:
-        if isinstance(z, (list, tuple)) and len(z) >= 2 and z[0]:
-            for k in (z[1], z[3] if len(z) > 3 else None):
-                if k:
-                    aus.setdefault(str(k).upper(), int(z[0]))
-    return aus
+    """Kurs-IDs (ls-tc) aus den Daten der Top-500-Listen -> {WKN/ISIN (gross): instrument_id}
+    (gemeinsam mit dem Kurs-Agenten: kurs_vorrat.kennung_ids)."""
+    import kurs_vorrat
+    return kurs_vorrat.kennung_ids(id_cache, wikifolios)
 
 
 def kurse_aus_top500(depot, ids):
