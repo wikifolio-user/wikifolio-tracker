@@ -1486,31 +1486,34 @@ html body .nav-logo { animation: navpuls-glas 2.4s ease-in-out infinite !importa
 html body .nav-wander { opacity: 1; filter: none !important;
     animation: navpuls-glas 2.4s ease-in-out infinite !important; animation-delay: var(--verzug, 0s) !important; }
 html body .nav-gruppe::before, html body .nav-gruppe::after {
-    content: ""; position: absolute; left: -60px; width: 46px; height: 2px; border-radius: 2px; pointer-events: none;
-    opacity: 0; animation: navlaser-rechts 7s linear infinite; animation-delay: calc(var(--verzug, 0s) + 1s);
+    content: ""; position: absolute; left: -60px; width: 40px; height: 1px; border-radius: 1px; pointer-events: none;
+    opacity: 0; animation: navlaser-rechts 7s ease-in-out infinite; animation-delay: calc(var(--verzug, 0s) + 1s);
 }
+/* nur ganz zart: duenn, halbtransparent, kaum Leuchten - blendet weich auf und wieder ab */
 html body .nav-gruppe::before {          /* nach rechts, auf der Trennlinie */
-    bottom: 6.5px;
-    background: linear-gradient(to right, transparent, rgba(124, 156, 255, 0.7) 55%, #E8F4FF);
-    box-shadow: 0 0 6px rgba(124, 156, 255, 0.8), 0 0 12px rgba(34, 211, 238, 0.45);
+    bottom: 7px;
+    background: linear-gradient(to right, transparent, rgba(160, 185, 255, 0.55));
+    box-shadow: 0 0 3px rgba(124, 156, 255, 0.35);
 }
 html body .nav-gruppe::after {           /* nach links, durch die Schrift */
-    top: 14px; height: 1.5px; width: 34px;
-    background: linear-gradient(to left, transparent, rgba(34, 211, 238, 0.7) 55%, #E8FFFF);
-    box-shadow: 0 0 6px rgba(34, 211, 238, 0.8);
+    top: 15px; width: 30px;
+    background: linear-gradient(to left, transparent, rgba(140, 230, 245, 0.5));
+    box-shadow: 0 0 3px rgba(34, 211, 238, 0.3);
     animation-name: navlaser-links; animation-delay: calc(var(--verzug, 0s) + 4.5s);
 }
 @keyframes navlaser-rechts {
-    0%        { left: -60px; opacity: 0; }
-    1%        { opacity: 1; }
-    9%        { left: calc(100% + 10px); opacity: 1; }
-    9.5%, 100% { left: calc(100% + 10px); opacity: 0; }
+    0%         { left: -60px; opacity: 0; }
+    3%         { opacity: 0.45; }
+    8%         { opacity: 0.45; }
+    11%        { left: calc(100% + 10px); opacity: 0; }
+    11.1%, 100% { left: calc(100% + 10px); opacity: 0; }
 }
 @keyframes navlaser-links {
-    0%        { left: calc(100% + 10px); opacity: 0; }
-    1%        { opacity: 1; }
-    9%        { left: -60px; opacity: 1; }
-    9.5%, 100% { left: -60px; opacity: 0; }
+    0%         { left: calc(100% + 10px); opacity: 0; }
+    3%         { opacity: 0.4; }
+    8%         { opacity: 0.4; }
+    11%        { left: -60px; opacity: 0; }
+    11.1%, 100% { left: -60px; opacity: 0; }
 }
 @keyframes navpuls-glas {
     0%, 100% { text-shadow: 0 0 2px transparent; opacity: 0.8; }
