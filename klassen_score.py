@@ -188,7 +188,7 @@ SPALTEN = (("score", "Score", True), ("rdd", "Rendite je Verlust", True), ("rend
 
 
 def je_kennung(katalog_teile, art="wikifolio"):
-    """{WKN/ISIN (gross): {score, einordnung, rendite, rendite_jahre, vola, dd, jahre, rdd}} aus dem Katalog."""
+    """{WKN/ISIN (gross): {score, einordnung, rendite, rendite_jahre, vola, dd, jahre, rdd, rr}} aus dem Katalog."""
     aus = {}
     for d in katalog_teile or []:
         felder = (d or {}).get("felder") or []
@@ -200,7 +200,7 @@ def je_kennung(katalog_teile, art="wikifolio"):
             k = b["kennzahlen"]
             zeile = {"score": b["score"], "einordnung": b.get("einordnung"), "rendite": k["rendite"],
                      "rendite_jahre": k["rendite_jahre"], "vola": k["vola"], "dd": k["dd"], "jahre": k["jahre"],
-                     "rdd": k["rdd"]}
+                     "rdd": k["rdd"], "rr": k.get("rr")}
             for kenn in (w.get("kennung"), w.get("isin")):
                 if kenn:
                     aus.setdefault(str(kenn).upper(), zeile)
