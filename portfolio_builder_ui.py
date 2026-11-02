@@ -841,7 +841,7 @@ def _tabelle(h, r):
                 "Rendite % p. a.": st.column_config.NumberColumn(
                     "Rendite % p. a.", min_value=P.MIN_RENDITE, max_value=P.MAX_RENDITE, format="localized",
                     step=0.1, width="small",
-                    help="Erwartete Rendite dieses Werts. Vorschlag aus den Daten der Watchlist (bzw. der "
+                    help="Erwartete Rendite dieses Werts. Vorschlag aus den Daten der Ranglisten (bzw. der "
                          "Kurshistorie), Grundlage oben wählbar – die Spalte „Basis“ zeigt, woher die Zahl kommt. "
                          "Eigene Eingabe bleibt stehen; Zelle leeren = die allgemeine Rendite oben."),
                 "Basis": st.column_config.TextColumn(
@@ -1090,7 +1090,7 @@ def _positionen_tabelle(r, h=None):
                     unsafe_allow_html=True)
         if bew:
             st.markdown('<div class="pb-hinweis" style="margin-top:8px">Bewertung: Score 0–100 relativ zur eigenen '
-                        'Anlageklasse – dieselbe Bewertung wie im Katalog „Alle Werte“ (Watchlist/Top-500-Daten). '
+                        'Anlageklasse – dieselbe Bewertung wie im Katalog „Alle Werte“ (Ranglisten-Daten). '
                         '🟢 attraktiv · 🟡 mit Einschränkungen · 🔴 eher nicht · – nicht in den Daten.</div>',
                         unsafe_allow_html=True)
         if nach_art:

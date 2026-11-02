@@ -2445,7 +2445,7 @@ def _watchlist_kennzahlen(h):
         aus[k["wkn"]] = {"historical1Y": None if p.get("1J") is None else p["1J"] / 100.0,
                          "historical3Y": pa[3], "historical5Y": pa[5], "historical10Y": pa[10],
                          "vola1y": None if p.get("vola") is None else p["vola"] / 100.0, "maxdd": p.get("maxdd"),
-                         "jahre": jahre, "quelle": "Watchlist (Top 500)", "instrument": k["name"]}
+                         "jahre": jahre, "quelle": "Ranglisten (Top 500)", "instrument": k["name"]}
     return aus
 
 
@@ -2883,7 +2883,7 @@ def _rang_transparenz(zeilen, modell, typ_key, sortierung, stand, q_stand, h, ct
     with st.expander("ℹ️ Wie wird bewertet? (Methode, Gewichte, Datenlücken)"):
         st.markdown(
             "- **Fairer Vergleich:** Aktien werden nur mit Aktien verglichen, ETFs mit ETFs, Wikifolios mit "
-            "Wikifolios – über alle Werte der Watchlist, unabhängig von den Filtern.\n"
+            "Wikifolios – über alle Werte der Ranglisten, unabhängig von den Filtern.\n"
             "- **Kriterium → Punkte:** meist der Rang in der Klasse („besser als 80 % der ETFs“ = 80 Punkte). "
             "Feste Skalen: Punkte des Qualitäts-Agenten, Länge der Historie (10 Jahre = 100), Streuung, "
             "Analysten-Revisionen (±10 % = 100/0).\n"
@@ -2920,7 +2920,7 @@ def _katalog_gross(m, h):
         stand_txt = datetime.datetime.fromisoformat(stand).strftime("%d.%m.%Y")
     except Exception:
         stand_txt = stand or "–"
-    st.caption(f"{_de(len(roh))} Werte aus der Watchlist · Stand {stand_txt} · Kurse ls-tc.de / Yahoo Finance, "
+    st.caption(f"{_de(len(roh))} Werte aus den Ranglisten · Stand {stand_txt} · Kurse ls-tc.de / Yahoo Finance, "
                "in Euro")
 
     such = st.text_input("Suche (Name, WKN, Symbol)", key="pl_gk_such", placeholder="z. B. Nvidia, A2PKXG, LS9…").strip().lower()
@@ -3130,7 +3130,7 @@ def _auto_ergaenzen(m, h):
 def _katalog(m, h):
     gross_n = len(_gross_daten(h)[0])
     optionen = [f"⭐ Auswahl ({len(D.KATALOG)})",
-                f"🌐 Alle Werte ({_de(gross_n)})" if gross_n else "🌐 Alle Werte (Watchlist)"]
+                f"🌐 Alle Werte ({_de(gross_n)})" if gross_n else "🌐 Alle Werte (Ranglisten)"]
     # sobald die grosse Liste da ist, ist sie die Standardansicht
     quelle = st.pills("Katalog", optionen, default=optionen[1] if gross_n else optionen[0],
                       key=f"pl_kat_quelle_{bool(gross_n)}") or optionen[0]
@@ -3218,7 +3218,7 @@ def _katalog(m, h):
                 werte[w] = wl[w]
                 ersetzt += 1
         if ersetzt:
-            st.caption(f"{ersetzt} von {len(fehlend)} fehlenden Werten aus den Daten der Watchlist ergänzt"
+            st.caption(f"{ersetzt} von {len(fehlend)} fehlenden Werten aus den Daten der Ranglisten ergänzt"
                        + (" – Vola, Max DD und Risk kommen mit dem nächsten Lauf des Watchlist-Agenten dazu."
                           if not any(v.get("vola1y") is not None for v in wl.values()) else "."))
     zeilen = [z for z in _katalog_zeilen(m, werte) if typ == "Alle" or z["Typ"] == typ]
@@ -3553,7 +3553,7 @@ def _bausteine_bewertung(m, h, hist_assets=None):
             z = nach_isin[a["isin"]]
         if z is not None and z["typ"] == typ:
             z = dict(z, name=a["name"])
-            quelle = "Watchlist (täglich vom Agenten berechnet)"
+            quelle = "Ranglisten (täglich vom Agenten berechnet)"
         else:
             ha = hist_assets.get(a["id"]) or {}
 
@@ -3567,7 +3567,7 @@ def _bausteine_bewertung(m, h, hist_assets=None):
                  "vola": None if vola is None else round(float(vola) * 100, 1),
                  "maxdd": ha.get("maxdd"), "jahre": ha.get("jahre"), "div": None,
                  "qd": qvoll.get(a.get("yahoo") or a.get("ticker") or "") if typ == "aktie" else None}
-            quelle = "Kurshistorie des Planers (nicht in der Watchlist)" if ha and not ha.get("fehler") else \
+            quelle = "Kurshistorie des Planers (nicht in den Ranglisten)" if ha and not ha.get("fehler") else \
                 "keine Kursdaten"
         b = modell.bewerte(z)
         if not b:
@@ -3813,7 +3813,7 @@ def _b_bausteine(m, R, h, hist_assets=None, hist_korb=None):
     if not offen:
         st.button("➕ Baustein hinzufügen – ETF, Aktie oder wikifolio", key="pl_add_knopf", type="primary",
                   width="stretch", on_click=_umschalten)
-        st.caption("Aus dem Katalog aller Watchlist-Werte (mit Score und Analyse) auswählen oder direkt per "
+        st.caption("Aus dem Katalog aller Werte der Ranglisten (mit Score und Analyse) auswählen oder direkt per "
                    "WKN / ISIN suchen.")
     else:
         c1, c2 = ([st.container()] * 2 if _smartphone() else st.columns([3, 1], vertical_alignment="center"))

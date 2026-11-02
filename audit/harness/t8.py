@@ -1,6 +1,6 @@
 import br, sys, time
 from playwright.sync_api import sync_playwright
-ANS = ["Test-Depot","Einstellungen","Chronik","Vermögensaufbau","Performance > 2026","Performance > 2021","Candlestick","Zukunfts-Prognose","Szenario-Simulator","Portfolio-Planer","Watchlist","Abfindungsrechner","Zinseszinsrechner","Benutzer"]
+ANS = ["Test-Depot","Einstellungen","Chronik","Vermögensaufbau","Performance > 2026","Performance > 2021","Candlestick","Zukunfts-Prognose","Szenario-Simulator","Portfolio-Planer","Ranglisten & Screener","Abfindungsrechner","Zinseszinsrechner","Benutzer"]
 mobil = sys.argv[1] == "mobil"
 with sync_playwright() as p:
     b, ctx, page = br.start(p, 390 if mobil else 1400, 844 if mobil else 900, mobil)

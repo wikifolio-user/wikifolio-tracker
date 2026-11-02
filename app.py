@@ -2114,7 +2114,7 @@ ANSICHT_KURZ = {
     "📊 Szenario-Simulator (5 Jahre)": "📊 Szenarien",
     "💼 Portfolio-Planer": "💼 Planer",
     "📝 Trader-Log (Trades & Kommentare)": "📝 Chronik",
-    "🏆 Watchlist Top 50": "🏆 Watchlist",
+    "🏆 Watchlist Top 50": "🏆 Ranglisten",
     ANSICHT_MUSTER: "📦 Muster",
     ANSICHT_ABFINDUNG: "💶 Abfindung",
     ANSICHT_ZINS: "🧮 Zinsen",
@@ -2147,7 +2147,7 @@ NAV_NAMEN = {
     ANSICHT_ANALYSE: "🧠 Depot-Analyse",          # Kachel: kurz, voller Name in der Kopfleiste (NAV_TITEL)
     ANSICHT_ANALYSE_DEPOT: "📥 Analyse-Depot",
     ANSICHT_BEWERTUNG: "⚖️ Bewertung",
-    "🏆 Watchlist Top 50": "🏆 Watchlist Top 500",
+    "🏆 Watchlist Top 50": "🏆 Ranglisten & Screener",
     ANSICHT_MUSTER: "📦 Musterdepot",
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
     ANSICHT_ZINS: "🧮 Zinseszinsrechner",
@@ -4409,7 +4409,7 @@ def render_dashboard():
             c.saveState()
             c.setFont("Helvetica-Bold", 8)
             c.setFillColor(colors.HexColor("#111827"))
-            c.drawString(10 * mm, landscape(A4)[1] - 7 * mm, "Watchlist-Gesamtübersicht")
+            c.drawString(10 * mm, landscape(A4)[1] - 7 * mm, "Ranglisten – Gesamtübersicht")
             c.setFont("Helvetica", 7.5)
             c.setFillColor(colors.HexColor("#6B7280"))
             c.drawRightString(landscape(A4)[0] - 10 * mm, landscape(A4)[1] - 7 * mm, stand_text)
@@ -4419,8 +4419,8 @@ def render_dashboard():
             c.restoreState()
 
         doc = SimpleDocTemplate(puffer, pagesize=landscape(A4), leftMargin=10 * mm, rightMargin=10 * mm,
-                                topMargin=12 * mm, bottomMargin=12 * mm, title="Watchlist-Gesamtübersicht")
-        inhalt = [Paragraph("Watchlist-Gesamtübersicht", ParagraphStyle("h", fontName="Helvetica-Bold",
+                                topMargin=12 * mm, bottomMargin=12 * mm, title="Ranglisten – Gesamtübersicht")
+        inhalt = [Paragraph("Ranglisten – Gesamtübersicht", ParagraphStyle("h", fontName="Helvetica-Bold",
                                                                          fontSize=18, leading=22)),
                   Paragraph(stand_text + " · Grün = Hohe Analysepriorität / positiv, Gelb = Beobachtungsliste, "
                             "Grau = Nicht weiterverfolgen, Rot = negativ · Dreieck = Platzveränderung zu vor "
@@ -4499,7 +4499,7 @@ def render_dashboard():
         fertig = st.session_state.get("ue_pdf")
         if fertig and fertig[0] == schluessel:
             st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
-                               file_name=f"Watchlist_Uebersicht_{datetime.date.today().isoformat()}.pdf",
+                               file_name=f"Ranglisten_Uebersicht_{datetime.date.today().isoformat()}.pdf",
                                key="ue_pdf_download", width="stretch")
         st.caption(f"{stand_text} · A4 quer · breite Tabellen lassen sich hier seitlich wischen, "
                    "die Namensspalte bleibt stehen.")

@@ -127,7 +127,7 @@ def kaufplan(depot, kapital_neu, bestand=None, cash_vorhanden=0.0, reserve_pct=1
         modelprice = positive(p.get('kurs'))
         price = lprice or (modelprice if not nur_live else 0.0)
         source = str(q.get('quelle') or 'Abgerufener EUR-Kurs') if lprice else (
-            'Watchlist-Kurs: Alter/Währung prüfen' if price else 'Kein bestätigter EUR-Echtkurs')
+            'Ranglisten-Kurs: Alter/Währung prüfen' if price else 'Kein bestätigter EUR-Echtkurs')
         candidates.append({'name': str(p.get('name') or ident), 'kennung': ident,
                            'art': p.get('art') or '', 'score': p.get('score'),
                            'ziel_pct': number(p.get('gewicht')), 'ziel_eur': round(target, 2),

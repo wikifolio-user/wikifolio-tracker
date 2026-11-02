@@ -14,7 +14,7 @@ if __name__ == '__main__':
      with sync_playwright() as p:
          b, ctx, page = br.start(p, w, 900, w < 600)
          br.login(page, "neu", "Neu-Test-Pass-12"); page.wait_for_timeout(1500)
-         oeffne(page, "Watchlist")
+         oeffne(page, "Ranglisten & Screener")
          page.locator("[data-testid=stButtonGroup] button", has_text="Wikifolios").first.click(); page.wait_for_timeout(1500); br.warte_ruhe(page)
          t = br.text(page)
          print(w, [z for z in t.splitlines() if z.startswith("Stand ")][:1])

@@ -9,7 +9,7 @@ def oeffne(page, name):
 S = sys.argv[1]
 ANS = sys.argv[2].split(",") if len(sys.argv) > 2 else ["Depot", "Depot verwalten", "Chronik", "Musterdepot", "Vermögen", "Seit 2026", "Seit 2021", "Candles",
        "Prognose", "Szenarien", "Portfolio Builder", "Investment-Scanner", "Investment Scanner Pro", "Planer",
-       "Watchlist", "Abfindung", "Zinseszins"]
+       "Ranglisten & Screener", "Abfindung", "Zinseszins"]
 with sync_playwright() as p:
     b, ctx, page = br.start(p, 1440, 900, False)
     br.login(page, "neu", "Neu-Test-Pass-12"); page.wait_for_timeout(1500)
