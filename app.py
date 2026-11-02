@@ -3183,6 +3183,8 @@ def render_dashboard():
             mit_div = bool(kat.get("dividende"))
             if mit_div and div_zr[0] in kat.get("top", {}):
                 zr_liste.append(div_zr)
+            import wikifolio_liste as WL
+            zr_liste = WL.nach_wichtigkeit(zr_liste, lambda z: z[0])        # wichtigste Zeitraeume zuerst
             zr_titel = [t for _, t in zr_liste]
             zr_wahl = st.pills("Zeitraum", zr_titel, default="1 Jahr" if "1 Jahr" in zr_titel else zr_titel[0],
                                key="top50_zeitraum")
@@ -4061,7 +4063,8 @@ def render_dashboard():
             titel = [kats[k]["titel"] for k in keys]
             wahl = auswahl_kompakt("Kategorie", titel, default=titel[0], key="qk_kategorie") or titel[0]
             zeilen = _qk_zeilen(m, keys[titel.index(wahl)] if wahl in titel else keys[0])
-        zr_titel = [t for _, t in QK_ZEITRAEUME]
+        import wikifolio_liste as WL
+        zr_titel = [t for _, t in WL.nach_wichtigkeit(QK_ZEITRAEUME, lambda z: z[0])]
         zr_wahl = st.pills("Zeitraum", zr_titel, default="1 Jahr", key="qk_zeitraum") or "1 Jahr"
         zr_key = dict((t, k) for k, t in QK_ZEITRAEUME)[zr_wahl]
 
@@ -4719,10 +4722,8 @@ def render_dashboard():
         # sortieren nach Zeitraum oder nach einer Kennzahl (Score, Vola, max. Verlust ...)
         # Reihenfolge nach Wichtigkeit (Score, Rendite p. a., 1/3/5 Jahre ... kurze Zeitraeume hinten)
         import wikifolio_liste as WL
-        alias = {"rendite": "rendite_pa", "vola": "vola1j", "dd": "maxdd"}     # Katalog-Schluessel -> Liste
         titel_von = {**{k: titel[k] for k in spalten}, **kz_titel}
-        wahl_titel = [titel_von[k] for k in sorted(titel_von, key=lambda k: WL.nach_wichtigkeit(
-            [alias.get(x, x) for x in titel_von]).index(alias.get(k, k)))]
+        wahl_titel = [titel_von[k] for k in WL.nach_wichtigkeit(list(titel_von))]
         zr_wahl = st.pills("Sortiert nach", wahl_titel, default="1 Jahr" if "1 Jahr" in zr_titel else zr_titel[0],
                            key="wk_zeitraum") or zr_titel[0]
         nach_kz = next((s for s, t in kz_titel.items() if t == zr_wahl), None)

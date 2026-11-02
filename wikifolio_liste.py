@@ -36,13 +36,20 @@ KENNZAHLEN = (
 # Risiko, Verlustrisiko - kurze Zeitraeume und Detailkennzahlen hinten
 WICHTIGKEIT = ("score", "mein_score", "rendite_pa", "1J", "3J", "5J", "sharpe3j", "sharpe1j", "maxdd", "rdd", "rr",
                "vola1j", "vola3j", "calmar3j", "sortino1j", "10J", "div", "gewinnmonate", "sma200", "dd_akt", "6M",
-               "3M", "1M", "2J", "jahre", "maxdd1j", "tage_unter_hoch", "schlechtester_monat", "bester_monat")
+               "9M", "3M", "1M", "2J", "1W", "1T", "jahre", "maxdd1j", "tage_unter_hoch", "schlechtester_monat", "bester_monat")
 
 
-def nach_wichtigkeit(schluessel):
-    """Schluessel (Zeitraeume/Kennzahlen) in der Reihenfolge von WICHTIGKEIT, Unbekannte hinten."""
+# andere Schluessel derselben Groessen (Ranglisten, Katalog, Qualitaet x Kurs)
+_ALIAS = {"DIV": "div", "rendite": "rendite_pa", "vola": "vola1j", "dd": "maxdd", "p6": "6M", "p12": "1J",
+          "p36": "3J"}
+
+
+def nach_wichtigkeit(schluessel, schluessel_von=None):
+    """Elemente in der Reihenfolge von WICHTIGKEIT (Unbekannte hinten, sonst stabil). schluessel_von: Element ->
+    Schluessel (z. B. fuer (Schluessel, Titel)-Paare)."""
     rang = {k: i for i, k in enumerate(WICHTIGKEIT)}
-    return sorted(schluessel, key=lambda k: rang.get(k, len(rang)))
+    von = schluessel_von or (lambda x: x)
+    return sorted(schluessel, key=lambda x: rang.get(_ALIAS.get(von(x), von(x)), len(rang)))
 
 
 TITEL = {k: t for k, t, _, _ in KENNZAHLEN}

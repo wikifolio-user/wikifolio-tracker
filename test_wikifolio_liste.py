@@ -99,7 +99,11 @@ class Wichtigkeit(unittest.TestCase):
         self.assertEqual(WL.nach_wichtigkeit(["1M", "jahre", "1J", "score", "xyz", "maxdd"]),
                          ["score", "1J", "maxdd", "1M", "jahre", "xyz"])
         alle = set(WL.ZEITRAEUME) | set(WL.BESSER_GROSS)
-        self.assertEqual(set(WL.WICHTIGKEIT), alle)                                   # nichts vergessen
+        self.assertTrue(set(WL.WICHTIGKEIT) >= alle)                                  # nichts vergessen
+        # Ranglisten-Zeitraeume (Schluessel, Titel) und Alias-Schluessel
+        zr = [("1T", "Tag"), ("1M", "Monat"), ("1J", "1 Jahr"), ("DIV", "Div."), ("3J", "3 Jahre")]
+        self.assertEqual([k for k, _ in WL.nach_wichtigkeit(zr, lambda z: z[0])], ["1J", "3J", "DIV", "1M", "1T"])
+        self.assertEqual(WL.nach_wichtigkeit(["p6", "p36", "p12"]), ["p12", "p36", "p6"])
 
 
 class EtfMerkmale(unittest.TestCase):
