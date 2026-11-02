@@ -94,6 +94,14 @@ class Liste(unittest.TestCase):
         self.assertEqual([(w["wkn"], w["rang"]) for w in WL.rangliste(self.w, "1J", "ls9c")], [("LS9C", 3)])
 
 
+class Wichtigkeit(unittest.TestCase):
+    def test_reihenfolge(self):
+        self.assertEqual(WL.nach_wichtigkeit(["1M", "jahre", "1J", "score", "xyz", "maxdd"]),
+                         ["score", "1J", "maxdd", "1M", "jahre", "xyz"])
+        alle = set(WL.ZEITRAEUME) | set(WL.BESSER_GROSS)
+        self.assertEqual(set(WL.WICHTIGKEIT), alle)                                   # nichts vergessen
+
+
 class EtfMerkmale(unittest.TestCase):
     def test_namen(self):
         import etf_merkmale as EM

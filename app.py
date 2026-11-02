@@ -4527,7 +4527,7 @@ def render_dashboard():
             return zr_titel.get(k) or WL.TITEL[k]
 
         da = WL.vorhandene(werte) | {"mein_score"}
-        alle = [k for k in WL.ZEITRAEUME if k in da] + [k for k, *_ in WL.KENNZAHLEN if k in da]
+        alle = WL.nach_wichtigkeit([k for k in WL.ZEITRAEUME if k in da] + [k for k, *_ in WL.KENNZAHLEN if k in da])
         standard_spalten = list(WL.STANDARD_SPALTEN_ETF if etf else WL.STANDARD_SPALTEN) + ["1J", "3J"]
         sort = st.selectbox("Sortiert nach", alle, format_func=titel, key=f"{p}2_sort",
                             **_startauswahl(f"{p}2_sort", alle) or {"index": alle.index("1J") if "1J" in alle else 0})
@@ -4717,7 +4717,12 @@ def render_dashboard():
         spalten = [k for k in WK_SPALTEN if k in titel]
         zr_titel = [titel[k] for k in spalten]
         # sortieren nach Zeitraum oder nach einer Kennzahl (Score, Vola, max. Verlust ...)
-        wahl_titel = zr_titel + list(kz_titel.values())
+        # Reihenfolge nach Wichtigkeit (Score, Rendite p. a., 1/3/5 Jahre ... kurze Zeitraeume hinten)
+        import wikifolio_liste as WL
+        alias = {"rendite": "rendite_pa", "vola": "vola1j", "dd": "maxdd"}     # Katalog-Schluessel -> Liste
+        titel_von = {**{k: titel[k] for k in spalten}, **kz_titel}
+        wahl_titel = [titel_von[k] for k in sorted(titel_von, key=lambda k: WL.nach_wichtigkeit(
+            [alias.get(x, x) for x in titel_von]).index(alias.get(k, k)))]
         zr_wahl = st.pills("Sortiert nach", wahl_titel, default="1 Jahr" if "1 Jahr" in zr_titel else zr_titel[0],
                            key="wk_zeitraum") or zr_titel[0]
         nach_kz = next((s for s, t in kz_titel.items() if t == zr_wahl), None)
