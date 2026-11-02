@@ -177,3 +177,43 @@ def rangliste(katalog_teile, art):
     for i, e in enumerate(aus, 1):
         e["rang"] = i
     return aus
+
+
+# ---------------------------------------------------------------------------
+# Kennzahlen als Spalten der Wikifolio-Liste (Watchlist -> Wikifolios)
+# ---------------------------------------------------------------------------
+# (Schluessel, Spaltentitel, groesser = besser)
+SPALTEN = (("score", "Score", True), ("rdd", "Rendite je Verlust", True), ("rendite", "Rendite p. a.", True),
+           ("vola", "Vola 1 J.", False), ("dd", "Max. Verlust", False), ("jahre", "Historie", True))
+
+
+def je_kennung(katalog_teile, art="wikifolio"):
+    """{WKN/ISIN (gross): {score, einordnung, rendite, rendite_jahre, vola, dd, jahre, rdd}} aus dem Katalog."""
+    aus = {}
+    for d in katalog_teile or []:
+        felder = (d or {}).get("felder") or []
+        for z in (d or {}).get("zeilen") or []:
+            w = dict(zip(felder, z))
+            if w.get("typ") != art:
+                continue
+            b = bewerte(w, art)
+            k = b["kennzahlen"]
+            zeile = {"score": b["score"], "einordnung": b.get("einordnung"), "rendite": k["rendite"],
+                     "rendite_jahre": k["rendite_jahre"], "vola": k["vola"], "dd": k["dd"], "jahre": k["jahre"],
+                     "rdd": k["rdd"]}
+            for kenn in (w.get("kennung"), w.get("isin")):
+                if kenn:
+                    aus.setdefault(str(kenn).upper(), zeile)
+    return aus
+
+
+def rangliste_nach(werte, kz, schluessel, begriff="", n=500):
+    """Werte ({wkn: {"name", "wkn", ...}}) nach einer Kennzahl sortiert (die besten n; Werte ohne diese Kennzahl
+    fehlen), danach optional nach Name/WKN gefiltert - der Rang bleibt der in der vollen Liste."""
+    besser_gross = dict((s, g) for s, _, g in SPALTEN)[schluessel]
+    mit = [(kz[w["wkn"].upper()][schluessel], w) for w in werte.values()
+           if (kz.get(w["wkn"].upper()) or {}).get(schluessel) is not None]
+    mit.sort(key=lambda x: ((-x[0] if besser_gross else x[0]), x[1]["name"].lower()))
+    liste = [dict(w, rang=i) for i, (_, w) in enumerate(mit[:n], 1)]
+    b = str(begriff or "").strip().lower()
+    return [w for w in liste if b in (w["name"] + " " + w["wkn"]).lower()] if b else liste

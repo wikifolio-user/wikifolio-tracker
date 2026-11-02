@@ -48,6 +48,7 @@ import requests
 
 import config
 import github_store
+import risiko_kennzahlen as RK
 from top50_universum import (DIVIDENDEN_SCHLUESSEL, INDEX_FONDS, INDEX_LISTEN, INDEX_REGIONEN, KATEGORIEN,
                              TOP_N, YAHOO_DATEIGRUPPEN, YAHOO_REGIONEN, ZEITRAEUME)
 
@@ -329,7 +330,7 @@ def bereinigen(reihe):
     return sauber
 
 
-def performance(reihe, heute):
+def performance(reihe, heute, mit_risiko=False):
     """{Zeitraum: Prozent oder None}. Leer, wenn der Wert nicht mehr aktiv
     gehandelt wird (letzter Kurs aelter als MAX_ALTER_TAGE) - sonst wuerden
     eingefrorene Kurse delisteter Werte die Ranglisten verfaelschen."""
@@ -390,6 +391,12 @@ def performance(reihe, heute):
             ergebnis["_gesamt"] = round((letzter / erster - 1) * 100, 2)   # gesamte Laufzeit
     except Exception:
         pass
+    if mit_risiko:
+        # weitere Kennzahlen fuer die Wikifolio-Liste (Sharpe, Sortino, Gewinnmonate ...)
+        try:
+            ergebnis["_risiko"] = RK.kennzahlen(reihe)
+        except Exception as e:
+            log.warning(f"Risiko-Kennzahlen fehlgeschlagen: {type(e).__name__}")
     return ergebnis
 
 
@@ -1687,6 +1694,29 @@ def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
     log.info(f"Grosser Katalog: {sum(len(z) for z in teile.values())} Werte")
 
 
+STATE_WIKI_KZ = "state/wikifolio_kennzahlen_{}.json"
+WIKI_KZ_TEILE = 4
+WIKI_KZ_FELDER = ["wkn", "name", "isin", "1M", "3M", "6M", "1J", "2J", "3J", "5J"] + list(RK.FELDER)
+
+
+def wikifolio_kennzahlen_schreiben(mitglieder, perf_je_id, ergebnis):
+    """Alle aktiven wikifolios mit Entwicklung je Zeitraum und Risiko-Kennzahlen (Wikifolio-Liste der App:
+    Spalten, Filter und eigene Bewertung)."""
+    teile = {i: [] for i in range(WIKI_KZ_TEILE)}
+    for uid, name, wkn, isin in mitglieder.get("wikifolios", []):
+        p = perf_je_id.get(uid) or {}
+        if not p or not wkn:
+            continue
+        rk = p.get("_risiko") or {}
+        zeile = [wkn, str(name)[:45], isin or ""] + [p.get(z) for z in WIKI_KZ_FELDER[3:10]] + \
+            [rk.get(f) for f in RK.FELDER]
+        teile[zlib.crc32(str(uid).encode()) % WIKI_KZ_TEILE].append(zeile)
+    for i, zeilen in teile.items():
+        speichere_state(STATE_WIKI_KZ.format(i), {"stand": ergebnis["stand"], "felder": WIKI_KZ_FELDER,
+                                                  "zeilen": zeilen}, f"top50: wikifolio-kennzahlen {i} [skip ci]")
+    log.info(f"wikifolio-Kennzahlen: {sum(len(z) for z in teile.values())} Werte")
+
+
 def dividenden_speichern(perf_je_id, jetzt):
     """Rendite und Auszahlungsrhythmus aller Dividendenzahler je Yahoo-Symbol - die App ergaenzt damit
     die Top-500-Qualitaetslisten (gleiche Symbole wie der Qualitaets-Agent)."""
@@ -1778,9 +1808,10 @@ def main():
     #    in mehreren Kategorien steht (z.B. Allianz in Aktien UND Dividenden)
     alle_ids = sorted({m[0] for k, liste in mitglieder.items() for m in liste})
     log.info(f"Lade Kurshistorie fuer {len(alle_ids)} Werte ...")
+    wiki_ids = {m[0] for m in mitglieder.get("wikifolios", [])}
     with ThreadPoolExecutor(PARALLEL) as pool:
         perf_je_id = dict(zip(alle_ids, pool.map(
-            lambda i: performance(historie(i), heute), alle_ids)))
+            lambda i: performance(historie(i), heute, mit_risiko=i in wiki_ids), alle_ids)))
 
     # 4) US-Indizes ueber Yahoo (Kurse in EUR + Dividendenrendite)
     ymap = lade_state(STATE_YAHOO, {}) or {}
@@ -1942,6 +1973,10 @@ def main():
         katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis)
     except Exception as e:
         log.error(f"Grosser Katalog fehlgeschlagen: {e}", exc_info=True)
+    try:
+        wikifolio_kennzahlen_schreiben(mitglieder, perf_je_id, ergebnis)
+    except Exception as e:
+        log.error(f"wikifolio-Kennzahlen fehlgeschlagen: {e}", exc_info=True)
 
     # 7) Wochenvergleich: Pfeile (Platz vor 7 Tagen), Neuaufnahmen, Rausgeflogene.
     #    Kategorien, fuer die heute die Vortagesliste gezeigt wird, bleiben
