@@ -1695,26 +1695,33 @@ def katalog_gross_schreiben(mitglieder, perf_je_id, ergebnis):
 
 
 STATE_WIKI_KZ = "state/wikifolio_kennzahlen_{}.json"
+STATE_ETF_KZ = "state/etf_kennzahlen_{}.json"
 WIKI_KZ_TEILE = 4
-WIKI_KZ_FELDER = ["wkn", "name", "isin", "1M", "3M", "6M", "1J", "2J", "3J", "5J"] + list(RK.FELDER)
+WIKI_KZ_FELDER = ["wkn", "name", "isin", "1M", "3M", "6M", "1J", "2J", "3J", "5J", "10J", "div"] + list(RK.FELDER)
+
+
+def klasse_kennzahlen_schreiben(mitglieder, perf_je_id, ergebnis, key="wikifolios", pfad=STATE_WIKI_KZ):
+    """Alle aktiven Werte einer Kategorie (wikifolios bzw. ETFs) mit Entwicklung je Zeitraum, Dividende und
+    Risiko-Kennzahlen (Listen der App: Spalten, Filter und eigene Bewertung)."""
+    teile, gesehen = {i: [] for i in range(WIKI_KZ_TEILE)}, set()
+    for uid, name, wkn, isin in mitglieder.get(key, []):
+        p = perf_je_id.get(uid) or {}
+        if not p or not wkn or uid in gesehen:
+            continue
+        gesehen.add(uid)
+        rk = p.get("_risiko") or {}
+        zeile = [wkn, str(name)[:60], isin or ""] + [p.get(z) for z in WIKI_KZ_FELDER[3:11]] + \
+            [round(p["_div"], 2) if p.get("_div") is not None else None] + [rk.get(f) for f in RK.FELDER]
+        teile[zlib.crc32(str(uid).encode()) % WIKI_KZ_TEILE].append(zeile)
+    for i, zeilen in teile.items():
+        speichere_state(pfad.format(i), {"stand": ergebnis["stand"], "felder": WIKI_KZ_FELDER, "zeilen": zeilen},
+                        f"top50: {key}-kennzahlen {i} [skip ci]")
+    log.info(f"{key}-Kennzahlen: {sum(len(z) for z in teile.values())} Werte")
 
 
 def wikifolio_kennzahlen_schreiben(mitglieder, perf_je_id, ergebnis):
-    """Alle aktiven wikifolios mit Entwicklung je Zeitraum und Risiko-Kennzahlen (Wikifolio-Liste der App:
-    Spalten, Filter und eigene Bewertung)."""
-    teile = {i: [] for i in range(WIKI_KZ_TEILE)}
-    for uid, name, wkn, isin in mitglieder.get("wikifolios", []):
-        p = perf_je_id.get(uid) or {}
-        if not p or not wkn:
-            continue
-        rk = p.get("_risiko") or {}
-        zeile = [wkn, str(name)[:45], isin or ""] + [p.get(z) for z in WIKI_KZ_FELDER[3:10]] + \
-            [rk.get(f) for f in RK.FELDER]
-        teile[zlib.crc32(str(uid).encode()) % WIKI_KZ_TEILE].append(zeile)
-    for i, zeilen in teile.items():
-        speichere_state(STATE_WIKI_KZ.format(i), {"stand": ergebnis["stand"], "felder": WIKI_KZ_FELDER,
-                                                  "zeilen": zeilen}, f"top50: wikifolio-kennzahlen {i} [skip ci]")
-    log.info(f"wikifolio-Kennzahlen: {sum(len(z) for z in teile.values())} Werte")
+    klasse_kennzahlen_schreiben(mitglieder, perf_je_id, ergebnis, "wikifolios", STATE_WIKI_KZ)
+    klasse_kennzahlen_schreiben(mitglieder, perf_je_id, ergebnis, "etf", STATE_ETF_KZ)
 
 
 def dividenden_speichern(perf_je_id, jetzt):
@@ -1808,10 +1815,11 @@ def main():
     #    in mehreren Kategorien steht (z.B. Allianz in Aktien UND Dividenden)
     alle_ids = sorted({m[0] for k, liste in mitglieder.items() for m in liste})
     log.info(f"Lade Kurshistorie fuer {len(alle_ids)} Werte ...")
-    wiki_ids = {m[0] for m in mitglieder.get("wikifolios", [])}
+    # weitere Kennzahlen (Sharpe, Gewinnmonate ...) fuer die Listen der wikifolios und ETFs
+    risiko_ids = {m[0] for k in ("wikifolios", "etf") for m in mitglieder.get(k, [])}
     with ThreadPoolExecutor(PARALLEL) as pool:
         perf_je_id = dict(zip(alle_ids, pool.map(
-            lambda i: performance(historie(i), heute, mit_risiko=i in wiki_ids), alle_ids)))
+            lambda i: performance(historie(i), heute, mit_risiko=i in risiko_ids), alle_ids)))
 
     # 4) US-Indizes ueber Yahoo (Kurse in EUR + Dividendenrendite)
     ymap = lade_state(STATE_YAHOO, {}) or {}

@@ -1424,6 +1424,21 @@ def wikifolio_alle(tag):
     return WL.laden(teile, wikifolio_kennzahlen(tag)) if teile else {}
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def etf_alle(tag):
+    """Alle ETFs mit Entwicklung, Kennzahlen und Merkmalen (etf_kennzahlen_N.json + Katalog-Score) - {} solange
+    der Watchlist-Agent die Dateien noch nicht geschrieben hat. tag nur als Cache-Schluessel."""
+    import klassen_score as KS
+    import wikifolio_liste as WL
+    teile = [d for d in UI.parallel_lesen(gh_read_taeglich, [f"state/etf_kennzahlen_{i}.json" for i in range(4)],
+                                          None) if isinstance(d, dict) and d.get("zeilen")]
+    if not teile:
+        return {}
+    katalog = [d for d in UI.parallel_lesen(gh_read_taeglich, [f"state/planer/katalog_gross_{i}.json"
+                                                               for i in range(4)], None) if isinstance(d, dict)]
+    return WL.laden(teile, KS.je_kennung(katalog, "etf"), art="etf")
+
+
 def ist_wikifolio(wkn="", name=""):
     """True nur fuer wikifolio-Zertifikate. Die starten bei Auflegung immer bei
     100 € - ETFs (MSCI, Gold, Nasdaq ...) dagegen NICHT, dort waere ein
@@ -2369,7 +2384,7 @@ def rechner_merken(bereich, sofort=False):
 # Eingaben ohne eigene Datei (Zukunfts-Prognose, Simulation): Streamlit loescht Widget-Werte,
 # sobald ihre Ansicht nicht gezeichnet wird. Je Sitzung gemerkt und beim naechsten Anlegen des
 # Felds als Startwert eingesetzt; Knoepfe und das gespeicherte Auflegungsdatum bleiben aussen vor.
-SITZUNG_EINGABEN = re.compile(r"^(prognose_rate_|prognose_wert_wahl$|mc_jahre$|mc_shrinkage$|szenario_|wk2_)"
+SITZUNG_EINGABEN = re.compile(r"^(prognose_rate_|prognose_wert_wahl$|mc_jahre$|mc_shrinkage$|szenario_|wk2_|etf2_)"
                               r"(?!(.*_)?(aufl|del|save)_)")
 
 
@@ -3061,10 +3076,12 @@ def render_dashboard():
     LISTEN_LAENGEN = [50, 100, 250, 500]
     TREND_BIS = 50              # Wochenvergleich (Pfeile/NEU) gibt es fuer die ersten 50 Plaetze
 
-    def _listen_laenge(prefix):
-        """Wie viele Plaetze die Rangliste zeigt (Standard: Top 500)."""
-        titel = [f"Top {n}" for n in LISTEN_LAENGEN]
+    def _listen_laenge(prefix, alle=False):
+        """Wie viele Plaetze die Rangliste zeigt (Standard: Top 500; alle=True bietet zusaetzlich "Alle")."""
+        titel = [f"Top {n}" for n in LISTEN_LAENGEN] + (["Alle"] if alle else [])
         wahl = st.pills("Länge", titel, default="Top 500", key=f"{prefix}_laenge") or "Top 500"
+        if wahl == "Alle":
+            return 10 ** 6
         return LISTEN_LAENGEN[titel.index(wahl)] if wahl in titel else 500
 
     def _auswahl_art(prefix):
@@ -4488,65 +4505,103 @@ def render_dashboard():
     WK_SEITE = 25                                       # Raenge je Seite der wikifolio-Liste
     WK_SPALTEN = ["1M", "3M", "6M", "1J", "2J", "3J", "5J"]
 
-    def _wk_seite(nr):
-        st.session_state["wk_seite"] = nr
+    def _wk_seite(nr, p="wk"):
+        st.session_state[f"{p}_seite"] = nr
 
     def _render_wikifolios_alle(teile, stand):
-        """Alle aktiven wikifolios mit allen Kennzahlen (wikifolio_kennzahlen_N.json des Watchlist-Agenten):
-        Sortieren nach Zeitraum oder Kennzahl, Spalten waehlbar, Filter und eigene Bewertung (Mein Score)."""
+        _render_liste_alle("wikifolio", wikifolio_alle(datetime.date.today().isoformat()), stand)
+
+    def _render_liste_alle(art, werte, stand):
+        """Alle aktiven wikifolios bzw. ETFs mit allen Kennzahlen (*_kennzahlen_N.json des Watchlist-Agenten):
+        Sortieren nach Zeitraum oder Kennzahl, Spalten waehlbar, Filter und eigene Bewertung (Mein Score).
+        ETFs zusaetzlich: Filter nach Anbieter, Region, Thema, Ertragsverwendung und ohne Hebel/Short."""
+        import etf_merkmale as EM
         import wikifolio_liste as WL
-        werte = wikifolio_alle(datetime.date.today().isoformat())
+        etf = art == "etf"
+        p = "etf" if etf else "wk"              # Schluessel der Bedienelemente (etf2_*/wk2_* bleiben je Sitzung)
+        einzahl, mehrzahl = ("ETF", "ETFs") if etf else ("wikifolio", "wikifolios")
         zr_titel = {"1M": "Monat", "3M": "3 Monate", "6M": "6 Monate", "1J": "1 Jahr", "2J": "2 Jahre",
-                    "3J": "3 Jahre", "5J": "5 Jahre"}
+                    "3J": "3 Jahre", "5J": "5 Jahre", "10J": "10 Jahre"}
 
         def titel(k):
             return zr_titel.get(k) or WL.TITEL[k]
 
-        alle = list(WL.ZEITRAEUME) + [k for k, *_ in WL.KENNZAHLEN]
-        sort = st.selectbox("Sortiert nach", alle, format_func=titel, key="wk2_sort",
-                            **_startauswahl("wk2_sort", alle) or {"index": alle.index("1J")})
-        laenge = _listen_laenge("wk")
-        spalten = st.multiselect("Spalten", [k for k in alle if k != sort], format_func=titel, key="wk2_spalten",
-                                 default=[k for k in (_startwert("wk2_spalten", list(WL.STANDARD_SPALTEN) + ["1J", "3J"])
-                                                      ["value"]) if k in alle and k != sort])
-        begriff = st.text_input("In der Liste suchen", key="wk_such", placeholder="Name oder WKN …")
+        da = WL.vorhandene(werte) | {"mein_score"}
+        alle = [k for k in WL.ZEITRAEUME if k in da] + [k for k, *_ in WL.KENNZAHLEN if k in da]
+        standard_spalten = list(WL.STANDARD_SPALTEN_ETF if etf else WL.STANDARD_SPALTEN) + ["1J", "3J"]
+        sort = st.selectbox("Sortiert nach", alle, format_func=titel, key=f"{p}2_sort",
+                            **_startauswahl(f"{p}2_sort", alle) or {"index": alle.index("1J") if "1J" in alle else 0})
+        laenge = _listen_laenge(p, alle=etf)
+        spalten = st.multiselect("Spalten", [k for k in alle if k != sort], format_func=titel, key=f"{p}2_spalten",
+                                 default=[k for k in (_startwert(f"{p}2_spalten", standard_spalten)["value"])
+                                          if k in alle and k != sort])
+        begriff = st.text_input("In der Liste suchen", key=f"{p}_such",
+                                placeholder="Name, WKN oder ISIN …" if etf else "Name oder WKN …")
+
+        merkmale = {}
+        if etf:
+            with st.expander("🧭 Anbieter, Region, Thema", expanded=False):
+                m1, m2 = st.columns(2)
+                for i, (feld, t) in enumerate((("region", "Region"), ("themen", "Thema"),
+                                               ("anbieter", "Anbieter"), ("ertrag", "Ertragsverwendung"))):
+                    optionen = EM.auswahl(werte, feld)
+                    anzahl = dict(optionen)
+                    wahl = (m1 if i % 2 == 0 else m2).multiselect(
+                        t, [o for o, _ in optionen], key=f"{p}2_m_{feld}",
+                        format_func=lambda o, a=anzahl: f"{o} ({FMT.zahl(a[o], 0)})",
+                        default=[o for o in _startwert(f"{p}2_m_{feld}", [])["value"] if o in anzahl],
+                        placeholder="alle")
+                    if wahl:
+                        merkmale[feld] = set(wahl)
+                merkmale["ohne_hebel"] = st.toggle("Ohne Hebel- und Short-Produkte", key=f"{p}2_ohne_hebel",
+                                                   **_startwert(f"{p}2_ohne_hebel", True))
+                st.caption("Anbieter, Region, Thema und Ausschüttung stammen aus dem ETF-Namen (z. B. „iShares Core "
+                           "MSCI World … (Acc)“). Nicht erkennbare Werte stehen unter „Sonstige“ bzw. fehlen bei "
+                           "der Ertragsverwendung. Mehrere Themen: mindestens eines muss passen.")
 
         grenzen = {}
-        with st.expander("🔎 Filter", expanded=False):
+        with st.expander("🔎 Filter (Kennzahlen)", expanded=False):
             f1, f2 = st.columns(2)
-            for i, (k, t, art, (lo, hi), schritt) in enumerate(WL.FILTER):
-                aus_wert = lo if art == "min" else hi
-                v = (f1 if i % 2 == 0 else f2).slider(t, lo, hi, step=schritt, key=f"wk2_f_{k}",
-                                                      **_startwert(f"wk2_f_{k}", aus_wert))
+            filter_da = [f for f in WL.FILTER if f[0] in da]
+            for i, (k, t, f_art, (lo, hi), schritt) in enumerate(filter_da):
+                aus_wert = lo if f_art == "min" else hi
+                v = (f1 if i % 2 == 0 else f2).slider(t, lo, hi, step=schritt, key=f"{p}2_f_{k}",
+                                                      **_startwert(f"{p}2_f_{k}", aus_wert))
                 if v != aus_wert:
                     grenzen[k] = v
-            nur_auf = st.toggle("Nur im Aufwärtstrend (Kurs über der 200-Tage-Linie)", key="wk2_trend",
-                                **_startwert("wk2_trend", False))
+            nur_auf = st.toggle("Nur im Aufwärtstrend (Kurs über der 200-Tage-Linie)", key=f"{p}2_trend",
+                                **_startwert(f"{p}2_trend", False))
             st.caption("Ein Regler am Anschlag filtert nicht. Werte ohne die gefilterte Kennzahl (z. B. zu kurze "
                        "Historie) fallen bei aktivem Filter heraus.")
         with st.expander("⚖️ Eigene Bewertung (Mein Score)", expanded=False):
-            st.caption("Wie wichtig ist dir was? 0 = zählt nicht, 5 = sehr wichtig. Mein Score (0–100) vergleicht "
-                       "jedes wikifolio mit allen anderen nach dem Filter: je Kennzahl der Rangplatz, gewichtet "
-                       "gemittelt. Unter „Sortiert nach“ → „Mein Score“ wählen.")
+            st.caption(f"Wie wichtig ist dir was? 0 = zählt nicht, 5 = sehr wichtig. Mein Score (0–100) vergleicht "
+                       f"jeden Wert mit allen anderen {mehrzahl} nach dem Filter: je Kennzahl der Rangplatz, "
+                       "gewichtet gemittelt. Fehlt mehr als die Hälfte der Gewichtung (zu kurze Historie), gibt es keinen "
+                       "Score. Unter „Sortiert nach“ → „Mein Score“ wählen.")
             g1, g2 = st.columns(2)
-            gewichte = {k: (g1 if i % 2 == 0 else g2).slider(WL.TITEL[k], 0, 5, key=f"wk2_g_{k}",
-                                                              **_startwert(f"wk2_g_{k}", g))
-                        for i, (k, g) in enumerate(WL.BEWERTUNG)}
+            bewertung = [(k, g) for k, g in (WL.BEWERTUNG_ETF if etf else WL.BEWERTUNG) if k in da]
+            gewichte = {k: (g1 if i % 2 == 0 else g2).slider(WL.TITEL[k], 0, 5, key=f"{p}2_g_{k}",
+                                                              **_startwert(f"{p}2_g_{k}", g))
+                        for i, (k, g) in enumerate(bewertung)}
 
-        gefiltert = WL.filtern(werte, grenzen, nur_auf)
+        aktiv_mm = {k: v for k, v in merkmale.items() if v}
+        gefiltert = WL.filtern(werte, grenzen, nur_auf, merkmale=aktiv_mm or None)
         WL.mein_score(gefiltert, gewichte)
         liste = WL.rangliste(gefiltert, sort, begriff, n=laenge)
-        signatur = (sort, laenge, begriff, tuple(sorted(grenzen.items())), nur_auf)
-        if st.session_state.get("wk_signatur") != signatur:
-            st.session_state["wk_signatur"], st.session_state["wk_seite"] = signatur, 1
-        st.caption(f"Stand {stand} · {FMT.zahl(len(werte), 0)} aktive wikifolios"
-                   + (f" · nach Filter {FMT.zahl(len(gefiltert), 0)}" if grenzen or nur_auf else "")
+        signatur = (sort, laenge, begriff, tuple(sorted(grenzen.items())), nur_auf,
+                    tuple(sorted((k, tuple(sorted(v)) if isinstance(v, set) else v) for k, v in aktiv_mm.items())))
+        if st.session_state.get(f"{p}_signatur") != signatur:
+            st.session_state[f"{p}_signatur"], st.session_state[f"{p}_seite"] = signatur, 1
+        gefiltert_an = bool(grenzen or nur_auf or set(aktiv_mm) - {"ohne_hebel"})
+        st.caption(f"Stand {stand} · {FMT.zahl(len(werte), 0)} {'ETFs' if etf else 'aktive wikifolios'}"
+                   + (f" · nach Filter {FMT.zahl(len(gefiltert), 0)}" if gefiltert_an or len(gefiltert) != len(werte)
+                      else "")
                    + f" · sortiert nach {titel(sort)}" + (f" · {len(liste)} Treffer" if begriff else ""))
         if not liste:
-            st.info("Kein wikifolio erfüllt Filter und Suche – Filter lockern.")
+            st.info(f"Kein {einzahl} erfüllt Filter und Suche – Filter lockern.")
             return
         seiten = max((len(liste) + WK_SEITE - 1) // WK_SEITE, 1)
-        nr = min(max(int(st.session_state.get("wk_seite", 1)), 1), seiten)
+        nr = min(max(int(st.session_state.get(f"{p}_seite", 1)), 1), seiten)
         teil = liste[(nr - 1) * WK_SEITE:nr * WK_SEITE]
         EINORDNUNG = {"prio": "🟢", "beobachten": "🟡", "nicht": "⚪"}
 
@@ -4571,33 +4626,43 @@ def render_dashboard():
                 return f'<td class="pt-num {stark}">{FMT.zahl(v, 1)} J.</td>'
             return f'<td class="pt-num {stark}{"pt-down" if v < 0 else ""}">{FMT.zahl(v, 2)}</td>'
 
+        def _unterzeile(w):
+            if not etf:
+                return _h(w["wkn"])
+            mm = w.get("mm") or {}
+            teile_ = [w["wkn"], mm.get("region"), " · ".join(mm.get("themen") or [])]
+            if mm.get("ertrag"):
+                teile_.append("Aussch." if mm["ertrag"] == "Ausschüttend" else "Thes.")
+            hebel = ' <span class="pt-down">Hebel/Short</span>' if mm.get("hebel") else ""
+            return _h(" · ".join(t for t in teile_ if t and t != "Sonstige")) + hebel
+
         reihenfolge = [sort] + [k for k in spalten if k != sort]
         zeilen = "".join(
             f'<tr class="{"pt-zebra" if w["rang"] % 2 == 0 else ""}">'
             f'<td class="pt-num pt-seit ue-fix wk-rang">{w["rang"]}</td>'
             f'<td class="pt-wert ue-fix wk-name"><span class="pt-name">{_h(w["name"])}</span>'
-            f'<span class="pt-sub">{_h(w["wkn"])}</span></td>' + "".join(_zelle(w, k) for k in reihenfolge) + "</tr>"
-            for w in teil)
+            f'<span class="pt-sub">{_unterzeile(w)}</span></td>' + "".join(_zelle(w, k) for k in reihenfolge)
+            + "</tr>" for w in teil)
         kopf = "".join(f'<th class="pt-num">{"▼ " if k == sort else ""}{_h(titel(k))}</th>' for k in reihenfolge)
         st.markdown('<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
                     '<table class="pt pt-kompakt ue wk"><thead><tr><th class="pt-num ue-fix wk-rang">#</th>'
-                    f'<th class="pt-wert ue-fix wk-name">wikifolio</th>{kopf}</tr></thead>'
+                    f'<th class="pt-wert ue-fix wk-name">{einzahl}</th>{kopf}</tr></thead>'
                     f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
         if seiten > 1:
             n1, n2, n3 = st.columns([0.5, 2, 0.5], vertical_alignment="bottom")
-            n1.button("◀", key="wk_zur", on_click=_wk_seite, args=(nr - 1,), disabled=nr <= 1, width="stretch",
-                      help="Vorherige Seite")
+            n1.button("◀", key=f"{p}_zur", on_click=_wk_seite, args=(nr - 1, p), disabled=nr <= 1,
+                      width="stretch", help="Vorherige Seite")
 
             def bereich(i):
                 t = liste[(i - 1) * WK_SEITE:i * WK_SEITE]
                 return f"Rang {t[0]['rang']}–{t[-1]['rang']}  ({i}/{seiten})"
 
             wahl = n2.selectbox("Seite", list(range(1, seiten + 1)), index=nr - 1, format_func=bereich,
-                                key=f"wk_bereich_{nr}", label_visibility="collapsed")
+                                key=f"{p}_bereich_{nr}", label_visibility="collapsed")
             if wahl != nr:
-                st.session_state["wk_seite"] = wahl
+                st.session_state[f"{p}_seite"] = wahl
                 st.rerun()
-            n3.button("▶", key="wk_vor", on_click=_wk_seite, args=(nr + 1,), disabled=nr >= seiten,
+            n3.button("▶", key=f"{p}_vor", on_click=_wk_seite, args=(nr + 1, p), disabled=nr >= seiten,
                       width="stretch", help="Nächste Seite")
         with st.expander("Was bedeuten die Kennzahlen?", expanded=False):
             st.caption(
@@ -4608,10 +4673,27 @@ def render_dashboard():
                 "Verlust seit Beginn. **Vola**: Schwankung der Tageskurse p. a. **Max. Verlust**: größter Rückgang "
                 "vom Höchststand (seit Beginn bzw. im letzten Jahr). **Abstand zum Hoch / Tage seit Hoch**: wie weit "
                 "und wie lange unter dem Allzeithoch. **Gewinnmonate**: Anteil der Monate mit Plus. **Trend**: "
-                "Abstand zur 200-Tage-Linie (positiv = Aufwärtstrend). Quelle: Kurshistorie ls-tc.de, täglich vom "
-                "Watchlist-Agenten berechnet. Vergangene Werte sind keine Prognose.")
+                "Abstand zur 200-Tage-Linie (positiv = Aufwärtstrend). "
+                + ("**Rendite je Risiko**: Rendite p. a. / Vola. **Dividendenrendite**: nur, wo die Datenquelle sie "
+                   "liefert. **Hebel/Short**: Produkte mit Hebel, Short oder täglicher Neugewichtung – nur für "
+                   "kurzfristige Spekulation, standardmäßig ausgeblendet. Nicht in den Daten: laufende Kosten "
+                   "(TER), Fondsvolumen, Replikation. " if etf else "")
+                + "Quelle: Kurshistorie ls-tc.de, täglich vom Watchlist-Agenten berechnet. Vergangene Werte sind "
+                "keine Prognose.")
         st.caption("Tabelle seitlich wischen für alle Spalten – Rang und Name bleiben stehen. Werte übernehmen: im "
-                   "Portfolio Builder unter „Wert hinzufügen → Wikifolios → Top-Listen“.")
+                   + ("Portfolio Builder unter „Wert hinzufügen → 🏆 Top-Listen“." if etf else
+                      "Portfolio Builder unter „Wert hinzufügen → Wikifolios → Top-Listen“."))
+
+    def _render_etfs():
+        """Alle ETFs mit allen Kennzahlen, Merkmal-Filtern und eigener Bewertung - bis der Watchlist-Agent die
+        ETF-Kennzahlen geschrieben hat, ein Hinweis auf den ETF-Score."""
+        werte = etf_alle(datetime.date.today().isoformat())
+        if not werte:
+            st.info("Die erweiterte ETF-Übersicht entsteht beim nächsten Lauf des Watchlist-Agenten (täglich "
+                    "07:30 Uhr). Bis dahin: Bewertung der ETFs unter „🏅 ETF- & wikifolio-Score“.")
+            return
+        daten = gh_read_taeglich("state/top50.json", None) or {}
+        _render_liste_alle("etf", werte, ranglisten_stand(daten) if daten else "–")
 
     def _render_wikifolios():
         """Uebergreifende Liste aller wikifolios der Ranglisten (Top 50 + Top 500 je Zeitraum):
@@ -4964,7 +5046,7 @@ def render_dashboard():
         schritte.leiste(st, "watchlist")
         schritte.titel(st, "watchlist", 1)
         art = st.pills("Liste", ["🗂️ Gesamtübersicht", "⭐ Qualitäts-Score", "🏅 ETF- & wikifolio-Score",
-                                 "🧭 Qualität × Kurs", "📈 Performance", "🧩 Wikifolios"],
+                                 "🧭 Qualität × Kurs", "📈 Performance", "🌍 ETFs", "🧩 Wikifolios"],
                        default="🗂️ Gesamtübersicht", key="top50_art") or "🗂️ Gesamtübersicht"
         schritte.titel(st, "watchlist", 2, art.split(" ", 1)[-1])
         if art == "🏅 ETF- & wikifolio-Score":
@@ -4973,6 +5055,13 @@ def render_dashboard():
             except Exception as e:
                 st.error(f"⚠️ Fehler in diesem Tab: {e}")
                 notify_app_error("Tab-Klassen-Score", e)
+            return
+        if art == "🌍 ETFs":
+            try:
+                _render_etfs()
+            except Exception as e:
+                st.error(f"⚠️ Fehler in diesem Tab: {e}")
+                notify_app_error("Tab-ETFs", e)
             return
         if art == "🧩 Wikifolios":
             try:
