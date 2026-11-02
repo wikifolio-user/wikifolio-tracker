@@ -116,5 +116,34 @@ class ProJahr(unittest.TestCase):
         self.assertIsNone(KS.kennzahlen(alt)["pa"]["gesamt"])          # alte Daten ohne "gesamt"
 
 
+class WikifolioSpalten(unittest.TestCase):
+    FELDER = ["typ", "kat", "name", "kennung", "isin", "1J", "3J", "5J", "10J", "kurs", "div", "vola", "maxdd",
+              "jahre", "gesamt"]
+    TEILE = [{"felder": FELDER, "zeilen": [
+        ["wikifolio", "wikifolios", "Ruhig", "LS9AAA", "DE000LS9AAA1", 10.0, 40.0, None, None, 120, None, 8.0, -12.0,
+         4.0, 60.0],
+        ["wikifolio", "wikifolios", "Wild", "LS9BBB", "", 80.0, None, None, None, 300, None, 45.0, -55.0, 1.5, 90.0],
+        ["etf", "etf", "ETF", "A0RPWH", "IE00B4L5Y983", 10.0, 30.0, 60.0, None, 90, None, 14.0, -30.0, 12.0, 300.0],
+    ]}]
+
+    def test_je_kennung(self):
+        kz = KS.je_kennung(self.TEILE)
+        self.assertEqual(set(kz), {"LS9AAA", "DE000LS9AAA1", "LS9BBB"})            # ETF nicht dabei
+        self.assertAlmostEqual(kz["LS9AAA"]["dd"], 12.0)
+        self.assertAlmostEqual(kz["LS9AAA"]["vola"], 8.0)
+        self.assertEqual(kz["LS9AAA"]["rendite_jahre"], 3)
+        self.assertIsNotNone(kz["LS9AAA"]["score"])
+
+    def test_rangliste_nach_kennzahl(self):
+        kz = KS.je_kennung(self.TEILE)
+        werte = {"LS9AAA": {"name": "Ruhig", "wkn": "LS9AAA"}, "LS9BBB": {"name": "Wild", "wkn": "LS9BBB"},
+                 "LS9ZZZ": {"name": "Ohne", "wkn": "LS9ZZZ"}}
+        self.assertEqual([w["wkn"] for w in KS.rangliste_nach(werte, kz, "vola")], ["LS9AAA", "LS9BBB"])   # klein zuerst
+        self.assertEqual([w["wkn"] for w in KS.rangliste_nach(werte, kz, "dd")], ["LS9AAA", "LS9BBB"])
+        self.assertEqual(KS.rangliste_nach(werte, kz, "rendite")[0]["wkn"], "LS9BBB")                    # gross zuerst
+        gefiltert = KS.rangliste_nach(werte, kz, "vola", begriff="wild")
+        self.assertEqual([(w["wkn"], w["rang"]) for w in gefiltert], [("LS9BBB", 2)])
+
+
 if __name__ == "__main__":
     unittest.main()

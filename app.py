@@ -1403,6 +1403,16 @@ def top500_optionen_bei_bedarf(schluessel):
     return None
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def wikifolio_kennzahlen(tag):
+    """Kennzahlen aller wikifolios aus dem Katalog des Watchlist-Agenten (Score, Vola, max. Verlust, Rendite p. a.,
+    Rendite je Verlust, Historie) - je Tag einmal berechnet. tag nur als Cache-Schluessel."""
+    import klassen_score as KS
+    teile = [d for d in UI.parallel_lesen(gh_read_taeglich, [f"state/planer/katalog_gross_{i}.json"
+                                                             for i in range(4)], None) if isinstance(d, dict)]
+    return KS.je_kennung(teile, "wikifolio")
+
+
 def ist_wikifolio(wkn="", name=""):
     """True nur fuer wikifolio-Zertifikate. Die starten bei Auflegung immer bei
     100 € - ETFs (MSCI, Gold, Nasdaq ...) dagegen NICHT, dort waere ein
@@ -4481,15 +4491,22 @@ def render_dashboard():
             return
         lang = gh_read_taeglich("state/top50_lang_wikifolios.json", None) or {}
         werte = wikifolio_werte(kat, lang)
+        import klassen_score as KS
+        kz = wikifolio_kennzahlen(datetime.date.today().isoformat())
+        kz_titel = {s: t for s, t, _ in KS.SPALTEN} if kz else {}
         titel = {k: t for k, t in (daten.get("zeitraeume") or []) if k in WK_SPALTEN}
         spalten = [k for k in WK_SPALTEN if k in titel]
         zr_titel = [titel[k] for k in spalten]
-        zr_wahl = st.pills("Sortiert nach", zr_titel, default="1 Jahr" if "1 Jahr" in zr_titel else zr_titel[0],
+        # sortieren nach Zeitraum oder nach einer Kennzahl (Score, Vola, max. Verlust ...)
+        wahl_titel = zr_titel + list(kz_titel.values())
+        zr_wahl = st.pills("Sortiert nach", wahl_titel, default="1 Jahr" if "1 Jahr" in zr_titel else zr_titel[0],
                            key="wk_zeitraum") or zr_titel[0]
-        zr = spalten[zr_titel.index(zr_wahl)]
+        nach_kz = next((s for s, t in kz_titel.items() if t == zr_wahl), None)
+        zr = None if nach_kz else spalten[zr_titel.index(zr_wahl)]
         laenge = _listen_laenge("wk")
         begriff = st.text_input("In der Liste suchen", key="wk_such", placeholder="Name oder WKN …")
-        liste = wikifolio_rangliste(werte, zr, begriff, n=laenge)
+        liste = (KS.rangliste_nach(werte, kz, nach_kz, begriff, n=laenge) if nach_kz
+                 else wikifolio_rangliste(werte, zr, begriff, n=laenge))
         signatur = (zr, laenge, begriff)
         if st.session_state.get("wk_signatur") != signatur:
             st.session_state["wk_signatur"], st.session_state["wk_seite"] = signatur, 1
@@ -4503,6 +4520,17 @@ def render_dashboard():
         seiten = max((len(liste) + WK_SEITE - 1) // WK_SEITE, 1)
         nr = min(max(int(st.session_state.get("wk_seite", 1)), 1), seiten)
         teil = liste[(nr - 1) * WK_SEITE:nr * WK_SEITE]
+        if kz:
+            with st.expander("Was bedeuten Score, Vola und Max. Verlust?", expanded=False):
+                st.caption(
+                    "**Score** (0–100): eigene Bewertung aus Rendite, Rendite je Verlust, max. Verlust, Track Record, "
+                    "Beständigkeit und Schwankung (wie unter „ETF- & wikifolio-Score“) – 🟢 Priorität, 🟡 beobachten, "
+                    "⚪ eher nicht. **Rendite je Verlust**: Rendite p. a. geteilt durch den größten Rückgang – je höher, "
+                    "desto mehr Ertrag pro ausgehaltenem Verlust. **Rendite p. a.**: über den längsten verfügbaren "
+                    "Zeitraum (darunter die Jahre). **Vola 1 J.**: Schwankung der Tageskurse im letzten Jahr, "
+                    "aufs Jahr hochgerechnet. **Max. Verlust**: größter Rückgang vom Höchststand seit Beginn der "
+                    "Kurshistorie. **Historie**: Jahre mit Kursdaten. Quelle: Kurshistorie ls-tc.de, täglich vom "
+                    "Watchlist-Agenten berechnet. Vergangene Werte sind keine Garantie für die Zukunft.")
 
         def _pct(v, stark):
             if v is None:
@@ -4510,16 +4538,52 @@ def render_dashboard():
             return (f'<td class="pt-num {"pt-stark " if stark else ""}{"pt-up" if v >= 0 else "pt-down"}">'
                     f'{vz_zahl(v, 1)} %</td>')
 
+        EINORDNUNG = {"prio": ("🟢", "pt-up"), "beobachten": ("🟡", ""), "nicht": ("⚪", "")}
+
+        def _kz(w, s, stark):
+            v = (kz.get(w["wkn"].upper()) or {}).get(s)
+            k = kz.get(w["wkn"].upper()) or {}
+            if v is None:
+                return '<td class="pt-num">–</td>'
+            st_ = "pt-stark " if stark else ""
+            if s == "score":
+                sym, farbe = EINORDNUNG.get(k.get("einordnung"), ("", ""))
+                return f'<td class="pt-num {st_}{farbe}">{sym} {vz_zahl(v, 0).lstrip("+")}</td>'
+            if s == "rendite":
+                unter = f'<span class="pt-sub">{k["rendite_jahre"]} J.</span>' if k.get("rendite_jahre") else ""
+                return (f'<td class="pt-num {st_}{"pt-up" if v >= 0 else "pt-down"}">{vz_zahl(v, 1)} %'
+                        f'{unter}</td>')
+            if s == "dd":
+                return f'<td class="pt-num {st_}pt-down">−{FMT.zahl(v, 1)} %</td>'
+            if s == "vola":
+                return f'<td class="pt-num {st_}">{FMT.zahl(v, 1)} %</td>'
+            if s == "jahre":
+                return f'<td class="pt-num {st_}">{FMT.zahl(v, 1)} J.</td>'
+            return f'<td class="pt-num {st_}">{FMT.zahl(v, 2)}</td>'                      # Rendite je Verlust
+
         # sortierte Spalte direkt hinter den Namen (auf dem Handy sonst erst nach Wischen sichtbar)
-        spalten = [zr] + [k for k in spalten if k != zr]
+        spalten = ([zr] if zr else []) + [k for k in spalten if k != zr]
+        kz_spalten = ([nach_kz] if nach_kz else []) + [s for s in kz_titel if s != nach_kz]
+        vorne = [("kz", nach_kz)] if nach_kz else [("zr", zr)]
+        # Kennzahlen direkt nach der Sortierspalte, danach die uebrigen Zeitraeume (am Handy ohne langes Wischen)
+        rest = [("kz", s) for s in kz_spalten if s != nach_kz] + [("zr", k) for k in spalten if k != zr]
+        reihenfolge = vorne + rest
+
+        def _zelle(w, art, k):
+            if art == "zr":
+                return _pct(w["perf"].get(k), k == zr)
+            return _kz(w, k, k == nach_kz)
+
         zeilen = "".join(
             f'<tr class="{"pt-zebra" if w["rang"] % 2 == 0 else ""}">'
             f'<td class="pt-num pt-seit ue-fix wk-rang">{w["rang"]}</td>'
             f'<td class="pt-wert ue-fix wk-name"><span class="pt-name">{_h(w["name"])}</span>'
             f'<span class="pt-sub">{_h(w["wkn"])}</span></td>'
-            + "".join(_pct(w["perf"].get(k), k == zr) for k in spalten) + "</tr>"
+            + "".join(_zelle(w, a, k) for a, k in reihenfolge) + "</tr>"
             for w in teil)
-        kopf = "".join(f'<th class="pt-num">{"▼ " if k == zr else ""}{_h(titel[k])}</th>' for k in spalten)
+        kopf = "".join(
+            f'<th class="pt-num">{"▼ " if (a, k) == vorne[0] else ""}{_h(titel[k] if a == "zr" else kz_titel[k])}</th>'
+            for a, k in reihenfolge)
         # wie die Gesamtuebersicht: seitlich wischbar (auch am iPhone), Rang und Name bleiben links stehen
         st.markdown('<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
                     '<table class="pt pt-kompakt ue wk"><thead><tr><th class="pt-num ue-fix wk-rang">#</th>'
@@ -4543,7 +4607,7 @@ def render_dashboard():
             n3.button("▶", key="wk_vor", on_click=_wk_seite, args=(nr + 1,), disabled=nr >= seiten,
                       width="stretch", help="Nächste Seite")
         # PDF erst auf Knopfdruck erzeugen: ganze Liste (alle Seiten), alle Zeitraeume
-        pdf_schluessel = f"wk_pdf|{stand}|{zr}|{laenge}|{begriff}"
+        pdf_schluessel = f"wk_pdf|{stand}|{zr_wahl}|{laenge}|{begriff}"
         if st.button("📄 PDF der ganzen Liste erstellen", key="wk_pdf_knopf", width="stretch"):
             try:
                 import wikifolio_pdf
