@@ -49,11 +49,11 @@ ANBIETER = (
 # Region: erster Treffer zaehlt (Laender vor Kontinenten vor "Welt")
 REGIONEN = (
     ("Deutschland", r"\bdax\b|\bmdax\b|\bsdax\b|\btecdax\b|\bgermany\b|\bdeutschland\b"),
-    ("USA", r"\bs&p\s?500\b|\bs&p\b|\bnasdaq\b|\busa\b|\bu\.s\.\b|\bus\b|\bamerica\b|\brussell\b|\bdow jones\b|"
+    ("USA", r"\bs&p\s?500\b|\bs&p\b|s\+p|\bsp\s?500\b|\bnasdaq\b|\bnas\s?100\b|\busa\b|\bu\.s\.\b|\bus\b|\bamerica\b|\brussell\b|\bdow jones\b|"
             r"\bmsci usa\b|\btreasury\b|\bus treasur"),
     ("Schwellenländer", r"\bemerging\b|\bem\b|\bmsci em\b|\bchina\b|\bindia\b|\bindien\b|\bbrazil\b|\bkorea\b|"
                         r"\btaiwan\b|\blatin america\b|\bafrica\b|\bfrontier\b|\bbric\b"),
-    ("Japan", r"\bjapan\b|\bnikkei\b|\btopix\b"),
+    ("Japan", r"\bjapan\b|\bjap\b|\bjp\b|\bnikkei\b|\btopix\b"),
     ("Großbritannien", r"\buk\b|\bftse 100\b|\bftse 250\b|\bunited kingdom\b|\bgilt"),
     ("Schweiz", r"\bswitzerland\b|\bswiss\b|\bsmi\b"),
     ("Europa", r"\beurope\b|\beuropa\b|\beuro\b|\beurozone\b|\bemu\b|\bstoxx\b|\bnordic\b|\bfrance\b|\bcac\b|"

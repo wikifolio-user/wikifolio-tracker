@@ -121,6 +121,11 @@ class EtfMerkmale(unittest.TestCase):
         self.assertTrue(EM.merkmale("Leverage Shares 3x Long Tesla")["hebel"])
         self.assertIsNone(EM.merkmale("Amundi S&P 500 Small Cap")["ertrag"])          # "Cap" ist kein Acc
         self.assertEqual(EM.merkmale("")["anbieter"], "Sonstige")
+        # Kurznamen von ls-tc
+        self.assertEqual(EM.merkmale("WISDOMTREE JAP.E.U.E.ACC")["region"], "Japan")
+        self.assertEqual(EM.merkmale("OSSIAM-MSCI JP NR HI1CEO")["region"], "Japan")
+        self.assertEqual(EM.merkmale("SPDR S+P 500 ESGSC DLA")["region"], "USA")
+        self.assertEqual(EM.merkmale("UBS-U.CORE SP500 ETF DLD")["region"], "USA")
 
     def test_passt(self):
         import etf_merkmale as EM
