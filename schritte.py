@@ -114,6 +114,13 @@ FUEHRUNG = {
         ("Pläne (optional)", "Sparrate oder Entnahme je Zeitraum unterschiedlich planen"),
         ("Ergebnis", "Endkapital, Entwicklung und Tabelle ablesen"),
     ],
+    "wiki": [
+        ("Überblick", "Depotwert, Entwicklung seit dem Start und nächste Umschichtung ablesen"),
+        ("Wertentwicklung", "Verlauf des Modelldepots seit dem Start mit 100.000 € ansehen"),
+        ("Positionen", "Die 50 Aktien und 20 ETFs mit Stückzahl, Kurs, Wert und Bewertung prüfen"),
+        ("Umschichtung", "Käufe und Verkäufe des letzten Freitags im wikifolio nachbuchen"),
+        ("Rangliste & Methode", "Nachrücker und die Regeln des Bewertungssystems nachlesen"),
+    ],
     "atz": [
         ("Überblick", "Rentenbeginn, Netto, Versorgungslücke und Break-even ablesen"),
         ("Eingaben", "Person, Rente, Altersteilzeit, Vorsorge, Kapital und Weiteres in den Reitern eintragen"),
