@@ -3,7 +3,7 @@ import sys, br
 from playwright.sync_api import sync_playwright
 S, tag = sys.argv[1], sys.argv[2]
 ANS = ["START", "Depot", "Depot verwalten", "Vermögensaufbau", "Zukunfts-Prognose", "Portfolio Builder",
-       "Scanner 2.0", "Watchlist", "Zinseszinsrechner", "Abfindungsrechner", "Portfolio-Planer"]
+       "Scanner 2.0", "Ranglisten & Screener", "Zinseszinsrechner", "Abfindungsrechner", "Portfolio-Planer"]
 for w, h in ((390, 844), (1440, 900)):
     with sync_playwright() as p:
         b, ctx, page = br.start(p, w, h, w < 600)

@@ -139,7 +139,7 @@ def bericht(erg, kapital, profil_titel=""):
     for hw in d.get("hinweise") or []:
         teile.append(Paragraph(_text("Hinweis: " + hw), klein))
     teile += [Spacer(1, 4 * mm), Paragraph(_text(
-        "Modellrechnung auf Basis der Top-500-/Watchlist-Daten und vereinfachter Annahmen – keine Anlageberatung "
+        "Modellrechnung auf Basis der Ranglisten-Daten und vereinfachter Annahmen – keine Anlageberatung "
         "und keine Garantie. Vergangene Renditen sind kein verlässlicher Hinweis auf künftige Ergebnisse."), klein)]
 
     def fuss(canvas, doc):

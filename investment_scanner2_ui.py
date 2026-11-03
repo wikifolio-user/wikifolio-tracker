@@ -1,7 +1,7 @@
 """Investment Scanner 2.0 - eigene Ansicht (Oberflaeche zu investment_scanner2.py).
 
 Nachbau des HTML-Scanners "Echtdaten & Entnahmeplanung" mit den Daten der App: Universum aus den
-Top-500-/Watchlist-Daten, aktuelle EUR-Kurse auf Knopfdruck von ls-tc.de, Bestandsdepot und eigene Werte per
+Ranglisten-Daten, aktuelle EUR-Kurse auf Knopfdruck von ls-tc.de, Bestandsdepot und eigene Werte per
 CSV. Keine Orderausfuehrung, keine echte Auszahlung."""
 import datetime
 import html
@@ -271,7 +271,7 @@ def _anlageklassen(katalog):
 def _daten(katalog, stand):
     schritte.titel(st, "scanner2", 3, "Daten & Gesamtdepot")
     n_live = len(st.session_state.get(P + "live") or {})
-    st.caption(f"{len(katalog):,} Wertpapiere aus den Top-500-/Watchlist-Daten · Tagesschluss vom {stand or '–'}"
+    st.caption(f"{len(katalog):,} Wertpapiere aus den Ranglisten-Daten · Tagesschluss vom {stand or '–'}"
                .replace(",", ".") + (f" · {n_live} aktuelle Kurse von ls-tc.de" if n_live else "")
                + " · unbekannte Preise werden nie geschätzt")
     # Handy: die beiden Upload-Felder untereinander (nebeneinander zu eng)
@@ -447,7 +447,7 @@ def _scores(erg, typen):
     geeignet = [a for a in verf if a["type"] in typen]
     st.caption(f"{sum(1 for a in verf if a.get('combinedScore') is not None)} von {len(verf)} Werten bewertbar · "
                "Aktien: " + " · ".join(f"{k} {v} %" for k, v in E.SCORE_WEIGHTS.items())
-               + " · ETFs und wikifolios: eigene Kriterien aus der Kurshistorie (wie Watchlist → 🏅 ETF- & "
+               + " · ETFs und wikifolios: eigene Kriterien aus der Kurshistorie (wie Ranglisten & Screener → 🏅 ETF- & "
                "wikifolio-Score)")
     gezeigt = geeignet[:12]
     if not gezeigt:
@@ -471,7 +471,7 @@ def _scores(erg, typen):
 def _hinweise():
     with st.expander("ℹ️ Nachvollziehbarkeit · Auswahlverfahren & Hinweise"):
         st.markdown(
-            "- **Universum:** Top-500-/Watchlist-Daten der App (Aktien, ETFs, wikifolios) mit Tagesschlusskurs in EUR; "
+            "- **Universum:** Ranglisten-Daten der App (Aktien, ETFs, wikifolios) mit Tagesschlusskurs in EUR; "
             "Hebelprodukte und Datenfehler ausgefiltert; eigene Werte per Wertpapier-CSV. Quellenrang = Rang nach "
             "12-Monats-Rendite.\n"
             "- **Score Aktien:** Momentum (12- und 3-Monats-Rendite), Risiko (Schwankung, maximaler Rückgang), Qualität "

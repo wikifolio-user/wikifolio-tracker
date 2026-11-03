@@ -7,7 +7,7 @@ JS = """() => { const m = document.querySelector('[data-testid=stMain]'); const 
 with sync_playwright() as p:
     b, ctx, page = br.start(p, 375, 667, True)
     br.login(page, "admin", "Admin-Test-Passwort-1"); page.wait_for_timeout(800)
-    for a in ("Investment Scanner Pro", "Abfindungsrechner", "Watchlist", "Zinseszinsrechner", "Depot verwalten"):
+    for a in ("Investment Scanner Pro", "Abfindungsrechner", "Ranglisten & Screener", "Zinseszinsrechner", "Depot verwalten"):
         if not page.locator(".st-key-nav_menue button", has_text=a).first.is_visible():
             page.get_by_role("button", name="☰ Menü").click(); br.warte_ruhe(page)
             print("  Menü:", page.evaluate(JS))

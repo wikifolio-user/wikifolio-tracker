@@ -529,7 +529,7 @@ def analysiere(z, b, ctx, detail=None, platz=None, stand=None, q_stand=None):
         quellen.append(f"Fundamentaldaten und Analystenkonsens: Yahoo Finance über den Qualitäts-Agenten, Stand "
                        f"{q_stand or '–'}.")
         quellen.append("Fairer Wert: Discounted-Cashflow-Modell des Qualitäts-Agenten (Annahmen siehe Szenarien).")
-    quellen.append("Vergleichsgruppe: Median aller " + klasse + " der Watchlist"
+    quellen.append("Vergleichsgruppe: Median aller " + klasse + " der Ranglisten"
                    + (f"; Benchmark {bench['name']}" if bench else "") + ".")
     quellen.append("Szenarien: eigene Modellrechnung (Historie gedämpft Richtung 8 % p.a.) – keine Prognose, "
                    "keine Anlageberatung.")

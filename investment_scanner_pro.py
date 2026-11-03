@@ -108,7 +108,7 @@ def _on_calculate(h, inputs, holdings):
     katalog = B._katalog(h)
     candidates, stand = SCANNER_DATA._daten(h, katalog)
     if not candidates:
-        raise ValueError('Noch keine echten Watchlist-Daten verfügbar. Die Quellen müssen zunächst geladen werden.')
+        raise ValueError('Noch keine echten Ranglisten-Daten verfügbar. Die Quellen müssen zunächst geladen werden.')
     years = inputs['jahre']
     bew = S.bewerten(candidates, years)
     profile = S.PROFILE[PROFILES[inputs['profil']]]
@@ -131,10 +131,10 @@ def seite(h):
     st.markdown('<div class="pb-kopf"><div class="pb-titel">Investment Scanner <span>Pro</span></div>'
                 '<div class="pb-unter">Eigenes Kapital · Kaufplan in Stück · Reserve · Entnahmen</div></div>',
                 unsafe_allow_html=True)
-    st.caption('**Eigenständige Anwendung:** eigenes Anlagekapital, Top-500-/Watchlist-Daten, '
+    st.caption('**Eigenständige Anwendung:** eigenes Anlagekapital, Ranglisten-Daten, '
                'kombinierter Investment-Score, konkrete Kaufstückzahlen, Nachkaufreserve und Entnahmen. '
                'Deine anderen Scanner- und Depot-Einstellungen werden nicht verändert.')
-    st.info('Datenquelle: gespeicherte echte Watchlist-/Ranking-Daten aus diesem GitHub-Projekt; '
+    st.info('Datenquelle: gespeicherte echte Ranglisten-Daten aus diesem GitHub-Projekt; '
             'Kurse auf Abruf über die bestehende LS-TC-Anbindung. Nicht jeder Wert ist dort handelbar. '
             'Bei fehlenden Kursen werden keine Käufe erfunden.', icon='ℹ️')
     schritte.leiste(st, "scanner_pro", spaeter=() if st.session_state.get('isp_result') is not None else (3, 4))
@@ -296,7 +296,7 @@ def seite(h):
                    'keine Garantie auf 500 weltweit vollständige oder aktuelle Instrumente. '
                    'ETF-TER, Wikifolio-Gebühren, Liquidität und Emittentenrisiko werden nicht vollständig im Score erfasst.')
     st.caption('Fiktive Preise werden nicht erzeugt. Mit deaktiviertem Echtkurs-Schalter können ältere '
-               'Watchlist-Kurse verwendet werden – bitte vor jeder Kaufentscheidung verifizieren. '
+               'Ranglisten-Kurse verwendet werden – bitte vor jeder Kaufentscheidung verifizieren. '
                'CSV-Import ist ein manuelles Modell, kein Brokerage-Sync. '
                'Steuern, Spread, Ausführungspreise und Wechselkurse bei Verkäufen sind nicht vollständig modelliert. '
                'Keine Anlageberatung, kein automatischer Handel.')

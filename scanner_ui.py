@@ -703,7 +703,7 @@ def _daten_annahmen(erg):
         + f"\n- Berechnet: {erg['zeit']}\n- Bewertet: {erg['anzahl']['aktie']} Aktien, {erg['anzahl']['etf']} ETFs, "
           f"{erg['anzahl']['wikifolio']} wikifolios")
     st.markdown("**Verwendet je Anlageklasse**\n\n"
-                "- **Aktien:** Qualitäts-Score der Watchlist (Umsatz-, Gewinn- und Free-Cashflow-Wachstum, ROIC, "
+                "- **Aktien:** Qualitäts-Score der Ranglisten (Umsatz-, Gewinn- und Free-Cashflow-Wachstum, ROIC, "
                 "Margen, Verschuldung, Forward-KGV, EV/EBIT, FCF-Rendite, Burggraben), Kursentwicklung 1–10 J.\n"
                 "- **ETFs:** Kursentwicklung 1–10 J., Volatilität und maximaler Drawdown (soweit vorhanden). "
                 "Hebel- und Short-Produkte ausgeschlossen, je Kernindex nur ein ETF.\n"
@@ -794,7 +794,7 @@ def render(h, e, katalog_fn, zum_builder=None):
     """Scanner-Karte. e = bereinigte Builder-Eingaben, katalog_fn() = Builder-Katalog."""
     with st.container(border=True, key="pb_scanner"):
         schritte.titel(st, "scanner", 2, "Risikoprofil & Regeln")
-        st.caption("Durchsucht Aktien (mit Fundamentaldaten), ETFs und wikifolios aus den Daten der Watchlist, bewertet "
+        st.caption("Durchsucht Aktien (mit Fundamentaldaten), ETFs und wikifolios aus den Daten der Ranglisten, bewertet "
                    "sie, stellt ein Musterdepot zusammen und simuliert dein Ziel mit den Eckdaten oben.")
         _einstellungen(e, katalog_fn)
         sig = _signatur(e)

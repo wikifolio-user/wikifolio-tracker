@@ -30,7 +30,7 @@ with sync_playwright() as p:
     if len(sys.argv) > 5 and sys.argv[5] == "app":
         for runde in (1, 2):
             for ansicht in ["Test-Depot", "Einstellungen", "Chronik", "Vermögensaufbau", "Performance > 2026",
-                            "Candlestick", "Zukunfts-Prognose", "Szenario-Simulator", "Watchlist", "Abfindungsrechner",
+                            "Candlestick", "Zukunfts-Prognose", "Szenario-Simulator", "Ranglisten & Screener", "Abfindungsrechner",
                             "Zinseszinsrechner"]:
                 schritt(page, f"R{runde} {ansicht}", lambda a=ansicht: page.locator(".st-key-nav_menue button", has_text=a).first.click())
                 schritt(page, f"R{runde}   Menü", lambda: page.get_by_role("button", name="☰ Menü").click())
