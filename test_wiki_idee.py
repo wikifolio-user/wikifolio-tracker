@@ -249,5 +249,25 @@ class Handelbar(unittest.TestCase):
         self.assertEqual(WI.handelbar(a, {"US1": 5}, mindestens=2), ([a[0], a[2]], False))   # zu wenige bei L&S
 
 
+class Charts(unittest.TestCase):
+    def depot(self, scores):
+        return {"positionen": {i: {"id": i, "art": "aktie", "name": i, "mix": s, "rang": n}
+                               for n, (i, s) in enumerate(scores.items(), 1)}}
+
+    def test_hitparade(self):
+        alt = self.depot({"A": 90, "B": 80, "C": 70, "D": 60})
+        neu = self.depot({"B": 95, "A": 85, "C": 70, "E": 65})
+        stat = WI.charts_fortschreiben({"E": {"listen": 2, "best": 1}}, alt)
+        z, raus = WI.hitparade(neu, alt, "aktie", stat)
+        self.assertEqual([(r["p"]["id"], r["platz"], r["vorher"], r["bewegung"], r["delta"]) for r in z],
+                         [("B", 1, 2, "hoch", 1), ("A", 2, 1, "runter", -1), ("C", 3, 3, "gleich", 0),
+                          ("E", 4, None, "wieder", None)])
+        self.assertEqual([(r["p"]["id"], r["vorher"]) for r in raus], [("D", 4)])
+        self.assertEqual((z[0]["listen"], z[0]["best"]), (2, 1))          # B: 2. Liste, bester Platz 1
+        self.assertEqual(z[3]["best"], 1)                                  # E: frueher schon auf Platz 1
+        z2, _ = WI.hitparade(neu, {}, "aktie")
+        self.assertTrue(all(r["bewegung"] == "neu" for r in z2))
+
+
 if __name__ == "__main__":
     unittest.main()
