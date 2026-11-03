@@ -288,10 +288,11 @@ def umschichten(depot, rang_aktien, rang_etf, preise, datum, startkapital=STARTK
 
 
 def betraege(liste):
-    """Auftraege mit Betrag (Verkauf negativ) und Summen. -> (zeilen, {"kauf": €, "verkauf": €})"""
+    """Auftraege mit Betrag (Verkauf negativ, Korrektur 0) und Summen. -> (zeilen, {"kauf": €, "verkauf": €})"""
     zeilen, kauf, verkauf = [], 0.0, 0.0
     for a in liste:
-        b = a["stueck"] * a["kurs"] * (1 if a["aktion"] in ("Neu", "Kauf") else -1)
+        vz = 1 if a["aktion"] in ("Neu", "Kauf") else 0 if a["aktion"] == "Korrektur" else -1
+        b = a["stueck"] * a["kurs"] * vz
         zeilen.append(dict(a, betrag=round(b, 2)))
         if b > 0:
             kauf += b
@@ -321,3 +322,85 @@ def rueckgaengig(gespeichert):
     if not gespeichert or "vorher" not in gespeichert:
         return None
     return gespeichert["vorher"] or {}
+
+
+def ausfuehren(alt, neu, ist):
+    """Die Liste so uebernehmen, wie sie im wikifolio tatsaechlich umgesetzt wurde.
+    alt: Depot, von dem die Liste berechnet wurde ({} beim Start); neu: Ergebnis von umschichten;
+    ist: {id: {"stueck": ausgefuehrte Stueck (0 = nicht ausgefuehrt), "kurs": Ausfuehrungskurs}} - fehlt ein
+    Auftrag, gilt er wie geplant. Kasse = alte Kasse (beim Start das Startkapital) + Verkaeufe - Kaeufe.
+    -> Depot wie neu, aber mit den tatsaechlichen Stueckzahlen, Kursen und der Kasse."""
+    alt_pos = (alt or {}).get("positionen") or {}
+    neu_pos = neu.get("positionen") or {}
+    pos = {}
+    for i, p in alt_pos.items():                       # Ausgangsbestand mit aktuellem Kurs und neuem Rang
+        basis = neu_pos.get(i) or p
+        pos[i] = dict(basis, stueck=p["stueck"], kurs=basis["kurs"])
+    kasse = float(alt.get("kasse") or 0) if alt_pos else float(neu.get("startkapital") or STARTKAPITAL)
+    lauf = dict((neu.get("laeufe") or [{}])[-1])
+    ausgefuehrt = []
+    for a in lauf.get("auftraege") or []:
+        x = ist.get(a["id"]) or {}
+        stueck = max(int(x.get("stueck", a["stueck"]) or 0), 0)
+        kurs = _zahl(x.get("kurs")) or a["kurs"]
+        if stueck <= 0:
+            continue
+        vz = 1 if a["aktion"] in ("Neu", "Kauf") else -1
+        if vz < 0:
+            stueck = min(stueck, (pos.get(a["id"]) or {}).get("stueck", 0))   # nie mehr verkaufen als da ist
+            if not stueck:
+                continue
+        meta = neu_pos.get(a["id"]) or alt_pos.get(a["id"])
+        p = pos.get(a["id"]) or dict(meta, stueck=0)
+        p = dict(p, stueck=p["stueck"] + vz * stueck, kurs=kurs if vz > 0 else p["kurs"])
+        kasse -= vz * stueck * kurs
+        if p["stueck"] > 0:
+            pos[a["id"]] = p
+        else:
+            pos.pop(a["id"], None)
+        ausgefuehrt.append(dict(a, stueck=stueck, kurs=round(kurs, 4), nachher=p["stueck"],
+                                geplant=a["stueck"], kurs_geplant=a["kurs"]))
+    for p in pos.values():
+        p["wert"] = round(p["stueck"] * p["kurs"], 2)
+    wert = round(sum(p["wert"] for p in pos.values()) + kasse, 2)
+    lauf["auftraege"] = ausgefuehrt
+    return dict(neu, positionen=pos, kasse=round(kasse, 2), wert=wert,
+                laeufe=list(neu.get("laeufe") or [])[:-1] + [lauf])
+
+
+def korrigieren(depot, zeilen, kasse, datum, zeitpunkt=None):
+    """Bestand von Hand an die echte Umsetzung anpassen. zeilen: [{id (None = neu), name, wkn, isin, art, stueck,
+    kurs}] - Positionen, die fehlen, werden entfernt; Stueck 0 entfernt ebenfalls. -> neues Depot (mit einem
+    Protokolleintrag "Korrektur")"""
+    alt = depot.get("positionen") or {}
+    pos, aend = {}, []
+    for z in zeilen:
+        stueck, kurs = int(z.get("stueck") or 0), _zahl(z.get("kurs"))
+        kennung = str(z.get("wkn") or z.get("isin") or "").strip().upper()
+        i = z.get("id") or (f"H:{kennung}" if kennung else None)
+        if not i or stueck <= 0 or not kurs or kurs <= 0:
+            continue
+        basis = alt.get(i) or {"id": i, "art": z.get("art") or "aktie", "name": str(z.get("name") or kennung),
+                                "wkn": str(z.get("wkn") or ""), "isin": str(z.get("isin") or ""), "ticker": "",
+                                "gruppe": "–", "rang": 999, "mix": None, "teile": {}}
+        p = dict(basis, stueck=stueck, kurs=kurs, wert=round(stueck * kurs, 2),
+                 name=str(z.get("name") or basis["name"]))
+        pos[i] = p
+        vorher = (alt.get(i) or {}).get("stueck", 0)
+        if vorher != stueck or abs(((alt.get(i) or {}).get("kurs") or 0) - kurs) > 1e-9:
+            aend.append({"aktion": "Korrektur", "id": i, "name": p["name"], "wkn": p["wkn"], "isin": p["isin"],
+                         "art": p["art"], "stueck": stueck, "vorher": vorher, "nachher": stueck, "kurs": kurs})
+    for i, p in alt.items():
+        if i not in pos:
+            aend.append({"aktion": "Korrektur", "id": i, "name": p["name"], "wkn": p.get("wkn", ""),
+                         "isin": p.get("isin", ""), "art": p["art"], "stueck": 0, "vorher": p["stueck"],
+                         "nachher": 0, "kurs": p["kurs"]})
+    kasse = round(float(kasse or 0), 2)
+    if abs(kasse - float(depot.get("kasse") or 0)) > 0.005:
+        aend.append({"aktion": "Korrektur", "id": "_kasse", "name": "Kasse", "wkn": "", "isin": "", "art": "kasse",
+                     "stueck": 0, "vorher": depot.get("kasse"), "nachher": kasse, "kurs": 0})
+    wert = round(sum(p["wert"] for p in pos.values()) + kasse, 2)
+    laeufe = (list(depot.get("laeufe") or []) + [{"datum": datum, "zeit": zeitpunkt or datum, "wert": wert,
+                                                   "auftraege": aend, "korrektur": True}])[-30:]
+    return dict({k: v for k, v in depot.items() if k != "vorher"}, positionen=pos, kasse=kasse, wert=wert,
+                stand=datum, laeufe=laeufe), aend

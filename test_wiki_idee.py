@@ -164,5 +164,49 @@ class Ablauf(unittest.TestCase):
         self.assertEqual(WI.rueckgaengig(neu)["stand"], "2026-11-03")
         self.assertIsNone(WI.rueckgaengig({"stand": "x"}))
 
+class EchteUmsetzung(unittest.TestCase):
+    def test_start_mit_abweichungen(self):
+        a, e = rangliste(60, gruppen=60), rangliste(25, "etf", gruppen=25, kurs=100.0)
+        neu, liste = WI.umschichten({}, a, e, {}, "2026-11-03")
+        ist = {"A1": {"stueck": 0}, "A2": {"stueck": 20, "kurs": 51.0}}          # A1 nicht gekauft, A2 weniger
+        d = WI.ausfuehren({}, neu, ist)
+        self.assertNotIn("A1", d["positionen"])
+        self.assertEqual((d["positionen"]["A2"]["stueck"], d["positionen"]["A2"]["kurs"]), (20, 51.0))
+        investiert = sum(p["stueck"] * p["kurs"] for p in d["positionen"].values())
+        self.assertAlmostEqual(d["kasse"], 100_000 - investiert, places=2)
+        self.assertAlmostEqual(d["wert"], 100_000, places=2)
+        lauf = d["laeufe"][-1]["auftraege"]
+        self.assertEqual(len(lauf), len(liste) - 1)                                   # A1 nicht im Protokoll
+        a2 = next(x for x in lauf if x["id"] == "A2")
+        self.assertEqual((a2["stueck"], a2["geplant"], a2["kurs"]), (20, 28, 51.0))
+
+    def test_verkauf_begrenzt_und_kasse(self):
+        alt = {"kasse": 100.0, "positionen": {"A1": {"id": "A1", "art": "aktie", "name": "x", "stueck": 5,
+                                                     "kurs": 10.0}}, "laeufe": []}
+        neu = {"positionen": {}, "laeufe": [{"auftraege": [{"aktion": "Raus", "id": "A1", "name": "x", "art": "aktie",
+                                                            "stueck": 5, "kurs": 12.0, "vorher": 5, "nachher": 0}]}]}
+        d = WI.ausfuehren(alt, neu, {"A1": {"stueck": 9, "kurs": 12.5}})              # 9 > Bestand 5
+        self.assertEqual(d["positionen"], {})
+        self.assertAlmostEqual(d["kasse"], 100 + 5 * 12.5)
+
+    def test_korrigieren(self):
+        a, e = rangliste(60, gruppen=60), rangliste(25, "etf", gruppen=25, kurs=100.0)
+        d, _ = WI.umschichten({}, a, e, {}, "2026-11-03")
+        zeilen = [{"id": i, "stueck": p["stueck"], "kurs": p["kurs"]} for i, p in d["positionen"].items()
+                  if i not in ("A1",)]
+        zeilen[0]["stueck"] += 3
+        zeilen.append({"id": None, "name": "Neue AG", "wkn": "neu123", "art": "aktie", "stueck": 4, "kurs": 25.0})
+        k, aend = WI.korrigieren(d, zeilen, 500.0, "2026-11-04")
+        self.assertNotIn("A1", k["positionen"])
+        self.assertIn("H:NEU123", k["positionen"])
+        self.assertEqual(k["kasse"], 500.0)
+        self.assertAlmostEqual(k["wert"], sum(p["stueck"] * p["kurs"] for p in k["positionen"].values()) + 500.0)
+        self.assertEqual({x["aktion"] for x in aend}, {"Korrektur"})
+        self.assertEqual(len(aend), 4)                                    # +3 Stueck, A1 weg, neu, Kasse
+        self.assertTrue(k["laeufe"][-1]["korrektur"])
+        _, s = WI.betraege(aend)
+        self.assertEqual(s, {"kauf": 0.0, "verkauf": 0.0})
+
+
 if __name__ == "__main__":
     unittest.main()

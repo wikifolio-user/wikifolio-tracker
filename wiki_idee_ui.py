@@ -178,6 +178,7 @@ def liste_erstellen(h, depot):
                                 jetzt.date().isoformat(), zeitpunkt=jetzt.strftime("%Y-%m-%dT%H:%M"))
     neu["ausgeschlossen"] = aus[:200]
     return {"zeit": jetzt.strftime("%d.%m.%Y, %H:%M Uhr"), "neu": neu, "liste": liste, "basis": WI.signatur(depot),
+            "alt": {k: x for k, x in depot.items() if k != "vorher"},
             "live": len(live), "kandidaten": len(jobs), "rang": {"stand": jetzt.date().isoformat(),
                                                                    "aktien": rang_a[:100], "etf": rang_e[:40]}}
 
@@ -216,11 +217,21 @@ def _vorschlag_zeigen(h, v):
         df = pd.DataFrame([{"Aktion": z["aktion"], "Stück": z["stueck"], "Name": z["name"],
                             "WKN/ISIN": z["wkn"] or z["isin"], "Art": "Aktie" if z["art"] == "aktie" else "ETF",
                             "Kurs jetzt €": z["kurs"], "Betrag €": z["betrag"], "Bestand vorher": z["vorher"],
-                            "Bestand nachher": z["nachher"]} for z in zeilen])
-        st.dataframe(df, hide_index=True, width="stretch", key="wiki_vorschlag_tab",
-                     height=min(38 + 35 * len(df), 560),
-                     column_config={"Kurs jetzt €": st.column_config.NumberColumn(format="%.2f"),
-                                    "Betrag €": st.column_config.NumberColumn(format="%+.2f")})
+                            "Bestand nachher": z["nachher"], "Stück ausgeführt": z["stueck"],
+                            "Ausführungskurs €": z["kurs"]} for z in zeilen], index=[z["id"] for z in zeilen])
+        st.markdown("**Deine tatsächliche Umsetzung im wikifolio** – weicht etwas ab, hier die echten Werte "
+                    "eintragen (Stück **0** = nicht ausgeführt). Übernommen wird genau das.")
+        ist_df = st.data_editor(
+            df, hide_index=True, width="stretch", key=f"wiki_ist_{v['zeit']}", height=min(38 + 35 * len(df), 560),
+            disabled=[c for c in df.columns if c not in ("Stück ausgeführt", "Ausführungskurs €")],
+            column_config={"Kurs jetzt €": st.column_config.NumberColumn(format="%.2f"),
+                           "Betrag €": st.column_config.NumberColumn(format="%+.2f"),
+                           "Stück ausgeführt": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
+                           "Ausführungskurs €": st.column_config.NumberColumn(min_value=0.0, step=0.01,
+                                                                              format="%.2f")})
+        st.session_state["_wiki_ist"] = {i: {"stueck": int(r["Stück ausgeführt"] or 0),
+                                             "kurs": float(r["Ausführungskurs €"] or 0) or None}
+                                         for i, r in ist_df.iterrows()}
         st.download_button("⬇️ Liste als CSV", df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
                            file_name=f"KI_Invest_System_liste_{neu['laeufe'][-1]['zeit'].replace(':', '')}.csv",
                            mime="text/csv", key="wiki_vorschlag_csv")
@@ -230,8 +241,10 @@ def _vorschlag_zeigen(h, v):
                  help="Setzt das Modelldepot auf diesen Stand – die nächste Liste rechnet davon aus."):
         konflikt = []
 
+        neu_ist = WI.ausfuehren(v.get("alt") or {}, neu, st.session_state.get("_wiki_ist") or {})
+
         def aendern(gespeichert):
-            neu_ = WI.uebernehmen(gespeichert or {}, neu, v["basis"])
+            neu_ = WI.uebernehmen(gespeichert or {}, neu_ist, v["basis"])
             if neu_ is None:
                 konflikt.append(True)
             return neu_
@@ -323,18 +336,26 @@ def seite(h):
                                file_name=f"KI_Invest_System_{key}_{depot.get('stand')}.csv", mime="text/csv",
                                key=f"wiki_csv_{key}")
 
+    _korrektur(h, depot, preise)
+
     # 4 - Verlauf der Umschichtungen
     schritte.titel(st, "wiki", 4)
     if laeufe:
-        namen = [f"{_datum_de(l['datum'])} {str(l.get('zeit') or '')[11:16]} · {len(l['auftraege'])} Anpassungen"
+        namen = [f"{_datum_de(l['datum'])} {str(l.get('zeit') or '')[11:16]} · "
+                 f"{'Korrektur' if l.get('korrektur') else 'Umschichtung'} · {len(l['auftraege'])} Änderung"
+                 f"{'en' if len(l['auftraege']) != 1 else ''}"
                  .replace("  ", " ") for l in reversed(laeufe)]
         wahl = st.selectbox("Umschichtung", namen, key="wiki_lauf")
         lauf = list(reversed(laeufe))[namen.index(wahl)]
         if lauf["auftraege"]:
             zeilen, _ = WI.betraege(lauf["auftraege"])
             df = pd.DataFrame([{"Aktion": z["aktion"], "Stück": z["stueck"], "Name": z["name"],
-                                "WKN/ISIN": z["wkn"] or z["isin"], "Art": "Aktie" if z["art"] == "aktie" else "ETF",
-                                "Kurs €": z["kurs"], "Betrag €": z["betrag"]} for z in zeilen])
+                                "WKN/ISIN": z["wkn"] or z["isin"],
+                                "Art": {"aktie": "Aktie", "etf": "ETF"}.get(z["art"], "Kasse"),
+                                "Kurs €": z["kurs"], "Betrag €": z["betrag"], "vorher": z.get("vorher"),
+                                "nachher": z.get("nachher"),
+                                "geplant": z.get("geplant", z["stueck"]) if not lauf.get("korrektur") else None}
+                               for z in zeilen])
             st.dataframe(df, hide_index=True, width="stretch", key="wiki_auftraege",
                          column_config={"Kurs €": st.column_config.NumberColumn(format="%.2f"),
                                         "Betrag €": st.column_config.NumberColumn(format="%+.2f")},
@@ -342,8 +363,9 @@ def seite(h):
         else:
             st.caption("Keine Anpassungen.")
     if "vorher" in depot:
-        with st.expander("↩️ Letzte Übernahme rückgängig machen"):
-            st.caption("Setzt das Modelldepot auf den Stand vor der letzten Übernahme zurück (nur einen Schritt).")
+        with st.expander("↩️ Letzte Übernahme bzw. Korrektur rückgängig machen"):
+            st.caption("Setzt das Modelldepot auf den Stand vor der letzten Übernahme oder Korrektur zurück "
+                       "(nur einen Schritt).")
             if st.button("Rückgängig machen", key="wiki_zurueck", disabled=not h.get("schreiben_ok", True)):
                 ok, _ = h["schreiben"](PFAD_DEPOT, lambda g: WI.rueckgaengig(g), {},
                                        "wiki-idee: rückgängig [skip ci]")
@@ -378,6 +400,65 @@ def seite(h):
     _methodik()
 
 
+def _korrektur(h, depot, preise):
+    """Bestand an die echte Umsetzung im wikifolio anpassen (Stueck, Kaufkurs, Positionen, Kasse)."""
+    with st.expander("✏️ Bestand an meine echte Umsetzung anpassen"):
+        st.caption("Stückzahl und Kaufkurs je Position ändern, Zeilen löschen (Zeile markieren → Papierkorb) oder "
+                   "unten neue Positionen anfügen (Name, WKN/ISIN, Art, Stück, Kurs). Stück 0 entfernt eine "
+                   "Position. Die Kasse ist dein tatsächlicher Kontostand im wikifolio.")
+        pos = sorted(depot["positionen"].values(), key=lambda p: (p["art"], p.get("rang") or 999))
+        df = pd.DataFrame([{"_id": p["id"], "Name": p["name"], "WKN/ISIN": p.get("wkn") or p.get("isin") or "",
+                            "Art": "Aktie" if p["art"] == "aktie" else "ETF", "Stück": int(p["stueck"]),
+                            "Kaufkurs €": float(p["kurs"])} for p in pos])
+        with st.form("wiki_korrektur_form", border=False):
+            ed = st.data_editor(df, hide_index=True, width="stretch", num_rows="dynamic", key="wiki_korrektur_tab",
+                                column_order=["Name", "WKN/ISIN", "Art", "Stück", "Kaufkurs €"],
+                                height=min(38 + 35 * (len(df) + 2), 560),
+                                column_config={"Art": st.column_config.SelectboxColumn(options=["Aktie", "ETF"],
+                                                                                        required=True),
+                                               "Stück": st.column_config.NumberColumn(min_value=0, step=1,
+                                                                                      format="%d"),
+                                               "Kaufkurs €": st.column_config.NumberColumn(min_value=0.0, step=0.01,
+                                                                                           format="%.2f")})
+            kasse = st.number_input("Kasse €", min_value=0.0, value=float(depot.get("kasse") or 0), step=10.0,
+                                    key="wiki_korrektur_kasse")
+            gespeichert = st.form_submit_button("💾 Korrektur speichern", disabled=not h.get("schreiben_ok", True))
+        if gespeichert:
+            zeilen = []
+            for _, r in ed.iterrows():
+                kenn = str(r.get("WKN/ISIN") or "").strip()
+                i = r.get("_id")
+                zeilen.append({"id": i if isinstance(i, str) and i in depot["positionen"] else None,
+                               "name": r.get("Name"), "wkn": kenn if len(kenn) <= 6 else "",
+                               "isin": kenn if len(kenn) > 6 else "",
+                               "art": "etf" if r.get("Art") == "ETF" else "aktie",
+                               "stueck": 0 if pd.isna(r.get("Stück")) else r.get("Stück"),
+                               "kurs": None if pd.isna(r.get("Kaufkurs €")) else r.get("Kaufkurs €")})
+            jetzt = _jetzt()
+            neu, aend = WI.korrigieren(depot, zeilen, kasse, jetzt.date().isoformat(),
+                                       jetzt.strftime("%Y-%m-%dT%H:%M"))
+            if not aend:
+                st.info("Keine Änderungen.")
+                return
+            basis = WI.signatur(depot)
+            konflikt = []
+
+            def aendern(gespeichert):
+                n = WI.uebernehmen(gespeichert or {}, neu, basis)
+                if n is None:
+                    konflikt.append(True)
+                return n
+            ok, _ = h["schreiben"](PFAD_DEPOT, aendern, {}, "wiki-idee: korrektur [skip ci]")
+            if konflikt:
+                st.error("Das Modelldepot wurde inzwischen geändert – bitte Seite neu laden.")
+            elif ok:
+                st.session_state["_wiki_meldung"] = (f"✏️ Korrektur gespeichert ({len(aend)} Änderung"
+                                                     + ("en)." if len(aend) != 1 else ")."))
+                st.rerun()
+            else:
+                st.error("Speichern fehlgeschlagen – bitte erneut versuchen.")
+
+
 def _methodik():
     with st.expander("ℹ️ So funktioniert das KI_Invest_System"):
         st.markdown(
@@ -400,6 +481,9 @@ def _methodik():
             "Tausch wegen kleiner Score-Schwankungen; freie Plätze bekommen die Besten. Alle Positionen werden "
             "auf das Zielgewicht zurückgesetzt (im wikifolio ohne Kosten).\n"
             "- **Übernehmen:** Erst wenn du die Liste im wikifolio umgesetzt hast und „Als umgesetzt übernehmen“ "
-            "klickst, ändert sich das Modelldepot – die nächste Liste rechnet davon aus. Rückgängig ist möglich.\n"
+            "klickst, ändert sich das Modelldepot – die nächste Liste rechnet davon aus. Weicht deine Umsetzung ab "
+            "(Teilausführung, anderer Kurs, Order nicht ausgeführt), trägst du vor dem Übernehmen die echten Stück "
+            "und Kurse ein; später geht das jederzeit unter „Bestand an meine echte Umsetzung anpassen“ (auch Kasse, "
+            "neue oder gelöschte Positionen). Rückgängig ist möglich.\n"
             "- **Kein Trading-Roboter:** Es werden keine Orders ausgeführt. Grundlage sind vergangene Daten; keine "
             "Anlageberatung.")
