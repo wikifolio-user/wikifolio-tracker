@@ -496,3 +496,49 @@ def handelbar(aktien, ids=None, mindestens=2 * N_AKTIEN):
         if len(bei_ls) >= mindestens:
             return bei_ls, True
     return mit_isin, False
+
+
+# ---------------------------------------------------------------------------
+# Charts (Hitparade): Platzierung der Depotwerte wie in einer Musik-Chartliste
+# ---------------------------------------------------------------------------
+def plaetze(depot, art):
+    """{id: Platz} der Positionen einer Art, nach Score (mix) absteigend - Platz 1 = bester Wert."""
+    pos = [p for p in (depot or {}).get("positionen", {}).values() if p.get("art") == art]
+    pos.sort(key=lambda p: (-(p.get("mix") if p.get("mix") is not None else -1), p.get("rang") or 999,
+                            str(p.get("name") or "").lower()))
+    return {p["id"]: i for i, p in enumerate(pos, 1)}
+
+
+def charts_fortschreiben(alt, neu_depot):
+    """Chart-Statistik je Wert {id: {"listen": Anzahl Listen in den Charts, "best": hoechster Platz}} um den
+    neuen Stand erweitern (bei jeder Uebernahme)."""
+    aus = {k: dict(v) for k, v in (alt or {}).items()}
+    for art in ("aktie", "etf"):
+        for i, platz in plaetze(neu_depot, art).items():
+            e = aus.setdefault(i, {"listen": 0, "best": platz})
+            e["listen"] = e.get("listen", 0) + 1
+            e["best"] = min(e.get("best") or platz, platz)
+    return aus
+
+
+def hitparade(neu_depot, alt_depot, art, statistik=None):
+    """Chartliste der Art: [{platz, vorher, bewegung (neu|wieder|hoch|runter|gleich), delta, listen, best, p}]
+    und die aus den Charts gefallenen Werte [{vorher, p}]. statistik: charts_fortschreiben des alten Stands."""
+    statistik = statistik or {}
+    neu_pl, alt_pl = plaetze(neu_depot, art), plaetze(alt_depot, art)
+    pos_neu = (neu_depot or {}).get("positionen") or {}
+    zeilen = []
+    for i, platz in sorted(neu_pl.items(), key=lambda x: x[1]):
+        vorher = alt_pl.get(i)
+        st_ = statistik.get(i) or {}
+        if vorher is None:
+            bewegung, delta = ("wieder" if st_.get("listen") else "neu"), None
+        else:
+            delta = vorher - platz
+            bewegung = "hoch" if delta > 0 else "runter" if delta < 0 else "gleich"
+        zeilen.append({"platz": platz, "vorher": vorher, "bewegung": bewegung, "delta": delta,
+                       "listen": st_.get("listen", 0) + 1, "best": min(st_.get("best") or platz, platz),
+                       "p": pos_neu[i]})
+    raus = [{"vorher": pl, "p": ((alt_depot or {}).get("positionen") or {})[i]}
+            for i, pl in sorted(alt_pl.items(), key=lambda x: x[1]) if i not in neu_pl]
+    return zeilen, raus

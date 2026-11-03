@@ -329,6 +329,89 @@ def _veraenderungschart(zeilen, n=25):
     return UI.chart_stil(fig, schrumpfen=False)
 
 
+HP_CSS = """<style>
+.hp { display:flex; flex-direction:column; gap:6px; margin:4px 0 10px; }
+.hp-z { display:grid; grid-template-columns:52px 58px 1fr auto; align-items:center; gap:10px; padding:8px 12px;
+        border-radius:14px; background:rgba(148,163,184,.07); border:1px solid rgba(148,163,184,.16); }
+.hp-z.hp-top { background:linear-gradient(90deg, rgba(251,191,36,.16), rgba(148,163,184,.05)); }
+.hp-platz { font-size:1.65rem; font-weight:800; text-align:center; font-variant-numeric:tabular-nums;
+            letter-spacing:-.02em; }
+.hp-p1 { color:#FBBF24; } .hp-p2 { color:#CBD5E1; } .hp-p3 { color:#D97706; }
+.hp-bew { font-size:.8rem; font-weight:800; text-align:center; padding:4px 0; border-radius:8px; }
+.hp-hoch { color:#052E16; background:#4ADE80; } .hp-runter { color:#450A0A; background:#F87171; }
+.hp-gleich { color:#E2E8F0; background:rgba(148,163,184,.28); }
+.hp-neu { color:#422006; background:#FBBF24; } .hp-wieder { color:#082F49; background:#7DD3FC; }
+.hp-name b { display:block; font-size:.98rem; line-height:1.25; }
+.hp-name small { opacity:.75; font-size:.78rem; line-height:1.3; }
+.hp-vor { text-align:right; font-size:.75rem; opacity:.8; line-height:1.3; white-space:nowrap; }
+.hp-vor b { display:block; font-size:1rem; opacity:1; }
+.hp-raus { opacity:.7; }
+@media (max-width: 640px) {
+  .hp-z { grid-template-columns:40px 46px 1fr; gap:8px; padding:7px 9px; }
+  .hp-vor { grid-column:3; text-align:left; white-space:normal; margin-top:-4px; }
+  .hp-vor b { display:inline; font-size:.8rem; margin-right:3px; }
+  .hp-vor br { display:none; } .hp-vor .hp-tr::before { content:" · "; }
+  .hp-platz { font-size:1.3rem; }
+}
+</style>"""
+BEWEGUNG = {"hoch": "▲ {d}", "runter": "▼ {d}", "gleich": "=", "neu": "NEU", "wieder": "RE"}
+
+
+def _hitparade_html(zeilen, raus, titel):
+    """Chartliste wie in einer Musik-Hitparade: Platz, Bewegung, Name, Wochen/Listen, hoechster Platz."""
+    h = [HP_CSS, f'<div class="hp" role="list" aria-label="{_esc(titel)}">']
+    for z in zeilen:
+        p = z["p"]
+        bew = BEWEGUNG[z["bewegung"]].format(d=abs(z["delta"] or 0))
+        top = " hp-top" if z["platz"] <= 3 else ""
+        pk = f" hp-p{z['platz']}" if z["platz"] <= 3 else ""
+        info = " · ".join(x for x in (
+            "ETF" if p["art"] == "etf" else (p.get("gruppe") or ""),
+            f"Score {p['mix']:.0f}" if p.get("mix") is not None else "",
+            f"{p['stueck']} Stück · {FMT.eur(p['stueck'] * p['kurs'], 0)}") if x and x != "–")
+        vor = (f"<b>{z['vorher']}</b>letzte Liste" if z["vorher"] else "<b>–</b>letzte Liste")
+        h.append(f'<div class="hp-z{top}" role="listitem"><div class="hp-platz{pk}">{z["platz"]}</div>'
+                 f'<div class="hp-bew hp-{z["bewegung"]}">{bew}</div>'
+                 f'<div class="hp-name"><b>{_esc(p["name"])}</b><small>{_esc(info)}</small></div>'
+                 f'<div class="hp-vor">{vor}<br><span class="hp-tr">{z["listen"]}. Liste · bester Platz {z["best"]}'
+                 '</span></div></div>')
+    h.append("</div>")
+    if raus:
+        h.append('<div class="hp hp-raus"><div style="font-weight:700;margin:6px 0 2px">⬇️ Aus den Charts gefallen'
+                 f' ({len(raus)})</div>')
+        for r in raus:
+            p = r["p"]
+            h.append(f'<div class="hp-z" role="listitem"><div class="hp-platz">–</div>'
+                     f'<div class="hp-bew hp-runter">RAUS</div><div class="hp-name"><b>{_esc(p["name"])}</b>'
+                     f'<small>{_esc(p.get("gruppe") or "")}</small></div>'
+                     f'<div class="hp-vor"><b>{r["vorher"]}</b>letzte Liste</div></div>')
+        h.append("</div>")
+    return "".join(h)
+
+
+def _esc(t):
+    return str(t or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def _charts_zeigen(neu_depot, alt_depot, key):
+    """Hitparade der Aktien (Top 50) und ETFs (Top 20) im Vergleich zum vorigen Stand."""
+    stat = (alt_depot or {}).get("charts") or {}
+    t1, t2 = st.tabs(["🎵 Aktien-Charts", "🎵 ETF-Charts"])
+    for tab, art, titel in ((t1, "aktie", "Aktien"), (t2, "etf", "ETFs")):
+        with tab:
+            zeilen, raus = WI.hitparade(neu_depot, alt_depot, art, stat)
+            if not zeilen:
+                st.caption("Keine Werte.")
+                continue
+            neu_n = sum(1 for z in zeilen if z["bewegung"] in ("neu", "wieder"))
+            hoch = sum(1 for z in zeilen if z["bewegung"] == "hoch")
+            runter = sum(1 for z in zeilen if z["bewegung"] == "runter")
+            st.caption(f"Top {len(zeilen)} {titel} nach Score · {neu_n} Neueinsteiger · {hoch} gestiegen · "
+                       f"{runter} gefallen · {len(raus)} raus. Bewegung gegenüber der letzten übernommenen Liste "
+                       "(NEU = erstmals dabei, RE = Wiedereinstieg).")
+            st.markdown(_hitparade_html(zeilen, raus, f"{titel}-Charts"), unsafe_allow_html=True)
+
+
 def _auf_ab(zeilen, n=10):
     """Aufsteiger (neu + aufgestockt) und Absteiger (raus + reduziert) nebeneinander."""
     def karte(titel, liste, plus):
@@ -384,9 +467,11 @@ def _vorschlag_zeigen(h, v):
         if not gefiltert:
             st.info("Kein Auftrag passt zum Filter.")
         else:
-            ansicht = st.pills("Darstellung", ["🗺️ Gewichtung", "⭐ Bewertung", "↕️ Käufe/Verkäufe"],
-                               default="🗺️ Gewichtung", key="wiki_ansicht") or "🗺️ Gewichtung"
-            if ansicht == "🗺️ Gewichtung":
+            ansicht = st.pills("Darstellung", ["🎵 Charts", "🗺️ Gewichtung", "⭐ Bewertung", "↕️ Käufe/Verkäufe"],
+                               default="🎵 Charts", key="wiki_ansicht") or "🎵 Charts"
+            if ansicht == "🎵 Charts":
+                _charts_zeigen(neu, v.get("alt") or {}, "vorschlag")
+            elif ansicht == "🗺️ Gewichtung":
                 einheitlich = len({z["aktion"] for z in gefiltert}) == 1
                 farbe = st.segmented_control("Farbe", ["Aktion", "Score"], default="Score" if einheitlich else "Aktion",
                                              key=f"wiki_farbe_{int(einheitlich)}") or "Aktion"
@@ -432,6 +517,7 @@ def _vorschlag_zeigen(h, v):
         konflikt = []
 
         neu_ist = WI.ausfuehren(v.get("alt") or {}, neu, st.session_state.get("_wiki_ist") or {})
+        neu_ist["charts"] = WI.charts_fortschreiben((v.get("alt") or {}).get("charts"), neu_ist)
 
         def aendern(gespeichert):
             neu_ = WI.uebernehmen(gespeichert or {}, neu_ist, v["basis"])
@@ -520,9 +606,15 @@ def seite(h):
                        f"({FMT.pct(df['Wert €'].sum() / wert_heute * 100 if wert_heute else 0, 1)} des Depots) · "
                        "Score 0–100 · Balken: Wert je Position, grün = seit Kauf im Plus")
             _tabelle(df, f"wiki_tab_{key}")
-            art = st.segmented_control("Darstellung", ["🗺️ Kacheln", "📊 Balken"], default="🗺️ Kacheln",
-                                       key=f"wiki_pos_ansicht_{key}") or "🗺️ Kacheln"
-            if art == "🗺️ Kacheln":
+            art = st.segmented_control("Darstellung", ["🎵 Charts", "🗺️ Kacheln", "📊 Balken"], default="🎵 Charts",
+                                       key=f"wiki_pos_ansicht_{key}") or "🎵 Charts"
+            if art == "🎵 Charts":
+                vorher = depot.get("vorher") or {}
+                zeilen_hp, raus_hp = WI.hitparade(depot, vorher, "aktie" if key == "a" else "etf",
+                                                  vorher.get("charts") or {})
+                st.caption("Platzierung nach Score, Bewegung gegenüber dem Stand vor der letzten Übernahme.")
+                st.markdown(_hitparade_html(zeilen_hp, raus_hp, f"{titel}-Charts"), unsafe_allow_html=True)
+            elif art == "🗺️ Kacheln":
                 st.caption("Fläche = Wert der Position, gruppiert nach Branche bzw. Region/Thema; Farbe = "
                            "Entwicklung seit Kauf (grün plus, rot minus).")
                 st.plotly_chart(_kacheln(df), width="stretch", key=f"wiki_kacheln_{key}",
