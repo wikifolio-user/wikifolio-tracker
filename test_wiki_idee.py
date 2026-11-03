@@ -7,9 +7,11 @@ import wiki_idee as WI
 
 
 def aktie(i, score, kurs=50.0, sektor=None, fv=None, inv=None, qual=None, p6=None):
+    """score = Qualitaets-Score (info.gesamt); qual ueberschreibt ihn (Test Qualitaet x Kurs)."""
     e = {"id": f"A{i}", "art": "aktie", "name": f"Aktie {i:03d}", "ticker": f"T{i}", "wkn": f"W{i}", "isin": "",
-         "sektor": sektor or f"S{i % 12}", "kurs": kurs, "k": {"p6": p6}, "info": {"gesamt": qual}}
-    return e, {"gesamt": score, "fazit": None}
+         "sektor": sektor or f"S{i % 12}", "kurs": kurs, "k": {"p6": p6},
+         "info": {"gesamt": score if qual is None else qual}}
+    return e, {"fazit": None}
 
 
 def etf(i, score, name=None, kurs=80.0, jahre=8.0):
@@ -53,6 +55,13 @@ class Rangliste(unittest.TestCase):
         e2["waehrung"] = "USD"
         liste, _ = WI.aktien_rangliste([(e1, b1), (e2, b2)], eur_kurse={"W1": 110.5})
         self.assertEqual([(w["id"], w["kurs"]) for w in liste], [("A1", 110.5)])    # A2 ohne EUR-Kurs fehlt
+
+    def test_etf_score_aus_ranglisten(self):
+        e1, e2, e3 = etf(1, 0)[0], etf(2, 0)[0], etf(3, 0)[0]
+        score = {"EW1": {"score": 60, "jahre": 9, "einordnung": "beobachten"},
+                 "EW2": {"score": 85, "jahre": 2, "einordnung": "prio"}}             # EW2 zu kurz, EW3 ohne Score
+        liste = WI.etf_rangliste([(e1, {}), (e2, {}), (e3, {})], etf_score=score)
+        self.assertEqual([(w["id"], w["mix"], w["klasse"]) for w in liste], [("E1", 60.0, "beobachten")])
 
     def test_etf_filter(self):
         hebel = re.compile(r"leverag|short|\b[2-9]x\b", re.I)
@@ -206,6 +215,38 @@ class EchteUmsetzung(unittest.TestCase):
         self.assertTrue(k["laeufe"][-1]["korrektur"])
         _, s = WI.betraege(aend)
         self.assertEqual(s, {"kauf": 0.0, "verkauf": 0.0})
+
+
+class Quellen(unittest.TestCase):
+    def test_in_eur(self):
+        fx = {"USD": 1.10, "GBP": 0.85}
+        self.assertAlmostEqual(WI.in_eur(110, "USD", fx), 100.0)
+        self.assertAlmostEqual(WI.in_eur(8500, "GBp", fx), 100.0)       # Pence
+        self.assertEqual(WI.in_eur(50, "EUR", fx), 50)
+        self.assertIsNone(WI.in_eur(50, "JPY", fx))                     # ohne Wechselkurs kein Wert
+
+    def test_aktien_und_etfs_aus_ranglisten(self):
+        alle = [{"felder": ["s", "name", "br", "kurs", "kwae", "gesamt", "klasse", "p6"],
+                 "zeilen": [["NVDA", "NVIDIA", "Technologie", 220.0, "USD", 88, "prio", 12.0],
+                            ["XX", "Ohne Score", "Industrie", 10.0, "EUR", None, None, 1.0]]}]
+        a = WI.aktien_aus_qualitaet(alle, {"US67066G1040": "NVDA"}, {"USD": 1.1})
+        self.assertEqual(len(a), 1)
+        self.assertEqual((a[0]["isin"], a[0]["kurs"], a[0]["info"]["gesamt"]), ("US67066G1040", 200.0, 88.0))
+        kat = [{"felder": ["typ", "name", "kennung", "isin", "kurs", "jahre"],
+                "zeilen": [["etf", "iShares Core MSCI World", "A0RPWH", "IE00B4L5Y983", 100.0, 15],
+                           ["aktie", "x", "1", "", 5.0, 3], ["etf", "doppelt", "A0RPWH", "IE00B4L5Y983", 1.0, 1]]}]
+        e = WI.etfs_aus_katalog(kat)
+        self.assertEqual([(x["id"], x["wkn"], x["kurs"]) for x in e], [("IE00B4L5Y983", "A0RPWH", 100.0)])
+        liste, _ = WI.aktien_rangliste([(x, {}) for x in a])
+        self.assertEqual(liste[0]["teile"]["score"], 88.0)
+
+
+class Handelbar(unittest.TestCase):
+    def test_nur_mit_isin_und_ls(self):
+        a = [{"isin": "US1", "ticker": "A"}, {"isin": "", "ticker": "B"}, {"isin": "US3", "ticker": "C"}]
+        self.assertEqual(WI.handelbar(a), ([a[0], a[2]], False))
+        self.assertEqual(WI.handelbar(a, {"US1": 5}, mindestens=1), ([a[0]], True))
+        self.assertEqual(WI.handelbar(a, {"US1": 5}, mindestens=2), ([a[0], a[2]], False))   # zu wenige bei L&S
 
 
 if __name__ == "__main__":

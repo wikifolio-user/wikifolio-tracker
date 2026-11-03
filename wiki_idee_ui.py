@@ -142,8 +142,13 @@ def _jetzt():
 
 def liste_erstellen(h, depot):
     """Bewertung aller Werte + aktuelle Kurse + Umschichtung (ohne Speichern). -> Vorschlag (dict)"""
-    d = h["bewertung_daten"]()
-    bewertet = [(e, h["bewerten"](e, d["ver"])) for e in d["u"] if e["art"] in ("aktie", "etf")]
+    # Werte direkt aus "Ranglisten & Screener": Aktien = Rangliste Qualitaets-Score, ETFs = ETF-Score
+    lies = h["lesen_taeglich"]
+    alle = [x for x in UI.parallel_lesen(lies, [f"state/qualitaet/alle_{i}.json" for i in range(6)], None)
+            if isinstance(x, dict)]
+    fx = {k: v[1] for k, v in (lies("state/top50_fx.json", {}) or {}).items()
+          if isinstance(v, (list, tuple)) and len(v) > 1}
+    yahoo_isin = (lies("state/top50_yahoo.json", {}) or {}).get("isin") or {}
     inv = {}
     for teil in UI.parallel_lesen(h["lesen_taeglich"], [f"state/investoren/ergebnis_{i:02d}.json" for i in range(16)],
                                   None):
@@ -151,12 +156,13 @@ def liste_erstellen(h, depot):
     katalog = [x for x in UI.parallel_lesen(h["lesen_taeglich"], [f"state/planer/katalog_gross_{i}.json"
                                                                   for i in range(4)], None) if isinstance(x, dict)]
     eur = tageskurse(katalog)                       # EUR-Tagesschluss je WKN/ISIN
-    rang_a, aus, rang_e = WI.ranglisten(bewertet, inv, KS.HEBEL, EM.merkmale, eur)
+    ids = KV.kennung_ids(lies("state/top50_ids.json", {}) or {}, lies("state/top50_wikifolios.json", {}) or {})
+    aktien, nur_ls = WI.handelbar(WI.aktien_aus_qualitaet(alle, yahoo_isin, fx), ids)
+    bewertet = [(e, {}) for e in aktien + WI.etfs_aus_katalog(katalog)]
+    rang_a, aus, rang_e = WI.ranglisten(bewertet, inv, KS.HEBEL, EM.merkmale, eur, KS.je_kennung(katalog, "etf"))
     if len(rang_a) < WI.N_AKTIEN or len(rang_e) < WI.N_ETF:
         raise ValueError(f"Zu wenige bewertete Werte ({len(rang_a)} Aktien, {len(rang_e)} ETFs) – die Daten der "
                          "Agenten sind gerade unvollständig.")
-    ids = KV.kennung_ids(h["lesen_taeglich"]("state/top50_ids.json", {}) or {},
-                         h["lesen_taeglich"]("state/top50_wikifolios.json", {}) or {})
     jobs = []
     for w in WI.kurs_kandidaten(depot, rang_a, rang_e):
         iid = next((ids[k.upper()] for k in (w.get("wkn"), w.get("isin")) if k and k.upper() in ids), None)
@@ -179,7 +185,7 @@ def liste_erstellen(h, depot):
     neu["ausgeschlossen"] = aus[:200]
     return {"zeit": jetzt.strftime("%d.%m.%Y, %H:%M Uhr"), "neu": neu, "liste": liste, "basis": WI.signatur(depot),
             "alt": {k: x for k, x in depot.items() if k != "vorher"},
-            "live": len(live), "kandidaten": len(jobs), "rang": {"stand": jetzt.date().isoformat(),
+            "live": len(live), "kandidaten": len(jobs), "nur_ls": nur_ls, "aktien_basis": len(aktien), "rang": {"stand": jetzt.date().isoformat(),
                                                                    "aktien": rang_a[:100], "etf": rang_e[:40]}}
 
 
@@ -208,7 +214,10 @@ def _vorschlag_zeigen(h, v):
     k3.metric("Verkaufen für", FMT.eur(summe["verkauf"], 0))
     k4.metric("Kaufen für", FMT.eur(summe["kauf"], 0), f"Kasse danach {FMT.eur(neu['kasse'], 0)}", delta_color="off")
     st.caption(f"Aktuelle Kurse von ls-tc.de für {v['live']} von {v['kandidaten']} Werten, übrige mit dem letzten "
-               "Tagesschluss. Im wikifolio kann der Ausführungskurs abweichen – erst verkaufen, dann kaufen.")
+               "Tagesschluss. Im wikifolio kann der Ausführungskurs abweichen – erst verkaufen, dann kaufen. "
+               f"Auswahl aus {FMT.zahl(v.get('aktien_basis') or 0, 0)} Aktien des Qualitäts-Scores "
+               + ("mit ISIN, die bei Lang & Schwarz handelbar sind." if v.get("nur_ls") else
+                  "mit ISIN (Handelbarkeit bei Lang & Schwarz bitte im wikifolio prüfen)."))
     if not zeilen:
         st.success("Keine Anpassungen nötig – das Depot entspricht der aktuellen Rangliste.")
     else:
@@ -265,7 +274,7 @@ def _vorschlag_zeigen(h, v):
 
 def seite(h):
     """h: {"lesen": ungecachtes Lesen, "lesen_taeglich", "schreiben": gh_aktualisiere, "schreiben_ok": bool,
-    "bewertung_daten": () -> {u, ver}, "bewerten": scoring.bewerten, "live_kurs": instrument_id -> kurs}"""
+    "live_kurs": instrument_id -> kurs}"""
     schritte.leiste(st, "wiki")
     depot = h["lesen"](PFAD_DEPOT, {}) or {}
     rang = h["lesen"](PFAD_RANG, {}) or {}
@@ -275,8 +284,8 @@ def seite(h):
 
     # 1 - Liste erstellen
     schritte.titel(st, "wiki", 1)
-    st.caption("Bewertet alle Aktien und ETFs jetzt neu (Bewertungssystem, Investoren-Checks, fairer Wert), holt die "
-               "aktuellen Kurse und berechnet die Käufe und Verkäufe für das Modelldepot"
+    st.caption("Nimmt die Aktien aus dem ⭐ Qualitäts-Score und die ETFs aus dem 🏅 ETF-Score von „Ranglisten & "
+               "Screener“, ergänzt um Investoren-Checks und fairen Wert, holt die aktuellen Kurse und berechnet die Käufe und Verkäufe für das Modelldepot"
                + ("." if depot.get("positionen") else " – beim ersten Mal die Startkäufe für 100.000 €."))
     if st.button("📋 Liste jetzt erstellen", key="wiki_erstellen", type="primary", width="stretch"):
         with st.spinner("Bewerte alle Werte und hole aktuelle Kurse …"):
@@ -464,15 +473,16 @@ def _methodik():
         st.markdown(
             "- **Start:** 100.000 € – 70 % auf **50 Aktien**, 30 % auf **20 ETFs**, je Klasse gleich gewichtet "
             "(je Aktie ca. 1.400 €, je ETF 1.500 €), ganze Stück; die Restkasse wird auf die Positionen verteilt.\n"
-            "- **Aktien-Rangliste** aus dem Bewertungssystem: "
+            "- **Aktien** aus „🏆 Ranglisten & Screener“: "
             + ", ".join(f"{g} % {t}" for _, t, g in WI.BAUSTEINE) + ". "
-            "*Gesamt-Score* = Bewertung, Qualität, Wachstum, Stabilität, Dividende, Momentum (wie unter "
-            "„⚖️ Bewertung“); *Investoren-Checks* = Urteil der Börsenlegenden (Buffett, Graham, Lynch, Greenblatt, "
+            "*Qualitäts-Score* = die Punkte der Rangliste „⭐ Qualitäts-Score“ (nur Aktien mit ISIN, die bei Lang & "
+            "Schwarz – dem Handelspartner von wikifolio – handelbar sind); *Investoren-Checks* = Urteil der Börsenlegenden (Buffett, Graham, Lynch, Greenblatt, "
             "Piotroski, Fisher …); *Unterbewertung* = Abstand fairer Wert zum Kurs; *Qualität × Kurs* = gute Firma, "
             "zuletzt schwacher Kurs. Fehlt ein Baustein, zählt er neutral (50).\n"
             "- **Ausschluss:** Altman-Gefahrenzone, Beneish-Verdacht auf Bilanzmanipulation oder überwiegend "
             "Bilanz-Warnsignale.\n"
-            f"- **ETFs:** Gesamt-Score (Rendite, Risiko, Momentum, Dividende), ohne Hebel-/Short-Produkte, "
+            f"- **ETFs** aus „🏆 Ranglisten & Screener“: der „🏅 ETF-Score“ (Rendite, Rendite je Risiko, Rückgang, "
+            "Schwankung, Historie, Beständigkeit), ohne Hebel-/Short-Produkte, "
             f"mindestens {WI.MIN_ETF_JAHRE:.0f} Jahre Historie.\n"
             f"- **Streuung:** höchstens {WI.MAX_JE_SEKTOR} Aktien je Branche, höchstens {WI.MAX_JE_ETF_GRUPPE} ETFs "
             "je Region + Thema (sonst würden z. B. zehn fast gleiche S&P-500-ETFs gewählt).\n"

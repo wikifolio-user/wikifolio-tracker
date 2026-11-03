@@ -5199,14 +5199,10 @@ def render_dashboard():
         def _render_wiki():
             _zugang_pruefen(ANSICHT_WIKI)
             try:
-                import bewertung_ui
-                import scoring
                 import wiki_idee_ui
                 wiki_idee_ui.seite({
                     "lesen": gh_read, "lesen_taeglich": gh_read_taeglich, "schreiben": gh_aktualisiere,
                     "schreiben_ok": GH_STATE_READY,
-                    "bewertung_daten": lambda: bewertung_ui._daten(gh_read_taeglich, datetime.date.today().isoformat()),
-                    "bewerten": scoring.bewerten,
                     "live_kurs": lambda iid: _live_roh(str(iid))[0]})
             except Exception as e:
                 st.error(f"⚠️ Fehler im KI_Invest_System: {e}")

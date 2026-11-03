@@ -3,13 +3,14 @@
 Ablauf (nach Bedarf: Knopf "Liste jetzt erstellen" in der Ansicht Wiki-Idee, wiki_idee_ui.py):
   1. Rangliste der Aktien aus vier Bausteinen (fehlt ein Baustein, zaehlt er neutral mit 50 - fehlende Daten
      werden nicht belohnt):
-       40 %  Gesamt-Score des Bewertungssystems (scoring.py: Bewertung, Qualitaet, Wachstum, Stabilitaet,
-             Dividende, Momentum)
+       40 %  Qualitaets-Score aus "Ranglisten & Screener" (Qualitaets-Agent: Wachstum, Rendite auf das
+             Kapital, Margen, Bilanz, Bewertung - state/qualitaet/alle_N.json, Feld "gesamt")
        30 %  Investoren-Checks (Buffett, Graham, Lynch, Greenblatt, Piotroski ... - Legenden-Konsens 0-100)
        20 %  Unterbewertung: Abstand fairer Wert (Median der Bewertungsmodelle) zum Kurs, als Rang
        10 %  Qualitaet x Kurs: hohe Qualitaet bei zuletzt schwachem Kurs (6 Monate)
      Ausgeschlossen: Warnsignale (Altman-Gefahrenzone, Beneish-Verdacht, ueberwiegend Bilanz-Warnsignale).
-  2. Rangliste der ETFs nach Gesamt-Score (scoring.py), ohne Hebel-/Short-Produkte, mindestens 3 Jahre Historie.
+  2. Rangliste der ETFs nach dem ETF-Score aus "Ranglisten & Screener" (klassen_score.py), ohne Hebel-/Short-
+     Produkte, mindestens 3 Jahre Historie.
   3. Streuung: hoechstens MAX_JE_SEKTOR Aktien je Branche, hoechstens MAX_JE_ETF_GRUPPE ETFs je Region + Thema.
   4. Zielportfolio mit Puffer: gehaltene Werte bleiben, solange sie in den Top PUFFER_* stehen - kein Tausch
      wegen kleiner Score-Schwankungen; frei werdende Plaetze bekommen die Besten.
@@ -29,7 +30,7 @@ MAX_JE_SEKTOR = 10
 MAX_JE_ETF_GRUPPE = 2
 MIN_ETF_JAHRE = 3.0
 UEBER_ZIEL = 0.10            # Restkasse: eine Position darf hoechstens 10 % ueber ihr Zielgewicht wachsen
-BAUSTEINE = (("score", "Gesamt-Score", 40), ("investoren", "Investoren-Checks", 30),
+BAUSTEINE = (("score", "Qualitäts-Score", 40), ("investoren", "Investoren-Checks", 30),
              ("unterbewertung", "Unterbewertung", 20), ("qualitaet_kurs", "Qualität × Kurs", 10))
 NEUTRAL = 50.0
 
@@ -79,13 +80,15 @@ def warnsignal(inv):
 
 
 def aktien_rangliste(eintraege, investoren=None, eur_kurse=None):
-    """eintraege: [(e, b)] mit e aus scoring.universum (art "aktie") und b = scoring.bewerten(e, ver).
+    """eintraege: [(e, b)] mit e aus scoring.universum (art "aktie"; Qualitaets-Score in e["info"]["gesamt"]),
+    b optional (scoring.bewerten, nur fuer das Fazit).
     investoren: {ticker: Kurzform aus state/investoren/ergebnis_NN.json}. eur_kurse: siehe eur_kurs.
     -> (liste absteigend nach "mix", ausgeschlossen: [{name, grund}])"""
     investoren = investoren or {}
     kand, aus = {}, []
     for e, b in eintraege:
-        if e.get("art") != "aktie" or not eur_kurs(e, eur_kurse) or (b or {}).get("gesamt") is None:
+        if e.get("art") != "aktie" or not eur_kurs(e, eur_kurse) or \
+                _zahl((e.get("info") or {}).get("gesamt")) is None:
             continue
         inv = investoren.get(e.get("ticker") or "") or {}
         grund = warnsignal(inv)
@@ -102,7 +105,7 @@ def aktien_rangliste(eintraege, investoren=None, eur_kurse=None):
         qk = None
         if i in qual and i in kurs6:
             qk = 0.5 * qual[i] + 0.5 * (100.0 - kurs6[i])          # gute Firma, schwacher Kurs
-        teile = {"score": b["gesamt"], "investoren": _zahl(inv.get("score")), "unterbewertung": fv.get(i),
+        teile = {"score": _zahl(e["info"]["gesamt"]), "investoren": _zahl(inv.get("score")), "unterbewertung": fv.get(i),
                  "qualitaet_kurs": qk}
         mix = sum(g * (NEUTRAL if teile[k] is None else teile[k]) for k, _, g in BAUSTEINE) / \
             sum(g for _, _, g in BAUSTEINE)
@@ -111,23 +114,36 @@ def aktien_rangliste(eintraege, investoren=None, eur_kurse=None):
                       "kurs": eur_kurs(e, eur_kurse), "mix": round(mix, 1),
                       "teile": {k: (None if v is None else round(v, 1)) for k, v in teile.items()},
                       "note": inv.get("note"), "kaufen": inv.get("kaufen"), "von": inv.get("inv"),
-                      "fv": _zahl(inv.get("fv")), "fazit": b.get("fazit")})
+                      "fv": _zahl(inv.get("fv")), "fazit": (b or {}).get("fazit"),
+                      "klasse": (e.get("info") or {}).get("klasse")})
     liste.sort(key=lambda w: (-w["mix"], w["name"].lower()))
     for r, w in enumerate(liste, 1):
         w["rang"] = r
     return liste, aus
 
 
-def etf_rangliste(eintraege, hebel_muster=None, merkmale=None, eur_kurse=None):
+def _etf_score(e, b, etf_score):
+    """ETF-Score (klassen_score.je_kennung: {WKN/ISIN: {score, jahre, einordnung}}) - ohne Tabelle (Tests)
+    der Score aus b."""
+    if etf_score is None:
+        return ({"score": (b or {}).get("gesamt"), "jahre": e["k"].get("jahre")}
+                if (b or {}).get("gesamt") is not None else None)
+    return next((etf_score[str(k).upper()] for k in (e.get("wkn"), e.get("isin"))
+                 if k and str(k).upper() in etf_score), None)
+
+
+def etf_rangliste(eintraege, hebel_muster=None, merkmale=None, eur_kurse=None, etf_score=None):
     """eintraege: [(e, b)] mit art "etf". hebel_muster: Regex fuer Hebel/Short (klassen_score.HEBEL);
-    merkmale: Funktion name -> {"region", "themen"} (etf_merkmale.merkmale) fuer die Streuung."""
+    merkmale: Funktion name -> {"region", "themen"} (etf_merkmale.merkmale) fuer die Streuung;
+    etf_score: ETF-Score aus "Ranglisten & Screener" je WKN/ISIN (klassen_score.je_kennung(katalog, "etf"))."""
     liste = []
     for e, b in eintraege:
-        if e.get("art") != "etf" or not eur_kurs(e, eur_kurse) or (b or {}).get("gesamt") is None:
+        s_ = _etf_score(e, b, etf_score) if e.get("art") == "etf" else None
+        if not s_ or _zahl(s_.get("score")) is None or not eur_kurs(e, eur_kurse):
             continue
         if hebel_muster is not None and hebel_muster.search(e["name"]):
             continue
-        if (_zahl(e["k"].get("jahre")) or 0) < MIN_ETF_JAHRE:
+        if (_zahl(s_.get("jahre")) or _zahl(e["k"].get("jahre")) or 0) < MIN_ETF_JAHRE:
             continue
         mm = merkmale(e["name"]) if merkmale else {}
         # ohne erkennbare Region keine Gruppe (sonst landeten alle unbekannten ETFs in einer)
@@ -135,7 +151,8 @@ def etf_rangliste(eintraege, hebel_muster=None, merkmale=None, eur_kurse=None):
             if mm and mm.get("region") not in (None, "Sonstige") else "–"
         liste.append({"id": e["id"], "art": "etf", "name": e["name"], "ticker": "", "wkn": e.get("wkn") or "",
                       "isin": e.get("isin") or "", "gruppe": gruppe, "kurs": eur_kurs(e, eur_kurse),
-                      "mix": round(b["gesamt"], 1), "teile": {"score": round(b["gesamt"], 1)}})
+                      "mix": round(_zahl(s_["score"]), 1), "teile": {"score": round(_zahl(s_["score"]), 1)},
+                      "klasse": s_.get("einordnung")})
     liste.sort(key=lambda w: (-w["mix"], w["name"].lower()))
     for r, w in enumerate(liste, 1):
         w["rang"] = r
@@ -240,10 +257,11 @@ def auftraege(alt, neu):
     return aus
 
 
-def ranglisten(bewertet, investoren=None, hebel_muster=None, merkmale=None, eur_kurse=None):
+def ranglisten(bewertet, investoren=None, hebel_muster=None, merkmale=None, eur_kurse=None, etf_score=None):
     """bewertet: [(e, scoring.bewerten(e, ver))] aller Aktien und ETFs. -> (aktien, ausgeschlossen, etfs)"""
     rang_a, aus = aktien_rangliste([x for x in bewertet if x[0].get("art") == "aktie"], investoren, eur_kurse)
-    rang_e = etf_rangliste([x for x in bewertet if x[0].get("art") == "etf"], hebel_muster, merkmale, eur_kurse)
+    rang_e = etf_rangliste([x for x in bewertet if x[0].get("art") == "etf"], hebel_muster, merkmale, eur_kurse,
+                           etf_score)
     return rang_a, aus, rang_e
 
 
@@ -404,3 +422,77 @@ def korrigieren(depot, zeilen, kasse, datum, zeitpunkt=None):
                                                    "auftraege": aend, "korrektur": True}])[-30:]
     return dict({k: v for k, v in depot.items() if k != "vorher"}, positionen=pos, kasse=kasse, wert=wert,
                 stand=datum, laeufe=laeufe), aend
+
+
+# ---------------------------------------------------------------------------
+# Werte direkt aus "Ranglisten & Screener"
+# ---------------------------------------------------------------------------
+UNTEREINHEIT = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ILA": ("ILS", 100), "ZAc": ("ZAR", 100),
+                "ZAC": ("ZAR", 100), "KWF": ("KWD", 1000)}
+
+
+def in_eur(kurs, waehrung, fx):
+    """Kurs in Landeswaehrung -> EUR. fx: {Waehrung: Einheiten je 1 EUR} (state/top50_fx.json, Feld [1]).
+    Ohne Wechselkurs -> None (lieber kein Wert als ein falscher)."""
+    k = _zahl(kurs)
+    if not k or k <= 0:
+        return None
+    w = str(waehrung or "EUR")
+    w, teiler = UNTEREINHEIT.get(w, (w.upper(), 1))
+    if w == "EUR":
+        return round(k / teiler, 4)
+    rate = _zahl((fx or {}).get(w))
+    return round(k / teiler / rate, 4) if rate and rate > 0 else None
+
+
+def aktien_aus_qualitaet(alle_teile, yahoo_isin=None, fx=None):
+    """Alle Aktien der Rangliste "Qualitaets-Score" (state/qualitaet/alle_N.json) als Eintraege fuer
+    aktien_rangliste - Kurs in EUR, ISIN aus state/top50_yahoo.json ({ISIN: Symbol})."""
+    isin_je = {str(s): str(i).upper() for i, s in (yahoo_isin or {}).items() if s}
+    aus = []
+    for d in alle_teile or []:
+        felder = (d or {}).get("felder") or []
+        for z in (d or {}).get("zeilen") or []:
+            q = dict(zip(felder, z))
+            s = str(q.get("s") or "").strip()
+            if not s or _zahl(q.get("gesamt")) is None:
+                continue
+            aus.append({"id": s, "art": "aktie", "name": str(q.get("name") or s).strip(), "ticker": s, "wkn": "",
+                        "isin": isin_je.get(s, ""), "sektor": str(q.get("br") or ""),
+                        "kurs": in_eur(q.get("kurs"), q.get("kwae"), fx), "waehrung": "EUR",
+                        "k": {"p6": _zahl(q.get("p6"))},
+                        "info": {"gesamt": _zahl(q.get("gesamt")), "klasse": q.get("klasse")}})
+    return aus
+
+
+def etfs_aus_katalog(katalog_teile):
+    """Alle ETFs des Katalogs (Grundlage des ETF-Scores) als Eintraege fuer etf_rangliste - Kurs in EUR."""
+    aus, gesehen = [], set()
+    for d in katalog_teile or []:
+        felder = (d or {}).get("felder") or []
+        for z in (d or {}).get("zeilen") or []:
+            w = dict(zip(felder, z))
+            if w.get("typ") != "etf":
+                continue
+            kenn, isin = str(w.get("kennung") or "").upper(), str(w.get("isin") or "").upper()
+            i = isin or kenn
+            if not i or i in gesehen:
+                continue
+            gesehen.add(i)
+            aus.append({"id": i, "art": "etf", "name": str(w.get("name") or i), "ticker": "", "wkn": kenn,
+                        "isin": isin, "kurs": _zahl(w.get("kurs")), "waehrung": "EUR",
+                        "k": {"jahre": _zahl(w.get("jahre"))}, "info": {}})
+    return aus
+
+
+def handelbar(aktien, ids=None, mindestens=2 * N_AKTIEN):
+    """Nur Aktien, die man im wikifolio auch findet: mit ISIN; und - wenn davon genug uebrig bleiben - nur
+    solche mit bekannter Kurs-ID bei Lang & Schwarz (ids: {WKN/ISIN/Symbol: id}), dem Handelspartner von
+    wikifolio. -> (liste, nur_ls: bool)"""
+    mit_isin = [e for e in aktien if e.get("isin")]
+    if ids:
+        bei_ls = [e for e in mit_isin if any(str(k).upper() in ids for k in (e.get("isin"), e.get("ticker"), e.get("wkn"))
+                                            if k)]
+        if len(bei_ls) >= mindestens:
+            return bei_ls, True
+    return mit_isin, False
