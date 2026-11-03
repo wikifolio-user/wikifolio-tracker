@@ -2074,6 +2074,7 @@ ANSICHT_ANALYSE = "🧠 Depot-Analyse & Optimierung"
 ANSICHT_ANALYSE_DEPOT = "📥 Analyse-Depot"
 ANSICHT_BEWERTUNG = "⚖️ Bewertung"
 ANSICHT_ATZ = "🏖️ Altersteilzeit & Rente"
+ANSICHT_WIKI = "💹 KI_Invest_System"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -2102,6 +2103,7 @@ ANSICHTEN = [
     ANSICHT_ANALYSE_DEPOT,
     ANSICHT_BEWERTUNG,          # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_ATZ,
+    ANSICHT_WIKI,               # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2127,6 +2129,7 @@ ANSICHT_KURZ = {
     ANSICHT_ANALYSE_DEPOT: "📥 Analyse-Depot",
     ANSICHT_BEWERTUNG: "⚖️ Bewertung",
     ANSICHT_ATZ: "🏖️ Altersteilzeit",
+    ANSICHT_WIKI: "💹 KI_Invest_System",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2152,6 +2155,7 @@ NAV_NAMEN = {
     ANSICHT_ABFINDUNG: "💶 Abfindungsrechner",
     ANSICHT_ZINS: "🧮 Zinseszinsrechner",
     ANSICHT_ATZ: "🏖️ Altersteilzeit & Rente",
+    ANSICHT_WIKI: "💹 KI_Invest_System (wikifolio)",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -2165,7 +2169,7 @@ NAV_TITEL = {
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
 NAV_ZEILEN = [
-    ("Depot", [ANSICHT_DEPOT, ANSICHT_ANALYSE, ANSICHT_ANALYSE_DEPOT, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
+    ("Depot", [ANSICHT_DEPOT, ANSICHT_WIKI, ANSICHT_ANALYSE, ANSICHT_ANALYSE_DEPOT, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
@@ -2177,15 +2181,15 @@ NAV_ZEILEN = [
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
-                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ}
+                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
-BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
+BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
 
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
-              ANSICHT_BEWERTUNG, ANSICHT_ATZ}
+              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -2513,6 +2517,8 @@ def _sichtbar(ansicht):
     n = _nutzer()
     if ansicht == ANSICHT_BENUTZER:
         return bool(n) and n.get("rolle") == "admin"
+    if ansicht == ANSICHT_WIKI:          # eigene Handelsidee: Admin, sonst nur bei ausdruecklich vergebenem Recht
+        return n is None or n.get("rolle") == "admin" or ansicht in (n.get("ansichten") or [])
     return login.darf(n, ansicht)
 
 
@@ -5185,6 +5191,23 @@ def render_dashboard():
                 st.error(f"⚠️ Fehler in der Bewertung: {e}")
                 notify_app_error("Tab-Bewertung", e)
         _render_bewertung()
+        lade_fertig()
+
+    # --- WIKI-IDEE: Modelldepot (50 Aktien + 20 ETFs) - Liste nach Bedarf, Uebernahme nur auf Klick
+    if gewaehlte_ansicht == ANSICHT_WIKI:
+        @st.fragment
+        def _render_wiki():
+            _zugang_pruefen(ANSICHT_WIKI)
+            try:
+                import wiki_idee_ui
+                wiki_idee_ui.seite({
+                    "lesen": gh_read, "lesen_taeglich": gh_read_taeglich, "schreiben": gh_aktualisiere,
+                    "schreiben_ok": GH_STATE_READY,
+                    "live_kurs": lambda iid: _live_roh(str(iid))[0]})
+            except Exception as e:
+                st.error(f"⚠️ Fehler im KI_Invest_System: {e}")
+                notify_app_error("Tab-Wiki-Idee", e)
+        _render_wiki()
         lade_fertig()
 
     # --- ALTERSTEILZEIT & RENTENPLANUNG (atz_rechner/ + atz_ui.py) - eigenstaendiger Rechner; den Depotwert
