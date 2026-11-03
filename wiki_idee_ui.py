@@ -1,4 +1,4 @@
-"""Wiki-Idee - Oberflaeche des Modelldepots (Rechenlogik in wiki_idee.py).
+"""KI_Invest_System (Wiki-Idee) - Oberflaeche des Modelldepots (Rechenlogik in wiki_idee.py).
 
 Nach Bedarf: "Liste jetzt erstellen" bewertet alle Werte neu (Bewertungssystem + Investoren-Checks), holt die
 aktuellen Kurse (ls-tc.de) und zeigt Kaeufe/Verkaeufe mit einem Chart der Veraenderungen. Das Modelldepot
@@ -222,7 +222,7 @@ def _vorschlag_zeigen(h, v):
                      column_config={"Kurs jetzt €": st.column_config.NumberColumn(format="%.2f"),
                                     "Betrag €": st.column_config.NumberColumn(format="%+.2f")})
         st.download_button("⬇️ Liste als CSV", df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
-                           file_name=f"wiki_idee_liste_{neu['laeufe'][-1]['zeit'].replace(':', '')}.csv",
+                           file_name=f"KI_Invest_System_liste_{neu['laeufe'][-1]['zeit'].replace(':', '')}.csv",
                            mime="text/csv", key="wiki_vorschlag_csv")
     b1, b2 = st.columns(2)
     if b1.button("✅ Als umgesetzt übernehmen", key="wiki_uebernehmen", type="primary", width="stretch",
@@ -320,7 +320,7 @@ def seite(h):
             st.plotly_chart(_balken(df, f"{titel} nach Wert"), width="stretch", key=f"wiki_balken_{key}",
                             config={"displayModeBar": False})
             st.download_button(f"⬇️ {titel} als CSV", df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
-                               file_name=f"wiki_idee_{key}_{depot.get('stand')}.csv", mime="text/csv",
+                               file_name=f"KI_Invest_System_{key}_{depot.get('stand')}.csv", mime="text/csv",
                                key=f"wiki_csv_{key}")
 
     # 4 - Verlauf der Umschichtungen
@@ -379,7 +379,7 @@ def seite(h):
 
 
 def _methodik():
-    with st.expander("ℹ️ So funktioniert die Wiki-Idee"):
+    with st.expander("ℹ️ So funktioniert das KI_Invest_System"):
         st.markdown(
             "- **Start:** 100.000 € – 70 % auf **50 Aktien**, 30 % auf **20 ETFs**, je Klasse gleich gewichtet "
             "(je Aktie ca. 1.400 €, je ETF 1.500 €), ganze Stück; die Restkasse wird auf die Positionen verteilt.\n"
