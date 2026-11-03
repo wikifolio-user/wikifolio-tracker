@@ -46,6 +46,14 @@ class Rangliste(unittest.TestCase):
         self.assertEqual(liste[0]["id"], "A1")
         self.assertEqual(liste[0]["teile"]["qualitaet_kurs"], 100.0)
 
+    def test_nur_eur_kurse(self):
+        e1, b1 = aktie(1, 80, kurs=120.0)
+        e1["waehrung"] = "USD"
+        e2, b2 = aktie(2, 70, kurs=50.0)
+        e2["waehrung"] = "USD"
+        liste, _ = WI.aktien_rangliste([(e1, b1), (e2, b2)], eur_kurse={"W1": 110.5})
+        self.assertEqual([(w["id"], w["kurs"]) for w in liste], [("A1", 110.5)])    # A2 ohne EUR-Kurs fehlt
+
     def test_etf_filter(self):
         hebel = re.compile(r"leverag|short|\b[2-9]x\b", re.I)
         liste = WI.etf_rangliste([etf(1, 70), etf(2, 90, "Daily 3x Long Nasdaq"), etf(3, 80, jahre=1.0),
@@ -125,57 +133,36 @@ class Depot(unittest.TestCase):
         d3, _ = WI.umschichten(d2, a2, [dict(w) for w in e], preise, "2026-11-13")
         self.assertEqual(len(d3["historie"]), 2)
 
-    def test_mail(self):
+
+class Ablauf(unittest.TestCase):
+    def test_ranglisten_und_kandidaten(self):
+        bewertet = [aktie(i, 90 - i) for i in range(1, 6)] + [etf(i, 80 - i) for i in range(1, 4)]
+        a, aus, e = WI.ranglisten(bewertet, {"T2": {"c": {"altman": [0, 0, 1]}}})
+        self.assertEqual([w["id"] for w in a], ["A1", "A3", "A4", "A5"])
+        self.assertEqual(len(aus), 1)
+        self.assertEqual([w["id"] for w in e], ["E1", "E2", "E3"])
+        k = WI.kurs_kandidaten({"positionen": {"X9": {"id": "X9"}}}, a, e, n_aktien=2, n_etf=1)
+        self.assertEqual([w["id"] for w in k], ["X9", "A1", "A3", "E1"])
+
+    def test_betraege(self):
+        z, s = WI.betraege([{"aktion": "Raus", "stueck": 2, "kurs": 10.0}, {"aktion": "Neu", "stueck": 3, "kurs": 5.0}])
+        self.assertEqual([x["betrag"] for x in z], [-20.0, 15.0])
+        self.assertEqual(s, {"kauf": 15.0, "verkauf": 20.0})
+
+    def test_uebernehmen_und_rueckgaengig(self):
         a, e = rangliste(60, gruppen=60), rangliste(25, "etf", gruppen=25, kurs=100.0)
-        d, auf = WI.umschichten({}, a, e, {}, "2026-11-06")
-        betreff, text, html = WI.mail_text(d, auf, "https://beispiel")
-        self.assertIn("70 Anpassungen", betreff)
-        self.assertIn("100.000 €", betreff)
-        self.assertIn("Neu", text)
-        self.assertIn("<table", html)
-        self.assertIn("keine Anlageberatung", text)
-
-
-class Agent(unittest.TestCase):
-    """Ein kompletter Lauf mit synthetischen Daten - nichts wird wirklich gelesen, geschrieben oder gemailt."""
-    def test_lauf_und_wiederholung_am_selben_tag(self):
-        import os
-        import wiki_idee_agent as AG
-        u = [aktie(i, 90 - i * 0.3, sektor=f"S{i % 15}")[0] for i in range(1, 90)] + \
-            [etf(i, 90 - i)[0] for i in range(1, 35)]
-        speicher = {}
-        alt = {}
-        ersatz = {
-            (AG.IA, "universum_laden"): lambda: (u, {}),
-            (AG.IA, "lade_teile"): lambda: ({}, {}),
-            (AG.SC, "verteilungen"): lambda u_: {},
-            (AG.SC, "bewerten"): lambda e, v: {"gesamt": 90 - int(e["id"][1:]) * (0.3 if e["art"] == "aktie" else 1),
-                                                "fazit": None},
-            (AG.T, "lade_state"): lambda p, s: s,
-            (AG.T, "lade_state_geprueft"): lambda p, s, versuche=2: (speicher.get(p, s), "ok"),
-            (AG.T, "speichere_state"): lambda p, d, m: speicher.__setitem__(p, d) or True,
-        }
-        for (mod, name), f in ersatz.items():
-            alt[(mod, name)] = getattr(mod, name)
-            setattr(mod, name, f)
-        for k in ("MAIL_ABSENDER", "MAIL_APP_PASSWORT"):
-            os.environ.pop(k, None)
-        try:
-            self.assertEqual(AG.main(), 0)
-            d1 = speicher[AG.STATE_DEPOT]
-            self.assertEqual(sum(1 for p in d1["positionen"].values() if p["art"] == "aktie"), 50)
-            self.assertEqual(sum(1 for p in d1["positionen"].values() if p["art"] == "etf"), 20)
-            self.assertEqual(d1["vorher"], {})
-            self.assertEqual(AG.main(), 0)                       # zweiter Lauf am selben Tag
-            d2 = speicher[AG.STATE_DEPOT]
-            self.assertEqual(len(d2["historie"]), 1)
-            self.assertEqual(len(d2["laeufe"]), 1)
-            self.assertEqual(len(d2["laeufe"][0]["auftraege"]), 70)   # wieder ab dem Stand vor dem ersten Lauf
-            self.assertEqual(len(speicher[AG.STATE_RANG]["aktien"]), 89)
-        finally:
-            for (mod, name), f in alt.items():
-                setattr(mod, name, f)
-
+        d1, _ = WI.umschichten({}, a, e, {}, "2026-11-03", zeitpunkt="2026-11-03T10:00")
+        gespeichert = WI.uebernehmen({}, d1, WI.signatur({}))
+        self.assertEqual(gespeichert["vorher"], {})
+        self.assertEqual(WI.rueckgaengig(gespeichert), {})
+        d2, _ = WI.umschichten(gespeichert, a, e, {"A1": 99.0}, "2026-11-05", zeitpunkt="2026-11-05T15:00")
+        basis = WI.signatur(gespeichert)
+        neu = WI.uebernehmen(gespeichert, d2, basis)
+        self.assertEqual(neu["vorher"]["stand"], "2026-11-03")
+        self.assertNotIn("vorher", neu["vorher"])                       # keine Kette alter Staende
+        self.assertIsNone(WI.uebernehmen(neu, d2, basis))                # inzwischen geaendert -> abgelehnt
+        self.assertEqual(WI.rueckgaengig(neu)["stand"], "2026-11-03")
+        self.assertIsNone(WI.rueckgaengig({"stand": "x"}))
 
 if __name__ == "__main__":
     unittest.main()

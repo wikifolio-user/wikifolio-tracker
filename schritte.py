@@ -115,10 +115,10 @@ FUEHRUNG = {
         ("Ergebnis", "Endkapital, Entwicklung und Tabelle ablesen"),
     ],
     "wiki": [
-        ("Überblick", "Depotwert, Entwicklung seit dem Start und nächste Umschichtung ablesen"),
-        ("Wertentwicklung", "Verlauf des Modelldepots seit dem Start mit 100.000 € ansehen"),
+        ("Liste erstellen", "Aktuelle Käufe und Verkäufe berechnen, im wikifolio umsetzen und übernehmen"),
+        ("Überblick", "Depotwert und Verlauf seit dem Start mit 100.000 € ansehen"),
         ("Positionen", "Die 50 Aktien und 20 ETFs mit Stückzahl, Kurs, Wert und Bewertung prüfen"),
-        ("Umschichtung", "Käufe und Verkäufe des letzten Freitags im wikifolio nachbuchen"),
+        ("Umschichtungen", "Frühere Umschichtungen nachlesen, letzte Übernahme bei Bedarf rückgängig machen"),
         ("Rangliste & Methode", "Nachrücker und die Regeln des Bewertungssystems nachlesen"),
     ],
     "atz": [

@@ -1,6 +1,6 @@
 """Wiki-Idee: Modelldepot aus den besten 50 Aktien und 20 ETFs des Bewertungssystems - reine Rechenlogik.
 
-Ablauf (woechentlich freitags, wiki_idee_agent.py):
+Ablauf (nach Bedarf: Knopf "Liste jetzt erstellen" in der Ansicht Wiki-Idee, wiki_idee_ui.py):
   1. Rangliste der Aktien aus vier Bausteinen (fehlt ein Baustein, zaehlt er neutral mit 50 - fehlende Daten
      werden nicht belohnt):
        40 %  Gesamt-Score des Bewertungssystems (scoring.py: Bewertung, Qualitaet, Wachstum, Stabilitaet,
@@ -13,9 +13,10 @@ Ablauf (woechentlich freitags, wiki_idee_agent.py):
   3. Streuung: hoechstens MAX_JE_SEKTOR Aktien je Branche, hoechstens MAX_JE_ETF_GRUPPE ETFs je Region + Thema.
   4. Zielportfolio mit Puffer: gehaltene Werte bleiben, solange sie in den Top PUFFER_* stehen - kein Tausch
      wegen kleiner Score-Schwankungen; frei werdende Plaetze bekommen die Besten.
-  5. Gleichgewichtung: 70 % auf die Aktien, 30 % auf die ETFs, ganze Stueckzahlen, Rest bleibt Kasse.
-     Jeden Freitag werden alle Positionen auf das Zielgewicht zurueckgesetzt (im wikifolio ohne Kosten).
-Das Modelldepot wird zu den Kursen des Laufs umgeschichtet - es fuehrt keine echten Trades aus.
+  5. Gleichgewichtung: 70 % auf die Aktien, 30 % auf die ETFs, ganze Stueckzahlen, Restkasse wird verteilt.
+     Jede Liste setzt alle Positionen auf das Zielgewicht zurueck (im wikifolio ohne Kosten).
+Die Liste nennt Kaeufe und Verkaeufe zu den Kursen der Abfrage. Das Modelldepot uebernimmt sie erst, wenn der
+Nutzer sie als umgesetzt bestaetigt - es fuehrt keine echten Trades aus.
 """
 import bisect
 import math
@@ -50,6 +51,15 @@ def _rang(werte):
     return {k: 100.0 * bisect.bisect_left(sortiert, v) / (n - 1) for k, v in werte.items()}
 
 
+def eur_kurs(e, eur_kurse=None):
+    """Kurs in EUR: aus eur_kurse (WKN/ISIN -> EUR, Katalog bzw. ls-tc), sonst e["kurs"] nur, wenn er in EUR
+    ist (der Gesamt-Score fuehrt Aktien teils in Landeswaehrung) - sonst None."""
+    for k in (e.get("wkn"), e.get("isin"), e.get("ticker")):
+        if k and eur_kurse and _zahl(eur_kurse.get(str(k).upper())):
+            return _zahl(eur_kurse[str(k).upper()])
+    return _zahl(e.get("kurs")) if str(e.get("waehrung") or "EUR").upper() == "EUR" else None
+
+
 def warnsignal(inv):
     """Grund fuer den Ausschluss aus den Investoren-Checks oder None.
     c: {check_id: [score 0-100, erfuellt, gesamt]}"""
@@ -68,14 +78,14 @@ def warnsignal(inv):
     return None
 
 
-def aktien_rangliste(eintraege, investoren=None):
+def aktien_rangliste(eintraege, investoren=None, eur_kurse=None):
     """eintraege: [(e, b)] mit e aus scoring.universum (art "aktie") und b = scoring.bewerten(e, ver).
-    investoren: {ticker: Kurzform aus state/investoren/ergebnis_NN.json}.
+    investoren: {ticker: Kurzform aus state/investoren/ergebnis_NN.json}. eur_kurse: siehe eur_kurs.
     -> (liste absteigend nach "mix", ausgeschlossen: [{name, grund}])"""
     investoren = investoren or {}
     kand, aus = {}, []
     for e, b in eintraege:
-        if e.get("art") != "aktie" or not _zahl(e.get("kurs")) or (b or {}).get("gesamt") is None:
+        if e.get("art") != "aktie" or not eur_kurs(e, eur_kurse) or (b or {}).get("gesamt") is None:
             continue
         inv = investoren.get(e.get("ticker") or "") or {}
         grund = warnsignal(inv)
@@ -98,7 +108,7 @@ def aktien_rangliste(eintraege, investoren=None):
             sum(g for _, _, g in BAUSTEINE)
         liste.append({"id": i, "art": "aktie", "name": e["name"], "ticker": e.get("ticker") or "",
                       "wkn": e.get("wkn") or "", "isin": e.get("isin") or "", "gruppe": e.get("sektor") or "–",
-                      "kurs": _zahl(e["kurs"]), "mix": round(mix, 1),
+                      "kurs": eur_kurs(e, eur_kurse), "mix": round(mix, 1),
                       "teile": {k: (None if v is None else round(v, 1)) for k, v in teile.items()},
                       "note": inv.get("note"), "kaufen": inv.get("kaufen"), "von": inv.get("inv"),
                       "fv": _zahl(inv.get("fv")), "fazit": b.get("fazit")})
@@ -108,12 +118,12 @@ def aktien_rangliste(eintraege, investoren=None):
     return liste, aus
 
 
-def etf_rangliste(eintraege, hebel_muster=None, merkmale=None):
+def etf_rangliste(eintraege, hebel_muster=None, merkmale=None, eur_kurse=None):
     """eintraege: [(e, b)] mit art "etf". hebel_muster: Regex fuer Hebel/Short (klassen_score.HEBEL);
     merkmale: Funktion name -> {"region", "themen"} (etf_merkmale.merkmale) fuer die Streuung."""
     liste = []
     for e, b in eintraege:
-        if e.get("art") != "etf" or not _zahl(e.get("kurs")) or (b or {}).get("gesamt") is None:
+        if e.get("art") != "etf" or not eur_kurs(e, eur_kurse) or (b or {}).get("gesamt") is None:
             continue
         if hebel_muster is not None and hebel_muster.search(e["name"]):
             continue
@@ -124,7 +134,7 @@ def etf_rangliste(eintraege, hebel_muster=None, merkmale=None):
         gruppe = f'{mm["region"]} · {"/".join(mm.get("themen") or ["–"])}' \
             if mm and mm.get("region") not in (None, "Sonstige") else "–"
         liste.append({"id": e["id"], "art": "etf", "name": e["name"], "ticker": "", "wkn": e.get("wkn") or "",
-                      "isin": e.get("isin") or "", "gruppe": gruppe, "kurs": _zahl(e["kurs"]),
+                      "isin": e.get("isin") or "", "gruppe": gruppe, "kurs": eur_kurs(e, eur_kurse),
                       "mix": round(b["gesamt"], 1), "teile": {"score": round(b["gesamt"], 1)}})
     liste.sort(key=lambda w: (-w["mix"], w["name"].lower()))
     for r, w in enumerate(liste, 1):
@@ -230,9 +240,24 @@ def auftraege(alt, neu):
     return aus
 
 
-def umschichten(depot, rang_aktien, rang_etf, preise, datum, startkapital=STARTKAPITAL):
-    """Ein Freitagslauf. depot: bisheriger Stand ({} beim Start). preise: {id: aktueller Kurs EUR} fuer die
-    gehaltenen Werte (Kurse der Ranglisten gelten fuer neue). -> (neues depot, auftraege)"""
+def ranglisten(bewertet, investoren=None, hebel_muster=None, merkmale=None, eur_kurse=None):
+    """bewertet: [(e, scoring.bewerten(e, ver))] aller Aktien und ETFs. -> (aktien, ausgeschlossen, etfs)"""
+    rang_a, aus = aktien_rangliste([x for x in bewertet if x[0].get("art") == "aktie"], investoren, eur_kurse)
+    rang_e = etf_rangliste([x for x in bewertet if x[0].get("art") == "etf"], hebel_muster, merkmale, eur_kurse)
+    return rang_a, aus, rang_e
+
+
+def kurs_kandidaten(depot, rang_aktien, rang_etf, n_aktien=100, n_etf=40):
+    """Werte, fuer die zum Abfragezeitpunkt der aktuelle Kurs gebraucht wird: gehaltene + die vorderen Plaetze."""
+    aus = {}
+    for w in list((depot.get("positionen") or {}).values()) + rang_aktien[:n_aktien] + rang_etf[:n_etf]:
+        aus.setdefault(w["id"], w)
+    return list(aus.values())
+
+
+def umschichten(depot, rang_aktien, rang_etf, preise, datum, startkapital=STARTKAPITAL, zeitpunkt=None):
+    """Eine Umschichtung. depot: bisheriger Stand ({} beim Start). preise: {id: aktueller Kurs EUR}
+    (fehlt einer, gilt der Kurs aus den Ranglisten bzw. der letzte bekannte). -> (neues depot, auftraege)"""
     alt = dict(depot.get("positionen") or {})
     for i, p in alt.items():                                   # aktuelle Kurse fuer die alten Positionen
         if preise.get(i):
@@ -254,59 +279,45 @@ def umschichten(depot, rang_aktien, rang_etf, preise, datum, startkapital=STARTK
         historie.append([datum, round(kapital, 2)])
     else:
         historie[-1] = [datum, round(kapital, 2)]
-    laeufe = (list(depot.get("laeufe") or []) + [{"datum": datum, "wert": round(kapital, 2),
-                                                   "auftraege": liste}])[-26:]   # ein halbes Jahr Protokoll
+    laeufe = (list(depot.get("laeufe") or []) + [{"datum": datum, "zeit": zeitpunkt or datum,
+                                                   "wert": round(kapital, 2), "auftraege": liste}])[-30:]
     neu = {"start": depot.get("start") or datum, "startkapital": depot.get("startkapital") or startkapital,
            "stand": datum, "wert": round(kapital, 2), "kasse": kasse, "positionen": pos, "historie": historie,
            "laeufe": laeufe}
     return neu, liste
 
 
-# ---------------------------------------------------------------------------
-# Mail
-# ---------------------------------------------------------------------------
-def _de(x, dez=2):
-    return f"{x:,.{dez}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+def betraege(liste):
+    """Auftraege mit Betrag (Verkauf negativ) und Summen. -> (zeilen, {"kauf": €, "verkauf": €})"""
+    zeilen, kauf, verkauf = [], 0.0, 0.0
+    for a in liste:
+        b = a["stueck"] * a["kurs"] * (1 if a["aktion"] in ("Neu", "Kauf") else -1)
+        zeilen.append(dict(a, betrag=round(b, 2)))
+        if b > 0:
+            kauf += b
+        else:
+            verkauf -= b
+    return zeilen, {"kauf": round(kauf, 2), "verkauf": round(verkauf, 2)}
 
 
-def _h(t):
-    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+def signatur(depot):
+    """Kennung eines gespeicherten Stands - eine Liste darf nur auf genau dem Stand uebernommen werden, von dem
+    sie berechnet wurde (sonst wurde inzwischen anderswo umgeschichtet)."""
+    laeufe = (depot or {}).get("laeufe") or []
+    return [len(laeufe), (laeufe[-1].get("zeit") if laeufe else None), (depot or {}).get("wert")]
 
 
-def mail_text(depot, liste, app_url=""):
-    """(Betreff, Text, HTML) der Freitags-Mail mit den Anpassungen."""
-    start, wert = depot["startkapital"], depot["wert"]
-    rendite = (wert / start - 1) * 100 if start else 0.0
-    betreff = (f"Wiki-Idee {depot['stand']}: {len(liste)} Anpassungen · Depot {_de(wert, 0)} € "
-               f"({'+' if rendite >= 0 else ''}{_de(rendite, 1)} %)")
-    zeilen = [f"{a['aktion']:8} {a['stueck']:>6} × {a['name'][:40]} ({a['wkn'] or a['isin']}) "
-              f"zu ca. {_de(a['kurs'])} €  ({a['vorher']} → {a['nachher']} Stück)" for a in liste]
-    text = (f"Wiki-Idee – Umschichtung vom {depot['stand']}\n\n"
-            f"Depotwert: {_de(wert)} € (Start {_de(start, 0)} € am {depot['start']}, "
-            f"{'+' if rendite >= 0 else ''}{_de(rendite, 1)} %)\n"
-            f"Positionen: {sum(1 for p in depot['positionen'].values() if p['art'] == 'aktie')} Aktien, "
-            f"{sum(1 for p in depot['positionen'].values() if p['art'] == 'etf')} ETFs · Kasse {_de(depot['kasse'])} €\n\n"
-            + ("Anpassungen (erst Verkäufe, dann Käufe):\n" + "\n".join(zeilen) if zeilen
-               else "Keine Anpassungen nötig.") +
-            ("\n\nDetails im Dashboard: " + app_url if app_url else "") +
-            "\n\nModellrechnung aus vergangenen Daten – keine Anlageberatung. Kurse: letzter verfügbarer Kurs "
-            "beim Lauf, im wikifolio kann der Ausführungskurs abweichen.")
-    farbe = {"Neu": "#16a34a", "Kauf": "#16a34a", "Verkauf": "#dc2626", "Raus": "#dc2626"}
-    tz = "".join(f'<tr><td style="color:{farbe[a["aktion"]]};font-weight:600">{a["aktion"]}</td>'
-                 f'<td style="text-align:right">{a["stueck"]}</td><td>{_h(a["name"])}<br><small>{_h(a["wkn"] or a["isin"])}'
-                 f' · {"Aktie" if a["art"] == "aktie" else "ETF"}</small></td>'
-                 f'<td style="text-align:right">{_de(a["kurs"])} €</td>'
-                 f'<td style="text-align:right">{a["vorher"]} → {a["nachher"]}</td></tr>' for a in liste)
-    html = (f'<div style="font-family:Arial,sans-serif;font-size:14px;color:#111">'
-            f'<h2 style="margin:0 0 8px">Wiki-Idee – Umschichtung vom {_h(depot["stand"])}</h2>'
-            f'<p>Depotwert <b>{_de(wert)} €</b> · Start {_de(start, 0)} € am {_h(depot["start"])} · '
-            f'<b style="color:{"#16a34a" if rendite >= 0 else "#dc2626"}">{"+" if rendite >= 0 else ""}'
-            f'{_de(rendite, 1)} %</b> · Kasse {_de(depot["kasse"])} €</p>'
-            + (f'<table cellpadding="6" style="border-collapse:collapse;border:1px solid #ddd">'
-               f'<tr style="background:#f3f4f6"><th>Aktion</th><th>Stück</th><th>Wert</th><th>Kurs ca.</th>'
-               f'<th>Bestand</th></tr>{tz}</table>' if liste else "<p>Keine Anpassungen nötig.</p>")
-            + (f'<p><a href="{_h(app_url)}">Details im Dashboard</a></p>' if app_url else "")
-            + '<p style="color:#666;font-size:12px">Modellrechnung aus vergangenen Daten – keine Anlageberatung. '
-              'Kurse: letzter verfügbarer Kurs beim Lauf, im wikifolio kann der Ausführungskurs abweichen.</p></div>')
-    return betreff, text, html
+def uebernehmen(gespeichert, neu, basis):
+    """Neuer Stand zum Speichern (mit dem alten als "vorher" fuer Rueckgaengig) oder None, wenn sich der
+    gespeicherte Stand seit der Berechnung geaendert hat."""
+    if signatur(gespeichert) != basis:
+        return None
+    vorher = {k: v for k, v in (gespeichert or {}).items() if k != "vorher"}
+    return dict(neu, vorher=vorher)
 
+
+def rueckgaengig(gespeichert):
+    """Stand vor der letzten Uebernahme ({} = noch kein Depot) oder None, wenn es keinen gibt."""
+    if not gespeichert or "vorher" not in gespeichert:
+        return None
+    return gespeichert["vorher"] or {}
