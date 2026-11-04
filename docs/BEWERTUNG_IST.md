@@ -95,3 +95,31 @@ Im KI_Invest_System zeigt „🧪 Datenvertrauen & Vergleichsmodelle“ beim Ers
 
 In „🔍 Warum dieser Wert?“ stehen Datenvertrauen und classic_v2 je Position. Die Auswahl selbst nutzt weiter das
 aktive Modell.
+
+## 7. Etappe 3 – Earnings Quality, Profitabilität, Cashflow-Qualität, Kapitalallokation
+
+`kennzahlen/fundamental.py` bildet vier eigenständige Teilbewertungen (je 0–100). Sie werden **nur angezeigt** und nicht
+zu bestehenden Scores addiert: ROIC, Verwässerung und FCF stecken auch im Qualitäts-Score, daher die Gefahr einer
+Doppelzählung. Der Bericht im KI_Invest zeigt deshalb je Teilbewertung die Rangkorrelation mit dem Qualitäts-Score.
+
+| Teilbewertung | Kennzahlen (schwach → stark) |
+|---|---|
+| Earnings Quality | Sloan-Accruals (10 % → −5 %), operativer Cashflow / Gewinn (0,6 → 1,1), Cashflow / Bilanzsumme (0 → 15 %), Veränderung der Forderungslaufzeit (+20 → 0 Tage) und der Lagerdauer (+30 → 0 Tage), Sondereffekte / Gewinn (30 % → 0) |
+| Wirtschaftliche Profitabilität | ROCE (5 → 25 %), Cash-ROIC (0 → 20 %), ROTC (5 → 40 %), Gross Profitability (10 → 40 %), ROIC − WACC (−5 → +10 Pp.), inkrementeller ROIC (0 → 25 %) |
+| Cashflow-Qualität | FCF-Marge nach Aktienvergütung (0 → 20 %), Schwankung der FCF-Marge (1,0 → 0,15), Jahre mit positivem FCF (50 → 100 %), Ausschüttungsdeckung (0,8 → 2,0), FCF je Aktie p. a. (−5 → +12 %) |
+| Kapitalallokation | Aktienanzahl p. a. (+4 → −2 %), Aktienvergütung / Umsatz (10 → 1 %), Zukäufe / Cashflow (100 → 10 %), Rendite reinvestierter Mittel (0 → 25 %), Buchwert je Aktie p. a. (−2 → +12 %), Aktionärsrendite (0 → 6 %) |
+
+Grundsätze:
+- Je Kennzahl gibt es 0–100 Punkte, linear zwischen den Grenzen. Ein Modul braucht mindestens 2 Kennzahlen.
+- Fehlende Werte entfallen, sie werden nie als 0 gezählt.
+- Negative Ergebnisse (z. B. negative Kapitalrendite) sind echte Werte und bekommen 0 Punkte.
+- Bei Banken und Versicherern sind cashflow- und kapitalbasierte Kennzahlen **nicht anwendbar**. Das wird gekennzeichnet und führt zu keinem Nachteil.
+- Der WACC ist eine **Modellannahme**: CAPM mit 10-jähriger Staatsanleihe (`investor_config.STAATSANLEIHE_10J`), Beta von Yahoo (begrenzt auf 0,5–2,0), Marktrisikoprämie 5 %, Fremdkapitalkosten = Zinsaufwand / Schulden (1–12 %).
+- Warnhinweise wie hohe Accruals, schwache Cash-Deckung, steigende Forderungslaufzeit, Sondereffekte, sehr niedrige Steuerquote oder starke Verwässerung sind **Risikohinweise, kein Beweis**.
+
+Datenquelle: derselbe yfinance-Abruf des Investoren-Agenten, keine zusätzlichen API-Aufrufe. Neu eingelesen werden die
+Posten Aktienvergütung, Steuern, Vorsteuerergebnis, Verbindlichkeiten aus L&L, Sondereffekte und Zukäufe
+(`investor_checks/daten.ZEILEN_ERWEITERT`). Sie zählen bewusst nicht für die Mindestzahl an Posten je Periode, damit die
+klassischen Checks unverändert bleiben (Test: `test_neue_posten_aendern_perioden_nicht`).
+
+Speicherung: Feld `x` in `state/investoren/ergebnis_NN.json`, ab dem nächsten Wochenlauf rollierend.

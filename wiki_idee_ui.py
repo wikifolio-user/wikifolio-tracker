@@ -383,13 +383,25 @@ def _etappe2_anreichern(rang_a, rang_e, inv, stand_q="", stand_k=""):
         d["dv"] = {"score": dv["score"], "teile": dv["teile"], "warnungen": dv["warnungen"][:3]}
     namen = {w["id"]: w["name"] for w in rang_a}
     top_dv = [w["detail"]["dv"]["score"] for w in rang_a[:WI.N_AKTIEN] if w["detail"]["dv"]["score"] is not None]
+    # Etappe 3: erweiterte Teilbewertungen - Mittel der Top 50 und Rangkorrelation zum Qualitaets-Score
+    # (hohe Korrelation = misst weitgehend dasselbe -> Doppelzaehlungsgefahr)
+    erweitert = {}
+    for kz_, titel in (("eq", "Earnings Quality"), ("pr", "Profitabilität"), ("cf", "Cashflow-Qualität"),
+                       ("ka", "Kapitalallokation")):
+        paare = [((w["detail"].get("inv") or {}).get("x") or {}).get(kz_) for w in rang_a]
+        mit = [{"id": w["id"], "v1": (w.get("teile") or {}).get("score"), "v2": p}
+               for w, p in zip(rang_a, paare) if p is not None and (w.get("teile") or {}).get("score") is not None]
+        top = [p for p in paare[:WI.N_AKTIEN] if p is not None]
+        erweitert[kz_] = {"titel": titel, "n": len(mit), "top_mittel": round(sum(top) / len(top)) if top else None,
+                          "korr_qualitaet": V2.vergleich(mit, WI.N_AKTIEN).get("spearman") if len(mit) >= 3 else None}
     v = V2.vergleich(zeilen, WI.N_AKTIEN)
     h = V2.vergleich(hoch, WI.N_AKTIEN) if len(hoch) >= 3 else None
     for erg in (v, h):
         if erg:
             erg["neu_in_top"] = [namen.get(i, i) for i in erg.get("neu_in_top", [])[:10]]
             erg["raus_aus_top"] = [namen.get(i, i) for i in erg.get("raus_aus_top", [])[:10]]
-    return {"dv_top_mittel": round(sum(top_dv) / len(top_dv)) if top_dv else None,
+    return {"erweitert": erweitert,
+            "dv_top_mittel": round(sum(top_dv) / len(top_dv)) if top_dv else None,
             "dv_top_unter70": sum(1 for x in top_dv if x < 70), "n": len(rang_a), "mit_fp": mit_fp,
             "v2": {k: v.get(k) for k in ("n", "spearman", "top_gleich", "top", "neu_in_top", "raus_aus_top")},
             "hoch": {k: h.get(k) for k in ("n", "spearman", "top_gleich", "top", "neu_in_top", "raus_aus_top")}
@@ -400,7 +412,7 @@ def _etappe2_zeigen(e):
     """Bericht Etappe 2 - nur Information, die Liste nutzt weiter das aktive Modell."""
     if not e:
         return
-    with st.expander("🧪 Datenvertrauen & Vergleichsmodelle (Etappe 2 – nur Information)"):
+    with st.expander("🧪 Datenvertrauen, erweiterte Analyse & Vergleichsmodelle (nur Information)"):
         c1, c2 = st.columns(2)
         c1.metric("Ø Datenvertrauen Top 50", f"{e['dv_top_mittel']}/100" if e.get("dv_top_mittel") is not None
                   else "–", f"{e['dv_top_unter70']} Werte unter 70", delta_color="off")
@@ -414,6 +426,16 @@ def _etappe2_zeigen(e):
         if v2.get("neu_in_top"):
             st.markdown("**Mit classic_v2 neu in den Top 50:** " + ", ".join(v2["neu_in_top"]))
             st.markdown("**Fielen heraus:** " + ", ".join(v2.get("raus_aus_top") or []))
+        erw = e.get("erweitert") or {}
+        if erw:
+            st.markdown("**Erweiterte Analyse (Etappe 3):** Mittel der Top 50 und Rangkorrelation mit dem "
+                        "Qualitäts-Score – nahe 1 heißt „misst weitgehend dasselbe“ (Doppelzählungsgefahr).")
+            st.dataframe(pd.DataFrame([{"Teilbewertung": v["titel"], "Ø Top 50": v["top_mittel"],
+                                        "Korrelation mit Qualität": v["korr_qualitaet"], "Aktien mit Daten": v["n"]}
+                                       for v in erw.values()]), hide_index=True, width="stretch", key="wiki_e3",
+                         column_config={"Korrelation mit Qualität": st.column_config.NumberColumn(format="%.2f")})
+            if not any(v["n"] for v in erw.values()):
+                st.caption("Die erweiterte Analyse schreibt der Investoren-Agent ab seinem nächsten Wochenlauf mit.")
         h = e.get("hoch")
         st.markdown("**Fehlende Daten im Qualitäts-Score:** Heute zählt ein Kriterium ohne Daten 0 Punkte.")
         if h:

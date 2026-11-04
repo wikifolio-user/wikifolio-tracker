@@ -130,5 +130,85 @@ class ClassicV2(unittest.TestCase):
         self.assertEqual(v["aufsteiger"][0], (19, 20, 1))
 
 
+class Fundamental(unittest.TestCase):
+    """Etappe 3: Earnings Quality, Profitabilitaet, Cashflow-Qualitaet, Kapitalallokation."""
+
+    def setUp(self):
+        from kennzahlen import fundamental as FU
+        from test_investor_checks import firma, jahr
+        self.FU, self.firma, self.jahr = FU, firma, jahr
+
+    def test_musterfirma_formeln(self):
+        f = self.firma(beta=1.1)
+        k, warn, na = self.FU.kennzahlen(f)
+        z = f["jahre"][-1]
+        self.assertAlmostEqual(k["sloan"], (z["nettogewinn"] - z["op_cf"]) / ((1280 + 1300) / 2))
+        self.assertAlmostEqual(k["gross_prof"], 500 / 1300)
+        self.assertAlmostEqual(k["roce"], 200 / (1300 - 250))
+        self.assertAlmostEqual(k["verwaesserung"], (100 / 104) ** (1 / 3) - 1)
+        self.assertEqual((warn, na), ([], []))
+        a = self.FU.analyse(f)
+        self.assertTrue(all(a[m]["score"] is not None for m in self.FU.MODULE))
+        self.assertTrue(0.05 < a["wacc"] < 0.12)
+
+    def test_punkte_richtung_und_grenzen(self):
+        self.assertEqual(self.FU.punkte("sloan", -0.10), 100.0)        # niedrige Accruals = gut
+        self.assertEqual(self.FU.punkte("sloan", 0.20), 0.0)
+        self.assertAlmostEqual(self.FU.punkte("roce", 0.15), 50.0)
+        self.assertIsNone(self.FU.punkte("roce", None))
+
+    def test_bank_nicht_anwendbar_statt_nachteil(self):
+        a = self.FU.analyse(self.firma(sektor="Financial Services", branche="Banks—Diversified"))
+        self.assertIsNone(a["earnings_quality"]["score"])
+        self.assertIn("roce", a["nicht_anwendbar"])
+        self.assertEqual(self.FU.kompakt(a)["na"], 1)
+        self.assertIsNotNone(a["capital_allocation"]["score"])         # Verwaesserung, Buchwert gelten weiter
+
+    def test_verlust_und_fehlende_daten(self):
+        J = self.firma()["jahre"]
+        verlust = self.firma(jahre=J[:-1] + [self.jahr("2025-12-31", nettogewinn=-50.0, op_cf=-10.0, fcf=-60.0,
+                                                        ebit=-20.0)])
+        k, _, _ = self.FU.kennzahlen(verlust)
+        self.assertLess(k["rotc"], 0)                                   # echter negativer Wert, kein "fehlt"
+        self.assertEqual(self.FU.punkte("rotc", k["rotc"]), 0.0)
+        gewinnjahre = [j for j in verlust["jahre"][-3:] if j["nettogewinn"] > 0]
+        self.assertAlmostEqual(k["ocf_ni"], sum(j["op_cf"] for j in gewinnjahre) / sum(j["nettogewinn"]
+                                                                                      for j in gewinnjahre))
+        a = self.FU.analyse({"jahre": [], "kurse": []})
+        self.assertTrue(all(a[m]["score"] is None for m in self.FU.MODULE))
+        ein_jahr = self.FU.analyse({"jahre": [self.jahr("2025-12-31")]})
+        self.assertIsNone(ein_jahr["capital_allocation"]["kennzahlen"].get("verwaesserung"))   # braucht 2 Jahre
+
+    def test_warnungen(self):
+        J = self.firma()["jahre"]
+        f = self.firma(jahre=J[:-1] + [self.jahr("2025-12-31", nettogewinn=300.0, op_cf=60.0, forderungen=400.0,
+                                                 sonder=150.0, steuern=5.0, vor_steuern=320.0)])
+        _, warn, _ = self.FU.kennzahlen(f)
+        text = " ".join(warn)
+        for w in ("hohe Accruals", "schwach durch Cashflow", "Forderungslaufzeit", "Sondereffekten", "Steuerquote"):
+            self.assertIn(w, text)
+
+    def test_anzeigen(self):
+        x = self.FU.kompakt(self.FU.analyse(self.firma(beta=1.1)))
+        z = self.FU.anzeigen(x)
+        self.assertEqual([t for t, _, _ in z], ["Earnings Quality", "Wirtschaftliche Profitabilität",
+                                                "Cashflow-Qualität", "Kapitalallokation"])
+        self.assertTrue(any(v.endswith("%") for _, _, kz in z for _, v, _ in kz))
+        self.assertEqual(self.FU.anzeigen(None), [])
+
+    def test_neue_posten_aendern_perioden_nicht(self):
+        import pandas as pd
+        from investor_checks import daten
+        t = [pd.Timestamp("2024-12-31"), pd.Timestamp("2025-12-31")]
+        # 2024 hat nur 3 klassische Posten (+ SBC) -> bleibt verworfen wie bisher
+        gj = pd.DataFrame({t[0]: [100.0, 40.0, None, None], t[1]: [120.0, 50.0, 12.0, 1.2]},
+                          index=["Total Revenue", "Gross Profit", "Net Income", "Diluted EPS"])
+        cf = pd.DataFrame({t[0]: [20.0, 3.0], t[1]: [25.0, 4.0]},
+                          index=["Operating Cash Flow", "Stock Based Compensation"])
+        p = daten.perioden(gj, None, cf)
+        self.assertEqual([x["datum"] for x in p], ["2025-12-31"])
+        self.assertEqual(p[0]["sbc"], 4.0)
+
+
 if __name__ == "__main__":
     unittest.main()
