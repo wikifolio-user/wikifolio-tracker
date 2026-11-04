@@ -25,10 +25,19 @@ class Rangliste(unittest.TestCase):
         eintraege = [aktie(1, 80), aktie(2, 80), aktie(3, 80)]
         inv = {"T1": {"score": 90, "fv": 40.0}, "T2": {"score": 10, "fv": -20.0}}
         liste, aus = WI.aktien_rangliste(eintraege, inv)
-        self.assertEqual([w["id"] for w in liste], ["A1", "A3", "A2"])     # A3 ohne Investoren-Daten = neutral
+        self.assertEqual([w["id"] for w in liste], ["A1", "A3", "A2"])     # A3: nur Qualitaets-Score (80), Gewichte umverteilt
         a1 = liste[0]
-        self.assertAlmostEqual(a1["mix"], (40 * 80 + 30 * 90 + 20 * 100 + 10 * 50) / 100, places=1)
+        self.assertAlmostEqual(a1["mix"], (40 * 80 + 30 * 90 + 20 * 100) / 90, places=1)   # ohne Q x Kurs
+        self.assertEqual(liste[1]["mix"], 80.0)                       # A3: nur Qualitaets-Score -> nicht gedeckelt
         self.assertEqual(aus, [])
+
+    def test_kein_deckel_ohne_investoren(self):
+        liste, _ = WI.aktien_rangliste([aktie(1, 99), aktie(2, 70)], {"T2": {"score": 60, "fv": 5.0}})
+        self.assertEqual((liste[0]["id"], liste[0]["mix"]), ("A1", 99.0))   # nicht mehr ~72 wie mit Neutralwert 50
+        b = WI.begruendung(dict(liste[0], art="aktie"))
+        text = " ".join(z for _, zs in b["abschnitte"] for z in zs)
+        self.assertIn("geht anteilig auf die übrigen", text)
+        self.assertIn("Qualitäts-Score: 99 × 100 %", text)
 
     def test_warnsignale_ausgeschlossen(self):
         eintraege = [aktie(1, 90), aktie(2, 90), aktie(3, 90), aktie(4, 90)]

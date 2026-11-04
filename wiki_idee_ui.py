@@ -115,7 +115,7 @@ def _positionen_tabelle(pos, preise, gesamt):
         heute = preise.get(p["id"]) or p["kurs"]
         wert = p["stueck"] * heute
         z = {"Rang": p["rang"], "Name": p["name"], "WKN/ISIN": p.get("wkn") or p.get("isin") or "",
-             "Gruppe": p.get("gruppe") or "", "Score": p["mix"]}
+             "Gruppe": p.get("gruppe") or "", "Gesamt": p["mix"]}
         if p["art"] == "aktie":
             for k in ("score", "investoren", "unterbewertung", "qualitaet_kurs"):
                 z[TEIL_TITEL[k]] = (p.get("teile") or {}).get(k)
@@ -129,7 +129,8 @@ def _positionen_tabelle(pos, preise, gesamt):
 
 def _tabelle(df, key):
     cfg = {"Rang": st.column_config.NumberColumn(width="small"),
-           "Score": st.column_config.NumberColumn(format="%.0f"),
+           "Gesamt": st.column_config.NumberColumn("Gesamt", format="%.0f",
+                                                   help="Gesamt-Score aus allen Bausteinen (Rangfolge)"),
            "Stück": st.column_config.NumberColumn(format="%d"),
            "Kurs Kauf €": st.column_config.NumberColumn(format="%.2f"),
            "Kurs heute €": st.column_config.NumberColumn(format="%.2f"),
@@ -161,8 +162,8 @@ def _kacheln(df):
             werte.append(float(r["Wert €"]))
             seit = r["seit Kauf %"] if pd.notna(r["seit Kauf %"]) else 0.0
             farben.append(float(seit))
-            texte.append(f"{FMT.eur(float(r['Wert €']), 0)} · {FMT.pct(seit, 1, vz=True)} · Score {r['Score']:.0f}"
-                         if pd.notna(r["Score"]) else f"{FMT.eur(float(r['Wert €']), 0)} · {FMT.pct(seit, 1, vz=True)}")
+            texte.append(f"{FMT.eur(float(r['Wert €']), 0)} · {FMT.pct(seit, 1, vz=True)} · Gesamt {r['Gesamt']:.0f}"
+                         if pd.notna(r["Gesamt"]) else f"{FMT.eur(float(r['Wert €']), 0)} · {FMT.pct(seit, 1, vz=True)}")
     fig = go.Figure(go.Treemap(ids=ids, labels=labels, parents=parents, values=werte, branchvalues="total",
                                text=texte, textinfo="label+text", tiling=dict(pad=3),
                                textfont=dict(size=13), pathbar=dict(visible=True),
@@ -396,6 +397,14 @@ HP_CSS = """<style>
 BEWEGUNG = {"hoch": "▲ {d}", "runter": "▼ {d}", "gleich": "=", "neu": "NEU", "wieder": "RE"}
 
 
+def _score_text(p):
+    """Aktien: Qualitaets-Score wie in Ranglisten & Screener + Gesamt; ETFs: ETF-Score."""
+    q = (p.get("teile") or {}).get("score")
+    if p.get("art") == "aktie" and q is not None:
+        return f"Qualität {q:.0f} · Gesamt {p['mix']:.0f}" if p.get("mix") is not None else f"Qualität {q:.0f}"
+    return f"ETF-Score {p['mix']:.0f}" if p.get("mix") is not None else ""
+
+
 def _hitparade_html(zeilen, raus, titel):
     """Chartliste wie in einer Musik-Hitparade: Platz, Bewegung, Name, Wochen/Listen, hoechster Platz."""
     h = [HP_CSS, f'<div class="hp" role="list" aria-label="{_esc(titel)}">']
@@ -406,7 +415,7 @@ def _hitparade_html(zeilen, raus, titel):
         pk = f" hp-p{z['platz']}" if z["platz"] <= 3 else ""
         info = " · ".join(x for x in (
             "ETF" if p["art"] == "etf" else (p.get("gruppe") or ""),
-            f"Score {p['mix']:.0f}" if p.get("mix") is not None else "",
+            _score_text(p),
             f"{p['stueck']} Stück · {FMT.eur(p['stueck'] * p['kurs'], 0)}") if x and x != "–")
         vor = (f"<b>{z['vorher']}</b>letzte Liste" if z["vorher"] else "<b>–</b>letzte Liste")
         warum = _warum_kurz(p) if p.get("detail") else ""
@@ -724,12 +733,12 @@ def seite(h):
             for titel, liste in (("Aktien", rang["aktien"]), ("ETFs", rang.get("etf") or [])):
                 st.markdown(f"**{titel}**")
                 st.dataframe(pd.DataFrame([{"Rang": w["rang"], "Im Depot": "✓" if w["id"] in im_depot else "",
-                                            "Name": w["name"], "Gruppe": w["gruppe"], "Score": w["mix"],
+                                            "Name": w["name"], "Gruppe": w["gruppe"], "Gesamt": w["mix"],
                                             **{TEIL_TITEL[k]: v for k, v in (w.get("teile") or {}).items()
                                                if titel == "Aktien"},
                                             "Kurs €": w["kurs"]} for w in liste]),
                              hide_index=True, width="stretch", key=f"wiki_rang_{titel}",
-                             column_config={"Score": st.column_config.NumberColumn(format="%.0f"),
+                             column_config={"Gesamt": st.column_config.NumberColumn(format="%.0f"),
                                             "Kurs €": st.column_config.NumberColumn(format="%.2f")})
     _methodik()
 
@@ -753,8 +762,7 @@ def _warum_karte(depot):
             st.info("Die ausführliche Begründung entsteht mit der nächsten Liste („Liste jetzt erstellen“ → "
                     "übernehmen) – dieser Stand wurde noch ohne Bewertungsdetails gespeichert.")
             return
-        namen = [f'{"📈" if p["art"] == "aktie" else "🌍"} {p["name"]} · Score {p["mix"]:.0f}'
-                 if p.get("mix") is not None else p["name"] for p in pos]
+        namen = [f'{"📈" if p["art"] == "aktie" else "🌍"} {p["name"]} · {_score_text(p)}' for p in pos]
         wahl = st.selectbox("Wert", namen, key="wiki_warum_wahl")
         p = pos[namen.index(wahl)]
         b = WI.begruendung(p, _investor_namen())
@@ -841,10 +849,11 @@ def _methodik():
             "*Qualitäts-Score* = die Punkte der Rangliste „⭐ Qualitäts-Score“ (nur Aktien mit ISIN, die bei Lang & "
             "Schwarz – dem Handelspartner von wikifolio – handelbar sind); *Investoren-Checks* = Urteil der Börsenlegenden (Buffett, Graham, Lynch, Greenblatt, "
             "Piotroski, Fisher …); *Unterbewertung* = Abstand fairer Wert zum Kurs; *Qualität × Kurs* = gute Firma, "
-            "zuletzt schwacher Kurs. Fehlt ein Baustein, zählt er neutral (50).\n"
-            "- **Warum ein Score um 70 reicht:** Die Scores sind Punkte von 100 bzw. Rangvergleiche – nur sehr "
-            "wenige Werte erreichen mehr. Entscheidend ist der Platz im Gesamtfeld (z. B. „Platz 12 von 2.400“); "
-            "jede Position nennt unter „🔍 Warum dieser Wert?“ Platz, Score-Aufschlüsselung, Qualitäts-Punkte, "
+            "zuletzt schwacher Kurs. Fehlt ein Baustein (die Investoren-Checks laufen rollierend und decken noch "
+            "nicht alle Aktien ab), geht sein Gewicht anteilig auf die vorhandenen über – eine Aktie mit "
+            "Qualitäts-Score 99 wird dadurch nicht gedeckelt.\n"
+            "- **Angezeigt** wird bei Aktien der Qualitäts-Score wie in „Ranglisten & Screener“ und der Gesamt-Score "
+            "aus allen Bausteinen; die Rangfolge richtet sich nach dem Gesamt-Score. Jede Position nennt unter „🔍 Warum dieser Wert?“ Platz, Score-Aufschlüsselung, Qualitäts-Punkte, "
             "Börsenlegenden, fairen Wert und den Auswahlgrund (direkt, Puffer, nachgerückt).\n"
             "- **Ausschluss:** Altman-Gefahrenzone, Beneish-Verdacht auf Bilanzmanipulation oder überwiegend "
             "Bilanz-Warnsignale.\n"

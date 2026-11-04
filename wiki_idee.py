@@ -61,6 +61,13 @@ def eur_kurs(e, eur_kurse=None):
     return _zahl(e.get("kurs")) if str(e.get("waehrung") or "EUR").upper() == "EUR" else None
 
 
+def gewichtet(teile):
+    """Gesamt-Score: gewichteter Durchschnitt der VORHANDENEN Bausteine - fehlt einer (z. B. noch keine
+    Investoren-Checks), geht sein Gewicht anteilig auf die uebrigen ueber (kein Deckel durch Neutralwerte)."""
+    da = [(g, teile[k]) for k, _, g in BAUSTEINE if teile.get(k) is not None]
+    return sum(g * v for g, v in da) / sum(g for g, _ in da) if da else 0.0
+
+
 def warnsignal(inv):
     """Grund fuer den Ausschluss aus den Investoren-Checks oder None.
     c: {check_id: [score 0-100, erfuellt, gesamt]}"""
@@ -107,8 +114,7 @@ def aktien_rangliste(eintraege, investoren=None, eur_kurse=None):
             qk = 0.5 * qual[i] + 0.5 * (100.0 - kurs6[i])          # gute Firma, schwacher Kurs
         teile = {"score": _zahl(e["info"]["gesamt"]), "investoren": _zahl(inv.get("score")), "unterbewertung": fv.get(i),
                  "qualitaet_kurs": qk}
-        mix = sum(g * (NEUTRAL if teile[k] is None else teile[k]) for k, _, g in BAUSTEINE) / \
-            sum(g for _, _, g in BAUSTEINE)
+        mix = gewichtet(teile)
         liste.append({"id": i, "art": "aktie", "name": e["name"], "ticker": e.get("ticker") or "",
                       "wkn": e.get("wkn") or "", "isin": e.get("isin") or "", "gruppe": e.get("sektor") or "–",
                       "kurs": eur_kurs(e, eur_kurse), "mix": round(mix, 1),
@@ -603,19 +609,20 @@ def begruendung(p, investor_namen=None):
         abschnitte.append(("Platzierung", [
             f"Platz {rang} von {f'{von:,}'.replace(',', '.')} bewerteten {art_txt} "
             f"(Top {f'{max(top, 0.1):.1f}'.replace('.', ',')} %).",
-            "Der Score vergleicht die Werte untereinander: Auch ein Score um 70 kann Spitze sein, wenn nur wenige "
-            "Werte höher liegen."]))
+            ]))
     grund = p.get("auswahl")
     if grund in AUSWAHL_TEXT:
         abschnitte.append(("Warum ausgewählt", [AUSWAHL_TEXT[grund].format(n=n_, p=puffer)]))
     if art == "aktie":
         teile = p.get("teile") or {}
         zeilen = []
+        summe_g = sum(g for k, _, g in BAUSTEINE if teile.get(k) is not None) or 1
         for k, t, g in BAUSTEINE:
             v = teile.get(k)
-            zeilen.append(f"{t}: {'–' if v is None else f'{v:.0f}'} × {g} % = "
-                          f"{(NEUTRAL if v is None else v) * g / 100:.1f} Punkte"
-                          + (" (keine Daten → neutral 50)" if v is None else ""))
+            if v is None:
+                zeilen.append(f"{t}: keine Daten – Gewicht {g} % geht anteilig auf die übrigen Bausteine")
+            else:
+                zeilen.append(f"{t}: {v:.0f} × {g / summe_g * 100:.0f} % = {v * g / summe_g:.1f} Punkte")
         zeilen.append(f"= Gesamt {p.get('mix', 0):.0f} von 100")
         abschnitte.append(("So setzt sich der Score zusammen", [z.replace(".", ",") for z in zeilen]))
         q = d.get("q") or {}
