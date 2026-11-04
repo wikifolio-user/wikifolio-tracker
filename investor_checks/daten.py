@@ -70,6 +70,17 @@ ZEILEN_ERWEITERT = {
     "verb_ll": ["Accounts Payable", "Payables"],
     "sonder": ["Total Unusual Items", "Total Unusual Items Excluding Goodwill"],
     "akquisitionen": ["Purchase Of Business", "Net Business Purchase And Sale"],
+    # Etappe 4a (Branchenmodelle, kennzahlen/branchen.py) - Yahoo liefert sie nicht fuer jede Aktie; die
+    # Abdeckung je Branchentyp protokolliert der Investoren-Agent (meta.json "branchen_abdeckung")
+    "zinsunabh_aufwand": ["Non Interest Expense", "Total Non Interest Expense"],
+    "risikovorsorge": ["Credit Losses Provision", "Provision For Credit Losses", "Provision For Loan Lease And Other Losses"],
+    "kredite": ["Net Loan", "Gross Loan", "Loans Receivable"],
+    "einlagen": ["Total Deposits", "Deposits"],
+    "mat_buchwert": ["Tangible Book Value"],
+    "immat": ["Goodwill And Other Intangible Assets"],
+    "praemien": ["Total Premiums Earned", "Net Premiums Earned", "Premiums Earned", "Net Premiums Written"],
+    "schaeden": ["Net Policyholder Benefits And Claims", "Policyholder Benefits And Claims"],
+    "verkaufsgewinne": ["Gain On Sale Of PPE", "Gain On Sale Of Property Plant Equipment"],
 }
 VORZEICHEN_ERWEITERT = {"akquisitionen": -1}
 

@@ -124,7 +124,7 @@ def aktien_rangliste(eintraege, investoren=None, eur_kurse=None):
                       "klasse": (e.get("info") or {}).get("klasse"),
                       "detail": {"q": (e.get("info") or {}).get("q") or {}, "fv": _zahl(inv.get("fv")),
                                  "inv": {"note": inv.get("note"), "kaufen": inv.get("kaufen"), "von": inv.get("inv"),
-                                         "w": inv.get("w"), "x": inv.get("x"),
+                                         "w": inv.get("w"), "x": inv.get("x"), "b": inv.get("b"),
                                          "c": {cid: z[0] for cid, z in (inv.get("c") or {}).items()
                                                if isinstance(z, (list, tuple)) and z and z[0] is not None}}}})
     liste.sort(key=lambda w: (-w["mix"], w["name"].lower()))
@@ -719,6 +719,13 @@ def begruendung(p, investor_namen=None):
             zeilen_x.append("Branche Bank/Versicherung: cashflow- und kapitalbasierte Kennzahlen nicht anwendbar.")
         if zeilen_x:
             abschnitte.append(("Erweiterte Analyse (nur Information)", zeilen_x))
+    b = (d.get("inv") or {}).get("b")
+    if b:
+        from kennzahlen import branchenmodell as BR
+        titel_b, score_b, zeilen_b = BR.textzeilen(b)
+        if zeilen_b:
+            abschnitte.append((f"Branchenmodell {titel_b}: {'–' if score_b is None else f'{score_b}/100'} "
+                               "(nur Information)", zeilen_b))
     dv = d.get("dv") or {}
     if dv.get("score") is not None:
         t = dv.get("teile") or {}

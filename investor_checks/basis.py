@@ -93,7 +93,11 @@ def letztes(f, feld, rueck=0):
 # Sektor-Typ (Abschnitt 10)
 # ---------------------------------------------------------------------------
 def sektor_typ(f):
-    """bank / reit / versorger / zyklisch / normal - aus Yahoo-Sektor und -Branche."""
+    """bank / reit / versorger / zyklisch / normal - aus Yahoo-Sektor und -Branche.
+    f["_typ_v2"]: nur fuer das Vergleichsmodell classic_v2 gesetzt (Finanzdienstleister als "normal");
+    classic_v1 setzt es nie und bleibt damit unveraendert."""
+    if f.get("_typ_v2"):
+        return f["_typ_v2"]
     text = f"{f.get('sektor') or ''} {f.get('branche') or ''}".lower()
     if any(s in text for s in C.SEKTOR_REIT):
         return "reit"

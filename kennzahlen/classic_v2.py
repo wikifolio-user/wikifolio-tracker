@@ -57,8 +57,10 @@ def bewerte(q, inv=None):
     q, inv = q or {}, inv or {}
     qv2 = qualitaet_v2(q.get("pt"), q.get("abz"), q.get("gesamt"))
     risiko, r_teile = risiko_vorlaeufig(q.get("risiko"), inv.get("c"))
-    g, gew = gesamt_v2(qv2, inv.get("score"), risiko)
-    return {"v1": q.get("gesamt"), "qualitaet_v2": qv2, "konsens": inv.get("score"), "risiko": risiko,
+    # E1 (Etappe 4): Finanzdienstleister im Vergleichsmodell mit allen Kriterien ("s2"), v1 unveraendert
+    konsens = inv.get("s2") if inv.get("s2") is not None else inv.get("score")
+    g, gew = gesamt_v2(qv2, konsens, risiko)
+    return {"v1": q.get("gesamt"), "qualitaet_v2": qv2, "konsens": konsens, "risiko": risiko,
             "risiko_teile": r_teile, "v2": g, "gewichte": gew, "hinweis": VORLAEUFIG}
 
 

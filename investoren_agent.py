@@ -21,8 +21,10 @@ import scoring as SC
 import top50_agent as T
 import investor_checks as IC
 from investor_checks import abruf as AB
+from investor_checks import basis as IB
 from investor_checks import fairer_wert as FW
 from investor_checks import konsens as KO
+from kennzahlen import branchenmodell as BR
 from kennzahlen import fundamental as FU
 
 log = T.log
@@ -87,7 +89,36 @@ def bewerte(e, ver, vgl, fx, fue_median, index_cache, heute):
         kf["x"] = FU.kompakt(FU.analyse(f))
     except Exception as ex:                # darf den klassischen Datensatz nie verhindern
         log.warning(f"{sym}: erweiterte Analyse fehlgeschlagen ({type(ex).__name__})")
+    try:                                   # Etappe 4a: Branchenmodell + classic_v2-Konsens (nur Information)
+        b = BR.analyse(f)
+        if b:
+            kf["b"] = BR.kompakt(b)
+        s2 = konsens_v2(f, kx)
+        if s2 is not None:
+            kf["s2"] = s2
+    except Exception as ex:
+        log.warning(f"{sym}: Branchenmodell fehlgeschlagen ({type(ex).__name__})")
     return kf
+
+
+def konsens_v2(f, kx):
+    """Nur classic_v2 (Entscheidung E1): Finanzdienstleister (Vermoegensverwalter, Broker, Boersen, Kreditkarten,
+    Makler) mit allen Kriterien wie normale Firmen pruefen. classic_v1 ("score") bleibt unveraendert.
+    -> Konsens-Score oder None (wenn sich nichts aendert)."""
+    if BR.typ_fein(f) != "finanzdienstleister" or IB.sektor_typ(f) != "bank":
+        return None
+    k = KO.konsens(IC.alle_checks(dict(f, _typ_v2="normal"), kx))
+    return None if k["score"] is None else round(k["score"], 1)
+
+
+def branchen_neu_bewerten(werte):
+    """Abdeckungsregel anwenden: Kennzahlen, die fuer einen Typ zu selten geliefert werden, nicht werten."""
+    abd = BR.abdeckung(werte)
+    for w in werte.values():
+        b = w.get("b")
+        if b and b.get("t") in BR.TYPEN:
+            w["b"] = BR.neu_bewerten(b, BR.ausgeschlossen(abd, b["t"]))
+    return abd
 
 
 def lade_teile():
@@ -164,9 +195,14 @@ def main():
                     n = rest.pop(0)
                     offen[ex.submit(bewerte, je_sym[n], ver, vgl, fx, fue, index_cache, heute)] = n
                 break
+    abd = branchen_neu_bewerten(werte)
+    for typ, a in sorted(abd.items()):
+        log.info(f"Branchenmodell {typ}: {a['n']} Werte, Abdeckung " +
+                 ", ".join(f"{k} {v:.0%}" for k, v in a.items() if k != "n"))
     speichern(werte, status, heute)
     T.speichere_state(STATE_META, {"stand": heute.isoformat(), "abdeckung": len(werte), "aktien": len(aktien),
-                                   "fue_median": fue_mediane(werte)}, "investoren-checks meta [skip ci]")
+                                   "fue_median": fue_mediane(werte), "branchen_abdeckung": abd},
+                      "investoren-checks meta [skip ci]")
     log.info(f"Fertig: {neu} neu bewertet, {fehler} ohne Ergebnis, {len(werte)} von {len(aktien)} vorhanden.")
     return 0
 
