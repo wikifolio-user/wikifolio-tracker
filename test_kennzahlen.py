@@ -210,5 +210,20 @@ class Fundamental(unittest.TestCase):
         self.assertEqual(p[0]["sbc"], 4.0)
 
 
+class InvestorenAlleAktien(unittest.TestCase):
+    def test_zusatz_aus_qualitaet(self):
+        import investoren_agent as IA
+        q = [{"felder": ["s", "name", "br", "kurs", "kwae", "mcap", "gesamt", "roic", "p6"],
+              "zeilen": [["AAA", "Im Katalog", "Software", 10, "USD", 5, 80, 20, 3],
+                         ["BBB", "Neu", "Banks—Regional", 20, "EUR", 2, 70, None, -4],
+                         ["CCC", "Ohne Score", "Software", 5, "EUR", 1, None, 10, 1]]}]
+        z = IA.zusatz_aus_qualitaet(q, {"AAA"})
+        self.assertEqual([e["ticker"] for e in z], ["BBB"])          # Katalog-Aktie und ohne Score fehlen
+        self.assertEqual(z[0]["k"], {"p6": -4})                      # fehlende Werte werden nicht erfunden
+        self.assertEqual((z[0]["sektor"], z[0]["info"]["mcap"], z[0]["art"]), ("Banks—Regional", 2, "aktie"))
+        plan = IA.faellige(z, {}, HEUTE, 10)
+        self.assertEqual(plan, ["BBB"])
+
+
 if __name__ == "__main__":
     unittest.main()
