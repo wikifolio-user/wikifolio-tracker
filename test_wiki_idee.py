@@ -25,10 +25,19 @@ class Rangliste(unittest.TestCase):
         eintraege = [aktie(1, 80), aktie(2, 80), aktie(3, 80)]
         inv = {"T1": {"score": 90, "fv": 40.0}, "T2": {"score": 10, "fv": -20.0}}
         liste, aus = WI.aktien_rangliste(eintraege, inv)
-        self.assertEqual([w["id"] for w in liste], ["A1", "A3", "A2"])     # A3 ohne Investoren-Daten = neutral
+        self.assertEqual([w["id"] for w in liste], ["A1", "A3", "A2"])     # A3: nur Qualitaets-Score (80), Gewichte umverteilt
         a1 = liste[0]
-        self.assertAlmostEqual(a1["mix"], (40 * 80 + 30 * 90 + 20 * 100 + 10 * 50) / 100, places=1)
+        self.assertAlmostEqual(a1["mix"], (40 * 80 + 30 * 90 + 20 * 100) / 90, places=1)   # ohne Q x Kurs
+        self.assertEqual(liste[1]["mix"], 80.0)                       # A3: nur Qualitaets-Score -> nicht gedeckelt
         self.assertEqual(aus, [])
+
+    def test_kein_deckel_ohne_investoren(self):
+        liste, _ = WI.aktien_rangliste([aktie(1, 99), aktie(2, 70)], {"T2": {"score": 60, "fv": 5.0}})
+        self.assertEqual((liste[0]["id"], liste[0]["mix"]), ("A1", 99.0))   # nicht mehr ~72 wie mit Neutralwert 50
+        b = WI.begruendung(dict(liste[0], art="aktie"))
+        text = " ".join(z for _, zs in b["abschnitte"] for z in zs)
+        self.assertIn("geht anteilig auf die übrigen", text)
+        self.assertIn("Qualitäts-Score: 99 × 100 %", text)
 
     def test_warnsignale_ausgeschlossen(self):
         eintraege = [aktie(1, 90), aktie(2, 90), aktie(3, 90), aktie(4, 90)]
@@ -267,6 +276,51 @@ class Charts(unittest.TestCase):
         self.assertEqual(z[3]["best"], 1)                                  # E: frueher schon auf Platz 1
         z2, _ = WI.hitparade(neu, {}, "aktie")
         self.assertTrue(all(r["bewegung"] == "neu" for r in z2))
+
+
+class Begruendung(unittest.TestCase):
+    def test_aktie_volle_begruendung(self):
+        alle = [{"felder": ["s", "name", "br", "kurs", "kwae", "gesamt", "klasse", "p6", "pt", "g_ums", "roic", "fkgv",
+                            "moat", "mgmt", "bew"],
+                 "zeilen": [["NVDA", "NVIDIA", "Technologie", 110.0, "USD", 88, "prio", 12.0,
+                             [19, 14, 13, 9, 8, 9, 3, 4], 45.2, 60.1, 28.4, "stark", "gut", "teuer"]] +
+                           [[f"X{i}", f"Firma {i}", "Industrie", 10.0, "EUR", 50 + i, None, 0.0] + [None] * 7
+                            for i in range(9)]}]
+        aktien = WI.aktien_aus_qualitaet(alle, {"US67066G1040": "NVDA"}, {"USD": 1.1})
+        inv = {"NVDA": {"note": "B", "score": 74, "kaufen": 7, "inv": 12, "fv": 24.0,
+                        "c": {"buffett": [90, 5, 6], "lynch": [80, 4, 5], "graham": [20, 1, 6]}}}
+        liste, _ = WI.aktien_rangliste([(e, {}) for e in aktien], inv)
+        nv = next(w for w in liste if w["id"] == "NVDA")
+        ziel = WI.auswahl(liste, 5, 6, (), 10)
+        pos, _ = WI.stueckzahlen(ziel, [], 10_000)
+        b = WI.begruendung(pos["NVDA"], {"buffett": "Warren Buffett", "lynch": "Peter Lynch", "graham": "Benjamin Graham"})
+        titel = [t for t, _ in b["abschnitte"]]
+        self.assertEqual(titel[:3], ["Platzierung", "Warum ausgewählt", "So setzt sich der Score zusammen"])
+        self.assertIn("Qualitäts-Score je Bereich", titel)
+        self.assertIn("Börsenprofis (Investoren-Checks)", titel)
+        text = " ".join(z for _, zs in b["abschnitte"] for z in zs)
+        self.assertIn("Platz 1 von 10", text)
+        self.assertIn("Warren Buffett (90)", text)
+        self.assertNotIn("Benjamin Graham", text)                      # Score 20 -> kauft nicht
+        self.assertIn("Qualität 19/20", text)
+        self.assertIn("+24,0 %", text)
+        self.assertIn("Burggraben stark", text)
+        self.assertTrue(b["kurz"].startswith("Platz 1 von 10"))
+        self.assertIn("Bewertung 3/15", b["schwaechen"])
+        self.assertEqual(nv["detail"]["inv"]["c"]["buffett"], 90)
+
+    def test_puffer_und_etf(self):
+        r = [dict(w, detail={}, von_gesamt=80) for w in rangliste(80, gruppen=80)]
+        ziel = WI.auswahl(r, 50, 60, {"A55"}, 10)
+        a55 = next(w for w in ziel if w["id"] == "A55")
+        self.assertEqual(a55["auswahl"], "puffer")
+        self.assertIn("Puffer", " ".join(z for _, zs in WI.begruendung(a55)["abschnitte"] for z in zs))
+        e = {"art": "etf", "rang": 2, "von_gesamt": 400, "mix": 81, "auswahl": "top",
+             "detail": {"etf": {"rendite": 11.2, "rendite_jahre": 10, "rr": 0.74, "dd": 33, "vola": 15, "jahre": 14,
+                                "einordnung": "prio"}, "mm": {"region": "Welt", "themen": ["Breiter Markt"]}}}
+        b = WI.begruendung(e)
+        self.assertIn("+11,2 % p. a.", b["kurz"])
+        self.assertIn("ETF-Score: hohe Analysepriorität", b["abschnitte"][2][1])
 
 
 if __name__ == "__main__":

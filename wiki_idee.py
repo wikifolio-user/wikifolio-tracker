@@ -61,6 +61,13 @@ def eur_kurs(e, eur_kurse=None):
     return _zahl(e.get("kurs")) if str(e.get("waehrung") or "EUR").upper() == "EUR" else None
 
 
+def gewichtet(teile):
+    """Gesamt-Score: gewichteter Durchschnitt der VORHANDENEN Bausteine - fehlt einer (z. B. noch keine
+    Investoren-Checks), geht sein Gewicht anteilig auf die uebrigen ueber (kein Deckel durch Neutralwerte)."""
+    da = [(g, teile[k]) for k, _, g in BAUSTEINE if teile.get(k) is not None]
+    return sum(g * v for g, v in da) / sum(g for g, _ in da) if da else 0.0
+
+
 def warnsignal(inv):
     """Grund fuer den Ausschluss aus den Investoren-Checks oder None.
     c: {check_id: [score 0-100, erfuellt, gesamt]}"""
@@ -107,18 +114,22 @@ def aktien_rangliste(eintraege, investoren=None, eur_kurse=None):
             qk = 0.5 * qual[i] + 0.5 * (100.0 - kurs6[i])          # gute Firma, schwacher Kurs
         teile = {"score": _zahl(e["info"]["gesamt"]), "investoren": _zahl(inv.get("score")), "unterbewertung": fv.get(i),
                  "qualitaet_kurs": qk}
-        mix = sum(g * (NEUTRAL if teile[k] is None else teile[k]) for k, _, g in BAUSTEINE) / \
-            sum(g for _, _, g in BAUSTEINE)
+        mix = gewichtet(teile)
         liste.append({"id": i, "art": "aktie", "name": e["name"], "ticker": e.get("ticker") or "",
                       "wkn": e.get("wkn") or "", "isin": e.get("isin") or "", "gruppe": e.get("sektor") or "–",
                       "kurs": eur_kurs(e, eur_kurse), "mix": round(mix, 1),
                       "teile": {k: (None if v is None else round(v, 1)) for k, v in teile.items()},
                       "note": inv.get("note"), "kaufen": inv.get("kaufen"), "von": inv.get("inv"),
                       "fv": _zahl(inv.get("fv")), "fazit": (b or {}).get("fazit"),
-                      "klasse": (e.get("info") or {}).get("klasse")})
+                      "klasse": (e.get("info") or {}).get("klasse"),
+                      "detail": {"q": (e.get("info") or {}).get("q") or {}, "fv": _zahl(inv.get("fv")),
+                                 "inv": {"note": inv.get("note"), "kaufen": inv.get("kaufen"), "von": inv.get("inv"),
+                                         "w": inv.get("w"),
+                                         "c": {cid: z[0] for cid, z in (inv.get("c") or {}).items()
+                                               if isinstance(z, (list, tuple)) and z and z[0] is not None}}}})
     liste.sort(key=lambda w: (-w["mix"], w["name"].lower()))
     for r, w in enumerate(liste, 1):
-        w["rang"] = r
+        w["rang"], w["von_gesamt"] = r, len(liste)
     return liste, aus
 
 
@@ -152,10 +163,13 @@ def etf_rangliste(eintraege, hebel_muster=None, merkmale=None, eur_kurse=None, e
         liste.append({"id": e["id"], "art": "etf", "name": e["name"], "ticker": "", "wkn": e.get("wkn") or "",
                       "isin": e.get("isin") or "", "gruppe": gruppe, "kurs": eur_kurs(e, eur_kurse),
                       "mix": round(_zahl(s_["score"]), 1), "teile": {"score": round(_zahl(s_["score"]), 1)},
-                      "klasse": s_.get("einordnung")})
+                      "klasse": s_.get("einordnung"),
+                      "detail": {"etf": {k: s_.get(k) for k in ("rendite", "rendite_jahre", "rr", "dd", "vola",
+                                                               "jahre", "einordnung") if s_.get(k) is not None},
+                                 "mm": {k: mm.get(k) for k in ("region", "themen", "anbieter", "ertrag")} if mm else {}}})
     liste.sort(key=lambda w: (-w["mix"], w["name"].lower()))
     for r, w in enumerate(liste, 1):
-        w["rang"] = r
+        w["rang"], w["von_gesamt"] = r, len(liste)
     return liste
 
 
@@ -172,26 +186,27 @@ def auswahl(rangliste, n, puffer, gehalten, max_je_gruppe, budget=None):
             return False
         return je_gruppe.get(w["gruppe"], 0) < max_je_gruppe or w["gruppe"] == "–"
 
-    def nehmen(w):
+    def nehmen(w, grund):
+        w["auswahl"] = grund
         ziel.append(w)
         je_gruppe[w["gruppe"]] = je_gruppe.get(w["gruppe"], 0) + 1
 
     for w in rangliste[:puffer]:
         if w["id"] in gehalten and len(ziel) < n and passt(w):
-            nehmen(w)
+            nehmen(w, "gehalten" if w["rang"] <= n else "puffer")
     gewaehlt = {w["id"] for w in ziel}
     for w in rangliste:
         if len(ziel) >= n:
             break
         if w["id"] not in gewaehlt and passt(w):
-            nehmen(w)
+            nehmen(w, "top" if w["rang"] <= n else "nachgerueckt")
             gewaehlt.add(w["id"])
     # Streuungsregel laesst zu wenige zu: mit den naechstbesten auffuellen (Budget gilt weiter)
     for w in rangliste:
         if len(ziel) >= n:
             break
         if w["id"] not in gewaehlt and (budget is None or w["kurs"] <= budget):
-            nehmen(w)
+            nehmen(w, "aufgefuellt")
             gewaehlt.add(w["id"])
     return sorted(ziel, key=lambda w: w["rang"])
 
@@ -212,7 +227,8 @@ def stueckzahlen(ziel_aktien, ziel_etf, kapital, anteil_aktien=ANTEIL_AKTIEN):
             pos[w["id"]] = {"id": w["id"], "art": w["art"], "name": w["name"], "wkn": w["wkn"], "isin": w["isin"],
                             "ticker": w.get("ticker", ""), "gruppe": w["gruppe"], "rang": w["rang"], "mix": w["mix"],
                             "teile": w.get("teile") or {}, "stueck": int(je // w["kurs"]), "kurs": w["kurs"],
-                            "ziel": je}
+                            "ziel": je, "detail": w.get("detail") or {}, "auswahl": w.get("auswahl"),
+                            "von_gesamt": w.get("von_gesamt")}
     kasse = kapital - sum(p["stueck"] * p["kurs"] for p in pos.values())
     while True:
         # aufstocken nur bis hoechstens 10 % ueber Ziel bzw. eine Aktie ueber Ziel (bei teuren Werten)
@@ -445,6 +461,14 @@ def in_eur(kurs, waehrung, fx):
     return round(k / teiler / rate, 4) if rate and rate > 0 else None
 
 
+# Felder der Rangliste "Qualitaets-Score", die in die Begruendung je Wert eingehen
+Q_DETAIL = ("pt", "g_ums", "g_eps", "g_fcf", "roic", "om", "fkgv", "ev_ebit", "fcfy", "moat", "mgmt", "bew", "risiko",
+            "mos", "div", "p12", "q_ant", "b_ant")
+# Punkte je Bereich (Reihenfolge wie "pt" im Qualitaets-Agenten) mit Hoechstpunktzahl
+Q_BEREICHE = (("Qualität", 20), ("Wachstum", 15), ("Cashflow", 15), ("Bilanz", 10), ("Management", 10),
+              ("Burggraben", 10), ("Bewertung", 15), ("Chance", 5))
+
+
 def aktien_aus_qualitaet(alle_teile, yahoo_isin=None, fx=None):
     """Alle Aktien der Rangliste "Qualitaets-Score" (state/qualitaet/alle_N.json) als Eintraege fuer
     aktien_rangliste - Kurs in EUR, ISIN aus state/top50_yahoo.json ({ISIN: Symbol})."""
@@ -461,7 +485,8 @@ def aktien_aus_qualitaet(alle_teile, yahoo_isin=None, fx=None):
                         "isin": isin_je.get(s, ""), "sektor": str(q.get("br") or ""),
                         "kurs": in_eur(q.get("kurs"), q.get("kwae"), fx), "waehrung": "EUR",
                         "k": {"p6": _zahl(q.get("p6"))},
-                        "info": {"gesamt": _zahl(q.get("gesamt")), "klasse": q.get("klasse")}})
+                        "info": {"gesamt": _zahl(q.get("gesamt")), "klasse": q.get("klasse"),
+                                 "q": {k: q.get(k) for k in Q_DETAIL if q.get(k) not in (None, "")}}})
     return aus
 
 
@@ -542,3 +567,141 @@ def hitparade(neu_depot, alt_depot, art, statistik=None):
     raus = [{"vorher": pl, "p": ((alt_depot or {}).get("positionen") or {})[i]}
             for i, pl in sorted(alt_pl.items(), key=lambda x: x[1]) if i not in neu_pl]
     return zeilen, raus
+
+
+
+# ---------------------------------------------------------------------------
+# Begruendung je Wert ("Warum ist dieser Wert im Depot?")
+# ---------------------------------------------------------------------------
+AUSWAHL_TEXT = {
+    "top": "Unter den besten {n} der Rangliste – direkt ausgewählt.",
+    "gehalten": "Bereits im Depot und weiter unter den besten {n}.",
+    "puffer": "Bereits im Depot und noch unter den Top {p} (Puffer) – bleibt, damit nicht wegen kleiner "
+              "Score-Schwankungen getauscht wird.",
+    "nachgerueckt": "Nachgerückt: Besser platzierte Werte wurden wegen der Streuung (Branchen- bzw. Regionsgrenze) "
+                    "oder weil eine Aktie teurer als das Budget je Position ist, übersprungen.",
+    "aufgefuellt": "Aufgefüllt: Die Streuungsregel ließ nicht genug Werte zu – nächstbester verfügbarer Wert.",
+}
+
+
+def _pct(x, vz=True):
+    v = _zahl(x)
+    if v is None:
+        return None
+    t = f"{v:+.1f}" if vz else f"{v:.1f}"
+    return t.replace(".", ",") + " %"
+
+
+def begruendung(p, investor_namen=None):
+    """-> {"kurz": str, "abschnitte": [(titel, [zeilen])], "staerken": [..], "schwaechen": [..]} fuer eine Position
+    (oder einen Ranglisten-Eintrag). investor_namen: {check_id: Name} (investor_checks.REGISTRY)."""
+    namen = investor_namen or {}
+    d = p.get("detail") or {}
+    art = p.get("art")
+    n_ = N_AKTIEN if art == "aktie" else N_ETF
+    puffer = PUFFER_AKTIEN if art == "aktie" else PUFFER_ETF
+    rang, von = p.get("rang"), p.get("von_gesamt")
+    abschnitte, staerken, schwaechen, kurz = [], [], [], []
+    if rang and von:
+        top = rang / von * 100
+        kurz.append(f"Platz {rang} von {von:,}".replace(",", "."))
+        art_txt = "Aktien" if art == "aktie" else "ETFs"
+        abschnitte.append(("Platzierung", [
+            f"Platz {rang} von {f'{von:,}'.replace(',', '.')} bewerteten {art_txt} "
+            f"(Top {f'{max(top, 0.1):.1f}'.replace('.', ',')} %).",
+            ]))
+    grund = p.get("auswahl")
+    if grund in AUSWAHL_TEXT:
+        abschnitte.append(("Warum ausgewählt", [AUSWAHL_TEXT[grund].format(n=n_, p=puffer)]))
+    if art == "aktie":
+        teile = p.get("teile") or {}
+        zeilen = []
+        summe_g = sum(g for k, _, g in BAUSTEINE if teile.get(k) is not None) or 1
+        for k, t, g in BAUSTEINE:
+            v = teile.get(k)
+            if v is None:
+                zeilen.append(f"{t}: keine Daten – Gewicht {g} % geht anteilig auf die übrigen Bausteine")
+            else:
+                zeilen.append(f"{t}: {v:.0f} × {g / summe_g * 100:.0f} % = {v * g / summe_g:.1f} Punkte")
+        zeilen.append(f"= Gesamt {p.get('mix', 0):.0f} von 100")
+        abschnitte.append(("So setzt sich der Score zusammen", [z.replace(".", ",") for z in zeilen]))
+        q = d.get("q") or {}
+        pt = q.get("pt") or []
+        if pt:
+            bereiche = []
+            for (t, mx), v in zip(Q_BEREICHE, pt):
+                v = _zahl(v) or 0
+                bereiche.append(f"{t} {v:.0f}/{mx}")
+                if v >= 0.75 * mx:
+                    staerken.append(f"{t} {v:.0f}/{mx}")
+                elif v <= 0.35 * mx:
+                    schwaechen.append(f"{t} {v:.0f}/{mx}")
+            abschnitte.append(("Qualitäts-Score je Bereich", [" · ".join(bereiche)]))
+        kz = []
+        for k, t in (("g_ums", "Umsatzwachstum p. a."), ("g_eps", "Gewinnwachstum p. a."),
+                     ("g_fcf", "Free-Cashflow-Wachstum p. a."), ("roic", "Rendite aufs Kapital (ROIC)"),
+                     ("om", "operative Marge"), ("fcfy", "Free-Cashflow-Rendite"), ("div", "Dividendenrendite")):
+            v = _pct(q.get(k), vz=k.startswith("g_"))
+            if v:
+                kz.append(f"{t} {v}")
+        if _zahl(q.get("fkgv")):
+            kz.append(f"KGV (erwartet) {_zahl(q['fkgv']):.1f}".replace(".", ","))
+        if _zahl(q.get("ev_ebit")):
+            kz.append(f"EV/EBIT {_zahl(q['ev_ebit']):.1f}".replace(".", ","))
+        txt = [x for x in (q.get("moat") and f"Burggraben {q['moat']}", q.get("mgmt") and f"Management {q['mgmt']}",
+                           q.get("bew") and f"Bewertung {q['bew']}", q.get("risiko") and f"Risiko {q['risiko']}") if x]
+        if kz or txt:
+            abschnitte.append(("Kennzahlen", kz + ([" · ".join(txt)] if txt else [])))
+        inv = d.get("inv") or {}
+        if inv.get("von"):
+            kaeufer = sorted(((namen.get(cid, cid), sc) for cid, sc in (inv.get("c") or {}).items()
+                              if sc is not None and sc >= 70 and cid in namen), key=lambda x: -x[1])
+            zeile = f"{inv.get('kaufen') or 0} von {inv['von']} Börsenlegenden würden kaufen"
+            if inv.get("note"):
+                zeile += f" – Gesamtnote {inv['note']}"
+            abschnitte.append(("Börsenprofis (Investoren-Checks)",
+                               [zeile] + ([", ".join(f"{n} ({sc:.0f})" for n, sc in kaeufer[:8])] if kaeufer else [])
+                               + ([f"{inv['w']} Warnsignal(e) beachten"] if inv.get("w") else [])))
+            if inv.get("kaufen"):
+                kurz.append(f"{inv['kaufen']} Legenden kaufen")
+                if inv["kaufen"] >= max(3, inv["von"] / 2):
+                    staerken.append(f"{inv['kaufen']} von {inv['von']} Legenden kaufen")
+        fv = _zahl(p.get("fv") if p.get("fv") is not None else (d.get("fv")))
+        aussicht = []
+        if fv is not None:
+            aussicht.append(f"Fairer Wert {('über' if fv >= 0 else 'unter')} dem Kurs: {_pct(fv)} "
+                            + ("Potenzial" if fv >= 0 else "(Kurs über fairem Wert)"))
+            kurz.append(f"{_pct(fv)} zum fairen Wert")
+            (staerken if fv >= 15 else schwaechen if fv <= -15 else []).append(f"fairer Wert {_pct(fv)}")
+        if pt and len(pt) >= 8:
+            aussicht.append(f"Chance-Punkte {(_zahl(pt[7]) or 0):.0f}/5 (Wachstumsaussicht im Qualitäts-Score)")
+        if _zahl(q.get("mos")) is not None:
+            aussicht.append(f"Sicherheitsmarge {_pct(q['mos'])}")
+        if aussicht:
+            abschnitte.append(("Zukunftsaussichten", aussicht))
+        if staerken[:1]:
+            kurz.insert(1, staerken[0])
+    else:
+        e = d.get("etf") or {}
+        z = []
+        if e.get("rendite") is not None:
+            z.append(f"Rendite {_pct(e['rendite'])} p. a. über {e.get('rendite_jahre') or '–'} Jahre")
+            kurz.append(f"{_pct(e['rendite'])} p. a.")
+        if e.get("rr") is not None:
+            z.append(f"Rendite je Risiko {_zahl(e['rr']):.2f}".replace(".", ","))
+        if e.get("dd") is not None:
+            z.append(f"größter Rückgang −{abs(_zahl(e['dd'])):.0f} %")
+        if e.get("vola") is not None:
+            z.append(f"Schwankung {_zahl(e['vola']):.0f} % p. a.")
+        if e.get("jahre") is not None:
+            z.append(f"Historie {_zahl(e['jahre']):.1f} Jahre".replace(".", ","))
+        if e.get("einordnung"):
+            z.append({"prio": "ETF-Score: hohe Analysepriorität", "beobachten": "ETF-Score: Beobachtungsliste",
+                      "nicht": "ETF-Score: eher nicht"}.get(e["einordnung"], e["einordnung"]))
+        abschnitte.append((f"ETF-Score {p.get('mix', 0):.0f}", z))
+        mm = d.get("mm") or {}
+        if mm:
+            abschnitte.append(("Merkmale", [" · ".join(x for x in (mm.get("region"), "/".join(mm.get("themen") or []),
+                                                                 mm.get("anbieter"), mm.get("ertrag")) if x)]))
+    return {"kurz": " · ".join(kurz[:4]), "abschnitte": abschnitte, "staerken": staerken[:4],
+            "schwaechen": schwaechen[:4]}
