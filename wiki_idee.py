@@ -696,4 +696,5 @@ def begruendung(p, investor_namen=None):
         if mm:
             abschnitte.append(("Merkmale", [" · ".join(x for x in (mm.get("region"), "/".join(mm.get("themen") or []),
                                                                  mm.get("anbieter"), mm.get("ertrag")) if x)]))
-    return {"kurz": " · ".join(kurz[:4]), "abschnitte": abschnitte, "staerken": staerken, "schwaechen": schwaechen}
+    return {"kurz": " · ".join(kurz[:4]), "abschnitte": abschnitte, "staerken": staerken[:4],
+            "schwaechen": schwaechen[:4]}
