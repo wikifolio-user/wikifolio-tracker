@@ -42,6 +42,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from zoneinfo import ZoneInfo
 
 import top50_agent as T
+from kennzahlen import fehlwerte as FEHL
 from top50_universum import KATEGORIEN
 
 log = T.log
@@ -919,6 +920,11 @@ def bewerte(sym, k, q, rev, stamm):
         "p6": kursentwicklung.get(182), "p12": kursentwicklung.get(365), "p36": kursentwicklung.get(1095),
         # Punkte
         "p": P, "flags": [[t, a] for t, a in flags], "gesamt": gesamt,
+        # Etappe 2 (nur Information, aendert keinen Score): Red-Flag-Abzug und Punkte je Bereich, die wegen
+        # fehlender Daten nicht vergeben werden konnten (kennzahlen/fehlwerte.py)
+        "abz": abzug,
+        "fp": FEHL.fehlende_punkte({**k, "fcfy": fcfy, "ev_ebit": ev_ebit, "peg": peg, "mos": mos,
+                                    "bear": bear_verlust}),
         # Teilpunkte kompakt fuer die transparente Rangliste (bewertung.py):
         # Qualitaet/20, Wachstum/15, FCF/15, Bilanz/10, Management/10, Moat/10, Bewertung/15, Chance/5
         "pt": [P[x] for x in ("qualitaet", "wachstum", "fcf", "bilanz", "management", "moat", "bewertung", "chance")],
@@ -982,7 +988,8 @@ ZEILEN_FELDER = ("name", "br", "kurs", "kwae", "mcap", "g_ums", "g_eps", "g_fcf"
 
 ALLE_FELDER = ["s", "name", "br", "kurs", "kwae", "mcap", "g_ums", "g_eps", "g_fcf", "g_fcfps", "roic", "om",
                "fm", "nde", "akt", "fkgv", "ev_ebit", "fcfy", "moat", "mgmt", "bew", "risiko", "gesamt",
-               "klasse", "q_ant", "b_ant", "mos", "p6", "p12", "p36", "div", "div_q", "netcash", "rev90", "pt", "d"]
+               "klasse", "q_ant", "b_ant", "mos", "p6", "p12", "p36", "div", "div_q", "netcash", "rev90", "pt",
+               "abz", "fp", "n", "d"]
 
 
 def zeile(e):

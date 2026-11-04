@@ -463,7 +463,9 @@ def in_eur(kurs, waehrung, fx):
 
 # Felder der Rangliste "Qualitaets-Score", die in die Begruendung je Wert eingehen
 Q_DETAIL = ("pt", "g_ums", "g_eps", "g_fcf", "roic", "om", "fkgv", "ev_ebit", "fcfy", "moat", "mgmt", "bew", "risiko",
-            "mos", "div", "p12", "q_ant", "b_ant")
+            "mos", "div", "p12", "q_ant", "b_ant",
+            # Etappe 2: fuer Datenvertrauen und Vergleichsmodell (nur Anzeige)
+            "fm", "nde", "akt", "abz", "fp", "n", "rev90", "kurs", "kwae", "mcap")
 # Punkte je Bereich (Reihenfolge wie "pt" im Qualitaets-Agenten) mit Hoechstpunktzahl
 Q_BEREICHE = (("Qualität", 20), ("Wachstum", 15), ("Cashflow", 15), ("Bilanz", 10), ("Management", 10),
               ("Burggraben", 10), ("Bewertung", 15), ("Chance", 5))
@@ -703,5 +705,21 @@ def begruendung(p, investor_namen=None):
         if mm:
             abschnitte.append(("Merkmale", [" · ".join(x for x in (mm.get("region"), "/".join(mm.get("themen") or []),
                                                                  mm.get("anbieter"), mm.get("ertrag")) if x)]))
+    dv = d.get("dv") or {}
+    if dv.get("score") is not None:
+        t = dv.get("teile") or {}
+        namen_dv = {"vollstaendigkeit": "Vollständigkeit", "historie": "Historie", "aktualitaet": "Aktualität",
+                    "konsistenz": "Konsistenz", "schaetzanteil": "wenig Schätzungen"}
+        abschnitte.append((f"Datenvertrauen {dv['score']}/100", [" · ".join(f"{namen_dv[k]} {v}" for k, v in t.items()
+                                                                          if v is not None)]
+                           + list(dv.get("warnungen") or [])))
+    v2 = d.get("v2") or {}
+    if v2.get("v2") is not None:
+        qv, rv = v2.get("qualitaet_v2"), v2.get("risiko")
+        z = [f"Gesamt v2 {v2['v2']:.0f} (55 % Qualität mit Red-Flag-Deckel 30 = "
+             f"{'–' if qv is None else f'{qv:.0f}'}, 35 % Konsens, 10 % Risiko {'–' if rv is None else f'{rv:.0f}'})",
+             "Nur zum Vergleich – die Auswahl nutzt weiter das aktive Modell. Risiko-Score vorläufig, nicht "
+             "katalogbestätigt."]
+        abschnitte.append(("Vergleichsmodell classic_v2", z))
     return {"kurz": " · ".join(kurz[:4]), "abschnitte": abschnitte, "staerken": staerken[:4],
             "schwaechen": schwaechen[:4]}
