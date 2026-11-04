@@ -72,3 +72,26 @@ Einordnung:
 
 Gegenprobe: Änderungen an Konsens-Schwelle, ETF-Gewichten, Behandlung fehlender Werte, Puffern,
 Branchen- und ETF-Gruppengrenzen, Zielanzahl und Score-Gewichten lassen den Test jeweils fehlschlagen.
+
+## 6. Etappe 2 – Kennzahlen, Datenvertrauen, classic_v2
+
+Neue Module ohne Einfluss auf bestehende Scores:
+
+| Modul | Inhalt |
+|---|---|
+| `kennzahlen/definitionen.py` | zentrale Kennzahl-Registry: Titel, Einheit, Bereich, Herkunft (gemessen / primär / berechnet / Schätzung / Annahme), Quelle, Zeitraum, Richtung, Anwendbarkeit je Sektor-Typ |
+| `kennzahlen/fehlwerte.py` | welche Punkte im Qualitäts-Score nur wegen fehlender Daten fehlen; Vergleichsvariante „hochgerechnet“ |
+| `kennzahlen/datenvertrauen.py` | `data_confidence_score` 0–100 aus Vollständigkeit (35), Historie (20), Aktualität (15), Konsistenz (15), Schätzanteil (15); nicht anwendbare Kennzahlen zählen nicht als fehlend |
+| `kennzahlen/classic_v2.py` | katalogkonformes Vergleichsmodell: 55 % Qualität (Red-Flag-Abzug ≤ 30) + 35 % Konsens + 10 % Risiko; der Risiko-Score ist **vorläufig, nicht katalogbestätigt** |
+
+Der Qualitäts-Agent schreibt zusätzlich `abz` (Red-Flag-Summe), `fp` (fehlende Punkte je Bereich) und `n`
+(Geschäftsjahre) in `state/qualitaet/alle_N.json`. Diese Felder sind reine Information, der Score bleibt gleich.
+Sie erscheinen rollierend mit den nächsten Läufen.
+
+Im KI_Invest_System zeigt „🧪 Datenvertrauen & Vergleichsmodelle“ beim Erstellen einer Liste:
+- Datenvertrauen der Top 50
+- Überschneidung und Rangkorrelation aktives Modell ↔ classic_v2
+- Wirkung einer Hochrechnung fehlender Daten
+
+In „🔍 Warum dieser Wert?“ stehen Datenvertrauen und classic_v2 je Position. Die Auswahl selbst nutzt weiter das
+aktive Modell.

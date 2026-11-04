@@ -214,6 +214,9 @@ def liste_erstellen(h, depot):
     if len(rang_a) < WI.N_AKTIEN or len(rang_e) < WI.N_ETF:
         raise ValueError(f"Zu wenige bewertete Werte ({len(rang_a)} Aktien, {len(rang_e)} ETFs) – die Daten der "
                          "Agenten sind gerade unvollständig.")
+    etappe2 = _etappe2_anreichern(rang_a, rang_e, inv,
+                                  stand_q=max((str(x.get("stand") or "") for x in alle), default=""),
+                                  stand_k=max((str(x.get("stand") or "") for x in katalog), default=""))
     jobs = []
     for w in WI.kurs_kandidaten(depot, rang_a, rang_e):
         iid = next((ids[k.upper()] for k in (w.get("wkn"), w.get("isin")) if k and k.upper() in ids), None)
@@ -236,7 +239,8 @@ def liste_erstellen(h, depot):
     neu["ausgeschlossen"] = aus[:200]
     return {"zeit": jetzt.strftime("%d.%m.%Y, %H:%M Uhr"), "neu": neu, "liste": liste, "basis": WI.signatur(depot),
             "alt": {k: x for k, x in depot.items() if k != "vorher"},
-            "live": len(live), "kandidaten": len(jobs), "nur_ls": nur_ls, "aktien_basis": len(aktien), "rang": {"stand": jetzt.date().isoformat(),
+            "live": len(live), "kandidaten": len(jobs), "nur_ls": nur_ls, "aktien_basis": len(aktien),
+            "etappe2": etappe2, "rang": {"stand": jetzt.date().isoformat(),
                                                                    "aktien": rang_a[:100], "etf": rang_e[:40]}}
 
 
@@ -350,6 +354,77 @@ def _streuchart(zeilen):
                       yaxis=dict(title="Betrag", ticksuffix=" €", tickformat="+,.0f"),
                       legend=dict(orientation="h", y=-0.18))
     return UI.chart_stil(fig, schrumpfen=False)
+
+
+def _etappe2_anreichern(rang_a, rang_e, inv, stand_q="", stand_k=""):
+    """Datenvertrauen + Vergleichsmodell classic_v2 je Wert (nur Anzeige, die Auswahl bleibt unveraendert) und ein
+    Bericht: Vergleich aktives Modell <-> classic_v2 und Wirkung einer Hochrechnung fehlender Daten."""
+    from investor_checks import basis as IB
+    from kennzahlen import classic_v2 as V2
+    from kennzahlen import datenvertrauen as DV
+    from kennzahlen import fehlwerte as FWL
+    zeilen, hoch, mit_fp = [], [], 0
+    for w in rang_a:
+        d = w.setdefault("detail", {})
+        q = dict(d.get("q") or {}, gesamt=(w.get("teile") or {}).get("score"))
+        i_ = inv.get(w.get("ticker") or "") or {}
+        typ = IB.sektor_typ({"sektor": "", "branche": w.get("gruppe") or ""})
+        dv = DV.aktie(q, i_, stand=stand_q, sektor_typ=typ)
+        v2 = V2.bewerte(q, i_)
+        d["dv"] = {"score": dv["score"], "teile": dv["teile"], "warnungen": dv["warnungen"][:3]}
+        d["v2"] = {k: v2[k] for k in ("v2", "qualitaet_v2", "risiko", "gewichte")}
+        zeilen.append({"id": w["id"], "v1": w["mix"], "v2": v2["v2"]})
+        if isinstance(q.get("fp"), dict) and q.get("pt"):
+            mit_fp += 1
+            hoch.append({"id": w["id"], "v1": q["gesamt"], "v2": FWL.hochgerechnet(q["pt"], q["fp"])[1]})
+    for w in rang_e:
+        d = w.setdefault("detail", {})
+        dv = DV.etf(d.get("etf") or {}, stand=stand_k)
+        d["dv"] = {"score": dv["score"], "teile": dv["teile"], "warnungen": dv["warnungen"][:3]}
+    namen = {w["id"]: w["name"] for w in rang_a}
+    top_dv = [w["detail"]["dv"]["score"] for w in rang_a[:WI.N_AKTIEN] if w["detail"]["dv"]["score"] is not None]
+    v = V2.vergleich(zeilen, WI.N_AKTIEN)
+    h = V2.vergleich(hoch, WI.N_AKTIEN) if len(hoch) >= 3 else None
+    for erg in (v, h):
+        if erg:
+            erg["neu_in_top"] = [namen.get(i, i) for i in erg.get("neu_in_top", [])[:10]]
+            erg["raus_aus_top"] = [namen.get(i, i) for i in erg.get("raus_aus_top", [])[:10]]
+    return {"dv_top_mittel": round(sum(top_dv) / len(top_dv)) if top_dv else None,
+            "dv_top_unter70": sum(1 for x in top_dv if x < 70), "n": len(rang_a), "mit_fp": mit_fp,
+            "v2": {k: v.get(k) for k in ("n", "spearman", "top_gleich", "top", "neu_in_top", "raus_aus_top")},
+            "hoch": {k: h.get(k) for k in ("n", "spearman", "top_gleich", "top", "neu_in_top", "raus_aus_top")}
+            if h else None}
+
+
+def _etappe2_zeigen(e):
+    """Bericht Etappe 2 - nur Information, die Liste nutzt weiter das aktive Modell."""
+    if not e:
+        return
+    with st.expander("🧪 Datenvertrauen & Vergleichsmodelle (Etappe 2 – nur Information)"):
+        c1, c2 = st.columns(2)
+        c1.metric("Ø Datenvertrauen Top 50", f"{e['dv_top_mittel']}/100" if e.get("dv_top_mittel") is not None
+                  else "–", f"{e['dv_top_unter70']} Werte unter 70", delta_color="off")
+        v2 = e.get("v2") or {}
+        c2.metric("classic_v2: gleiche Top 50", f"{v2.get('top_gleich', '–')} von {v2.get('top', '–')}",
+                  f"Rangkorrelation {v2['spearman']:.2f}".replace(".", ",") if v2.get("spearman") is not None
+                  else "", delta_color="off")
+        st.caption("**classic_v2** = katalogkonform: 55 % Qualität (Red-Flag-Abzug höchstens 30) + 35 % Legenden-"
+                   "Konsens + 10 % Risiko. Der Risiko-Score ist **vorläufig, nicht katalogbestätigt** (aus Risiko-Stufe "
+                   "und Risiko-Modellen). Aktiv bleibt das heutige Modell.")
+        if v2.get("neu_in_top"):
+            st.markdown("**Mit classic_v2 neu in den Top 50:** " + ", ".join(v2["neu_in_top"]))
+            st.markdown("**Fielen heraus:** " + ", ".join(v2.get("raus_aus_top") or []))
+        h = e.get("hoch")
+        st.markdown("**Fehlende Daten im Qualitäts-Score:** Heute zählt ein Kriterium ohne Daten 0 Punkte.")
+        if h:
+            st.caption(f"Würde man die Punkte je Bereich auf die Kriterien mit Daten hochrechnen, blieben "
+                       f"{h.get('top_gleich')} von {h.get('top')} der Top 50 (nach Qualitäts-Score) gleich, "
+                       f"Rangkorrelation {h['spearman']:.2f}. ".replace(".", ",", 1)
+                       + (f"Neu oben: {', '.join(h['neu_in_top'][:6])}." if h.get("neu_in_top") else ""))
+        else:
+            st.caption(f"Die Angabe, welche Punkte wegen fehlender Daten fehlen, schreibt der Qualitäts-Agent ab "
+                       f"seinem nächsten Lauf mit (rollierend) – bisher bei {e.get('mit_fp', 0)} von {e.get('n')} "
+                       "Aktien vorhanden.")
 
 
 def _veraenderungschart(zeilen, n=25):
@@ -511,6 +586,7 @@ def _vorschlag_zeigen(h, v):
                f"Auswahl aus {FMT.zahl(v.get('aktien_basis') or 0, 0)} Aktien des Qualitäts-Scores "
                + ("mit ISIN, die bei Lang & Schwarz handelbar sind." if v.get("nur_ls") else
                   "mit ISIN (Handelbarkeit bei Lang & Schwarz bitte im wikifolio prüfen)."))
+    _etappe2_zeigen(v.get("etappe2"))
     if not zeilen:
         st.success("Keine Anpassungen nötig – das Depot entspricht der aktuellen Rangliste.")
     else:
