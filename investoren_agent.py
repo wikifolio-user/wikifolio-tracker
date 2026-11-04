@@ -30,6 +30,10 @@ TEILE = 16
 STATE_ERGEBNIS = "state/investoren/ergebnis_{:02d}.json"
 STATE_META = "state/investoren/meta.json"
 MAX_ABRUFE = int(os.environ.get("INVESTOREN_MAX", "1500"))
+# Alle Aktien der Rangliste Qualitaets-Score mitpruefen (nicht nur die Katalog-Aktien). Standard AUS: erst mit
+# taeglichem Lauf sinnvoll (sonst wuerden die Katalog-Aktien bei 1.500 je Woche lange nicht aufgefrischt) -
+# eingeschaltet ueber INVESTOREN_ALLE=1 im Workflow.
+MIT_QUALITAET = os.environ.get("INVESTOREN_ALLE", "0") == "1"
 ZEITBUDGET_SEK = float(os.environ.get("INVESTOREN_ZEITBUDGET_MIN", "150")) * 60
 ALTER_TAGE = 7
 PARALLEL = 3                      # gleichzeitige Aktien (je Aktie bis zu 4 Abrufe parallel)
@@ -123,6 +127,32 @@ def universum_laden():
     return SC.universum(kat, qual, perf, det, yahoo.get("isin") or {}), fx
 
 
+# Felder der Rangliste "Qualitaets-Score", die die Checks als Agenten-Kennzahlen nutzen (wie scoring.universum)
+Q_K_FELDER = ("fkgv", "ev_ebit", "fcfy", "mos", "roic", "om", "fm", "g_ums", "g_eps", "g_fcf", "g_fcfps", "akt",
+              "div_q", "p6", "p12", "p36", "nde", "div")
+
+
+def zusatz_aus_qualitaet(qual_teile, bekannte):
+    """Alle Aktien der Rangliste Qualitaets-Score, die nicht schon im Katalog stehen, als Eintraege fuer die
+    Investoren-Checks. Sie werden mitgeprueft, gehen aber NICHT in die Vergleichsverteilungen ein (Greenblatt-
+    Raenge, Branchenperzentile bleiben auf dem Katalog - die klassischen Ergebnisse aendern sich dadurch nicht)."""
+    aus = []
+    for d in qual_teile or []:
+        felder = (d or {}).get("felder") or []
+        for z in (d or {}).get("zeilen") or []:
+            q = dict(zip(felder, z))
+            sym = str(q.get("s") or "").strip()
+            if not sym or sym in bekannte or q.get("gesamt") is None:
+                continue
+            bekannte.add(sym)
+            aus.append({"id": sym, "art": "aktie", "name": str(q.get("name") or sym), "ticker": sym, "wkn": "",
+                        "isin": "", "sektor": str(q.get("br") or ""), "kurs": q.get("kurs"),
+                        "waehrung": q.get("kwae") or "", "k": {f: q.get(f) for f in Q_K_FELDER
+                                                               if q.get(f) is not None},
+                        "info": {"mcap": q.get("mcap"), "gesamt": q.get("gesamt")}, "zusatz": True})
+    return aus
+
+
 def main():
     start = _uhr()
     heute = datetime.date.today()
@@ -131,7 +161,13 @@ def main():
         log.error("Top-500-Daten nicht lesbar - Abbruch ohne zu schreiben.")
         return 1
     aktien = [e for e in u if e["art"] == "aktie" and e.get("ticker")]
-    ver, vgl = SC.verteilungen(u), AB.vergleich(u)
+    ver, vgl = SC.verteilungen(u), AB.vergleich(u)        # nur Katalog (unveraendert)
+    if MIT_QUALITAET:
+        qual = [d for d in (T.lade_state(f"state/qualitaet/alle_{i}.json", None) for i in range(6))
+                if isinstance(d, dict)]
+        zusatz = zusatz_aus_qualitaet(qual, {e["ticker"] for e in aktien})
+        aktien += zusatz
+        log.info(f"+ {len(zusatz)} Aktien aus der Rangliste Qualitäts-Score (nicht im Katalog)")
     werte, status = lade_teile()
     meta = T.lade_state(STATE_META, {}) or {}
     fue = meta.get("fue_median") or fue_mediane(werte)
