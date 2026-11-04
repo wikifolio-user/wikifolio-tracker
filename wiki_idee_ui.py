@@ -24,6 +24,23 @@ PFAD_DEPOT = "state/wiki_idee/depot.json"
 PFAD_RANG = "state/wiki_idee/rangliste.json"
 TEIL_TITEL = {k: t for k, t, _ in WI.BAUSTEINE}
 VORSCHLAG = "_wiki_vorschlag"
+
+
+def _investor_namen():
+    """{check_id: Name der Boersenlegende} aus der Registry der Investoren-Checks."""
+    try:
+        import investor_checks as IC
+        return {cid: r["investor"] for cid, r in IC.REGISTRY.items() if r.get("kategorie") not in ("Risiko", "Signale")}
+    except Exception:
+        return {}
+
+
+def _warum_kurz(p, ohne_platz=False):
+    """Kurzbegruendung einer Position (ohne Platz, wenn der schon daneben steht)."""
+    k = WI.begruendung(p, _investor_namen())["kurz"]
+    if ohne_platz and k.startswith("Platz "):
+        k = k.split(" · ", 1)[1] if " · " in k else ""
+    return k
 try:
     from zoneinfo import ZoneInfo
     BERLIN = ZoneInfo("Europe/Berlin")
@@ -104,7 +121,8 @@ def _positionen_tabelle(pos, preise, gesamt):
                 z[TEIL_TITEL[k]] = (p.get("teile") or {}).get(k)
         z.update({"Stück": p["stueck"], "Kurs Kauf €": p["kurs"], "Kurs heute €": heute, "Wert €": wert,
                   "Anteil %": wert / gesamt * 100 if gesamt else None,
-                  "seit Kauf %": (heute / p["kurs"] - 1) * 100 if p["kurs"] else None})
+                  "seit Kauf %": (heute / p["kurs"] - 1) * 100 if p["kurs"] else None,
+                  "Warum": _warum_kurz(p) if p.get("detail") else "–"})
         zeilen.append(z)
     return pd.DataFrame(zeilen)
 
@@ -117,7 +135,9 @@ def _tabelle(df, key):
            "Kurs heute €": st.column_config.NumberColumn(format="%.2f"),
            "Wert €": st.column_config.NumberColumn(format="%.0f"),
            "Anteil %": st.column_config.NumberColumn(format="%.2f"),
-           "seit Kauf %": st.column_config.NumberColumn(format="%+.1f")}
+           "seit Kauf %": st.column_config.NumberColumn(format="%+.1f"),
+           "Warum": st.column_config.TextColumn("Warum", width="large",
+                                                help="Kurzbegründung – ausführlich unter „🔍 Warum dieser Wert?“")}
     cfg.update({t: st.column_config.ProgressColumn(t, min_value=0, max_value=100, format="%.0f")
                 for t in TEIL_TITEL.values() if t in df.columns})
     st.dataframe(df, hide_index=True, width="stretch", column_config=cfg, key=key,
@@ -222,16 +242,34 @@ def liste_erstellen(h, depot):
 AKTION_FARBE = {"Neu": "#22C55E", "Kauf": "#86EFAC", "Verkauf": "#FCA5A5", "Raus": "#EF4444"}
 
 
-def _anreichern(zeilen, neu, alt):
-    """Auftraege + Score, Rang, Gruppe (Branche bzw. Region/Thema) und Gewicht nach der Umschichtung."""
+def _raus_grund(i, rang):
+    """Warum ein Wert das Depot verlaesst: aktueller Platz oder nicht mehr in der Rangliste."""
+    for art, liste in (("aktie", (rang or {}).get("aktien") or []), ("etf", (rang or {}).get("etf") or [])):
+        for w in liste:
+            if w["id"] == i:
+                return f"jetzt nur noch Platz {w['rang']} (Score {w['mix']:.0f}) – bessere Werte rücken nach"
+    return ("nicht mehr unter den vorderen Plätzen bzw. nicht mehr bewertbar (Warnsignal, kein Kurs in EUR "
+            "oder keine ISIN)")
+
+
+def _anreichern(zeilen, neu, alt, rang=None):
+    """Auftraege + Score, Rang, Gruppe (Branche bzw. Region/Thema), Gewicht und Begruendung."""
     pos_neu, pos_alt = neu.get("positionen") or {}, (alt or {}).get("positionen") or {}
     wert = float(neu.get("wert") or 0) or 1.0
     aus = []
     for z in zeilen:
         p = pos_neu.get(z["id"]) or pos_alt.get(z["id"]) or {}
         g = p.get("gruppe") or "–"
+        if z["aktion"] == "Raus":
+            warum = _raus_grund(z["id"], rang)
+        elif z["aktion"] == "Verkauf":
+            warum = "zurück aufs Zielgewicht (Kurs gestiegen bzw. Depot neu gewichtet)"
+        elif z["aktion"] == "Kauf":
+            warum = "aufs Zielgewicht aufgestockt"
+        else:
+            warum = _warum_kurz(pos_neu.get(z["id"]) or {}) if (pos_neu.get(z["id"]) or {}).get("detail") else ""
         aus.append(dict(z, score=p.get("mix"), rang=p.get("rang"), gruppe="Sonstige" if g == "–" else g,
-                        art_text="Aktie" if z["art"] == "aktie" else "ETF",
+                        art_text="Aktie" if z["art"] == "aktie" else "ETF", warum=warum,
                         gewicht=(pos_neu.get(z["id"]) or {}).get("wert", 0) / wert * 100))
     return aus
 
@@ -346,6 +384,7 @@ HP_CSS = """<style>
 .hp-vor { text-align:right; font-size:.75rem; opacity:.8; line-height:1.3; white-space:nowrap; }
 .hp-vor b { display:block; font-size:1rem; opacity:1; }
 .hp-raus { opacity:.7; }
+.hp-warum { display:block; color:#A5B4FC; opacity:.95 !important; }
 @media (max-width: 640px) {
   .hp-z { grid-template-columns:40px 46px 1fr; gap:8px; padding:7px 9px; }
   .hp-vor { grid-column:3; text-align:left; white-space:normal; margin-top:-4px; }
@@ -370,9 +409,11 @@ def _hitparade_html(zeilen, raus, titel):
             f"Score {p['mix']:.0f}" if p.get("mix") is not None else "",
             f"{p['stueck']} Stück · {FMT.eur(p['stueck'] * p['kurs'], 0)}") if x and x != "–")
         vor = (f"<b>{z['vorher']}</b>letzte Liste" if z["vorher"] else "<b>–</b>letzte Liste")
+        warum = _warum_kurz(p) if p.get("detail") else ""
         h.append(f'<div class="hp-z{top}" role="listitem"><div class="hp-platz{pk}">{z["platz"]}</div>'
                  f'<div class="hp-bew hp-{z["bewegung"]}">{bew}</div>'
-                 f'<div class="hp-name"><b>{_esc(p["name"])}</b><small>{_esc(info)}</small></div>'
+                 f'<div class="hp-name"><b>{_esc(p["name"])}</b><small>{_esc(info)}</small>'
+                 + (f'<small class="hp-warum">💡 {_esc(warum)}</small>' if warum else "") + '</div>'
                  f'<div class="hp-vor">{vor}<br><span class="hp-tr">{z["listen"]}. Liste · bester Platz {z["best"]}'
                  '</span></div></div>')
     h.append("</div>")
@@ -424,11 +465,13 @@ def _auf_ab(zeilen, n=10):
             st.markdown(f'<div class="wiki-aa"><span class="{"pt-up" if plus else "pt-down"}">'
                         f'{"▲" if plus else "▼"} {FMT.eur(abs(z["betrag"]), 0)}</span> '
                         f'{z["aktion"]} · <b>{z["name"][:34]}</b><br><small>{z["stueck"]} Stück · '
-                        f'{z["art_text"]} · {z["gruppe"]}{sc}</small></div>', unsafe_allow_html=True)
+                        f'{z["art_text"]} · {z["gruppe"]}{sc}</small>'
+                        + (f'<br><small class="wiki-warum">💡 {_esc(z["warum"])}</small>' if z.get("warum") else "")
+                        + '</div>', unsafe_allow_html=True)
         if len(liste) > n:
             st.caption(f"… und {len(liste) - n} weitere (Tabelle unten)")
     st.markdown("<style>.wiki-aa{padding:6px 0;border-bottom:1px solid rgba(148,163,184,.15);"
-                "line-height:1.35}</style>", unsafe_allow_html=True)
+                "line-height:1.35}.wiki-warum{opacity:.85}</style>", unsafe_allow_html=True)
     try:
         import portfolio_builder_ui as _PB
         handy = _PB._smartphone()
@@ -462,7 +505,7 @@ def _vorschlag_zeigen(h, v):
     if not zeilen:
         st.success("Keine Anpassungen nötig – das Depot entspricht der aktuellen Rangliste.")
     else:
-        reich = _anreichern(zeilen, neu, v.get("alt"))
+        reich = _anreichern(zeilen, neu, v.get("alt"), v.get("rang"))
         gefiltert = _filter(reich, "wiki_vf")
         if not gefiltert:
             st.info("Kein Auftrag passt zum Filter.")
@@ -626,6 +669,7 @@ def seite(h):
                                file_name=f"KI_Invest_System_{key}_{depot.get('stand')}.csv", mime="text/csv",
                                key=f"wiki_csv_{key}")
 
+    _warum_karte(depot)
     _korrektur(h, depot, preise)
 
     # 4 - Verlauf der Umschichtungen
@@ -688,6 +732,44 @@ def seite(h):
                              column_config={"Score": st.column_config.NumberColumn(format="%.0f"),
                                             "Kurs €": st.column_config.NumberColumn(format="%.2f")})
     _methodik()
+
+
+WARUM_CSS = """<style>
+.wk-karte { border:1px solid rgba(148,163,184,.22); border-radius:16px; padding:14px 16px; margin:6px 0 4px;
+            background:rgba(148,163,184,.06); }
+.wk-karte h4 { margin:12px 0 4px; font-size:.92rem; opacity:.9; }
+.wk-karte h4:first-child { margin-top:0; }
+.wk-karte p { margin:2px 0; font-size:.9rem; line-height:1.4; }
+.wk-chip { display:inline-block; padding:2px 9px; margin:2px 4px 2px 0; border-radius:999px; font-size:.8rem; }
+.wk-plus { background:rgba(34,197,94,.18); color:#86EFAC; } .wk-minus { background:rgba(239,68,68,.16); color:#FCA5A5; }
+</style>"""
+
+
+def _warum_karte(depot):
+    """"Warum dieser Wert?" - vollstaendige Begruendung je Position aus den Daten von Ranglisten & Screener."""
+    with st.expander("🔍 Warum dieser Wert? – Begründung je Position"):
+        pos = sorted(depot["positionen"].values(), key=lambda p: (p["art"] != "aktie", p.get("rang") or 999))
+        if not any(p.get("detail") for p in pos):
+            st.info("Die ausführliche Begründung entsteht mit der nächsten Liste („Liste jetzt erstellen“ → "
+                    "übernehmen) – dieser Stand wurde noch ohne Bewertungsdetails gespeichert.")
+            return
+        namen = [f'{"📈" if p["art"] == "aktie" else "🌍"} {p["name"]} · Score {p["mix"]:.0f}'
+                 if p.get("mix") is not None else p["name"] for p in pos]
+        wahl = st.selectbox("Wert", namen, key="wiki_warum_wahl")
+        p = pos[namen.index(wahl)]
+        b = WI.begruendung(p, _investor_namen())
+        h = [WARUM_CSS, '<div class="wk-karte">']
+        if b["staerken"] or b["schwaechen"]:
+            h.append("<h4>Stärken &amp; Schwächen</h4><p>"
+                     + "".join(f'<span class="wk-chip wk-plus">+ {_esc(x)}</span>' for x in b["staerken"])
+                     + "".join(f'<span class="wk-chip wk-minus">– {_esc(x)}</span>' for x in b["schwaechen"])
+                     + "</p>")
+        for titel, zeilen in b["abschnitte"]:
+            h.append(f"<h4>{_esc(titel)}</h4>" + "".join(f"<p>{_esc(z)}</p>" for z in zeilen))
+        h.append("</div>")
+        st.markdown("".join(h), unsafe_allow_html=True)
+        st.caption("Quelle: „🏆 Ranglisten & Screener“ (⭐ Qualitäts-Score bzw. 🏅 ETF-Score) und die Investoren-Checks "
+                   "zum Zeitpunkt der Liste. Ausführlicher je Aktie unter „⚖️ Bewertung“.")
 
 
 def _korrektur(h, depot, preise):
@@ -760,6 +842,10 @@ def _methodik():
             "Schwarz – dem Handelspartner von wikifolio – handelbar sind); *Investoren-Checks* = Urteil der Börsenlegenden (Buffett, Graham, Lynch, Greenblatt, "
             "Piotroski, Fisher …); *Unterbewertung* = Abstand fairer Wert zum Kurs; *Qualität × Kurs* = gute Firma, "
             "zuletzt schwacher Kurs. Fehlt ein Baustein, zählt er neutral (50).\n"
+            "- **Warum ein Score um 70 reicht:** Die Scores sind Punkte von 100 bzw. Rangvergleiche – nur sehr "
+            "wenige Werte erreichen mehr. Entscheidend ist der Platz im Gesamtfeld (z. B. „Platz 12 von 2.400“); "
+            "jede Position nennt unter „🔍 Warum dieser Wert?“ Platz, Score-Aufschlüsselung, Qualitäts-Punkte, "
+            "Börsenlegenden, fairen Wert und den Auswahlgrund (direkt, Puffer, nachgerückt).\n"
             "- **Ausschluss:** Altman-Gefahrenzone, Beneish-Verdacht auf Bilanzmanipulation oder überwiegend "
             "Bilanz-Warnsignale.\n"
             f"- **ETFs** aus „🏆 Ranglisten & Screener“: der „🏅 ETF-Score“ (Rendite, Rendite je Risiko, Rückgang, "
