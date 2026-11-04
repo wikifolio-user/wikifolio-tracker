@@ -23,6 +23,7 @@ import investor_checks as IC
 from investor_checks import abruf as AB
 from investor_checks import fairer_wert as FW
 from investor_checks import konsens as KO
+from kennzahlen import fundamental as FU
 
 log = T.log
 TEILE = 16
@@ -82,6 +83,10 @@ def bewerte(e, ver, vgl, fx, fue_median, index_cache, heute):
     erg = IC.alle_checks(f, kx)
     kf = KO.kurzform(erg, FW.uebersicht(f, kx), f)
     kf.update({"id": e["id"], "n": e["name"], "st": heute.isoformat()})
+    try:                                   # Etappe 3: erweiterte Analyse (nur Information, aendert keinen Check)
+        kf["x"] = FU.kompakt(FU.analyse(f))
+    except Exception as ex:                # darf den klassischen Datensatz nie verhindern
+        log.warning(f"{sym}: erweiterte Analyse fehlgeschlagen ({type(ex).__name__})")
     return kf
 
 

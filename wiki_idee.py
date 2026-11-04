@@ -124,7 +124,7 @@ def aktien_rangliste(eintraege, investoren=None, eur_kurse=None):
                       "klasse": (e.get("info") or {}).get("klasse"),
                       "detail": {"q": (e.get("info") or {}).get("q") or {}, "fv": _zahl(inv.get("fv")),
                                  "inv": {"note": inv.get("note"), "kaufen": inv.get("kaufen"), "von": inv.get("inv"),
-                                         "w": inv.get("w"),
+                                         "w": inv.get("w"), "x": inv.get("x"),
                                          "c": {cid: z[0] for cid, z in (inv.get("c") or {}).items()
                                                if isinstance(z, (list, tuple)) and z and z[0] is not None}}}})
     liste.sort(key=lambda w: (-w["mix"], w["name"].lower()))
@@ -705,6 +705,20 @@ def begruendung(p, investor_namen=None):
         if mm:
             abschnitte.append(("Merkmale", [" · ".join(x for x in (mm.get("region"), "/".join(mm.get("themen") or []),
                                                                  mm.get("anbieter"), mm.get("ertrag")) if x)]))
+    x = (d.get("inv") or {}).get("x")
+    if x:
+        from kennzahlen import fundamental as FU
+        zeilen_x = []
+        for titel, sc, kz in FU.anzeigen(x):
+            if sc is None and not kz:
+                continue
+            zeilen_x.append(f"{titel}: {'–' if sc is None else f'{sc}/100'}"
+                            + (" – " + " · ".join(f"{t} {v}" for t, v, _ in kz[:4]) if kz else ""))
+        zeilen_x += [f"⚠ {h}" for h in x.get("w") or []]
+        if x.get("na"):
+            zeilen_x.append("Branche Bank/Versicherung: cashflow- und kapitalbasierte Kennzahlen nicht anwendbar.")
+        if zeilen_x:
+            abschnitte.append(("Erweiterte Analyse (nur Information)", zeilen_x))
     dv = d.get("dv") or {}
     if dv.get("score") is not None:
         t = dv.get("teile") or {}

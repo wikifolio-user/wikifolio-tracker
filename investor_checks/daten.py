@@ -60,6 +60,19 @@ ZEILEN = {
 }
 VORZEICHEN = {"capex": -1, "dividenden": -1, "rueckkaeufe": -1}
 
+# Etappe 3 (erweiterte Analyse, kennzahlen/fundamental.py): zusaetzliche Posten. Sie zaehlen bewusst NICHT fuer
+# die Mindestzahl an Posten je Periode (s. perioden) - sonst wuerden bisher verworfene Teiljahre mitzaehlen und
+# die klassischen Checks veraendern.
+ZEILEN_ERWEITERT = {
+    "sbc": ["Stock Based Compensation"],
+    "steuern": ["Tax Provision"],
+    "vor_steuern": ["Pretax Income"],
+    "verb_ll": ["Accounts Payable", "Payables"],
+    "sonder": ["Total Unusual Items", "Total Unusual Items Excluding Goodwill"],
+    "akquisitionen": ["Purchase Of Business", "Net Business Purchase And Sale"],
+}
+VORZEICHEN_ERWEITERT = {"akquisitionen": -1}
+
 
 def _spalten_werte(df):
     """DataFrame (Zeilen = Posten, Spalten = Stichtage) -> {datum: {zeile: wert}}; NaN entfaellt."""
@@ -97,6 +110,11 @@ def perioden(*dataframes):
         if p.get("fcf") is None and p.get("op_cf") is not None and p.get("capex") is not None:
             p["fcf"] = p["op_cf"] - p["capex"]
         if sum(1 for k, v in p.items() if k != "datum" and v is not None) >= 4:
+            for feld, namen in ZEILEN_ERWEITERT.items():      # erst NACH der Mindestpruefung
+                w = next((r[n] for n in namen if n in r), None)
+                if w is not None and VORZEICHEN_ERWEITERT.get(feld) == -1:
+                    w = abs(w)
+                p[feld] = w
             aus.append(p)
     return aus
 
