@@ -1,0 +1,2388 @@
+{
+ "investoren": {
+  "bank": {
+   "checks": {
+    "altman": [
+     null,
+     0,
+     0,
+     false
+    ],
+    "beneish": [
+     null,
+     0,
+     0,
+     false
+    ],
+    "buffett": [
+     75.0,
+     6,
+     8,
+     true
+    ],
+    "can_slim": [
+     null,
+     1,
+     2,
+     false
+    ],
+    "dividende": [
+     57.142857,
+     4,
+     7,
+     false
+    ],
+    "dreman": [
+     null,
+     0,
+     0,
+     false
+    ],
+    "fisher_kuv": [
+     66.666667,
+     2,
+     3,
+     false
+    ],
+    "graham": [
+     40.0,
+     2,
+     5,
+     false
+    ],
+    "greenblatt": [
+     null,
+     0,
+     0,
+     false
+    ],
+    "levy": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "lynch": [
+     75.0,
+     3,
+     4,
+     true
+    ],
+    "minervini": [
+     85.714286,
+     6,
+     7,
+     true
+    ],
+    "philip_fisher": [
+     75.0,
+     3,
+     4,
+     true
+    ],
+    "piotroski": [
+     100.0,
+     7,
+     7,
+     true
+    ],
+    "red_flags": [
+     100.0,
+     5,
+     5,
+     true
+    ],
+    "smart_money": [
+     null,
+     2,
+     2,
+     false
+    ],
+    "templeton": [
+     50.0,
+     2,
+     4,
+     false
+    ],
+    "terry_smith": [
+     50.0,
+     2,
+     4,
+     false
+    ]
+   },
+   "fair_median": 20.84057,
+   "fair_modelle": {
+    "Analysten-Kursziel": null,
+    "DCF (Owner Earnings)": 32.853776,
+    "Graham-Formel": 39.974414,
+    "Graham-Zahl": 16.431677,
+    "KGV-Mean-Reversion": 20.84057,
+    "Lynch Fair Value": 16.337735
+   },
+   "konsens": {
+    "c": {
+     "altman": [
+      null,
+      0,
+      0
+     ],
+     "beneish": [
+      null,
+      0,
+      0
+     ],
+     "buffett": [
+      75,
+      6,
+      8
+     ],
+     "can_slim": [
+      null,
+      1,
+      2
+     ],
+     "dividende": [
+      57,
+      4,
+      7
+     ],
+     "dreman": [
+      null,
+      0,
+      0
+     ],
+     "fisher_kuv": [
+      67,
+      2,
+      3
+     ],
+     "graham": [
+      40,
+      2,
+      5
+     ],
+     "greenblatt": [
+      null,
+      0,
+      0
+     ],
+     "levy": [
+      null,
+      1,
+      1
+     ],
+     "lynch": [
+      75,
+      3,
+      4
+     ],
+     "minervini": [
+      86,
+      6,
+      7
+     ],
+     "philip_fisher": [
+      75,
+      3,
+      4
+     ],
+     "piotroski": [
+      100,
+      7,
+      7
+     ],
+     "red_flags": [
+      100,
+      5,
+      5
+     ],
+     "smart_money": [
+      null,
+      2,
+      2
+     ],
+     "templeton": [
+      50,
+      2,
+      4
+     ],
+     "terry_smith": [
+      50,
+      2,
+      4
+     ]
+    },
+    "fue": 8.0,
+    "fv": 4.2,
+    "inv": 9,
+    "kaufen": 4,
+    "note": "B",
+    "score": 72.9,
+    "sek": "Financial Services",
+    "w": 0
+   }
+  },
+  "hoch_verschuldet": {
+   "checks": {
+    "altman": [
+     100.0,
+     1,
+     1,
+     true
+    ],
+    "beneish": [
+     100.0,
+     1,
+     1,
+     true
+    ],
+    "buffett": [
+     60.0,
+     6,
+     10,
+     false
+    ],
+    "can_slim": [
+     null,
+     1,
+     2,
+     false
+    ],
+    "dividende": [
+     57.142857,
+     4,
+     7,
+     false
+    ],
+    "dreman": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "fisher_kuv": [
+     66.666667,
+     2,
+     3,
+     false
+    ],
+    "graham": [
+     42.857143,
+     3,
+     7,
+     false
+    ],
+    "greenblatt": [
+     null,
+     0,
+     0,
+     false
+    ],
+    "levy": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "lynch": [
+     50.0,
+     2,
+     4,
+     false
+    ],
+    "minervini": [
+     85.714286,
+     6,
+     7,
+     true
+    ],
+    "philip_fisher": [
+     75.0,
+     3,
+     4,
+     true
+    ],
+    "piotroski": [
+     77.777778,
+     7,
+     9,
+     true
+    ],
+    "red_flags": [
+     85.714286,
+     6,
+     7,
+     true
+    ],
+    "smart_money": [
+     null,
+     2,
+     2,
+     false
+    ],
+    "templeton": [
+     25.0,
+     1,
+     4,
+     false
+    ],
+    "terry_smith": [
+     33.333333,
+     2,
+     6,
+     false
+    ]
+   },
+   "fair_median": 20.84057,
+   "fair_modelle": {
+    "Analysten-Kursziel": null,
+    "DCF (Owner Earnings)": 32.853776,
+    "Graham-Formel": 39.974414,
+    "Graham-Zahl": 8.215838,
+    "KGV-Mean-Reversion": 20.84057,
+    "Lynch Fair Value": 16.337735
+   },
+   "konsens": {
+    "c": {
+     "altman": [
+      100,
+      1,
+      1
+     ],
+     "beneish": [
+      100,
+      1,
+      1
+     ],
+     "buffett": [
+      60,
+      6,
+      10
+     ],
+     "can_slim": [
+      null,
+      1,
+      2
+     ],
+     "dividende": [
+      57,
+      4,
+      7
+     ],
+     "dreman": [
+      null,
+      1,
+      1
+     ],
+     "fisher_kuv": [
+      67,
+      2,
+      3
+     ],
+     "graham": [
+      43,
+      3,
+      7
+     ],
+     "greenblatt": [
+      null,
+      0,
+      0
+     ],
+     "levy": [
+      null,
+      1,
+      1
+     ],
+     "lynch": [
+      50,
+      2,
+      4
+     ],
+     "minervini": [
+      86,
+      6,
+      7
+     ],
+     "philip_fisher": [
+      75,
+      3,
+      4
+     ],
+     "piotroski": [
+      78,
+      7,
+      9
+     ],
+     "red_flags": [
+      86,
+      6,
+      7
+     ],
+     "smart_money": [
+      null,
+      2,
+      2
+     ],
+     "templeton": [
+      25,
+      1,
+      4
+     ],
+     "terry_smith": [
+      33,
+      2,
+      6
+     ]
+    },
+    "fue": 8.0,
+    "fv": 4.2,
+    "inv": 9,
+    "kaufen": 2,
+    "note": "C",
+    "score": 64.0,
+    "sek": "Technology",
+    "w": 2
+   }
+  },
+  "musterfirma": {
+   "checks": {
+    "altman": [
+     100.0,
+     1,
+     1,
+     true
+    ],
+    "beneish": [
+     100.0,
+     1,
+     1,
+     true
+    ],
+    "buffett": [
+     80.0,
+     8,
+     10,
+     true
+    ],
+    "can_slim": [
+     null,
+     1,
+     2,
+     false
+    ],
+    "dividende": [
+     57.142857,
+     4,
+     7,
+     false
+    ],
+    "dreman": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "fisher_kuv": [
+     66.666667,
+     2,
+     3,
+     false
+    ],
+    "graham": [
+     57.142857,
+     4,
+     7,
+     false
+    ],
+    "greenblatt": [
+     null,
+     0,
+     0,
+     false
+    ],
+    "levy": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "lynch": [
+     75.0,
+     3,
+     4,
+     true
+    ],
+    "minervini": [
+     85.714286,
+     6,
+     7,
+     true
+    ],
+    "philip_fisher": [
+     75.0,
+     3,
+     4,
+     true
+    ],
+    "piotroski": [
+     88.888889,
+     8,
+     9,
+     true
+    ],
+    "red_flags": [
+     100.0,
+     7,
+     7,
+     true
+    ],
+    "smart_money": [
+     null,
+     2,
+     2,
+     false
+    ],
+    "templeton": [
+     50.0,
+     2,
+     4,
+     false
+    ],
+    "terry_smith": [
+     50.0,
+     3,
+     6,
+     false
+    ]
+   },
+   "fair_median": 20.84057,
+   "fair_modelle": {
+    "Analysten-Kursziel": null,
+    "DCF (Owner Earnings)": 32.853776,
+    "Graham-Formel": 39.974414,
+    "Graham-Zahl": 16.431677,
+    "KGV-Mean-Reversion": 20.84057,
+    "Lynch Fair Value": 16.337735
+   },
+   "konsens": {
+    "c": {
+     "altman": [
+      100,
+      1,
+      1
+     ],
+     "beneish": [
+      100,
+      1,
+      1
+     ],
+     "buffett": [
+      80,
+      8,
+      10
+     ],
+     "can_slim": [
+      null,
+      1,
+      2
+     ],
+     "dividende": [
+      57,
+      4,
+      7
+     ],
+     "dreman": [
+      null,
+      1,
+      1
+     ],
+     "fisher_kuv": [
+      67,
+      2,
+      3
+     ],
+     "graham": [
+      57,
+      4,
+      7
+     ],
+     "greenblatt": [
+      null,
+      0,
+      0
+     ],
+     "levy": [
+      null,
+      1,
+      1
+     ],
+     "lynch": [
+      75,
+      3,
+      4
+     ],
+     "minervini": [
+      86,
+      6,
+      7
+     ],
+     "philip_fisher": [
+      75,
+      3,
+      4
+     ],
+     "piotroski": [
+      89,
+      8,
+      9
+     ],
+     "red_flags": [
+      100,
+      7,
+      7
+     ],
+     "smart_money": [
+      null,
+      2,
+      2
+     ],
+     "templeton": [
+      50,
+      2,
+      4
+     ],
+     "terry_smith": [
+      50,
+      3,
+      6
+     ]
+    },
+    "fue": 8.0,
+    "fv": 4.2,
+    "inv": 9,
+    "kaufen": 4,
+    "note": "B",
+    "score": 74.0,
+    "sek": "Technology",
+    "w": 0
+   }
+  },
+  "reit": {
+   "checks": {
+    "altman": [
+     100.0,
+     1,
+     1,
+     true
+    ],
+    "beneish": [
+     100.0,
+     1,
+     1,
+     true
+    ],
+    "buffett": [
+     80.0,
+     8,
+     10,
+     true
+    ],
+    "can_slim": [
+     null,
+     1,
+     2,
+     false
+    ],
+    "dividende": [
+     57.142857,
+     4,
+     7,
+     false
+    ],
+    "dreman": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "fisher_kuv": [
+     66.666667,
+     2,
+     3,
+     false
+    ],
+    "graham": [
+     66.666667,
+     4,
+     6,
+     false
+    ],
+    "greenblatt": [
+     null,
+     0,
+     0,
+     false
+    ],
+    "levy": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "lynch": [
+     75.0,
+     3,
+     4,
+     true
+    ],
+    "minervini": [
+     85.714286,
+     6,
+     7,
+     true
+    ],
+    "philip_fisher": [
+     75.0,
+     3,
+     4,
+     true
+    ],
+    "piotroski": [
+     88.888889,
+     8,
+     9,
+     true
+    ],
+    "red_flags": [
+     100.0,
+     7,
+     7,
+     true
+    ],
+    "smart_money": [
+     null,
+     2,
+     2,
+     false
+    ],
+    "templeton": [
+     66.666667,
+     2,
+     3,
+     false
+    ],
+    "terry_smith": [
+     50.0,
+     3,
+     6,
+     false
+    ]
+   },
+   "fair_median": 20.84057,
+   "fair_modelle": {
+    "Analysten-Kursziel": null,
+    "DCF (Owner Earnings)": 32.853776,
+    "Graham-Formel": 39.974414,
+    "Graham-Zahl": 16.431677,
+    "KGV-Mean-Reversion": 20.84057,
+    "Lynch Fair Value": 16.337735
+   },
+   "konsens": {
+    "c": {
+     "altman": [
+      100,
+      1,
+      1
+     ],
+     "beneish": [
+      100,
+      1,
+      1
+     ],
+     "buffett": [
+      80,
+      8,
+      10
+     ],
+     "can_slim": [
+      null,
+      1,
+      2
+     ],
+     "dividende": [
+      57,
+      4,
+      7
+     ],
+     "dreman": [
+      null,
+      1,
+      1
+     ],
+     "fisher_kuv": [
+      67,
+      2,
+      3
+     ],
+     "graham": [
+      67,
+      4,
+      6
+     ],
+     "greenblatt": [
+      null,
+      0,
+      0
+     ],
+     "levy": [
+      null,
+      1,
+      1
+     ],
+     "lynch": [
+      75,
+      3,
+      4
+     ],
+     "minervini": [
+      86,
+      6,
+      7
+     ],
+     "philip_fisher": [
+      75,
+      3,
+      4
+     ],
+     "piotroski": [
+      89,
+      8,
+      9
+     ],
+     "red_flags": [
+      100,
+      7,
+      7
+     ],
+     "smart_money": [
+      null,
+      2,
+      2
+     ],
+     "templeton": [
+      67,
+      2,
+      3
+     ],
+     "terry_smith": [
+      50,
+      3,
+      6
+     ]
+    },
+    "fue": 8.0,
+    "fv": 4.2,
+    "inv": 9,
+    "kaufen": 4,
+    "note": "B",
+    "score": 76.2,
+    "sek": "Real Estate",
+    "w": 0
+   }
+  },
+  "verlust": {
+   "checks": {
+    "altman": [
+     100.0,
+     1,
+     1,
+     true
+    ],
+    "beneish": [
+     100.0,
+     1,
+     1,
+     true
+    ],
+    "buffett": [
+     40.0,
+     4,
+     10,
+     false
+    ],
+    "can_slim": [
+     null,
+     1,
+     2,
+     false
+    ],
+    "dividende": [
+     40.0,
+     2,
+     5,
+     false
+    ],
+    "dreman": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "fisher_kuv": [
+     66.666667,
+     2,
+     3,
+     false
+    ],
+    "graham": [
+     42.857143,
+     3,
+     7,
+     false
+    ],
+    "greenblatt": [
+     null,
+     0,
+     0,
+     false
+    ],
+    "levy": [
+     null,
+     1,
+     1,
+     false
+    ],
+    "lynch": [
+     null,
+     2,
+     2,
+     false
+    ],
+    "minervini": [
+     85.714286,
+     6,
+     7,
+     true
+    ],
+    "philip_fisher": [
+     50.0,
+     2,
+     4,
+     false
+    ],
+    "piotroski": [
+     55.555556,
+     5,
+     9,
+     false
+    ],
+    "red_flags": [
+     71.428571,
+     5,
+     7,
+     true
+    ],
+    "smart_money": [
+     null,
+     2,
+     2,
+     false
+    ],
+    "templeton": [
+     33.333333,
+     1,
+     3,
+     false
+    ],
+    "terry_smith": [
+     16.666667,
+     1,
+     6,
+     false
+    ]
+   },
+   "fair_median": null,
+   "fair_modelle": {
+    "Analysten-Kursziel": null,
+    "DCF (Owner Earnings)": null,
+    "Graham-Formel": null,
+    "Graham-Zahl": null,
+    "KGV-Mean-Reversion": null,
+    "Lynch Fair Value": null
+   },
+   "konsens": {
+    "c": {
+     "altman": [
+      100,
+      1,
+      1
+     ],
+     "beneish": [
+      100,
+      1,
+      1
+     ],
+     "buffett": [
+      40,
+      4,
+      10
+     ],
+     "can_slim": [
+      null,
+      1,
+      2
+     ],
+     "dividende": [
+      40,
+      2,
+      5
+     ],
+     "dreman": [
+      null,
+      1,
+      1
+     ],
+     "fisher_kuv": [
+      67,
+      2,
+      3
+     ],
+     "graham": [
+      43,
+      3,
+      7
+     ],
+     "greenblatt": [
+      null,
+      0,
+      0
+     ],
+     "levy": [
+      null,
+      1,
+      1
+     ],
+     "lynch": [
+      null,
+      2,
+      2
+     ],
+     "minervini": [
+      86,
+      6,
+      7
+     ],
+     "philip_fisher": [
+      50,
+      2,
+      4
+     ],
+     "piotroski": [
+      56,
+      5,
+      9
+     ],
+     "red_flags": [
+      71,
+      5,
+      7
+     ],
+     "smart_money": [
+      null,
+      2,
+      2
+     ],
+     "templeton": [
+      33,
+      1,
+      3
+     ],
+     "terry_smith": [
+      17,
+      1,
+      6
+     ]
+    },
+    "fue": 8.0,
+    "inv": 8,
+    "kaufen": 1,
+    "note": "C",
+    "score": 55.6,
+    "sek": "Technology",
+    "w": 3
+   }
+  }
+ },
+ "klassen": {
+  "etf_hebel": {
+   "einordnung": "nicht",
+   "score": 40.0,
+   "teile": {
+    "bestaendig": 100.0,
+    "dd": 0.0,
+    "historie": 33.3,
+    "rendite": 100.0,
+    "rr": 42.9,
+    "vola": 0.0
+   }
+  },
+  "etf_kurz": {
+   "einordnung": "beobachten",
+   "score": 77.0,
+   "teile": {
+    "bestaendig": 100.0,
+    "dd": 82.5,
+    "historie": 5.6,
+    "rendite": 100.0,
+    "rr": 89.3,
+    "vola": 25.9
+   }
+  },
+  "etf_welt": {
+   "einordnung": "beobachten",
+   "score": 69.2,
+   "teile": {
+    "bestaendig": 100.0,
+    "dd": 52.5,
+    "historie": 100.0,
+    "rendite": 65.4,
+    "rr": 65.4,
+    "vola": 77.8
+   }
+  },
+  "wiki_gut": {
+   "einordnung": "prio",
+   "score": 86.0,
+   "teile": {
+    "bestaendig": 100.0,
+    "dd": 80.0,
+    "historie": 71.4,
+    "rdd": 100.0,
+    "rendite": 80.0,
+    "vola": 82.4
+   }
+  }
+ },
+ "qualitaet": {
+  "fcf_negativ": {
+   "b_ant": 0.0,
+   "bew": "teuer",
+   "flags": [
+    [
+     "Free Cashflow überwiegend negativ",
+     10
+    ],
+    [
+     "ROIC deutlich gesunken (-9 Prozentpunkte)",
+     4
+    ],
+    [
+     "Operative Marge strukturell fallend (-14 Prozentpunkte)",
+     4
+    ],
+    [
+     "FCF je Aktie von positiv auf negativ gedreht",
+     5
+    ]
+   ],
+   "gesamt": 0,
+   "klasse": "nicht",
+   "mgmt": "solide",
+   "moat": "gering",
+   "mos": null,
+   "pt": [
+    0,
+    0,
+    4,
+    5,
+    6,
+    2,
+    0,
+    0
+   ],
+   "q_ant": 4.0,
+   "risiko": "niedrig"
+  },
+  "ohne_eps": {
+   "b_ant": 65.0,
+   "bew": "fair",
+   "flags": [
+    [
+     "Operative Marge strukturell fallend (-6 Prozentpunkte)",
+     4
+    ]
+   ],
+   "gesamt": 56,
+   "klasse": "nicht",
+   "mgmt": "gut",
+   "moat": "mittel",
+   "mos": 22.6,
+   "pt": [
+    8,
+    9,
+    11,
+    5,
+    8,
+    6,
+    9,
+    4
+   ],
+   "q_ant": 56.0,
+   "risiko": "niedrig"
+  },
+  "stagnation": {
+   "b_ant": 25.0,
+   "bew": "ambitioniert",
+   "flags": [],
+   "gesamt": 43,
+   "klasse": "nicht",
+   "mgmt": "gut",
+   "moat": "mittel",
+   "mos": -71.3,
+   "pt": [
+    10,
+    1,
+    8,
+    5,
+    8,
+    6,
+    5,
+    0
+   ],
+   "q_ant": 48.0,
+   "risiko": "mittel"
+  },
+  "verwaesserung": {
+   "b_ant": 65.0,
+   "bew": "fair",
+   "flags": [
+    [
+     "Hohe Verwässerung: Aktienanzahl +8.4 % p.a.",
+     8
+    ],
+    [
+     "Operative Marge strukturell fallend (-6 Prozentpunkte)",
+     4
+    ]
+   ],
+   "gesamt": 40,
+   "klasse": "nicht",
+   "mgmt": "schwach",
+   "moat": "mittel",
+   "mos": 22.6,
+   "pt": [
+    8,
+    7,
+    9,
+    5,
+    4,
+    6,
+    9,
+    4
+   ],
+   "q_ant": 40.0,
+   "risiko": "niedrig"
+  },
+  "wachstum_stark": {
+   "b_ant": 85.0,
+   "bew": "günstig",
+   "flags": [],
+   "gesamt": 79,
+   "klasse": "prio",
+   "mgmt": "gut",
+   "moat": "mittel",
+   "mos": 72.5,
+   "pt": [
+    14,
+    15,
+    12,
+    5,
+    9,
+    7,
+    12,
+    5
+   ],
+   "q_ant": 78.0,
+   "risiko": "niedrig"
+  }
+ },
+ "scoring": {
+  "A0": {
+   "fazit": "unterbewertet",
+   "gesamt": 57.65625,
+   "kategorien": {
+    "bewertung": 68.75,
+    "dividende": 64.583333,
+    "momentum": 80.208333,
+    "qualitaet": 52.083333,
+    "stabilitaet": 43.75,
+    "wachstum": 33.333333
+   }
+  },
+  "A1": {
+   "fazit": "unterbewertet",
+   "gesamt": 50.381944,
+   "kategorien": {
+    "bewertung": 63.194444,
+    "dividende": 22.916667,
+    "momentum": 37.5,
+    "qualitaet": 52.083333,
+    "stabilitaet": 31.25,
+    "wachstum": 77.083333
+   }
+  },
+  "A10": {
+   "fazit": "fair bewertet",
+   "gesamt": 56.440972,
+   "kategorien": {
+    "bewertung": 45.138889,
+    "dividende": 27.083333,
+    "momentum": 78.125,
+    "qualitaet": 52.083333,
+    "stabilitaet": 68.75,
+    "wachstum": 66.666667
+   }
+  },
+  "A11": {
+   "fazit": "fair bewertet",
+   "gesamt": 47.03125,
+   "kategorien": {
+    "bewertung": 43.75,
+    "dividende": 47.916667,
+    "momentum": 40.625,
+    "qualitaet": 60.416667,
+    "stabilitaet": 77.083333,
+    "wachstum": 10.416667
+   }
+  },
+  "A12": {
+   "fazit": "fair bewertet",
+   "gesamt": 55.15625,
+   "kategorien": {
+    "bewertung": 60.416667,
+    "dividende": 18.75,
+    "momentum": 30.208333,
+    "qualitaet": 91.666667,
+    "stabilitaet": 35.416667,
+    "wachstum": 66.666667
+   }
+  },
+  "A13": {
+   "fazit": "teuer",
+   "gesamt": 29.392361,
+   "kategorien": {
+    "bewertung": 13.194444,
+    "dividende": 6.25,
+    "momentum": 36.458333,
+    "qualitaet": 56.25,
+    "stabilitaet": 2.083333,
+    "wachstum": 56.25
+   }
+  },
+  "A14": {
+   "fazit": "fair bewertet",
+   "gesamt": 50.694444,
+   "kategorien": {
+    "bewertung": 46.527778,
+    "dividende": 39.583333,
+    "momentum": 50.0,
+    "qualitaet": 70.833333,
+    "stabilitaet": 14.583333,
+    "wachstum": 75.0
+   }
+  },
+  "A15": {
+   "fazit": "fair bewertet",
+   "gesamt": 45.885417,
+   "kategorien": {
+    "bewertung": 56.25,
+    "dividende": 77.083333,
+    "momentum": 30.208333,
+    "qualitaet": 29.166667,
+    "stabilitaet": 10.416667,
+    "wachstum": 81.25
+   }
+  },
+  "A16": {
+   "fazit": "teuer",
+   "gesamt": 50.104167,
+   "kategorien": {
+    "bewertung": 35.416667,
+    "dividende": 72.916667,
+    "momentum": 35.416667,
+    "qualitaet": 41.666667,
+    "stabilitaet": 85.416667,
+    "wachstum": 50.0
+   }
+  },
+  "A17": {
+   "fazit": "unterbewertet",
+   "gesamt": 52.708333,
+   "kategorien": {
+    "bewertung": 68.75,
+    "dividende": 43.75,
+    "momentum": 72.916667,
+    "qualitaet": 47.916667,
+    "stabilitaet": 22.916667,
+    "wachstum": 47.916667
+   }
+  },
+  "A18": {
+   "fazit": "unterbewertet",
+   "gesamt": 57.048611,
+   "kategorien": {
+    "bewertung": 71.527778,
+    "dividende": 14.583333,
+    "momentum": 31.25,
+    "qualitaet": 85.416667,
+    "stabilitaet": 64.583333,
+    "wachstum": 41.666667
+   }
+  },
+  "A19": {
+   "fazit": "teuer",
+   "gesamt": 38.506944,
+   "kategorien": {
+    "bewertung": 25.694444,
+    "dividende": 60.416667,
+    "momentum": 43.75,
+    "qualitaet": 33.333333,
+    "stabilitaet": 56.25,
+    "wachstum": 29.166667
+   }
+  },
+  "A2": {
+   "fazit": "fair bewertet",
+   "gesamt": 51.805556,
+   "kategorien": {
+    "bewertung": 57.638889,
+    "dividende": 52.083333,
+    "momentum": 64.583333,
+    "qualitaet": 43.75,
+    "stabilitaet": 27.083333,
+    "wachstum": 64.583333
+   }
+  },
+  "A20": {
+   "fazit": "teuer",
+   "gesamt": 41.875,
+   "kategorien": {
+    "bewertung": 27.083333,
+    "dividende": 35.416667,
+    "momentum": 85.416667,
+    "qualitaet": 37.5,
+    "stabilitaet": 39.583333,
+    "wachstum": 35.416667
+   }
+  },
+  "A21": {
+   "fazit": "unterbewertet",
+   "gesamt": 49.184028,
+   "kategorien": {
+    "bewertung": 75.694444,
+    "dividende": 68.75,
+    "momentum": 36.458333,
+    "qualitaet": 27.083333,
+    "stabilitaet": 52.083333,
+    "wachstum": 31.25
+   }
+  },
+  "A22": {
+   "fazit": "fair bewertet",
+   "gesamt": 46.701389,
+   "kategorien": {
+    "bewertung": 57.638889,
+    "dividende": 31.25,
+    "momentum": 31.25,
+    "qualitaet": 8.333333,
+    "stabilitaet": 89.583333,
+    "wachstum": 62.5
+   }
+  },
+  "A23": {
+   "fazit": "fair bewertet",
+   "gesamt": 43.177083,
+   "kategorien": {
+    "bewertung": 43.75,
+    "dividende": 10.416667,
+    "momentum": 30.208333,
+    "qualitaet": 83.333333,
+    "stabilitaet": 18.75,
+    "wachstum": 47.916667
+   }
+  },
+  "A3": {
+   "fazit": "teuer",
+   "gesamt": 49.652778,
+   "kategorien": {
+    "bewertung": 29.861111,
+    "dividende": 81.25,
+    "momentum": 31.25,
+    "qualitaet": 56.25,
+    "stabilitaet": 93.75,
+    "wachstum": 27.083333
+   }
+  },
+  "A4": {
+   "fazit": "teuer",
+   "gesamt": 41.649306,
+   "kategorien": {
+    "bewertung": 11.805556,
+    "dividende": 2.083333,
+    "momentum": 53.125,
+    "qualitaet": 54.166667,
+    "stabilitaet": 60.416667,
+    "wachstum": 70.833333
+   }
+  },
+  "A5": {
+   "fazit": "unterbewertet",
+   "gesamt": 63.645833,
+   "kategorien": {
+    "bewertung": 89.583333,
+    "dividende": 89.583333,
+    "momentum": 31.25,
+    "qualitaet": 52.083333,
+    "stabilitaet": 97.916667,
+    "wachstum": 16.666667
+   }
+  },
+  "A6": {
+   "fazit": "fair bewertet",
+   "gesamt": 55.15625,
+   "kategorien": {
+    "bewertung": 47.916667,
+    "dividende": 97.916667,
+    "momentum": 67.708333,
+    "qualitaet": 39.583333,
+    "stabilitaet": 72.916667,
+    "wachstum": 29.166667
+   }
+  },
+  "A7": {
+   "fazit": "unterbewertet",
+   "gesamt": 63.454861,
+   "kategorien": {
+    "bewertung": 75.694444,
+    "dividende": 85.416667,
+    "momentum": 51.041667,
+    "qualitaet": 35.416667,
+    "stabilitaet": 81.25,
+    "wachstum": 60.416667
+   }
+  },
+  "A8": {
+   "fazit": "fair bewertet",
+   "gesamt": 59.357639,
+   "kategorien": {
+    "bewertung": 57.638889,
+    "dividende": 56.25,
+    "momentum": 86.458333,
+    "qualitaet": 45.833333,
+    "stabilitaet": 47.916667,
+    "wachstum": 66.666667
+   }
+  },
+  "A9": {
+   "fazit": "teuer",
+   "gesamt": 43.333333,
+   "kategorien": {
+    "bewertung": 27.083333,
+    "dividende": 93.75,
+    "momentum": 64.583333,
+    "qualitaet": 43.75,
+    "stabilitaet": 6.25,
+    "wachstum": 52.083333
+   }
+  },
+  "E0": {
+   "fazit": null,
+   "gesamt": 48.415638,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 20.833333,
+    "rendite": 72.685185,
+    "risiko": 32.5
+   }
+  },
+  "E1": {
+   "fazit": null,
+   "gesamt": 44.783951,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 62.5,
+    "rendite": 43.055556,
+    "risiko": 39.166667
+   }
+  },
+  "E10": {
+   "fazit": null,
+   "gesamt": 42.839506,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 45.833333,
+    "rendite": 34.722222,
+    "risiko": 50.833333
+   }
+  },
+  "E11": {
+   "fazit": null,
+   "gesamt": 47.757202,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 95.833333,
+    "rendite": 32.87037,
+    "risiko": 44.166667
+   }
+  },
+  "E2": {
+   "fazit": null,
+   "gesamt": 57.81893,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 4.166667,
+    "rendite": 88.425926,
+    "risiko": 45.833333
+   }
+  },
+  "E3": {
+   "fazit": null,
+   "gesamt": 71.995885,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 12.5,
+    "rendite": 86.574074,
+    "risiko": 80.833333
+   }
+  },
+  "E4": {
+   "fazit": null,
+   "gesamt": 49.917695,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 37.5,
+    "rendite": 52.314815,
+    "risiko": 52.5
+   }
+  },
+  "E5": {
+   "fazit": null,
+   "gesamt": 41.779835,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 70.833333,
+    "rendite": 17.12963,
+    "risiko": 57.5
+   }
+  },
+  "E6": {
+   "fazit": null,
+   "gesamt": 47.87037,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 29.166667,
+    "rendite": 62.5,
+    "risiko": 39.166667
+   }
+  },
+  "E7": {
+   "fazit": null,
+   "gesamt": 48.631687,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 87.5,
+    "rendite": 8.796296,
+    "risiko": 77.5
+   }
+  },
+  "E8": {
+   "fazit": null,
+   "gesamt": 58.580247,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 54.166667,
+    "rendite": 59.722222,
+    "risiko": 59.166667
+   }
+  },
+  "E9": {
+   "fazit": null,
+   "gesamt": 39.609053,
+   "kategorien": {
+    "dividende": null,
+    "momentum": 79.166667,
+    "rendite": 41.203704,
+    "risiko": 20.833333
+   }
+  }
+ },
+ "wiki_idee": {
+  "aktien_top10": [
+   [
+    "S77",
+    98.1
+   ],
+   [
+    "S33",
+    94.9
+   ],
+   [
+    "S87",
+    94.9
+   ],
+   [
+    "S43",
+    93.5
+   ],
+   [
+    "S45",
+    91.6
+   ],
+   [
+    "S61",
+    91.4
+   ],
+   [
+    "S27",
+    86.7
+   ],
+   [
+    "S65",
+    85.4
+   ],
+   [
+    "S23",
+    85.1
+   ],
+   [
+    "S67",
+    84.6
+   ]
+  ],
+  "auftraege": 70,
+  "ausgeschlossen": [],
+  "etf_puffer_haelt": false,
+  "etf_top5": [
+   [
+    "E34",
+    88.6
+   ],
+   [
+    "E17",
+    86.7
+   ],
+   [
+    "E29",
+    83.5
+   ],
+   [
+    "E18",
+    80.9
+   ],
+   [
+    "E11",
+    78.0
+   ]
+  ],
+  "kasse": 69.51,
+  "positionen": {
+   "E1": [
+    5,
+    "aufgefuellt"
+   ],
+   "E10": [
+    21,
+    "aufgefuellt"
+   ],
+   "E11": [
+    15,
+    "top"
+   ],
+   "E12": [
+    16,
+    "aufgefuellt"
+   ],
+   "E13": [
+    23,
+    "aufgefuellt"
+   ],
+   "E15": [
+    67,
+    "top"
+   ],
+   "E17": [
+    10,
+    "top"
+   ],
+   "E18": [
+    33,
+    "top"
+   ],
+   "E19": [
+    11,
+    "aufgefuellt"
+   ],
+   "E20": [
+    6,
+    "aufgefuellt"
+   ],
+   "E21": [
+    10,
+    "top"
+   ],
+   "E22": [
+    5,
+    "aufgefuellt"
+   ],
+   "E23": [
+    6,
+    "top"
+   ],
+   "E24": [
+    8,
+    "aufgefuellt"
+   ],
+   "E29": [
+    6,
+    "top"
+   ],
+   "E31": [
+    18,
+    "aufgefuellt"
+   ],
+   "E34": [
+    5,
+    "top"
+   ],
+   "E4": [
+    6,
+    "aufgefuellt"
+   ],
+   "E5": [
+    14,
+    "top"
+   ],
+   "E7": [
+    29,
+    "top"
+   ],
+   "S0": [
+    5,
+    "top"
+   ],
+   "S10": [
+    5,
+    "nachgerueckt"
+   ],
+   "S13": [
+    2,
+    "top"
+   ],
+   "S14": [
+    2,
+    "top"
+   ],
+   "S15": [
+    3,
+    "nachgerueckt"
+   ],
+   "S2": [
+    4,
+    "top"
+   ],
+   "S20": [
+    13,
+    "top"
+   ],
+   "S21": [
+    4,
+    "top"
+   ],
+   "S23": [
+    3,
+    "top"
+   ],
+   "S26": [
+    2,
+    "top"
+   ],
+   "S27": [
+    2,
+    "top"
+   ],
+   "S28": [
+    2,
+    "top"
+   ],
+   "S3": [
+    7,
+    "top"
+   ],
+   "S31": [
+    4,
+    "top"
+   ],
+   "S33": [
+    2,
+    "top"
+   ],
+   "S34": [
+    1,
+    "top"
+   ],
+   "S36": [
+    2,
+    "top"
+   ],
+   "S37": [
+    2,
+    "top"
+   ],
+   "S39": [
+    19,
+    "top"
+   ],
+   "S40": [
+    7,
+    "top"
+   ],
+   "S42": [
+    4,
+    "top"
+   ],
+   "S43": [
+    5,
+    "top"
+   ],
+   "S44": [
+    3,
+    "top"
+   ],
+   "S45": [
+    2,
+    "top"
+   ],
+   "S46": [
+    2,
+    "top"
+   ],
+   "S47": [
+    3,
+    "top"
+   ],
+   "S51": [
+    15,
+    "top"
+   ],
+   "S53": [
+    22,
+    "top"
+   ],
+   "S58": [
+    15,
+    "top"
+   ],
+   "S59": [
+    3,
+    "top"
+   ],
+   "S60": [
+    59,
+    "nachgerueckt"
+   ],
+   "S61": [
+    4,
+    "top"
+   ],
+   "S62": [
+    52,
+    "top"
+   ],
+   "S64": [
+    3,
+    "top"
+   ],
+   "S65": [
+    2,
+    "top"
+   ],
+   "S67": [
+    2,
+    "top"
+   ],
+   "S69": [
+    2,
+    "top"
+   ],
+   "S73": [
+    2,
+    "nachgerueckt"
+   ],
+   "S75": [
+    15,
+    "top"
+   ],
+   "S76": [
+    8,
+    "top"
+   ],
+   "S77": [
+    2,
+    "top"
+   ],
+   "S79": [
+    2,
+    "top"
+   ],
+   "S8": [
+    32,
+    "top"
+   ],
+   "S81": [
+    1,
+    "top"
+   ],
+   "S82": [
+    5,
+    "top"
+   ],
+   "S85": [
+    51,
+    "top"
+   ],
+   "S86": [
+    2,
+    "top"
+   ],
+   "S87": [
+    2,
+    "top"
+   ],
+   "S89": [
+    63,
+    "top"
+   ],
+   "S9": [
+    4,
+    "top"
+   ]
+  },
+  "puffer_grenzfaelle": {
+   "aktie_platz_51": true,
+   "aktie_platz_60": true,
+   "aktie_platz_61": false,
+   "etf_platz_21": true,
+   "etf_platz_24": true,
+   "etf_platz_25": false
+  },
+  "zweite_liste": {
+   "auftraege": [
+    [
+     "E30",
+     "Neu",
+     7
+    ],
+    [
+     "E34",
+     "Raus",
+     5
+    ],
+    [
+     "S66",
+     "Neu",
+     3
+    ],
+    [
+     "S86",
+     "Raus",
+     2
+    ]
+   ],
+   "kasse": 150.67,
+   "positionen": {
+    "E1": [
+     5,
+     "aufgefuellt"
+    ],
+    "E10": [
+     21,
+     "aufgefuellt"
+    ],
+    "E11": [
+     15,
+     "gehalten"
+    ],
+    "E12": [
+     16,
+     "aufgefuellt"
+    ],
+    "E13": [
+     23,
+     "aufgefuellt"
+    ],
+    "E15": [
+     67,
+     "gehalten"
+    ],
+    "E17": [
+     10,
+     "gehalten"
+    ],
+    "E18": [
+     33,
+     "gehalten"
+    ],
+    "E19": [
+     11,
+     "gehalten"
+    ],
+    "E20": [
+     6,
+     "aufgefuellt"
+    ],
+    "E21": [
+     10,
+     "gehalten"
+    ],
+    "E22": [
+     5,
+     "aufgefuellt"
+    ],
+    "E23": [
+     6,
+     "gehalten"
+    ],
+    "E24": [
+     8,
+     "aufgefuellt"
+    ],
+    "E29": [
+     6,
+     "gehalten"
+    ],
+    "E30": [
+     7,
+     "aufgefuellt"
+    ],
+    "E31": [
+     18,
+     "aufgefuellt"
+    ],
+    "E4": [
+     6,
+     "aufgefuellt"
+    ],
+    "E5": [
+     14,
+     "gehalten"
+    ],
+    "E7": [
+     29,
+     "gehalten"
+    ],
+    "S0": [
+     5,
+     "gehalten"
+    ],
+    "S10": [
+     5,
+     "gehalten"
+    ],
+    "S13": [
+     2,
+     "gehalten"
+    ],
+    "S14": [
+     2,
+     "gehalten"
+    ],
+    "S15": [
+     3,
+     "puffer"
+    ],
+    "S2": [
+     4,
+     "gehalten"
+    ],
+    "S20": [
+     13,
+     "gehalten"
+    ],
+    "S21": [
+     4,
+     "gehalten"
+    ],
+    "S23": [
+     3,
+     "gehalten"
+    ],
+    "S26": [
+     2,
+     "gehalten"
+    ],
+    "S27": [
+     2,
+     "gehalten"
+    ],
+    "S28": [
+     2,
+     "puffer"
+    ],
+    "S3": [
+     7,
+     "gehalten"
+    ],
+    "S31": [
+     4,
+     "gehalten"
+    ],
+    "S33": [
+     2,
+     "gehalten"
+    ],
+    "S34": [
+     1,
+     "gehalten"
+    ],
+    "S36": [
+     2,
+     "gehalten"
+    ],
+    "S37": [
+     2,
+     "gehalten"
+    ],
+    "S39": [
+     19,
+     "gehalten"
+    ],
+    "S40": [
+     7,
+     "gehalten"
+    ],
+    "S42": [
+     4,
+     "gehalten"
+    ],
+    "S43": [
+     5,
+     "gehalten"
+    ],
+    "S44": [
+     3,
+     "gehalten"
+    ],
+    "S45": [
+     2,
+     "gehalten"
+    ],
+    "S46": [
+     2,
+     "gehalten"
+    ],
+    "S47": [
+     3,
+     "gehalten"
+    ],
+    "S51": [
+     15,
+     "gehalten"
+    ],
+    "S53": [
+     22,
+     "gehalten"
+    ],
+    "S58": [
+     15,
+     "gehalten"
+    ],
+    "S59": [
+     3,
+     "gehalten"
+    ],
+    "S60": [
+     59,
+     "gehalten"
+    ],
+    "S61": [
+     4,
+     "gehalten"
+    ],
+    "S62": [
+     52,
+     "gehalten"
+    ],
+    "S64": [
+     3,
+     "gehalten"
+    ],
+    "S65": [
+     2,
+     "gehalten"
+    ],
+    "S66": [
+     3,
+     "nachgerueckt"
+    ],
+    "S67": [
+     2,
+     "gehalten"
+    ],
+    "S69": [
+     2,
+     "gehalten"
+    ],
+    "S73": [
+     2,
+     "puffer"
+    ],
+    "S75": [
+     15,
+     "gehalten"
+    ],
+    "S76": [
+     8,
+     "gehalten"
+    ],
+    "S77": [
+     2,
+     "gehalten"
+    ],
+    "S79": [
+     2,
+     "gehalten"
+    ],
+    "S8": [
+     32,
+     "gehalten"
+    ],
+    "S81": [
+     1,
+     "gehalten"
+    ],
+    "S82": [
+     5,
+     "gehalten"
+    ],
+    "S85": [
+     51,
+     "gehalten"
+    ],
+    "S87": [
+     2,
+     "gehalten"
+    ],
+    "S89": [
+     63,
+     "puffer"
+    ],
+    "S9": [
+     4,
+     "gehalten"
+    ]
+   }
+  }
+ }
+}
