@@ -368,6 +368,24 @@ def _trend_chart(f):
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key=P + "trend")
 
 
+def _branchenmodell(f, h):
+    """Etappe 4a: branchengerechte Bewertung fuer Banken, Versicherer und REITs (nur Information)."""
+    from kennzahlen import branchenmodell as BR
+    typ = BR.typ_fein(f)
+    if typ not in BR.TYPEN:
+        return
+    abd = (_meta(h["gh_read_taeglich"], datetime.date.today().isoformat()) or {}).get("branchen_abdeckung")
+    a = BR.analyse(f, typ, BR.ausgeschlossen(abd, typ))
+    titel, score, zeilen = BR.textzeilen(BR.kompakt(a))
+    st.markdown(f"**Branchenmodell {_e(titel)}: {'–' if score is None else f'{score}/100'}**")
+    for z in zeilen:
+        st.markdown(f"- {_e(z)}")
+    st.caption("Das Standardmodell (Free Cashflow, ROIC, Bruttomarge) passt für diese Branche nicht – hier zählen "
+               "branchentypische Kennzahlen. Je Kennzahl 0–100 Punkte zwischen einer schwachen und einer starken "
+               "Grenze. Nur Information: Der Score ändert weder die Checks oben noch Ranglisten oder die "
+               "KI_Invest-Auswahl. Fehlende Daten werden nicht geschätzt.")
+
+
 def _fairer_wert(f, kx):
     """Uebersicht "Fairer Wert": alle Modelle als Balken, aktueller Kurs als Linie, Median gestrichelt."""
     import plotly.graph_objects as go
@@ -452,6 +470,11 @@ def bereich(h, e, d):
                 _karte(r, f)
     st.markdown("**Fairer Wert – alle Methoden**")
     _fairer_wert(f, kx)
+    try:
+        _branchenmodell(f, h)
+    except Exception as ex:              # reine Zusatzinformation - darf die Checks nie verhindern
+        logging.exception("Branchenmodell")
+        st.caption(f"Branchenmodell gerade nicht verfügbar ({type(ex).__name__}).")
     st.markdown("**Qualitative Analyse**")
     try:
         import qualitativ_ui
@@ -529,6 +552,7 @@ def screener(h, d, oeffnen):
         for i, x in zip(wahl, sc):
             z[opt[i]] = x
         z.update({"Kaufen": f"{w.get('kaufen', 0)}/{w.get('inv', 0)}", "Warnsignale": w.get("w", 0),
+                  "Branchen-Score": (w.get("b") or {}).get("s"),
                   "Fairer Wert vs. Kurs %": w.get("fv"), "Stand": w.get("st"), "_id": w.get("id")})
         zeilen.append(z)
     if not zeilen:
@@ -536,7 +560,7 @@ def screener(h, d, oeffnen):
         return
     df = pd.DataFrame(zeilen).sort_values("Ø Score", ascending=False).reset_index(drop=True)
     st.markdown(f"**{len(df)} Treffer**, sortiert nach Ø Score der gewählten Investoren")
-    sichtbar = df.drop(columns=["_id"])
+    sichtbar = df.drop(columns=["_id"] + (["Branchen-Score"] if df["Branchen-Score"].isna().all() else []))
     cfg = UI.tabellen_spalten(sichtbar, fortschritt=["Ø Score"] + [opt[i] for i in wahl])
     st.dataframe(sichtbar, hide_index=True, column_config=cfg, use_container_width=True, height=min(560, 38 + 35 * len(df)))
     csv = sichtbar.to_csv(sep=";", decimal=",", index=False).encode("utf-8-sig")
@@ -549,7 +573,8 @@ def screener(h, d, oeffnen):
             oeffnen(d["je_id"][ziel])
             st.rerun()
     st.caption("Vorberechnete Ergebnisse (Stand je Aktie in der Tabelle). Die Detailansicht lädt die Daten "
-               "aktuell nach. Keine Anlageberatung.")
+               "aktuell nach. Branchen-Score: eigenes Modell für Banken, Versicherer und REITs (nur Information, "
+               "ändert keinen anderen Score). Keine Anlageberatung.")
 
 
 def vergleich(h, d, suchen):

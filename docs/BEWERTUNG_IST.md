@@ -123,3 +123,41 @@ Posten Aktienvergütung, Steuern, Vorsteuerergebnis, Verbindlichkeiten aus L&L, 
 klassischen Checks unverändert bleiben (Test: `test_neue_posten_aendern_perioden_nicht`).
 
 Speicherung: Feld `x` in `state/investoren/ergebnis_NN.json`, ab dem nächsten Wochenlauf rollierend.
+
+## Etappe 4a: Branchenmodelle für Banken, Versicherer und REITs (nur Information)
+
+`kennzahlen/branchenmodell.py` bewertet Finanzwerte und Immobilien-REITs mit branchentypischen Kennzahlen. Das
+Standardmodell (Free Cashflow, ROIC, EBITDA, Bruttomarge) passt dort nicht: Banken und Versicherer fehlen deshalb im
+Qualitäts-Score (Stand 4.11.2026: rund 230 Werte), REITs werden durch hohe Abschreibungen systematisch schlecht
+bewertet (keiner unter den Top 500). Der Branchen-Score wird **nur angezeigt** – in der Einzelansicht der
+Investoren-Checks, als Spalte im Legenden-Screener und in der Begründung im KI_Invest. Er ändert keinen bestehenden
+Score, keine Rangliste und keine Auswahl (Freigabe für eine Einbeziehung: Etappe 4b, erst nach einem Vergleich).
+
+| Typ | Erkennung (Yahoo-Branche) | Kennzahlen (schwach → stark) |
+|---|---|---|
+| Bank | Banks, Mortgage Finance, Financial Conglomerates | Eigenkapitalrendite (5 → 15 %), materielle EK-Rendite (6 → 18 %), Gesamtkapitalrendite (0,5 → 1,5 %), Kosten-Ertrags-Quote (70 → 45 %), Risikovorsorge / Kredite (1,5 → 0,2 %), Eigenkapital / Bilanzsumme (4 → 10 %), Kredite / Einlagen (110 → 80 %), materieller Buchwert je Aktie p. a. (0 → 10 %), Kurs-Buchwert / fairer Kurs-Buchwert (1,5 → 0,7) |
+| Versicherer | Insurance (ohne Makler) | Eigenkapitalrendite, Schaden-Kosten-Quote (105 → 90 %, nur Schaden/Unfall, Spezial, Rück), Eigenkapital / Bilanzsumme (5 → 15 %), Ausschüttungsdeckung durch Gewinn (0,8 → 2,0), Buchwert je Aktie p. a., Kurs-Buchwert / fairer Kurs-Buchwert |
+| REIT | REIT (ohne Mortgage) | FFO-Rendite (4 → 10 %), FFO je Aktie p. a. (0 → 6 %), Dividendendeckung durch FFO (1,0 → 1,43), Nettoschulden / EBITDA (9 → 5x), Zinsdeckung (2 → 5x), Schulden / Bilanzsumme (60 → 35 %) |
+| Hypotheken-REIT | REIT—Mortgage | Eigenkapitalrendite, Eigenkapital / Bilanzsumme (8 → 25 %), Dividendendeckung durch Gewinn (0,8 → 1,2), Buchwert je Aktie p. a., Kurs-Buchwert / fairer Kurs-Buchwert |
+| Finanzdienstleister | Asset Management, Capital Markets, Credit Services, Börsen, Versicherungsmakler | Standardmodell (kein Branchenmodell) |
+
+Grundsätze:
+- Je Kennzahl 0–100 Punkte linear; Modul-Score = Mittel seiner Kennzahlen; Branchen-Score = Mittel der Module, erst ab
+  3 bewerteten Kennzahlen. Negative Werte (z. B. negativer FFO) sind echte Werte und bekommen 0 Punkte.
+- Herkunft je Kennzahl: berechnet, **Näherung** (FFO = Gewinn + Abschreibungen − Veräußerungsgewinne; Schaden-Kosten-
+  Quote mit Verwaltungskosten als Kostenteil) oder **Modellannahme** (fairer Kurs-Buchwert = (EK-Rendite − 2,5 %) /
+  (Eigenkapitalkosten − 2,5 %), Eigenkapitalkosten per CAPM wie in Etappe 3).
+- Abdeckungsregel: Eine Kennzahl zählt für einen Typ nur, wenn Yahoo sie bei mindestens 60 % der Werte dieses Typs
+  liefert (ab 20 Werten). Sonst „Datenlücke“ – der Wert bleibt gespeichert, zählt aber nicht. Die Abdeckung je
+  Kennzahl protokolliert der Investoren-Agent im Log und in `state/investoren/meta.json` (`branchen_abdeckung`).
+- Nicht verfügbar und nie geschätzt: CET1, LCR, NPL-Quote (Banken), Solvency-II-Quote, Reserveabwicklung
+  (Versicherer), NAV, AFFO, Belegungsquote (REITs).
+- Das Datenvertrauen zählt bei diesen Typen die Kennzahlen des Branchenmodells als Pflichtkennzahlen mit.
+
+Neue Yahoo-Posten (`investor_checks/daten.ZEILEN_ERWEITERT`, zählen nicht für die Mindestzahl je Periode): zinsunabhängiger
+Aufwand, Risikovorsorge, Kredite, Einlagen, materieller Buchwert, immaterielle Werte, Prämien, Versicherungsleistungen,
+Veräußerungsgewinne. Speicherung: Feld `b` in `state/investoren/ergebnis_NN.json`.
+
+**Entscheidung E1 (nur classic_v2):** Finanzdienstleister zählen in classic_v1 weiter als „Bank“ (Kriterien ausgeblendet,
+unverändert). Für das Vergleichsmodell classic_v2 prüft der Agent sie zusätzlich wie normale Firmen und speichert den
+Konsens als `s2`; classic_v2 nutzt `s2`, wenn vorhanden. Tests: `test_branchenmodelle.py`, Golden-Test unverändert grün.

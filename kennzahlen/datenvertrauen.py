@@ -13,6 +13,7 @@ Das Datenvertrauen veraendert keinen Score - es wird nur angezeigt.
 """
 import datetime
 
+from . import branchenmodell as BR
 from . import definitionen as D
 from .fehlwerte import datenluecke_anteil
 
@@ -57,6 +58,9 @@ def aktie(q, inv=None, stand=None, heute=None, sektor_typ="standard"):
     else:
         pflicht = [k for k in PFLICHT_AKTIE if D.anwendbar(k, sektor_typ)]
         voll = 100 * sum(1 for k in pflicht if q.get(k) is not None) / len(pflicht) if pflicht else None
+    voll_b = branchen_vollstaendigkeit(inv.get("b"))
+    if voll_b is not None:                          # Etappe 4a: branchentypische Pflichtkennzahlen mitzaehlen
+        voll = voll_b if voll is None or not q.get("gesamt") else (voll + voll_b) / 2
     if voll is not None and voll < 70:
         warn.append(f"nur {voll:.0f} % der Score-Punkte mit Daten bewertbar")
     n = q.get("n")
@@ -82,6 +86,14 @@ def aktie(q, inv=None, stand=None, heute=None, sektor_typ="standard"):
     teile = {"vollstaendigkeit": None if voll is None else round(voll), "historie": None if hist is None else round(hist),
              "aktualitaet": akt, "konsistenz": round(konsistenz), "schaetzanteil": schaetz}
     return {"score": _gesamt(teile), "teile": teile, "warnungen": warn}
+
+
+def branchen_vollstaendigkeit(b):
+    """Anteil vorhandener Kennzahlen des Branchenmodells (nicht anwendbare zaehlen nicht) in % oder None."""
+    if not b or b.get("t") not in BR.TYPEN:
+        return None
+    schl = [s_ for _, s__ in BR.MODULE[b["t"]].values() for s_ in s__ if s_ not in (b.get("na") or ())]
+    return 100 * sum(1 for s_ in schl if s_ in (b.get("k") or {})) / len(schl) if schl else None
 
 
 def etf(e, stand=None, heute=None):
