@@ -520,13 +520,13 @@ def screener(h, d, oeffnen):
     st.markdown(CSS, unsafe_allow_html=True)
     werte, meta = vorberechnet(h)
     if not werte:
-        st.info("Noch keine Vorberechnung vorhanden. Sie läuft wöchentlich (sonntags) als GitHub Action "
+        st.info("Noch keine Vorberechnung vorhanden. Sie läuft täglich als GitHub Action "
                 "„Investoren-Checks vorberechnen“ – dort lässt sie sich auch sofort manuell starten "
                 "(Actions → Workflow wählen → Run workflow).")
         return
     opt = _investoren_optionen()
     st.caption(f"Vorberechnet für {meta.get('abdeckung', len(werte)):,} von {meta.get('aktien', '–'):,} Aktien · "
-               f"Stand {_datum(meta.get('stand') or '')} · wöchentlich aktualisiert".replace(",", "."))
+               f"Stand {_datum(meta.get('stand') or '')} · täglich rollierend aktualisiert (je Aktie etwa wöchentlich)".replace(",", "."))
     wahl = st.multiselect("Investoren / Modelle", list(opt), default=["buffett", "graham"], format_func=opt.get,
                           key=P + "sc_inv")
     sp = st.columns(2) if not UI.ist_smartphone() else [st.container(), st.container()]

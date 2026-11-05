@@ -1,4 +1,4 @@
-"""Investoren-Checks fuer alle Aktien der Top-500-Liste vorberechnen (woechentlich, GitHub Action).
+"""Investoren-Checks fuer alle Aktien der Top-500-Liste vorberechnen (taeglich rollierend, GitHub Action).
 
 Die App liest nur die Ergebnisse (Legenden-Screener, Depot-Analyse) - schnell und ohne Yahoo-Limits beim Aufruf.
 Rollierend wie der Qualitaets-Agent: je Lauf hoechstens INVESTOREN_MAX Werte (fehlende zuerst, dann die

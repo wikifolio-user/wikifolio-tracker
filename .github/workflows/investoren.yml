@@ -1,14 +1,16 @@
-name: Investoren-Checks vorberechnen (wöchentlich)
+name: Investoren-Checks vorberechnen (täglich)
 
 # Neuer, eigenständiger Workflow (Legenden-Screener): berechnet die Investoren-Checks fuer die Aktien der
 # Top-500-Liste und schreibt nur state/investoren/... auf den State-Branch. Die Preisalarme und die
 # anderen Agenten bleiben unberuehrt.
 on:
-  # Sonntag 10:23 UTC - ausserhalb der taeglichen Agenten (00:20 / 01:40 / 04:40 UTC), damit sich die
-  # Yahoo-Abrufe nicht ueberschneiden.
+  # Taeglich 10:23 UTC - ausserhalb der taeglichen Agenten (00:20 / 01:40 / 04:40 UTC), damit sich die
+  # Yahoo-Abrufe nicht ueberschneiden. Sonntags zusaetzlich die qualitative Analyse (eigener Eintrag,
+  # damit der Schritt unten den Sonntagslauf erkennt).
   schedule:
     - cron: "23 10 * * 0"
-  # Manuell startbar: Actions -> "Investoren-Checks vorberechnen (wöchentlich)" -> Run workflow
+    - cron: "23 10 * * 1-6"
+  # Manuell startbar: Actions -> "Investoren-Checks vorberechnen (täglich)" -> Run workflow
   workflow_dispatch: {}
 
 permissions:
@@ -23,8 +25,8 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    # Rollierend: je Lauf bis zu INVESTOREN_MAX Aktien (Standard 1.500) mit eigenem Zeitbudget
-    # (INVESTOREN_ZEITBUDGET_MIN, Standard 150) - deutlich unter diesem Timeout.
+    # Rollierend: je Lauf bis zu INVESTOREN_MAX Aktien mit eigenem Zeitbudget (INVESTOREN_ZEITBUDGET_MIN) -
+    # deutlich unter diesem Timeout. Sonntags 150 Minuten, damit die qualitative Analyse danach Platz hat.
     timeout-minutes: 300
     steps:
       - name: Repo auschecken
@@ -41,12 +43,17 @@ jobs:
       - name: Investoren-Checks berechnen
         env:
           GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Alle Aktien der Rangliste Qualitaets-Score pruefen (nicht nur den Katalog): ~14.000 je Woche
+          INVESTOREN_ALLE: "1"
+          INVESTOREN_MAX: "2000"
+          INVESTOREN_ZEITBUDGET_MIN: ${{ github.event.schedule == '23 10 * * 1-6' && '200' || '150' }}
         run: python investoren_agent.py
 
       # Qualitative Analyse (10-K von SEC EDGAR, Wikidata, Textanalyse, optional KI). Ohne SEC_USER_AGENT
       # werden nur Kurzbeschreibungen ausgewertet, ohne GEMINI_API_KEY/GROQ_API_KEY entfaellt die KI.
       - name: Qualitative Analyse
-        if: ${{ !cancelled() }}            # auch dann, wenn die Checks oben scheitern
+        # nur sonntags oder manuell; auch dann, wenn die Checks oben scheitern
+        if: ${{ !cancelled() && github.event.schedule != '23 10 * * 1-6' }}
         env:
           GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
