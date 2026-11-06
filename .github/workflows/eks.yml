@@ -1,0 +1,41 @@
+name: EKS-Ideen monatlich auswerten
+
+# Neuer, eigenstaendiger Workflow (EKS-Investmentbewertung): rechnet die Ideen aller Benutzer neu und schreibt
+# nur den Abschnitt "letzter_lauf" in state/.../eks_ideen.json auf den State-Branch. Zusammenfassung zusaetzlich
+# per Discord, falls der Webhook erreichbar ist - sonst laeuft alles andere normal weiter.
+# Die Preisalarme (price-alert.yml) und die anderen Agenten bleiben unberuehrt.
+on:
+  schedule:
+    # am 1. jedes Monats 06:17 UTC - ausserhalb der taeglichen Agenten (00:20 / 01:40 / 04:40 / 10:23 UTC)
+    - cron: "17 6 1 * *"
+  # Manuell startbar: Actions -> "EKS-Ideen monatlich auswerten" -> Run workflow
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: eks-monatslauf
+  cancel-in-progress: false
+
+jobs:
+  auswerten:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests==2.34.2   # wie requirements.txt
+
+      - name: Ideen auswerten
+        env:
+          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python eks_agent.py
