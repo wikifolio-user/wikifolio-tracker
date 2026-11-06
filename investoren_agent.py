@@ -40,6 +40,14 @@ ZEITBUDGET_SEK = float(os.environ.get("INVESTOREN_ZEITBUDGET_MIN", "150")) * 60
 ALTER_TAGE = 7
 PARALLEL = 3                      # gleichzeitige Aktien (je Aktie bis zu 4 Abrufe parallel)
 SPEICHERN_NACH = 500
+# Yahoo drosselt bei zu vielen Abrufen (YFRateLimitError) - dann bekaeme jede weitere Aktie nur Teildaten.
+# Deshalb: Mindestabstand zwischen zwei Aktien, bei Drosselung Pause mit wachsender Dauer und die Aktie
+# spaeter erneut versuchen. Ein gedrosselter Abruf ueberschreibt nie einen vorhandenen Eintrag.
+ABSTAND_SEK = float(os.environ.get("INVESTOREN_ABSTAND_SEK", "1.5"))
+PAUSE_START, PAUSE_MAX = 60.0, 900.0
+WIEDERHOLUNGEN = 2                # je Aktie hoechstens so viele weitere Versuche nach einer Drosselung
+DROSSEL = "drossel"
+_schlafen = time.sleep            # in Tests ersetzbar
 _uhr = time.monotonic             # in Tests ersetzbar
 
 
@@ -76,11 +84,16 @@ def bewerte(e, ver, vgl, fx, fue_median, index_cache, heute):
     """Eine Aktie: Abruf, alle Checks, Kurzform. -> Datensatz oder None (technischer Fehler / keine Daten)."""
     sym = e["ticker"]
     roh = AB.roh_laden(sym, parallel=4)
+    if AB.gedrosselt(roh):
+        return DROSSEL                                # spaeter erneut - nie mit Teildaten speichern
     if not roh.get("info") and len(roh.get("fehler") or []) >= 4:
         return None                                   # Abruf gescheitert - alter Eintrag bleibt
-    kurse = AB.kurse_laden(sym, "5y")
+    arten = []
+    kurse = AB.kurse_laden(sym, "5y", arten)
+    if AB.gedrosselt({"fehlerarten": arten}):
+        return DROSSEL
     idx_sym, idx_name = AB.leitindex_fuer(roh)
-    if idx_sym not in index_cache:
+    if index_cache.get(idx_sym) is None:              # auch nach einem gedrosselten Indexabruf neu versuchen
         index_cache[idx_sym] = AB.kurse_laden(idx_sym, "2y")
     f = AB.fakten(roh, kurse, index_cache[idx_sym], idx_name, fx, e)
     if not f.get("jahre") and not f.get("kurse"):
@@ -123,6 +136,68 @@ def branchen_neu_bewerten(werte):
         if b and b.get("t") in BR.TYPEN:
             w["b"] = BR.neu_bewerten(b, BR.ausgeschlossen(abd, b["t"]))
     return abd
+
+
+def abarbeiten(plan, fn, bei_erfolg, start):
+    """Arbeitet plan (Symbole) mit PARALLEL Aktien gleichzeitig ab. fn(symbol) -> Datensatz / None / DROSSEL.
+    bei_erfolg(symbol, datensatz, laufende_nummer). Drosselung: Aktie hinten wieder einreihen und eine Pause
+    (60 s, dann doppelt so lang, hoechstens 15 Min.) - aber nur einmal je Drosselwelle: Ergebnisse von
+    Abrufen, die vor dem Ende der letzten Pause gestartet wurden, loesen keine weitere Pause aus.
+    -> {neu, fehler, drossel, pausen, offen}"""
+    rest = list(plan)
+    st = {"neu": 0, "fehler": 0, "drossel": 0, "pausen": 0}
+    versuche, pause, pause_ende = {}, PAUSE_START, -1.0
+    letzter_start = [-1e9]
+
+    def zeit_da(puffer=0.0):
+        return _uhr() - start + puffer < ZEITBUDGET_SEK
+
+    with ThreadPoolExecutor(max_workers=PARALLEL) as ex:
+        offen = {}
+
+        def nachlegen():
+            while rest and len(offen) < PARALLEL and zeit_da():
+                warten = ABSTAND_SEK - (_uhr() - letzter_start[0])
+                if warten > 0:
+                    _schlafen(warten)
+                s = rest.pop(0)
+                letzter_start[0] = _uhr()
+                offen[ex.submit(fn, s)] = (s, letzter_start[0])
+        nachlegen()
+        while offen:
+            fut = next(as_completed(list(offen)))
+            s, gestartet = offen.pop(fut)
+            try:
+                r = fut.result()
+            except Exception as e:                    # ein Wert darf den Lauf nie abbrechen
+                log.warning(f"{s}: {type(e).__name__}: {e}")
+                r = None
+            if r == DROSSEL:
+                st["drossel"] += 1
+                if versuche.get(s, 0) < WIEDERHOLUNGEN:
+                    versuche[s] = versuche.get(s, 0) + 1
+                    rest.append(s)
+                else:
+                    st["fehler"] += 1
+                if gestartet >= pause_ende:           # neue Drosselwelle -> Pause
+                    if not zeit_da(pause):
+                        log.warning("Yahoo drosselt und das Zeitbudget reicht für keine Pause mehr - Ende.")
+                        rest.clear()
+                    else:
+                        log.warning(f"Yahoo drosselt - Pause {pause:.0f} s")
+                        _schlafen(pause)
+                        st["pausen"] += 1
+                        pause_ende = _uhr()
+                        pause = min(pause * 2, PAUSE_MAX)
+            elif r:
+                st["neu"] += 1
+                pause = PAUSE_START                   # wieder normal - naechste Pause beginnt kurz
+                bei_erfolg(s, r, st["neu"])
+            else:
+                st["fehler"] += 1
+            nachlegen()
+    st["offen"] = len(rest)
+    return st
 
 
 def lade_teile():
@@ -205,32 +280,14 @@ def main():
     plan = faellige(aktien, werte, heute, MAX_ABRUFE)
     je_sym = {e["ticker"]: e for e in aktien}
     log.info(f"Investoren-Checks: {len(aktien)} Aktien, {len(werte)} vorhanden, {len(plan)} fällig")
-    index_cache, neu, fehler = {}, 0, 0
-    with ThreadPoolExecutor(max_workers=PARALLEL) as ex:
-        offen = {}
-        it = iter(plan)
-        for s in list(it)[:PARALLEL * 2]:
-            offen[ex.submit(bewerte, je_sym[s], ver, vgl, fx, fue, index_cache, heute)] = s
-        rest = plan[len(offen):]
-        while offen:
-            for fut in as_completed(list(offen)):
-                s = offen.pop(fut)
-                try:
-                    r = fut.result()
-                except Exception as e:                # ein Wert darf den Lauf nie abbrechen
-                    log.warning(f"{s}: {type(e).__name__}: {e}")
-                    r = None
-                if r:
-                    werte[s] = r
-                    neu += 1
-                    if neu % SPEICHERN_NACH == 0:
-                        speichern(werte, status, heute)
-                else:
-                    fehler += 1
-                if rest and _uhr() - start < ZEITBUDGET_SEK:
-                    n = rest.pop(0)
-                    offen[ex.submit(bewerte, je_sym[n], ver, vgl, fx, fue, index_cache, heute)] = n
-                break
+    index_cache = {}
+
+    def gespeichert(s, r, n):
+        werte[s] = r
+        if n % SPEICHERN_NACH == 0:
+            speichern(werte, status, heute)
+    st_ = abarbeiten(plan, lambda s: bewerte(je_sym[s], ver, vgl, fx, fue, index_cache, heute), gespeichert, start)
+    neu, fehler = st_["neu"], st_["fehler"]
     abd = branchen_neu_bewerten(werte)
     for typ, a in sorted(abd.items()):
         log.info(f"Branchenmodell {typ}: {a['n']} Werte, Abdeckung " +
@@ -239,7 +296,8 @@ def main():
     T.speichere_state(STATE_META, {"stand": heute.isoformat(), "abdeckung": len(werte), "aktien": len(aktien),
                                    "fue_median": fue_mediane(werte), "branchen_abdeckung": abd},
                       "investoren-checks meta [skip ci]")
-    log.info(f"Fertig: {neu} neu bewertet, {fehler} ohne Ergebnis, {len(werte)} von {len(aktien)} vorhanden.")
+    log.info(f"Fertig: {neu} neu bewertet, {fehler} ohne Ergebnis, {st_['drossel']} Drosselungen "
+             f"({st_['pausen']} Pausen, {st_['offen']} nicht mehr geschafft), {len(werte)} von {len(aktien)} vorhanden.")
     return 0
 
 
