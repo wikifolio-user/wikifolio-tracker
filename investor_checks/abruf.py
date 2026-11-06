@@ -22,7 +22,7 @@ def roh_laden(symbol, parallel=8, timeout=20):
               "cashflow": lambda: t.cashflow, "q_gj": lambda: t.quarterly_income_stmt,
               "dividenden": lambda: t.dividends, "insider": lambda: t.insider_transactions,
               "revisionen": lambda: t.eps_revisions, "news": lambda: t.news}
-    aus, fehler = {}, []
+    aus, fehler, arten = {}, [], []
     with ThreadPoolExecutor(max_workers=parallel) as ex:
         laeufe = {k: ex.submit(fn) for k, fn in abrufe.items()}
         for k, lauf in laeufe.items():
@@ -32,15 +32,25 @@ def roh_laden(symbol, parallel=8, timeout=20):
                 logging.warning("yfinance %s %s: %s", symbol, k, type(e).__name__)
                 aus[k] = None
                 fehler.append(k)
+                arten.append(type(e).__name__)
     aus["fehler"] = fehler
+    aus["fehlerarten"] = arten
     return aus
 
 
-def kurse_laden(symbol, periode="5y"):
+def gedrosselt(roh):
+    """True, wenn Yahoo mindestens einen Abruf wegen Ueberlastung abgelehnt hat (YFRateLimitError)."""
+    return any("RateLimit" in a for a in (roh or {}).get("fehlerarten") or [])
+
+
+def kurse_laden(symbol, periode="5y", fehlerarten=None):
+    """fehlerarten: optionale Liste, in die der Fehlertyp eingetragen wird (Drosselung erkennen)."""
     try:
         return _yf().Ticker(symbol).history(period=periode, auto_adjust=True)
     except Exception as e:
         logging.warning("yfinance Kurse %s: %s", symbol, type(e).__name__)
+        if fehlerarten is not None:
+            fehlerarten.append(type(e).__name__)
         return None
 
 
