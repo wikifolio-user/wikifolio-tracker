@@ -129,6 +129,12 @@ FUEHRUNG = {
         ("Vergleich", "Planung gegen Vollzeit bis zur Regelaltersrente vergleichen"),
         ("Tabelle & Speichern", "Jahrestabelle als CSV laden, Checkliste abhaken, Szenarien sichern"),
     ],
+    "eks": [
+        ("Bereich wählen", "Übersicht mit Rangliste, eine Idee bearbeiten, Ideen vergleichen oder Einstellungen"),
+        ("Idee bearbeiten", "EKS-Phasen, Nutzwert, Finanzen und Szenarien ausfüllen und je Reiter speichern"),
+        ("Vergleich", "2–3 Ideen nebeneinander: Kennzahlen, EKS-Radar und Cashflow"),
+        ("Einstellungen", "Gewichte, Schwellen, Diskontzins und Standard-Szenarien festlegen; Export und Import"),
+    ],
     "benutzer": [
         ("Anlegen", "Neuen Benutzer mit Passwort anlegen"),
         ("Rechte", "Benutzer aufklappen, Ansichten freigeben und „💾 Rechte speichern“ tippen"),

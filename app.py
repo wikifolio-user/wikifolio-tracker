@@ -2075,6 +2075,7 @@ ANSICHT_ANALYSE_DEPOT = "📥 Analyse-Depot"
 ANSICHT_BEWERTUNG = "⚖️ Bewertung"
 ANSICHT_ATZ = "🏖️ Altersteilzeit & Rente"
 ANSICHT_WIKI = "💹 KI_Invest_System"
+ANSICHT_EKS = "🎯 EKS-Investmentbewertung"
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -2104,6 +2105,7 @@ ANSICHTEN = [
     ANSICHT_BEWERTUNG,          # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_ATZ,
     ANSICHT_WIKI,               # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_EKS,                # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2130,6 +2132,7 @@ ANSICHT_KURZ = {
     ANSICHT_BEWERTUNG: "⚖️ Bewertung",
     ANSICHT_ATZ: "🏖️ Altersteilzeit",
     ANSICHT_WIKI: "💹 KI_Invest_System",
+    ANSICHT_EKS: "🎯 EKS-Bewertung",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2156,6 +2159,7 @@ NAV_NAMEN = {
     ANSICHT_ZINS: "🧮 Zinseszinsrechner",
     ANSICHT_ATZ: "🏖️ Altersteilzeit & Rente",
     ANSICHT_WIKI: "💹 KI_Invest_System (wikifolio)",
+    ANSICHT_EKS: "🎯 EKS-Bewertung",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -2163,6 +2167,7 @@ NAV_TITEL = {
     ANSICHT_ANALYSE: "🧠 Depot-Analyse & Optimierung",
     ANSICHT_BEWERTUNG: "⚖️ Bewertung (Top 500)",
     ANSICHT_ATZ: "🏖️ Altersteilzeit & Rentenplanung",
+    ANSICHT_EKS: "🎯 EKS-Investmentbewertung",
     "🔍 Seit 01.01.2026": "🔍 Performance seit 01.01.2026",
     "🔎 Seit 01.01.2021": "🔎 Performance seit 01.01.2021",
 }
@@ -2174,14 +2179,14 @@ NAV_ZEILEN = [
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
                            ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "💼 Portfolio-Planer",
-                           "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
+                           "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG, ANSICHT_EKS]),
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
-                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI}
+                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -2189,7 +2194,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
-              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI}
+              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -5228,6 +5233,22 @@ def render_dashboard():
                 st.error(f"⚠️ Fehler im Altersteilzeit- & Rentenrechner: {e}")
                 notify_app_error("Tab-Altersteilzeit", e)
         _render_atz()
+        lade_fertig()
+
+    # --- EKS-INVESTMENTBEWERTUNG (eks_rechner/ + eks_ui.py): Ideen fuer Nebengewerbe und Investments nach der
+    # Engpasskonzentrierten Strategie bewerten; je Benutzer gespeichert (state/eks_ideen.json)
+    if gewaehlte_ansicht == ANSICHT_EKS:
+        @st.fragment
+        def _render_eks():
+            _zugang_pruefen(ANSICHT_EKS)
+            try:
+                import eks_ui
+                eks_ui.seite({"gh_read": gh_read, "gh_aktualisiere": gh_aktualisiere,
+                              "pfad": upfad("state/eks_ideen.json"), "speichern": GH_STATE_READY})
+            except Exception as e:
+                st.error(f"⚠️ Fehler in der EKS-Investmentbewertung: {e}")
+                notify_app_error("Tab-EKS", e)
+        _render_eks()
         lade_fertig()
 
     # --- ANALYSE-DEPOT: eigenes, vom echten Depot getrenntes Depot fuer die Depot-Analyse
