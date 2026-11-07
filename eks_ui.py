@@ -29,7 +29,40 @@ CSS = """<style>
   color:#A9B1C4; }
 .st-key-eks_seite .eks-zeile b { color:#E8ECF6; font-weight:600; }
 .st-key-eks_seite .eks-grund { font-size:.85rem; color:#A9B1C4; margin-top:2px; }
+/* Eingabe-Reiter a) bis d): als deutliche Kapseln statt duenner Reiterzeile */
+.st-key-eks_seite .eks-reiter-hinweis { display:flex; gap:10px; align-items:center; margin:14px 0 6px;
+  padding:10px 12px; border-radius:14px; border:1px solid rgba(124,156,255,.35); background:rgba(124,156,255,.08);
+  font-size:.92rem; line-height:1.35; }
+.st-key-eks_seite .eks-reiter-hinweis b { font-weight:700; }
+.st-key-eks_seite [role="tablist"] { gap:8px; flex-wrap:wrap; padding:2px 0 6px; }
+.st-key-eks_seite [data-testid="stTab"] { border:1px solid rgba(124,156,255,.45); border-radius:999px;
+  padding:8px 14px; min-height:44px; background:rgba(124,156,255,.08); font-weight:600; }
+.st-key-eks_seite [data-testid="stTab"] p { font-size:.98rem; font-weight:600; }
+.st-key-eks_seite [data-testid="stTab"][aria-selected="true"] { background:linear-gradient(135deg, var(--accent, #7C9CFF),
+  var(--accent-2, #5EEAD4)); border-color:transparent; }
+.st-key-eks_seite [data-testid="stTab"][aria-selected="true"] p { color:#0B1020; }
+.st-key-eks_seite [role="tablist"] { overflow:visible !important; border-bottom:none !important; }
+.st-key-eks_seite [data-testid="stTab"]::after, .st-key-eks_seite [data-testid="stTab"]::before,
+.st-key-eks_seite [role="tablist"]::after, .st-key-eks_seite [role="tablist"]::before { display:none !important; }
+.st-key-eks_seite [data-testid="stTab"] { box-shadow:none !important; border-bottom-width:1px !important; }
+.st-key-eks_seite [data-testid="stTab"][aria-selected="true"],
+.st-key-eks_seite [data-testid="stTab"][aria-selected="true"] * { color:#0B1020 !important; }
+.st-key-eks_seite [role="tablist"] + [role="tabpanel"], .st-key-eks_seite [data-testid="stTabPanel"] {
+  border-top:none !important; }
 </style>"""
+# Eingabe-Reiter der Detailansicht: (Buchstabe, Titel, was hier einzugeben ist)
+REITER = [("a", "EKS-Phasen", "Die 7 Phasen beantworten und je Phase einen Score 1–10 vergeben"),
+          ("b", "Nutzwert", "Die Kriterien mit 1–10 bewerten"),
+          ("c", "Finanzen", "Startinvestition, Umsatz, Kosten, Stunden, Anlaufzeit und Horizont eintragen"),
+          ("d", "Szenarien", "Faktoren für den pessimistischen und optimistischen Fall anpassen")]
+
+
+def _reiter_titel(buchstabe):
+    """Abschnittstitel im Reiter - gleicher Stil wie die Schritte 1-4, nur mit Buchstabe."""
+    _, titel, was = next(r for r in REITER if r[0] == buchstabe)
+    st.markdown(f'<div class="sf-titel"><b class="sf-nr">{buchstabe}</b><div><div class="sf-name">'
+                f'{html.escape(titel)} – Eingaben</div><div class="sf-was">{html.escape(was)}</div></div></div>',
+                unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------- Formatierung
@@ -275,9 +308,10 @@ def _stammdaten(h, daten, i):
 
 
 def _tab_phasen(h, daten, i):
+    _reiter_titel("a")
     st.caption("Die sieben Phasen der EKS: Text = deine Antwort, Score = wie stark die Idee hier ist "
                "(1 schwach … 10 sehr stark).")
-    with st.form(P + "phasen_" + i["id"], border=False):
+    with st.form(P + "phasen_" + i["id"], border=True):
         neu = {}
         for nr, titel, frage in M.PHASEN:
             p = i["phasen"][nr]
@@ -292,10 +326,11 @@ def _tab_phasen(h, daten, i):
 
 
 def _tab_nutzwert(h, daten, i, r):
+    _reiter_titel("b")
     kr = daten["einstellungen"]["kriterien"]
     st.caption("Score 1–10 je Kriterium. Bei inversen Kriterien (Wettbewerb, Zeitbedarf, Risiko) heißt ein hoher "
                "Score „viel davon“ – das senkt den Nutzwert. Gewichte unter „Einstellungen“.")
-    with st.form(P + "nw_" + i["id"], border=False):
+    with st.form(P + "nw_" + i["id"], border=True):
         neu = {}
         for k in kr:
             label = f"{k['name']} ({FMT.zahl(k['gewicht'], 0)} %{', invers' if k['invers'] else ''})"
@@ -322,8 +357,9 @@ FIN_FELDER = [("start_invest", "Startinvestition €", 0.0, 100.0), ("umsatz_mon
 
 
 def _tab_finanzen(h, daten, i, r):
+    _reiter_titel("c")
     f = i["finanzen"]
-    with st.form(P + "fin_" + i["id"], border=False):
+    with st.form(P + "fin_" + i["id"], border=True):
         neu = {}
         sp = _spalten(2)
         for n, (k, label, mini, schritt) in enumerate(FIN_FELDER):
@@ -356,9 +392,10 @@ def _tab_finanzen(h, daten, i, r):
 
 
 def _tab_szenarien(h, daten, i, r):
+    _reiter_titel("d")
     st.caption("Faktoren auf Umsatz und Kosten (variable + fixe) je Szenario, z. B. 70 % Umsatz und 115 % Kosten "
                "im pessimistischen Fall.")
-    with st.form(P + "sz_" + i["id"], border=False):
+    with st.form(P + "sz_" + i["id"], border=True):
         neu = {}
         for k, titel in M.SZENARIEN.items():
             st.markdown(f"**{titel.capitalize()}**")
@@ -393,7 +430,10 @@ def _detail(h, daten):
     r = R.auswerten(i, daten["einstellungen"])
     _kopf(r)
     _stammdaten(h, daten, i)
-    t1, t2, t3, t4 = st.tabs(["EKS-Phasen", "Nutzwert", "Finanzen", "Szenarien"])
+    st.markdown('<div class="eks-reiter-hinweis"><span style="font-size:1.3rem">✏️</span><div><b>Deine Eingaben in '
+                'vier Reitern a) bis d)</b> – Reiter antippen, ausfüllen und jeweils unten speichern.</div></div>',
+                unsafe_allow_html=True)
+    t1, t2, t3, t4 = st.tabs([f"{b}) {t}" for b, t, _ in REITER])
     with t1:
         _tab_phasen(h, daten, i)
     with t2:
