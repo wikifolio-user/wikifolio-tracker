@@ -6,7 +6,7 @@ Streamlit-App (Depot, Charts, Planung & Analyse, Rechner). Zustände liegen als 
 ## 🎯 EKS-Investmentbewertung
 
 Ideen für Nebengewerbe und Investments nach der **Engpasskonzentrierten Strategie (EKS, Wolfgang Mewes)** bewerten
-und automatisch durchrechnen. Menü: *Planung & Analyse → 🎯 EKS-Bewertung*.
+und automatisch durchrechnen. Menü: *Geschäftsideen → 🎯 EKS-Bewertung*.
 
 | Datei | Inhalt |
 |---|---|
