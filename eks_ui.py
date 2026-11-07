@@ -54,7 +54,8 @@ CSS = """<style>
 REITER = [("a", "EKS-Phasen", "Die 7 Phasen beantworten und je Phase einen Score 1–10 vergeben"),
           ("b", "Nutzwert", "Die Kriterien mit 1–10 bewerten"),
           ("c", "Finanzen", "Startinvestition, Umsatz, Kosten, Stunden, Anlaufzeit und Horizont eintragen"),
-          ("d", "Szenarien", "Faktoren für den pessimistischen und optimistischen Fall anpassen")]
+          ("d", "Szenarien", "Faktoren und Wahrscheinlichkeiten für pessimistisch, realistisch, optimistisch"),
+          ("e", "Ist & Abbruch", "Echte Monatswerte eintragen, mit dem Plan vergleichen und Abbruch-Kriterien festlegen")]
 
 
 def _reiter_titel(buchstabe):
@@ -214,9 +215,11 @@ def chart_tornado(sens, key):
 # ---------------------------------------------------------------- Bereiche
 def _kennzahl_karte(r):
     zeile = (f"<b>Nutzwert</b> {FMT.zahl(r['nutzwert'], 0)} · <b>EKS</b> {FMT.zahl(r['eks'], 0)} · "
-             f"<b>NPV</b> {_eur(r['npv'])} · <b>Amortisation</b> {_monate(r['amortisation'])} · "
-             f"<b>€/h</b> {_eur_h(r['euro_h'])}")
+             f"<b>NPV</b> {_eur(r['npv'])} · <b>Kapitalbedarf</b> {_eur(r['kapitalbedarf'])} · "
+             f"<b>Amortisation</b> {_monate(r['amortisation'])} · <b>€/h</b> {_eur_h(r['euro_h'])}")
     grund = (" · ".join(r["verfehlt"]) if r["verfehlt"] else "alle Bedingungen erfüllt")
+    if r.get("abbruch"):
+        grund = f"⚠️ {len(r['abbruch'])} Abbruch-Kriterium erreicht · " + grund
     return (f'<div class="eks-karte"><div class="eks-kopf">{R.AMPEL[r["ampel"]]} {html.escape(r["name"])}'
             f'<span style="font-weight:400;color:#A9B1C4;font-size:.85rem">· {M.STATUS[r["status"]]}</span></div>'
             f'<div class="eks-zeile">{zeile}</div><div class="eks-grund">{html.escape(grund)}</div></div>')
@@ -253,15 +256,19 @@ def _uebersicht(h, daten):
                 _oeffnen(r["id"])
                 st.rerun()
         return
-    df = pd.DataFrame([{"Ampel": R.AMPEL[r["ampel"]], "Idee": r["name"], "Status": M.STATUS[r["status"]],
-                        "Nutzwert": round(r["nutzwert"] or 0), "NPV €": round(r["npv"]),
+    df = pd.DataFrame([{"Ampel": R.AMPEL[r["ampel"]] + (" ⚠️" if r.get("abbruch") else ""), "Idee": r["name"],
+                        "Status": M.STATUS[r["status"]], "Nutzwert": round(r["nutzwert"] or 0),
+                        "EKS": round(r["eks"]), "NPV €": round(r["npv"]),
+                        "Kapitalbedarf €": round(r["kapitalbedarf"]),
                         "Amortisation Mon.": r["amortisation"],
                         "€/h": None if r["euro_h"] is None else round(r["euro_h"], 2)} for r in rang])
-    cfg = UI.tabellen_spalten(df, fortschritt=["Nutzwert"])
+    cfg = UI.tabellen_spalten(df, fortschritt=["Nutzwert", "EKS"])
     cfg["Amortisation Mon."] = st.column_config.NumberColumn("Amortisation Mon.", format="%d",
                                                              help="leer = im Horizont nicht erreicht")
     st.dataframe(df, hide_index=True, use_container_width=True, column_config=cfg,
                  height=min(560, 38 + 35 * len(df)))
+    if any(r.get("abbruch") for r in rang):
+        st.caption("⚠️ = mindestens ein Abbruch-Kriterium ist erreicht (Details in der Idee, Reiter e).")
     sp = st.columns([3, 1], vertical_alignment="bottom")
     wahl = sp[0].selectbox("Idee öffnen", [r["id"] for r in rang], key=P + "auf_wahl",
                            format_func=lambda i: next(r["name"] for r in rang if r["id"] == i))
@@ -273,11 +280,17 @@ def _uebersicht(h, daten):
 def _kopf(r):
     st.markdown(f"### {R.AMPEL[r['ampel']]} {html.escape(r['name'])}")
     st.caption(("Ampel " + R.AMPEL_TEXT[r["ampel"]] + ": " + (" · ".join(r["verfehlt"]) if r["verfehlt"]
-                                                            else "Nutzwert, NPV und €/Stunde erfüllt")))
+                                                            else "Nutzwert, NPV, €/Stunde und EKS erfüllt")))
+    for t in r.get("abbruch") or []:
+        st.warning(f"Abbruch-Kriterium erreicht: {t}", icon="⚠️")
     n = 2 if UI.ist_smartphone() else 3
-    werte = [("Nutzwert", FMT.zahl(r["nutzwert"], 0) + " / 100"), ("EKS-Score", FMT.zahl(r["eks"], 0) + " / 100"),
-             ("NPV (realistisch)", _eur(r["npv"])), ("IRR p. a.", _irr(r["irr"])),
-             ("Amortisation", _monate(r["amortisation"])), ("Gewinn je Stunde", _eur_h(r["euro_h"]))]
+    werte = [("Nutzwert", FMT.zahl(r["nutzwert"], 0) + " / 100"),
+             ("EKS-Score", FMT.zahl(r["eks"], 0) + f" · Engpass {FMT.zahl(r['engpass'], 0)}"),
+             ("NPV (realistisch)", _eur(r["npv"])),
+             ("NPV Erwartungswert", "–" if r["e_npv"] is None else _eur(r["e_npv"])),
+             ("Max. Kapitalbedarf", _eur(r["kapitalbedarf"])), ("IRR p. a.", _irr(r["irr"])),
+             ("Amortisation", _monate(r["amortisation"])), ("Gewinn je Stunde", _eur_h(r["euro_h"])),
+             ("Mindest-Stundensatz", _eur(r["mindest_stundensatz"], 2))]
     for start in range(0, len(werte), n):
         sp = st.columns(n)
         for c, (t, w) in zip(sp, werte[start:start + n]):
@@ -309,13 +322,20 @@ def _stammdaten(h, daten, i):
 
 def _tab_phasen(h, daten, i):
     _reiter_titel("a")
-    st.caption("Die sieben Phasen der EKS: Text = deine Antwort, Score = wie stark die Idee hier ist "
-               "(1 schwach … 10 sehr stark).")
+    e = daten["einstellungen"]
+    st.caption("Die sieben Phasen der EKS: Text = deine Antwort, Score = wie gut belegt und wie stark die Idee hier "
+               f"ist. Für Grün braucht es einen EKS-Score ab {FMT.zahl(e['schwelle_eks'], 0)} und beim brennendsten "
+               f"Problem (Phase 4) mindestens {FMT.zahl(e['min_engpass'], 0)}.")
+    with st.expander("📏 Bewertungsraster: was bedeutet welcher Score?", expanded=False):
+        st.markdown("\n".join(f"- **{b}** – {t}" for b, t in M.RASTER))
     with st.form(P + "phasen_" + i["id"], border=True):
         neu = {}
         for nr, titel, frage in M.PHASEN:
             p = i["phasen"][nr]
-            st.markdown(f"**{nr}. {titel}**")
+            kern = " · Kern der EKS" if nr == M.ENGPASS_PHASE else ""
+            st.markdown(f"**{nr}. {titel}**{kern}")
+            with st.expander("Leitfragen", expanded=False):
+                st.markdown("\n".join(f"- {q}" for q in M.LEITFRAGEN[nr]))
             t = st.text_area(frage, p["text"], height=80, key=P + f"ph_t_{i['id']}_{nr}")
             s = st.slider(f"Score {titel}", 1, 10, int(p["score"]), key=P + f"ph_s_{i['id']}_{nr}")
             neu[nr] = {"text": t, "score": s}
@@ -329,7 +349,8 @@ def _tab_nutzwert(h, daten, i, r):
     _reiter_titel("b")
     kr = daten["einstellungen"]["kriterien"]
     st.caption("Score 1–10 je Kriterium. Bei inversen Kriterien (Wettbewerb, Zeitbedarf, Risiko) heißt ein hoher "
-               "Score „viel davon“ – das senkt den Nutzwert. Gewichte unter „Einstellungen“.")
+               "Score „viel davon“ – das senkt den Nutzwert. Stärken und das brennendste Problem stecken bereits im "
+               "EKS-Score (Reiter a) und zählen hier nicht noch einmal. Gewichte unter „Einstellungen“.")
     with st.form(P + "nw_" + i["id"], border=True):
         neu = {}
         for k in kr:
@@ -349,11 +370,22 @@ def _tab_nutzwert(h, daten, i, r):
                 f"{FMT.zahl(daten['einstellungen']['schwelle_nutzwert'], 0)})")
 
 
-FIN_FELDER = [("start_invest", "Startinvestition €", 0.0, 100.0), ("umsatz_monat", "Umsatz je Monat (voll) €", 0.0, 50.0),
+FIN_FELDER = [("start_invest", "Startinvestition €", 0.0, 100.0), ("umsatz_monat", "Umsatz je Monat (voll, netto) €", 0.0, 50.0),
               ("var_kosten_pct", "Variable Kosten % vom Umsatz", 0.0, 1.0),
-              ("fix_monat", "Fixkosten je Monat €", 0.0, 10.0), ("stunden_woche", "Stunden je Woche", 0.0, 1.0),
+              ("fix_monat", "Fixkosten je Monat €", 0.0, 10.0),
+              ("stunden_woche", "Stunden je Woche (laufend)", 0.0, 1.0),
+              ("stunden_anlauf_woche", "Stunden je Woche in der Anlaufzeit", 0.0, 1.0),
               ("anlauf_monate", "Anlaufzeit bis vollen Umsatz (Monate)", 0, 1),
-              ("horizont_jahre", "Betrachtungshorizont (Jahre)", 1, 1), ("steuersatz_pct", "Steuersatz-Annahme %", 0.0, 1.0)]
+              ("horizont_jahre", "Betrachtungshorizont (Jahre)", 1, 1),
+              ("steuersatz_pct", "Persönlicher Grenzsteuersatz %", 0.0, 1.0),
+              ("afa_jahre", "Abschreibung der Investition (Jahre, 0 = sofort)", 0, 1),
+              ("hebesatz_pct", "Gewerbesteuer-Hebesatz der Gemeinde %", 0.0, 10.0)]
+FIN_HILFE = {"steuersatz_pct": "Steuersatz auf den zusätzlichen Gewinn, inkl. Soli und ggf. Kirchensteuer – meist "
+                               "30–45 % neben einem Vollzeitjob.",
+             "afa_jahre": "Die Startinvestition mindert über so viele Jahre den steuerpflichtigen Gewinn.",
+             "hebesatz_pct": "Gewerbesteuer erst über 24.500 € Gewinn im Jahr; bis ca. 400 % wird sie mit der "
+                             "Einkommensteuer verrechnet.",
+             "stunden_anlauf_woche": "Am Anfang ist der Aufwand meist höher – zählt für den Gewinn je Stunde."}
 
 
 def _tab_finanzen(h, daten, i, r):
@@ -368,7 +400,7 @@ def _tab_finanzen(h, daten, i, r):
             neu[k] = sp[n % 2].number_input(label, min_value=int(lo) if ganz else float(lo),
                                             max_value=int(hi) if ganz else float(hi),
                                             value=int(f[k]) if ganz else float(f[k]), step=schritt,
-                                            key=P + f"fin_{i['id']}_{k}")
+                                            key=P + f"fin_{i['id']}_{k}", help=FIN_HILFE.get(k))
         if st.form_submit_button("💾 Finanzen speichern", use_container_width=True):
             _aendern(h, daten, i["id"], lambda x: x["finanzen"].update(neu), "Finanzen gespeichert")
             st.rerun()
@@ -379,10 +411,15 @@ def _tab_finanzen(h, daten, i, r):
               ("Break-even-Monat (erster Monat mit Gewinn)", _monate(r["break_even_monat"]).replace(" Mon.", ". Monat")
                if r["break_even_monat"] else "nicht erreicht"),
               ("Amortisation der Startinvestition", _monate(r["amortisation"])),
-              (f"NPV bei {FMT.pct(e['diskont_pa'], 1)} p. a.", _eur(r["npv"])), ("IRR p. a.", _irr(r["irr"])),
+              ("Maximaler Kapitalbedarf", f"{_eur(r['kapitalbedarf'])}" +
+               (f" (tiefster Stand nach Monat {r['kapitalbedarf_monat']})" if r["kapitalbedarf_monat"] else "")),
+              (f"NPV bei {FMT.pct(e['diskont_pa'], 1)} p. a.", _eur(r["npv"])),
+              ("NPV Erwartungswert (Szenarien gewichtet)", "–" if r["e_npv"] is None else _eur(r["e_npv"])),
+              ("IRR p. a.", _irr(r["irr"])),
               ("Gewinn nach Steuern je Stunde", f"{_eur_h(r['euro_h'])} (Mindestsatz "
-                                                 f"{_eur(e['mindest_stundensatz'], 2)})"),
-              ("Stunden je Monat", FMT.zahl(r["stunden_monat"], 1)),
+                                                 f"{_eur(r['mindest_stundensatz'], 2)})"),
+              ("Stunden im Horizont", FMT.zahl(r["stunden_summe"], 0)),
+              ("Steuern im Horizont (ESt + GewSt)", _eur(real["steuer"])),
               ("Summe Cashflow im Horizont", _eur(real["summe_cf"]))]
     st.markdown("\n".join(f"- {t}: **{w}**" for t, w in zeilen))
     st.markdown("**Kumulierter Cashflow je Szenario**")
@@ -394,27 +431,113 @@ def _tab_finanzen(h, daten, i, r):
 def _tab_szenarien(h, daten, i, r):
     _reiter_titel("d")
     st.caption("Faktoren auf Umsatz und Kosten (variable + fixe) je Szenario, z. B. 70 % Umsatz und 115 % Kosten "
-               "im pessimistischen Fall.")
+               "im pessimistischen Fall, dazu die Wahrscheinlichkeit des Szenarios (für den Erwartungswert).")
     with st.form(P + "sz_" + i["id"], border=True):
         neu = {}
         for k, titel in M.SZENARIEN.items():
             st.markdown(f"**{titel.capitalize()}**")
-            sp = st.columns(2)
+            sp = st.columns(3)
             u = sp[0].number_input("Umsatz %", 0.0, 1000.0, round(i["szenarien"][k]["umsatz"] * 100, 1), 5.0,
                                    key=P + f"sz_{i['id']}_{k}_u")
             ko = sp[1].number_input("Kosten %", 0.0, 1000.0, round(i["szenarien"][k]["kosten"] * 100, 1), 5.0,
                                     key=P + f"sz_{i['id']}_{k}_k")
-            neu[k] = {"umsatz": u / 100, "kosten": ko / 100}
+            w = sp[2].number_input("Wahrsch. %", 0.0, 100.0, float(i["szenarien"][k].get("gewicht", 0.0)), 5.0,
+                                   key=P + f"sz_{i['id']}_{k}_w")
+            neu[k] = {"umsatz": u / 100, "kosten": ko / 100, "gewicht": w}
         if st.form_submit_button("💾 Szenarien speichern", use_container_width=True):
             _aendern(h, daten, i["id"], lambda x: x.update(szenarien=neu), "Szenarien gespeichert")
             st.rerun()
-    df = pd.DataFrame({"Kennzahl": ["NPV €", "IRR % p. a.", "Amortisation Mon.", "€ je Stunde"]} |
-                      {titel: [round(s["npv"]), None if s["irr"] is None else round(s["irr"] * 100, 1),
-                               s["amortisation"], None if s["euro_h"] is None else round(s["euro_h"], 2)]
+    df = pd.DataFrame({"Kennzahl": ["Wahrscheinlichkeit %", "NPV €", "IRR % p. a.", "Amortisation Mon.",
+                                    "Max. Kapitalbedarf €", "€ je Stunde"]} |
+                      {titel: [s.get("gewicht"), round(s["npv"]), None if s["irr"] is None else round(s["irr"] * 100, 1),
+                               s["amortisation"], round(s["kapitalbedarf"]),
+                               None if s["euro_h"] is None else round(s["euro_h"], 2)]
                        for k, titel in M.SZENARIEN.items() for s in [r["szenarien"][k]]})
     st.dataframe(df, hide_index=True, use_container_width=True, column_config=UI.tabellen_spalten(df))
+    st.markdown(f"**NPV Erwartungswert: {'–' if r['e_npv'] is None else _eur(r['e_npv'])}** "
+                "(NPV der Szenarien gewichtet mit ihren Wahrscheinlichkeiten)")
     st.caption("Leere Amortisation = im Horizont nicht erreicht; leerer IRR = nicht definiert (kein Vorzeichenwechsel).")
     chart_kumuliert([(i["name"], r)], P + "sz_cf_" + i["id"])
+
+
+ABBRUCH_NAMEN = {"umsatz_min": "Umsatz/Monat mindestens", "gewinn_kum_min": "Kum. Gewinn mindestens",
+                 "eur_h_min": "Gewinn je Stunde mindestens", "stunden_max": "Stunden/Woche höchstens"}
+
+
+def _tab_ist(h, daten, i, r):
+    _reiter_titel("e")
+    st.caption("Sobald die Idee im Test läuft: je Monat echte Werte eintragen (netto, vor Steuern). Der Plan ist das "
+               "realistische Szenario ab dem Startmonat. Abbruch-Kriterien legst du vorher fest – der Monatslauf "
+               "meldet, wenn eines greift.")
+    try:
+        start = datetime.date.fromisoformat(i["start_monat"] + "-01")
+    except ValueError:
+        start = datetime.date.today().replace(day=1)
+    ist_df = pd.DataFrame(i["ist"] or [], columns=["monat", "umsatz", "kosten", "stunden"]).rename(
+        columns={"monat": "Monat", "umsatz": "Umsatz €", "kosten": "Kosten €", "stunden": "Stunden"})
+    ab_df = pd.DataFrame([{"Kriterium": ABBRUCH_NAMEN[k["art"]], "Wert": k["wert"], "Nach Monaten": k["nach_monaten"]}
+                          for k in i["abbruch"]], columns=["Kriterium", "Wert", "Nach Monaten"])
+    with st.form(P + "ist_" + i["id"], border=True):
+        sm = st.date_input("Startmonat des Tests (Monat 1)", start, format="DD.MM.YYYY", key=P + f"ist_s_{i['id']}",
+                           help="Der Tag spielt keine Rolle – gezählt wird ab diesem Monat.")
+        st.markdown("**Ist-Werte je Monat**")
+        ist_neu = st.data_editor(ist_df, num_rows="dynamic", hide_index=True, use_container_width=True,
+                                 key=P + f"ist_ed_{i['id']}", column_config={
+                                     "Monat": st.column_config.TextColumn(width="small", validate=r"^\d{4}-\d{2}$",
+                                                                          help="als JJJJ-MM, z. B. 2026-11"),
+                                     "Umsatz €": st.column_config.NumberColumn(min_value=0, format="%.0f"),
+                                     "Kosten €": st.column_config.NumberColumn(min_value=0, format="%.0f"),
+                                     "Stunden": st.column_config.NumberColumn(min_value=0, format="%.1f",
+                                                                              help="Stunden im ganzen Monat")})
+        st.markdown("**Abbruch-Kriterien**")
+        ab_neu = st.data_editor(ab_df, num_rows="dynamic", hide_index=True, use_container_width=True,
+                                key=P + f"ab_ed_{i['id']}", column_config={
+                                    "Kriterium": st.column_config.SelectboxColumn(options=list(ABBRUCH_NAMEN.values()),
+                                                                                  required=True, width="medium"),
+                                    "Wert": st.column_config.NumberColumn(min_value=0, format="%.0f",
+                                                                          help="€, €/h bzw. Stunden je Woche"),
+                                    "Nach Monaten": st.column_config.NumberColumn(min_value=1, max_value=120,
+                                                                                  step=1, format="%d")})
+        if st.form_submit_button("💾 Ist-Werte und Kriterien speichern", use_container_width=True):
+            rueck = {v: k for k, v in ABBRUCH_NAMEN.items()}
+            ist = [{"monat": str(z.get("Monat") or "").strip(), "umsatz": z.get("Umsatz €"),
+                    "kosten": z.get("Kosten €"), "stunden": z.get("Stunden")} for z in ist_neu.to_dict("records")]
+            ab = [{"art": rueck.get(z.get("Kriterium")), "wert": z.get("Wert"), "nach_monaten": z.get("Nach Monaten")}
+                  for z in ab_neu.to_dict("records")]
+            ungueltig = [z["monat"] for z in ist if z["monat"] and not M.monat_ok(z["monat"])]
+            if ungueltig:
+                st.error("Monat bitte als JJJJ-MM eintragen, z. B. 2026-11 (ungültig: " + ", ".join(ungueltig) + ").")
+            else:
+                def f(x):
+                    x["start_monat"] = sm.strftime("%Y-%m")
+                    x["ist"] = M._ist(ist)
+                    x["abbruch"] = M._abbruch(ab)
+                _aendern(h, daten, i["id"], f, "Ist-Werte gespeichert")
+                st.rerun()
+    vgl = r["ist_vergleich"]
+    if not vgl:
+        st.info("Noch keine Ist-Werte ab dem Startmonat erfasst.")
+        return
+    letzte = vgl[-1]
+    sp = st.columns(2)
+    sp[0].metric(f"Kum. Gewinn Ist (Monat {letzte['m']})", _eur(letzte["kum_ist"]),
+                 delta=_eur(letzte["kum_ist"] - letzte["kum_plan"]) + " ggü. Plan")
+    h_ist = sum(z["ist_stunden"] for z in vgl)
+    sp[1].metric("Gewinn je Stunde Ist (vor Steuern)", _eur_h(letzte["kum_ist"] / h_ist if h_ist > 0 else None))
+    df = pd.DataFrame([{"Monat": z["monat"], "Umsatz Plan €": round(z["plan_umsatz"]), "Umsatz Ist €": round(z["ist_umsatz"]),
+                        "Gewinn Plan €": round(z["plan_umsatz"] - z["plan_kosten"]),
+                        "Gewinn Ist €": round(z["ist_umsatz"] - z["ist_kosten"]),
+                        "Stunden Plan": round(z["plan_stunden"], 1), "Stunden Ist": round(z["ist_stunden"], 1)}
+                       for z in vgl])
+    st.dataframe(df, hide_index=True, use_container_width=True, column_config=UI.tabellen_spalten(df))
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[z["monat"] for z in vgl], y=[z["kum_plan"] for z in vgl], name="Plan",
+                             line=dict(color=UI.AKZENT, dash="dot")))
+    fig.add_trace(go.Scatter(x=[z["monat"] for z in vgl], y=[z["kum_ist"] for z in vgl], name="Ist",
+                             line=dict(color="#5EEAD4", width=2.6)))
+    fig.update_yaxes(title_text="kumulierter Gewinn vor Steuern €")
+    st.markdown("**Plan gegen Ist (kumuliert)**")
+    _chart(fig, P + "ist_chart_" + i["id"], 280)
 
 
 def _detail(h, daten):
@@ -431,9 +554,9 @@ def _detail(h, daten):
     _kopf(r)
     _stammdaten(h, daten, i)
     st.markdown('<div class="eks-reiter-hinweis"><span style="font-size:1.3rem">✏️</span><div><b>Deine Eingaben in '
-                'vier Reitern a) bis d)</b> – Reiter antippen, ausfüllen und jeweils unten speichern.</div></div>',
+                'fünf Reitern a) bis e)</b> – Reiter antippen, ausfüllen und jeweils unten speichern.</div></div>',
                 unsafe_allow_html=True)
-    t1, t2, t3, t4 = st.tabs([f"{b}) {t}" for b, t, _ in REITER])
+    t1, t2, t3, t4, t5 = st.tabs([f"{b}) {t}" for b, t, _ in REITER])
     with t1:
         _tab_phasen(h, daten, i)
     with t2:
@@ -442,6 +565,8 @@ def _detail(h, daten):
         _tab_finanzen(h, daten, i, r)
     with t4:
         _tab_szenarien(h, daten, i, r)
+    with t5:
+        _tab_ist(h, daten, i, r)
 
 
 def _vergleich(daten):
@@ -458,7 +583,10 @@ def _vergleich(daten):
     rs = [je[x] for x in wahl]
     zeilen = [("Ampel", lambda r: f"{R.AMPEL[r['ampel']]} {R.AMPEL_TEXT[r['ampel']]}"),
               ("Status", lambda r: M.STATUS[r["status"]]), ("Nutzwert", lambda r: FMT.zahl(r["nutzwert"], 0)),
-              ("EKS-Score", lambda r: FMT.zahl(r["eks"], 0)), ("NPV realistisch", lambda r: _eur(r["npv"])),
+              ("EKS-Score", lambda r: FMT.zahl(r["eks"], 0)), ("Engpass (Phase 4)", lambda r: FMT.zahl(r["engpass"], 0)),
+              ("NPV realistisch", lambda r: _eur(r["npv"])),
+              ("NPV Erwartungswert", lambda r: "–" if r["e_npv"] is None else _eur(r["e_npv"])),
+              ("Max. Kapitalbedarf", lambda r: _eur(r["kapitalbedarf"])),
               ("NPV pessimistisch", lambda r: _eur(r["szenarien"]["pess"]["npv"])),
               ("NPV optimistisch", lambda r: _eur(r["szenarien"]["opt"]["npv"])),
               ("IRR p. a.", lambda r: _irr(r["irr"])), ("Amortisation", lambda r: _monate(r["amortisation"])),
@@ -495,20 +623,32 @@ def _einstellungen(h, daten):
                                                                                        step=1, format="%.0f",
                                                                                        width="small"),
                                             "Invers": st.column_config.CheckboxColumn(width="small")})
+        st.markdown("**Ampel-Schwellen**")
         sp = _spalten(3)
         schwelle = sp[0].number_input("Nutzwert-Schwelle (0–100)", 0.0, 100.0, float(e["schwelle_nutzwert"]), 5.0)
-        mindest = sp[1].number_input("Mindest-Stundensatz €", 0.0, 100000.0, float(e["mindest_stundensatz"]), 1.0)
-        diskont = sp[2].number_input("Diskontierungszins % p. a.", -50.0, 100.0, float(e["diskont_pa"]), 0.5,
+        schwelle_eks = sp[1].number_input("EKS-Score-Schwelle (0–100)", 0.0, 100.0, float(e["schwelle_eks"]), 5.0)
+        min_engpass = sp[2].number_input("Engpass (Phase 4) mindestens (1–10)", 0.0, 10.0, float(e["min_engpass"]), 1.0)
+        sp = _spalten(2)
+        mindest = sp[0].number_input("Mindest-Stundensatz €", 0.0, 100000.0, float(e["mindest_stundensatz"]), 1.0)
+        diskont = sp[1].number_input("Diskontierungszins % p. a.", -50.0, 100.0, float(e["diskont_pa"]), 0.5,
                                      help="Opportunitätsrendite: was das Geld alternativ im Depot bringen würde "
                                           "(Standard 7 % p. a.).")
-        st.markdown("**Standard-Szenarien für neue Ideen** (Faktoren in %)")
+        st.markdown("**Mindest-Stundensatz aus dem Hauptjob** (optional)")
+        sp = _spalten(3)
+        netto = sp[0].number_input("Netto-Gehalt je Monat €", 0.0, 1e7, float(e["netto_monat_job"]), 100.0)
+        h_job = sp[1].number_input("Arbeitsstunden je Woche", 0.0, 168.0, float(e["stunden_woche_job"]), 1.0)
+        aus_job = sp[2].checkbox("Als Mindest-Stundensatz verwenden", bool(e["mindest_aus_job"]),
+                                 help="Mindestsatz = Netto-Gehalt / (Stunden × 52 / 12) statt des festen Werts.")
+        st.markdown("**Standard-Szenarien für neue Ideen** (Faktoren und Wahrscheinlichkeit in %)")
         sz = {}
         for k, titel in M.SZENARIEN.items():
-            c = st.columns(2)
+            c = st.columns(3)
             sz[k] = {"umsatz": c[0].number_input(f"{titel.capitalize()}: Umsatz %", 0.0, 1000.0,
                                                  round(e["szenarien"][k]["umsatz"] * 100, 1), 5.0) / 100,
                      "kosten": c[1].number_input(f"{titel.capitalize()}: Kosten %", 0.0, 1000.0,
-                                                 round(e["szenarien"][k]["kosten"] * 100, 1), 5.0) / 100}
+                                                 round(e["szenarien"][k]["kosten"] * 100, 1), 5.0) / 100,
+                     "gewicht": c[2].number_input(f"{titel.capitalize()}: Wahrsch. %", 0.0, 100.0,
+                                                  float(e["szenarien"][k].get("gewicht", 0.0)), 5.0)}
         if st.form_submit_button("💾 Einstellungen speichern", use_container_width=True):
             kr, ids = [], set()
             for z in neu.to_dict("records"):
@@ -525,8 +665,11 @@ def _einstellungen(h, daten):
             elif not M.gewichte_ok(kr):
                 st.error(f"Die Gewichte ergeben {FMT.zahl(M.gewichte_summe(kr), 1)} % – bitte auf 100 % anpassen.")
             else:
-                daten["einstellungen"] = {"kriterien": kr, "schwelle_nutzwert": schwelle,
-                                          "mindest_stundensatz": mindest, "diskont_pa": diskont, "szenarien": sz}
+                daten["einstellungen"] = {"kriterien": kr, "kriterien_version": M.KRITERIEN_VERSION,
+                                          "schwelle_nutzwert": schwelle, "schwelle_eks": schwelle_eks,
+                                          "min_engpass": min_engpass, "mindest_stundensatz": mindest,
+                                          "netto_monat_job": netto, "stunden_woche_job": h_job,
+                                          "mindest_aus_job": aus_job, "diskont_pa": diskont, "szenarien": sz}
                 _speichern(h, daten, "Einstellungen gespeichert")
                 st.rerun()
     st.caption(f"Aktuelle Summe der Gewichte: {FMT.zahl(M.gewichte_summe(e['kriterien']), 0)} %")
@@ -611,5 +754,6 @@ def _seite(h):
     else:
         schritte.titel(st, "eks", 4)
         _einstellungen(h, daten)
-    st.caption("Vereinfachte Annahmen: linearer Umsatz-Hochlauf, Steuer nur auf positive Monatsgewinne, kein Restwert, "
-               "monatliche Diskontierung. Orientierungshilfe, keine Steuer- oder Anlageberatung.")
+    st.caption("Vereinfachte Annahmen: Beträge netto, linearer Umsatz-Hochlauf, Steuer je Geschäftsjahr mit Abschreibung, "
+               "Verlustvortrag und Gewerbesteuer (Freibetrag 24.500 €, Anrechnung), kein Restwert, monatliche "
+               "Diskontierung. Orientierungshilfe, keine Steuer- oder Anlageberatung.")
