@@ -2179,7 +2179,8 @@ NAV_ZEILEN = [
                 "🕯️ Tages-Candlestick"]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
                            ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "💼 Portfolio-Planer",
-                           "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG, ANSICHT_EKS]),
+                           "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
+    ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
