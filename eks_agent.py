@@ -5,7 +5,7 @@ neu (eks_rechner) und schreibt je Datei nur den Abschnitt "letzter_lauf" zurueck
 Aenderungen beim naechsten Lauf) und die Zusammenfassung, die die EKS-Seite unter "Letzter Monatslauf" zeigt.
 
 Zusammenfassung: Top 3, Ampel-Aenderungen seit dem letzten Lauf, Ideen laenger als 30 Tage im Status
-"Test laeuft". Discord (Secret DISCORD_WEBHOOK_URL, dasselbe wie die Preisalarme) bekommt nur die Ideen des
+"Test laeuft" und erreichte Abbruch-Kriterien (aus den Ist-Werten). Discord (Secret DISCORD_WEBHOOK_URL, dasselbe wie die Preisalarme) bekommt nur die Ideen des
 Haupt-Kontos (state/eks_ideen.json) - die anderer Benutzer bleiben in deren eigenem Bereich. Ist der Webhook
 nicht gesetzt oder nicht erreichbar, laeuft alles andere normal weiter (Hinweis in der App).
 Die Job-Zusammenfassung von GitHub Actions enthaelt nur Zahlen, keine Ideen-Namen (sie kann oeffentlich sein).
@@ -71,8 +71,12 @@ def zusammenfassung(daten, jetzt):
     if test_alt:
         zeilen.append(f"Länger als {TEST_TAGE} Tage im Test – Zeit für eine Entscheidung:")
         zeilen += [f"• {n} ({t} Tage)" for n, t in test_alt]
+    abbruch = [(r["name"], t) for r in rang if r["status"] != "verworfen" for t in r.get("abbruch") or []]
+    if abbruch:
+        zeilen.append("⚠️ Abbruch-Kriterium erreicht:")
+        zeilen += [f"• {n}: {t}" for n, t in abbruch]
     zahlen = {"ideen": len(rang), "gruen": sum(1 for r in rang if r["ampel"] == "gruen"),
-              "aenderungen": len(aenderungen), "test_alt": len(test_alt)}
+              "aenderungen": len(aenderungen), "test_alt": len(test_alt), "abbruch": len(abbruch)}
     return zeilen, ampeln, zahlen
 
 
@@ -109,7 +113,7 @@ def main():
         log.error("GITHUB_REPOSITORY / GH_STATE_TOKEN fehlen.")
         return 1
     jetzt = datetime.datetime.now()
-    summe = {"dateien": 0, "ideen": 0, "gruen": 0, "aenderungen": 0, "test_alt": 0}
+    summe = {"dateien": 0, "ideen": 0, "gruen": 0, "aenderungen": 0, "test_alt": 0, "abbruch": 0}
     discord = "–"
     for pfad in dateien():
         try:
@@ -136,10 +140,11 @@ def main():
                                                default=None, message="eks: monatslauf [skip ci]")
         log.info(f"Datei {summe['dateien'] + 1}: {zahlen['ideen']} Ideen, gespeichert: {ok}")
         summe["dateien"] += 1
-        for k in ("ideen", "gruen", "aenderungen", "test_alt"):
+        for k in ("ideen", "gruen", "aenderungen", "test_alt", "abbruch"):
             summe[k] += zahlen[k]
     bericht = (f"EKS-Monatslauf: {summe['dateien']} Bereiche, {summe['ideen']} Ideen, {summe['gruen']} auf Grün, "
-               f"{summe['aenderungen']} Ampel-Änderungen, {summe['test_alt']} länger als {TEST_TAGE} Tage im Test. "
+               f"{summe['aenderungen']} Ampel-Änderungen, {summe['test_alt']} länger als {TEST_TAGE} Tage im Test, "
+               f"{summe['abbruch']} Abbruch-Kriterien erreicht. "
                f"Discord: {discord}.")
     log.info(bericht)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
