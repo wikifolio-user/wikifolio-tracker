@@ -25,7 +25,8 @@ from eks_rechner import rechnen as R
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger("eks")
 
-REPO = os.environ.get("GITHUB_REPOSITORY", "")
+# State-Repo: eigenes (privates) Repo ueber STATE_REPO, sonst wie bisher das Repo des Workflows
+REPO = os.environ.get("STATE_REPO") or os.environ.get("GITHUB_REPOSITORY", "")
 TOKEN = os.environ.get("GH_STATE_TOKEN", "")
 WEBHOOK = os.environ.get("DISCORD_WEBHOOK_URL", "")
 HAUPT = "state/eks_ideen.json"

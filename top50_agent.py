@@ -55,7 +55,8 @@ from top50_universum import (DIVIDENDEN_SCHLUESSEL, INDEX_FONDS, INDEX_LISTEN, I
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger("top50")
 
-GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "")
+# State-Repo: eigenes (privates) Repo ueber STATE_REPO, sonst wie bisher das Repo des Workflows
+GITHUB_REPO = os.environ.get("STATE_REPO") or os.environ.get("GITHUB_REPOSITORY", "")
 GITHUB_TOKEN = os.environ.get("GH_STATE_TOKEN", "")
 
 SUCH_URL = "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main"

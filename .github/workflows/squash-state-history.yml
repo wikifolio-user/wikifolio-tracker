@@ -30,6 +30,9 @@ jobs:
       - name: State-Branch auschecken
         uses: actions/checkout@v4
         with:
+          # State im privaten Repo vars.STATE_REPO (Token STATE_REPO_TOKEN) - ohne die Variable wie bisher hier
+          repository: ${{ vars.STATE_REPO || github.repository }}
+          token: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || github.token }}
           ref: app-state
           fetch-depth: 1
 

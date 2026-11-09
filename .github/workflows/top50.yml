@@ -47,6 +47,9 @@ jobs:
 
       - name: Ranglisten berechnen
         env:
-          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # State liegt im privaten Repo vars.STATE_REPO (Token STATE_REPO_TOKEN); ohne die Variable wie
+          # bisher im eigenen Repo mit dem Actions-Token.
+          STATE_REPO: ${{ vars.STATE_REPO }}
+          GH_STATE_TOKEN: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           NUR_WENN_ALT: ${{ github.event_name != 'workflow_dispatch' && '1' || '' }}
         run: python top50_agent.py
