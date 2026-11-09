@@ -42,7 +42,10 @@ jobs:
 
       - name: Investoren-Checks berechnen
         env:
-          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # State liegt im privaten Repo vars.STATE_REPO (Token STATE_REPO_TOKEN); ohne die Variable wie
+          # bisher im eigenen Repo mit dem Actions-Token.
+          STATE_REPO: ${{ vars.STATE_REPO }}
+          GH_STATE_TOKEN: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           # Alle Aktien der Rangliste Qualitaets-Score pruefen (nicht nur den Katalog): ~14.000 je Woche
           INVESTOREN_ALLE: "1"
           INVESTOREN_MAX: "2000"
@@ -55,7 +58,10 @@ jobs:
         # nur sonntags oder manuell; auch dann, wenn die Checks oben scheitern
         if: ${{ !cancelled() && github.event.schedule != '23 10 * * 1-6' }}
         env:
-          GH_STATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # State liegt im privaten Repo vars.STATE_REPO (Token STATE_REPO_TOKEN); ohne die Variable wie
+          # bisher im eigenen Repo mit dem Actions-Token.
+          STATE_REPO: ${{ vars.STATE_REPO }}
+          GH_STATE_TOKEN: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

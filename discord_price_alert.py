@@ -61,7 +61,8 @@ def webhook_problem(u):
 
 DISCORD_WEBHOOK_URL = webhook_bereinigen(os.environ.get("DISCORD_WEBHOOK_URL", ""))
 HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", "")  # optional, s. Setup-Hinweis
-GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "")  # von Actions automatisch gesetzt
+# State-Repo: eigenes (privates) Repo ueber STATE_REPO, sonst wie bisher das Repo des Workflows
+GITHUB_REPO = os.environ.get("STATE_REPO") or os.environ.get("GITHUB_REPOSITORY", "")
 GITHUB_TOKEN = os.environ.get("GH_STATE_TOKEN", "")  # secrets.GITHUB_TOKEN
 
 # --- MELDESCHWELLE FUER DAS ROUTINE-KURS-UPDATE ---
