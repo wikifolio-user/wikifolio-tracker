@@ -4,7 +4,9 @@ name: Syntax- und Rechen-Check (CI)
 # 1. ob alle .py-Dateien gueltiges Python sind (faengt IndentationError & Co.
 #    VOR dem Deploy auf Streamlit Cloud ab),
 # 2. ob alle Unit-Tests (test_*.py) gruen sind - Finanzformeln, Speicher,
-#    Login, Alarme, Agenten. Die Tests laufen ohne Netz und ohne Streamlit.
+#    Login, Alarme, Agenten. Die Tests laufen ohne Netz und ohne Streamlit,
+# 3. ob die App startet und jede Ansicht des Menues ohne Ausnahme rendert
+#    (test_ui_rauch.py, mit Streamlit und Testdaten, ohne Netz).
 
 on:
   push:
@@ -46,3 +48,15 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python -m unittest discover -p "test_*.py" -v
+
+      # Oberflaeche (Audit QA-01): die ganze App mit Testdaten ohne Netz starten und JEDE Ansicht des Menues
+      # einmal oeffnen - eine Ausnahme in irgendeiner Ansicht laesst den Lauf scheitern. Braucht Streamlit und
+      # Plotly, deshalb erst hier die vollstaendigen Abhaengigkeiten (die Rechen-Tests oben laufen ohne).
+      - name: Alle Abhaengigkeiten installieren (Streamlit, Plotly)
+        run: pip install -r requirements.txt
+
+      - name: Oberflaeche - jede Ansicht einmal oeffnen
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        # timeout: eine haengende Ansicht soll den Lauf nach 10 Minuten rot machen statt ihn zu blockieren
+        run: timeout 600 python -m unittest test_ui_rauch -v
