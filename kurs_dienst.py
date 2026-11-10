@@ -79,6 +79,7 @@ class KursDienst:
 
     def _nachladen(self, k):
         """Fehlenden Wert im Hintergrund abrufen; hoechstens wartezeit Sekunden warten, sonst KursFehlt."""
+        neu = False
         with self._lock:
             f = self._offen.get(k)
             if f is None:
@@ -86,7 +87,12 @@ class KursDienst:
                     self._nachlader = ThreadPoolExecutor(max_workers=4, thread_name_prefix="kursdienst-nachladen")
                 f = self._nachlader.submit(self._abrufe[k[0]], k[1])
                 self._offen[k] = f
-                f.add_done_callback(lambda fut, k=k: self._nachgeladen(k, fut))
+                neu = True
+        if neu:
+            # AUSSERHALB des Locks: ist der Abruf schon fertig (sofortige Antwort oder sofortiger Fehler), ruft
+            # add_done_callback den Rueckruf direkt in diesem Thread auf - _nachgeladen nimmt selbst das Lock,
+            # mit dem nicht-reentranten Lock haette sich der Dienst sonst dauerhaft selbst blockiert.
+            f.add_done_callback(lambda fut, k=k: self._nachgeladen(k, fut))
         try:
             return f.result(timeout=self._wartezeit)
         except _Zeitueberschreitung:

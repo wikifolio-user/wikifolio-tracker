@@ -88,5 +88,54 @@ class Dienst(unittest.TestCase):
         self.assertEqual(self.aufrufe, ["1"])                   # genau ein Lauf
 
 
+class NachladenOhneSelbstblockade(unittest.TestCase):
+    """Fehlender Wert mit wartezeit: antwortet der Abruf sofort (auch mit sofortigem Fehler), ist der Auftrag
+    schon fertig, wenn der Rueckruf angehaengt wird - frueher blockierte sich der Dienst dann dauerhaft selbst
+    (Rueckruf unter dem nicht-reentranten Lock), jede Seite mit Kursen blieb haengen."""
+
+    def _im_thread(self, fn, sek=5):
+        ergebnis = {}
+
+        def lauf():
+            try:
+                ergebnis["wert"] = fn()
+            except Exception as e:
+                ergebnis["fehler"] = e
+        t = threading.Thread(target=lauf, daemon=True)
+        t.start()
+        t.join(sek)
+        self.assertFalse(t.is_alive(), "Kursdienst blockiert (Deadlock)")
+        return ergebnis
+
+    def test_sofortige_antwort(self):
+        from concurrent.futures import Future
+
+        class SofortFertig:                      # Auftrag ist beim Zurueckgeben schon erledigt
+            def submit(self, fn, *a):
+                f = Future()
+                try:
+                    f.set_result(fn(*a))
+                except Exception as e:
+                    f.set_exception(e)
+                return f
+        d = KursDienst({"live": lambda i: 42.0}, wartezeit=2)
+        d._nachlader = SofortFertig()
+        self.assertEqual(self._im_thread(lambda: d.hole("live", "A")).get("wert"), 42.0)
+        self.assertEqual(self._im_thread(lambda: d.hole("live", "A")).get("wert"), 42.0)   # Lock wieder frei
+
+    def test_sofortiger_fehler(self):
+        from concurrent.futures import Future
+
+        class SofortFehler:
+            def submit(self, fn, *a):
+                f = Future()
+                f.set_exception(ConnectionError("kein Netz"))
+                return f
+        d = KursDienst({"live": lambda i: 1.0}, wartezeit=2)
+        d._nachlader = SofortFehler()
+        self.assertIsInstance(self._im_thread(lambda: d.hole("live", "A")).get("fehler"), ConnectionError)
+        self.assertIn("fehler", self._im_thread(lambda: d.hole("live", "B")))      # Dienst weiter benutzbar
+
+
 if __name__ == "__main__":
     unittest.main()
