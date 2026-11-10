@@ -11,34 +11,69 @@ on:
     - cron: "*/30 5-21 * * 1-5"
     # Wochenende: einmal taeglich (Tagesschluss / Wochenendhandel)
     - cron: "17 10 * * 0,6"
+  # ZUVERLAESSIGER TAKT: GitHub startet geplante Laeufe stark verzoegert (11/2026: nur 1-2 Laeufe am Tag statt
+  # alle 30 Minuten). Der externe Pinger der Preisalarme (cron-job.org, alle 5 Minuten in der Handelszeit)
+  # loest deshalb auch diesen Workflow aus; der erste Schritt laesst nur einen Lauf alle 25 Minuten durch.
+  # Die Preisalarme (price-alert.yml) bleiben unveraendert.
+  repository_dispatch:
+    types: [price-check]
   # Manuell startbar: Actions -> "Kurs-Agent (alle 30 Minuten)" -> Run workflow
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
-# Ein neuer Lauf ersetzt einen noch wartenden (aeltere Kurse braucht niemand mehr)
+# Nie einen laufenden Lauf abbrechen (alle 5 Minuten kommt ein Ping - er wuerde sonst mitten im Schreiben
+# abbrechen); ein wartender Lauf wird durch den naechsten ersetzt.
 concurrency:
   group: kurs-agent
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   kurse:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Billiger erster Schritt (ohne Checkout/Python): bei einem Ping nur weiter, wenn die Live-Kurse im
+      # State-Repo aelter als 25 Minuten sind. Geplante und manuelle Laeufe laufen immer. Ist das Alter nicht
+      # ermittelbar (API-Fehler), wird geladen statt uebersprungen.
+      - name: Takt pruefen (Ping hoechstens alle 25 Minuten)
+        id: takt
+        env:
+          GH_TOKEN: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          STATE_REPO: ${{ vars.STATE_REPO || github.repository }}
+          EREIGNIS: ${{ github.event_name }}
+        run: |
+          los=true
+          if [ "$EREIGNIS" = "repository_dispatch" ]; then
+            letzter=$(gh api "repos/$STATE_REPO/commits?path=state/kurse/live.json&sha=app-state&per_page=1" \
+                      --jq '.[0].commit.committer.date' 2>/dev/null || true)
+            if [ -n "$letzter" ] && [ "$letzter" != "null" ]; then
+              alter=$(( $(date -u +%s) - $(date -u -d "$letzter" +%s) ))
+              echo "Live-Kurse zuletzt geschrieben: $letzter (vor $alter s)"
+              if [ "$alter" -lt 1500 ]; then los=false; fi
+            else
+              echo "Alter der Live-Kurse nicht ermittelbar - Kurse werden geladen."
+            fi
+          fi
+          echo "los=$los" >> "$GITHUB_OUTPUT"
+
       - name: Repo auschecken
+        if: steps.takt.outputs.los == 'true'
         uses: actions/checkout@v4
 
       - name: Python einrichten
+        if: steps.takt.outputs.los == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Abhängigkeiten installieren
+        if: steps.takt.outputs.los == 'true'
         run: pip install requests==2.34.2 tzdata==2026.5   # wie requirements.txt
 
       - name: Kurse laden und speichern
+        if: steps.takt.outputs.los == 'true'
         env:
           # State liegt im privaten Repo vars.STATE_REPO (Token STATE_REPO_TOKEN); ohne die Variable wie
           # bisher im eigenen Repo mit dem Actions-Token.
