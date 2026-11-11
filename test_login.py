@@ -18,8 +18,9 @@ class Rerun(Exception):
 
 
 class _Ctx:
-    def __init__(self, headers=None):
+    def __init__(self, headers=None, cookies=None):
         self.headers = headers or {}
+        self.cookies = cookies or {}
 
 
 class FakeSt:
@@ -56,6 +57,9 @@ class FakeSt:
     # Eingaben
     def text_input(self, label, key=None, **k):
         return self.eingaben.get(key, self.eingaben.get(label, ""))
+
+    def checkbox(self, label, value=False, key=None, **k):
+        return self.eingaben.get(key, self.eingaben.get(label, value))
 
     def form_submit_button(self, label, **k):
         return label in self.gedrueckt
@@ -118,9 +122,13 @@ class Basis(unittest.TestCase):
         L._zaehler_leeren()
         self.p = mock.patch.object(L, "_bremse", lambda: None)
         self.p.start()
+        self.cookie_aufrufe = []                  # (wert, max_age) je gerendertem Cookie-Skript
+        self.pc = mock.patch.object(L, "_cookie_skript", lambda st, w, a: self.cookie_aufrufe.append((w, a)))
+        self.pc.start()
 
     def tearDown(self):
         self.p.stop()
+        self.pc.stop()
 
     def login_versuch(self, store, name, pw, chronik=None, headers=None, secrets=SECRETS, gh_aktualisiere=True):
         st = FakeSt(secrets, {"👤 Benutzername": name, "🔑 Passwort": pw}, {"Anmelden"}, headers)
@@ -480,3 +488,101 @@ class SpeicherAusfall(Basis):                           # Audit A-10
         self.assertTrue(any("Datenspeicher" in f for f in st.fehler))
         self.assertEqual(L.sperre_rest(L._schluessel("anna")), 0)
         self.assertFalse(any("falsch" in f for f in st.fehler))
+
+
+class AngemeldetBleiben(Basis):
+    CFG = {"admin": "chef", "admin_pw": "pbkdf2_sha256$1$00$00", "admin_pw_hash": True, "merken_schluessel": ""}
+    HAKEN = "Angemeldet bleiben (30 Tage)"
+
+    def _daten(self, h="pbkdf2_sha256$1$aa$bb", aktiv=True):
+        return {"benutzer": {"anna": {"hash": h, "aktiv": aktiv}}}
+
+    def test_token_echt_und_abgelaufen(self):
+        d = self._daten()
+        t = L.merken_token(self.CFG, d, "Anna", jetzt=1000.0)
+        self.assertEqual(L.merken_pruefen(self.CFG, d, t, jetzt=1001.0), "anna")
+        self.assertIsNone(L.merken_pruefen(self.CFG, d, t, jetzt=1000.0 + L.MERKEN_TAGE * 86400 + 1))
+
+    def test_passwortwechsel_macht_token_ungueltig(self):
+        t = L.merken_token(self.CFG, self._daten(), "anna", jetzt=1.0)
+        self.assertIsNone(L.merken_pruefen(self.CFG, self._daten("pbkdf2_sha256$1$cc$dd"), t, jetzt=2.0))
+
+    def test_admin_secret_wechsel_macht_alle_ungueltig(self):
+        d = self._daten()
+        t = L.merken_token(self.CFG, d, "anna", jetzt=1.0)
+        self.assertIsNone(L.merken_pruefen(dict(self.CFG, admin_pw="pbkdf2_sha256$1$11$22"), d, t, jetzt=2.0))
+        self.assertIsNone(L.merken_pruefen(dict(self.CFG, merken_schluessel="neu"), d, t, jetzt=2.0))
+
+    def test_faelschungen(self):
+        d = self._daten()
+        t = L.merken_token(self.CFG, d, "anna", jetzt=1.0)
+        v, nb, ab, sig = t.split(".")
+        chef = L._b64(b"chef")
+        for falsch in (f"{v}.{chef}.{ab}.{sig}", f"{v}.{nb}.{int(ab) + 9999}.{sig}", f"{v}.{nb}.{ab}.{sig[:-2]}xx",
+                       "", "x", "v1.a.b.c", "v2" + t[2:], t + "." + "a" * 600, None):
+            self.assertIsNone(L.merken_pruefen(self.CFG, d, falsch, jetzt=2.0), falsch)
+
+    def _cookie_st(self, cookies):
+        st = FakeSt(SECRETS)
+        st.context = _Ctx(cookies=cookies)
+        return st
+
+    def _gate(self, st, store):
+        try:
+            return L.gate(st, store.gh_read, store.gh_read_cached, store.gh_write,
+                          gh_aktualisiere=store.gh_aktualisiere), "return"
+        except Rerun:
+            return None, "rerun"
+        except Stop:
+            return None, "stop"
+
+    def test_login_mit_haken_setzt_cookie_und_naechster_aufruf_ohne_passwort(self):
+        store = _store_mit_anna()
+        st = FakeSt(SECRETS, {"👤 Benutzername": "anna", "🔑 Passwort": "Richtig-Passwort-1", self.HAKEN: True},
+                    {"Anmelden"})
+        self.assertEqual(self._gate(st, store)[1], "rerun")
+        st.gedrueckt = set()
+        u, erg = self._gate(st, store)                  # Neuaufbau nach der Anmeldung: Cookie-Skript
+        self.assertEqual((u["name"], erg), ("anna", "return"))
+        wert, alter = self.cookie_aufrufe[-1]
+        self.assertEqual(alter, L.MERKEN_TAGE * 86400)
+        neu = self._cookie_st({L.MERKEN_COOKIE: wert})  # neuer Tab / Neustart: frische Sitzung
+        u, erg = self._gate(neu, store)
+        self.assertEqual((u["name"], erg), ("anna", "return"))
+        self.assertTrue(L.sitzung_gueltig(neu.session_state, L.konfig(neu), store.daten, "anna"))
+
+    def test_ohne_haken_kein_cookie(self):
+        store = _store_mit_anna()
+        st, erg = self.login_versuch(store, "anna", "Richtig-Passwort-1")
+        self.assertEqual(erg, "rerun")
+        st.gedrueckt = set()
+        self.assertEqual(self._gate(st, store)[1], "return")
+        self.assertEqual(self.cookie_aufrufe, [])
+
+    def test_abmelden_loescht_cookie_und_kein_auto_login(self):
+        store = _store_mit_anna()
+        cfg = L.konfig(FakeSt(SECRETS))
+        t = L.merken_token(cfg, store.daten, "anna")
+        st = self._cookie_st({L.MERKEN_COOKIE: t})
+        self.assertEqual(self._gate(st, store)[1], "return")
+        L.abmelden(st)
+        self.assertEqual(self._gate(st, store)[1], "stop")       # Anmeldemaske, obwohl das alte Cookie noch mitkommt
+        self.assertEqual(self.cookie_aufrufe[-1], ("", 0))
+
+    def test_gesperrter_benutzer_und_falsches_cookie(self):
+        store = _store_mit_anna()
+        cfg = L.konfig(FakeSt(SECRETS))
+        t = L.merken_token(cfg, store.daten, "anna")
+        store.daten["benutzer"]["anna"]["aktiv"] = False
+        self.assertEqual(self._gate(self._cookie_st({L.MERKEN_COOKIE: t}), store)[1], "stop")
+        self.assertEqual(self.cookie_aufrufe[-1], ("", 0))
+        self.assertEqual(self._gate(self._cookie_st({L.MERKEN_COOKIE: "v1.x.1.y"}), store)[1], "stop")
+
+    def test_abgelaufene_sitzung_mit_cookie_ohne_neue_anmeldung(self):
+        store = _store_mit_anna()
+        cfg = L.konfig(FakeSt(SECRETS))
+        st = self._cookie_st({L.MERKEN_COOKIE: L.merken_token(cfg, store.daten, "anna")})
+        self.assertEqual(self._gate(st, store)[1], "return")
+        st.session_state["login_seit"] -= L.MAX_SITZUNG_SEK + 10
+        self.assertEqual(self._gate(st, store)[1], "return")
+        self.assertEqual(st.warnungen, [])
