@@ -32,7 +32,15 @@ Datensparsamkeit / Aufbewahrung (Audit DATA-06):
 - Neue Benutzernamen: nur a-z, 0-9, "-" und "_" (nutzerdaten.name_pruefen, Audit A-03) -
   jeder Name hat so garantiert einen eigenen Datenordner.
 - Sitzungen enden bei Passwortwechsel und spaetestens nach MAX_SITZUNG_SEK (Audit A-13).
+- "Angemeldet bleiben" (Haken im Anmeldeformular): ein signiertes Cookie (HMAC-SHA256) mit
+  Benutzername, Ablauf (MERKEN_TAGE) und Passwort-Fingerabdruck. Es meldet beim naechsten
+  Aufruf ohne Passwort an, solange der Benutzer aktiv ist und sein Passwort unveraendert.
+  Ungueltig wird es bei Abmelden, Passwortwechsel, Sperre/Loeschen, nach Ablauf und fuer alle,
+  wenn sich das Admin-Passwort (bzw. der optionale Secret-Schluessel merken_schluessel im
+  Abschnitt [login]) aendert. Das Cookie wird per JavaScript gesetzt und ist daher nicht
+  HttpOnly - auf fremden/geteilten Geraeten den Haken nicht setzen.
 """
+import base64
 import datetime
 import hashlib
 import hmac
@@ -288,7 +296,8 @@ def konfig(st):
     pw = s.get("admin_passwort_hash") or s.get("admin_passwort")
     if not name or not pw:
         return None
-    return {"admin": name, "admin_pw": str(pw), "admin_pw_hash": ist_hash(str(pw))}
+    return {"admin": name, "admin_pw": str(pw), "admin_pw_hash": ist_hash(str(pw)),
+            "merken_schluessel": str(s.get("merken_schluessel") or "")}
 
 
 def diagnose(st):
@@ -374,6 +383,90 @@ def sitzung_gueltig(ss, cfg, daten, name, jetzt=None):
     seit = ss.get("login_seit")
     return (kennung is not None and ss.get("login_pw") == kennung
             and isinstance(seit, (int, float)) and 0 <= jetzt - seit <= MAX_SITZUNG_SEK)
+
+
+# ---------------------------------------------------------------------------
+# Angemeldet bleiben (signiertes Cookie)
+# ---------------------------------------------------------------------------
+MERKEN_COOKIE = "fd_angemeldet"
+MERKEN_TAGE = 30
+
+
+def _merken_key(cfg):
+    """HMAC-Schluessel: eigener Secret-Wert oder aus dem Admin-Passwort-Secret abgeleitet."""
+    basis = cfg.get("merken_schluessel") or cfg["admin_pw"]
+    return hashlib.sha256(("finanz-dashboard/angemeldet-bleiben|" + basis).encode("utf-8")).digest()
+
+
+def _b64(b):
+    return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
+
+
+def _unb64(t):
+    return base64.urlsafe_b64decode(t + "=" * (-len(t) % 4))
+
+
+def _merken_sig(cfg, name_b64, ablauf, kennung):
+    nachricht = f"v1|{name_b64}|{ablauf}|{kennung}".encode("utf-8")
+    return _b64(hmac.new(_merken_key(cfg), nachricht, hashlib.sha256).digest())
+
+
+def merken_token(cfg, daten, name, jetzt=None):
+    """-> Cookie-Wert "v1.<name>.<ablauf>.<signatur>" oder None (Benutzer unbekannt)."""
+    kennung = pw_kennung(cfg, daten, name)
+    if kennung is None:
+        return None
+    ablauf = int((time.time() if jetzt is None else jetzt) + MERKEN_TAGE * 86400)
+    nb = _b64(_norm(name).encode("utf-8"))
+    return f"v1.{nb}.{ablauf}.{_merken_sig(cfg, nb, ablauf, kennung)}"
+
+
+def merken_pruefen(cfg, daten, token, jetzt=None):
+    """-> Benutzername, wenn das Token echt, nicht abgelaufen und das Passwort unveraendert ist; sonst None."""
+    try:
+        teile = str(token or "").split(".")
+        if len(teile) != 4 or teile[0] != "v1" or len(token) > 512:
+            return None
+        _, nb, ablauf_t, sig = teile
+        ablauf = int(ablauf_t)
+        if ablauf < (time.time() if jetzt is None else jetzt):
+            return None
+        name = _norm(_unb64(nb).decode("utf-8"))
+        kennung = pw_kennung(cfg, daten, name)
+        if kennung is None or not hmac.compare_digest(sig, _merken_sig(cfg, nb, ablauf, kennung)):
+            return None
+        return name
+    except Exception:
+        return None
+
+
+def _cookie_lesen(st):
+    try:
+        return st.context.cookies.get(MERKEN_COOKIE)
+    except Exception:
+        return None
+
+
+def _cookie_skript(st, wert, max_age):
+    """Setzt/loescht das Cookie im Browser (unsichtbares Komponenten-Fenster, gleiche Herkunft)."""
+    js = ("<script>(function(){var d=window.parent.document,s=window.parent.location.protocol==='https:'"
+          f"?'; Secure':'';d.cookie='{MERKEN_COOKIE}={wert}; Max-Age={int(max_age)}; Path=/; SameSite=Lax'+s;}})();"
+          "</script>")
+    try:
+        import streamlit.components.v1 as components
+        with st.container(key="merken_js"):
+            components.html(js, height=0)
+        st.markdown("<style>.st-key-merken_js { display: none !important; }</style>", unsafe_allow_html=True)
+    except Exception as e:
+        logging.warning(f"login: Cookie nicht gesetzt ({type(e).__name__})")
+
+
+def _cookie_setzen(st, token):
+    _cookie_skript(st, token, MERKEN_TAGE * 86400)
+
+
+def _cookie_loeschen(st):
+    _cookie_skript(st, "", 0)
 
 
 def _sitzung_beenden(ss):
@@ -513,14 +606,41 @@ def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=No
         return None                                       # nur falls st.stop() nicht wirft
     ss = st.session_state
     angemeldet = ss.get("login_name")
+    abgelaufen = False
     if angemeldet:
         # bei jedem Seitenaufbau pruefen: Benutzer noch aktiv, Passwort unveraendert, Sitzung
         # nicht zu alt (Audit A-13)
         daten = lade(gh_read_cached)
         u = _nutzer(cfg, daten, angemeldet)
         if u and sitzung_gueltig(ss, cfg, daten, angemeldet):
+            if ss.get("_merken_token"):
+                _cookie_setzen(st, ss["_merken_token"])   # gleicher Inhalt -> Browser fuehrt es nur einmal aus
             return u
         _sitzung_beenden(ss)
+        abgelaufen = True
+
+    # "Angemeldet bleiben": gueltiges Cookie -> ohne Formular anmelden (nicht direkt nach dem Abmelden:
+    # die Cookies dieser Verbindung stammen noch vom Seitenaufruf)
+    token = None if ss.get("_merken_aus") else _cookie_lesen(st)
+    if token:
+        daten = lade(gh_read_cached)
+        n = merken_pruefen(cfg, daten, token)
+        u = _nutzer(cfg, daten, n) if n else None
+        if u is not None and n != cfg["admin"]:
+            aktiv, erst_heute = _zuletzt_merken(n, gh_read, gh_write, gh_aktualisiere)
+            if not aktiv:
+                u = None
+            elif chronik and erst_heute:
+                _chronik_login(chronik, n)
+        if u is not None:
+            ss["login_name"] = n
+            ss["login_pw"] = pw_kennung(cfg, daten, n)
+            ss["login_seit"] = time.time()
+            return u
+        _cookie_loeschen(st)                              # abgelaufen/ungueltig -> weg damit
+    elif ss.get("_merken_aus"):
+        _cookie_loeschen(st)
+    if abgelaufen:
         st.warning("Deine Sitzung ist abgelaufen oder dein Zugang wurde geändert – bitte neu anmelden.")
 
     ip = _client_ip(st)
@@ -541,6 +661,8 @@ def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=No
                                  placeholder="Benutzername eingeben")
             pw = st.text_input("🔑 Passwort", type="password", autocomplete="current-password",
                                placeholder="Passwort eingeben")
+            merken = st.checkbox(f"Angemeldet bleiben ({MERKEN_TAGE} Tage)", value=False,
+                                 help="Nur auf eigenen Geräten. Abmelden beendet es sofort.")
             los = st.form_submit_button("Anmelden", width="stretch", type="primary")
         if los:
             n = _norm(name)
@@ -561,6 +683,11 @@ def gate(st, gh_read, gh_read_cached, gh_write, chronik=None, gh_aktualisiere=No
                 ss["login_name"] = n
                 ss["login_pw"] = pw_kennung(cfg, daten, n)
                 ss["login_seit"] = time.time()
+                ss.pop("_merken_aus", None)
+                if merken:
+                    ss["_merken_token"] = merken_token(cfg, daten, n)
+                else:
+                    ss.pop("_merken_token", None)
                 erfolg_merken(n)
                 if chronik and erst_heute:
                     _chronik_login(chronik, n)
@@ -614,6 +741,7 @@ def abmelden(st):
     for k in list(st.session_state.keys()):
         if k != "login_sperre_bis":
             st.session_state.pop(k, None)
+    st.session_state["_merken_aus"] = True               # Cookie loeschen, kein Auto-Login mehr
 
 
 def darf(nutzer, ansicht):
