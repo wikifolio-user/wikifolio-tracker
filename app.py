@@ -17,6 +17,7 @@ import streamlit as st
 import config
 import github_store
 import chronik
+import startseite
 import login
 import nutzerdaten
 import kurs_dienst as KD
@@ -2173,13 +2174,19 @@ NAV_TITEL = {
 }
 # Menue-Gruppen (Ueberschrift, Ansichten) - je Zeile zwei Buttons
 NAV_FARBEN = {}   # leer = einheitlich Neon-Weiss; je Gruppe eine Farbe moeglich, z. B. {"Depot": "#22D3EE"}
+# Sammel-Kacheln (Audit UX-02): verwandte Ansichten teilen sich EINE Menue-Kachel; in der Ansicht schaltet eine
+# Leiste unter der Kopfzeile zwischen ihnen um. Die Ansichten selbst (Schluessel, Rechte, Links) bleiben unveraendert.
+NAV_GRUPPEN = {
+    "📈 Charts": ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021", "🕯️ Tages-Candlestick"],
+    "💼 Portfolio-Werkzeuge": [ANSICHT_BUILDER, "💼 Portfolio-Planer", ANSICHT_MUSTER],
+    "🔎 Investment-Scanner": [ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2],
+}
+NAV_GRUPPE_KEY = {"📈 Charts": "charts", "💼 Portfolio-Werkzeuge": "portfolio", "🔎 Investment-Scanner": "scanner"}
 NAV_ZEILEN = [
-    ("Depot", [ANSICHT_DEPOT, ANSICHT_WIKI, ANSICHT_ANALYSE, ANSICHT_ANALYSE_DEPOT, ANSICHT_MUSTER, "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
-    ("Charts", ["📈 Vermögens- & Substanzaufbau", "🔍 Seit 01.01.2026", "🔎 Seit 01.01.2021",
-                "🕯️ Tages-Candlestick"]),
-    ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", ANSICHT_BUILDER,
-                           ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "💼 Portfolio-Planer",
-                           "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
+    ("Depot", [ANSICHT_DEPOT, ANSICHT_WIKI, "📈 Charts", ANSICHT_ANALYSE, ANSICHT_ANALYSE_DEPOT,
+               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
+    ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Werkzeuge",
+                           "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
     ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
@@ -2493,6 +2500,53 @@ def depot_kurzinfo_karte(jetzt):
         + '</div>', unsafe_allow_html=True)
 
 
+UEBERBLICK_CSS = """<style>
+/* Ueberblick-Kacheln der Startseite: ganze Kachel antippbar (unsichtbarer Knopf ueber der Karte) */
+.st-key-ueberblick [class*="st-key-ueb_"] { position: relative; }
+.ueb-karte { padding: 12px 14px; border-radius: 18px; min-height: 92px; box-sizing: border-box;
+    background: var(--karte, rgba(255,255,255,.05)); border: 1px solid var(--rand, rgba(255,255,255,.12)); }
+.ueb-label { font-size: .72rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--label, #A9B1C4); }
+.ueb-wert { font-size: .95rem; font-weight: 650; color: var(--text, #E8ECF6); margin-top: 4px; line-height: 1.3;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.ueb-sub { font-size: .76rem; color: var(--muted, #8A93A8); margin-top: 4px; }
+html body .st-key-nav_menue .st-key-ueberblick [class*="st-key-ueb_"] [data-testid="stElementContainer"]:has([data-testid="stButton"]) {
+    position: absolute !important; inset: 0 !important; z-index: 2; margin: 0 !important; }
+html body .st-key-nav_menue .st-key-ueberblick [class*="st-key-ueb_"] [data-testid="stButton"],
+html body .st-key-nav_menue .st-key-ueberblick [class*="st-key-ueb_"] [data-testid="stButton"] button {
+    width: 100% !important; height: 100% !important; min-height: 0 !important; opacity: 0 !important; }
+.st-key-ueberblick [class*="st-key-ueb_"]:has(button:hover) .ueb-karte { border-color: var(--accent, #7C9CFF); }
+.st-key-ueberblick [class*="st-key-ueb_"]:has(button:focus-visible) .ueb-karte {
+    outline: 2px solid var(--accent, #7C9CFF); outline-offset: 2px; }
+</style>"""
+
+
+def startseite_ueberblick():
+    """Ueberblick unter der Depot-Karte (Audit UX-02): letzter Alarm, letzter Chronik-Eintrag, EKS-Ampeln.
+    Liest nur gespeicherte Daten (gecacht) - keine Kursabrufe. Jede Kachel oeffnet ihren Bereich."""
+    if not GH_STATE_READY:
+        return
+    try:
+        liste = (gh_read_cached(upfad(config.STATE_PATH_TRADES_DB), []) or []) if _sichtbar(
+            "📝 Trader-Log (Trades & Kommentare)") else []
+        eks = (gh_read_cached(upfad("state/eks_ideen.json"), {}) or {}) if _sichtbar(ANSICHT_EKS) else {}
+        ziele = {"chronik": "📝 Trader-Log (Trades & Kommentare)", "eks": ANSICHT_EKS}
+        kacheln = [(k, l, w, u, ziele[z]) for k, l, w, u, z in startseite.ueberblick_daten(liste, eks)]
+    except Exception as e:
+        logging.warning(f"Ueberblick nicht geladen: {type(e).__name__}")
+        return
+    if not kacheln:
+        return
+    st.markdown(UEBERBLICK_CSS, unsafe_allow_html=True)
+    with st.container(key="ueberblick"):
+        for spalte, (key, label, wert, sub, ziel) in zip(st.columns(len(kacheln)), kacheln):
+            with spalte.container(key=f"ueb_{key}"):
+                st.markdown(f'<div class="ueb-karte"><div class="ueb-label">{html.escape(label)}</div>'
+                            f'<div class="ueb-wert">{html.escape(str(wert))}</div>'
+                            f'<div class="ueb-sub">{html.escape(str(sub))}</div></div>', unsafe_allow_html=True)
+                st.button(f"{label} öffnen", key=f"ueb_btn_{key}", on_click=_nav_waehle, args=(ziel,))
+
+
 def darstellung_modus():
     """Gewaehlte Darstellung des Benutzers: "dunkel" (Standard), "hell" oder "auto" (wie das Geraet).
     Je Benutzer gespeichert (gemerkte Eingaben, Bereich "darstellung") - gilt so auf allen Geraeten."""
@@ -2621,6 +2675,51 @@ def _kurslauf_fortschritt(stx):
     st.rerun()
 
 
+def _hat_muster():
+    try:
+        return bool((gh_read_cached(upfad(PFAD_MUSTERDEPOT), {}) or {}).get("depots"))
+    except Exception:
+        return False
+
+
+def _gruppe_von(ansicht):
+    return next((g for g, a in NAV_GRUPPEN.items() if ansicht in a), None)
+
+
+def _gruppe_sichtbar(gruppe, hat_muster):
+    """Ansichten der Sammel-Kachel, die der Benutzer sehen darf (Musterdepot nur, wenn es eines gibt)."""
+    return [a for a in NAV_GRUPPEN[gruppe] if (a != ANSICHT_MUSTER or hat_muster) and _sichtbar(a)]
+
+
+def _nav_gruppe_oeffnen(gruppe, ansichten):
+    """Sammel-Kachel: zuletzt benutzte Ansicht der Gruppe, sonst die erste."""
+    zuletzt = (st.session_state.get("_gruppe_zuletzt") or {}).get(gruppe)
+    _nav_waehle(zuletzt if zuletzt in ansichten else ansichten[0])
+
+
+def _nav_gruppe_gewaehlt(key, zuordnung):
+    neu = zuordnung.get(st.session_state.get(key))
+    if neu in ANSICHTEN and neu != st.session_state.get("ansicht_aktiv"):
+        _nav_waehle(neu)
+
+
+def _gruppen_leiste(aktiv):
+    """Umschalter unter der Kopfleiste, wenn die Ansicht zu einer Sammel-Kachel gehoert."""
+    gruppe = _gruppe_von(aktiv)
+    if not gruppe:
+        return
+    st.session_state.setdefault("_gruppe_zuletzt", {})[gruppe] = aktiv
+    ansichten = _gruppe_sichtbar(gruppe, _hat_muster() or aktiv == ANSICHT_MUSTER)
+    if len(ansichten) < 2:
+        return
+    key = f"nav_gruppe_{NAV_GRUPPE_KEY[gruppe]}"
+    zuordnung = {UI.ohne_emoji(ANSICHT_KURZ.get(a, a)): a for a in ansichten}      # Beschriftung -> Ansicht
+    st.session_state[key] = UI.ohne_emoji(ANSICHT_KURZ.get(aktiv, aktiv))
+    with st.container(key="nav_gruppe_leiste"):
+        st.segmented_control(UI.ohne_emoji(gruppe), list(zuordnung), key=key, on_change=_nav_gruppe_gewaehlt,
+                             args=(key, zuordnung), label_visibility="collapsed", width="stretch")
+
+
 def navigation():
     """Startseite: Menue als Liste (untereinander, nach Gruppen). In einer
     Ansicht: schmale Kopfleiste mit "☰ Menü", Titel und Aktualisieren - der
@@ -2673,6 +2772,7 @@ def navigation():
                       width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
             _kurslauf_fortschritt(stx)
             depot_kurzinfo_karte(jetzt)
+            startseite_ueberblick()
             if _nutzer():
                 # klein, fest oben rechts in der Ecke
                 st.markdown("""<style>
@@ -2758,12 +2858,19 @@ def navigation():
                             'Anmeldung (Login in den Secrets ausdrücklich abgeschaltet)</div>',
                             unsafe_allow_html=True)
             farb_css = []
-            try:
-                hat_muster = bool((gh_read_cached(upfad(PFAD_MUSTERDEPOT), {}) or {}).get("depots"))
-            except Exception:
-                hat_muster = False
-            for titel, ansichten in NAV_ZEILEN:
-                ansichten = [a for a in ansichten if (a != ANSICHT_MUSTER or hat_muster) and _sichtbar(a)]
+            hat_muster = _hat_muster()
+            for titel, eintraege in NAV_ZEILEN:
+                # je Eintrag: (Beschriftung, Key, Ansicht oder None, Sammel-Gruppe oder None, Gruppen-Ansichten)
+                ansichten = []
+                for e in eintraege:
+                    if e in NAV_GRUPPEN:
+                        g_an = _gruppe_sichtbar(e, hat_muster)
+                        if len(g_an) == 1:                  # nur eine erlaubt -> normale Kachel
+                            ansichten.append(g_an[0])
+                        elif g_an:
+                            ansichten.append(e)
+                    elif (e != ANSICHT_MUSTER or hat_muster) and _sichtbar(e):
+                        ansichten.append(e)
                 if not ansichten:
                     continue
                 farbe = NAV_FARBEN.get(titel, "#F4F8FF")
@@ -2774,6 +2881,11 @@ def navigation():
                 # (Handy 2, Tablet 3, Desktop 4, breite Monitore 5 nebeneinander)
                 spalten = st.columns(len(ansichten))
                 for spalte, ansicht in zip(spalten, ansichten):
+                    if ansicht in NAV_GRUPPEN:
+                        spalte.button(ansicht, key=f"nav_g_{NAV_GRUPPE_KEY[ansicht]}", width="stretch",
+                                      on_click=_nav_gruppe_oeffnen,
+                                      args=(ansicht, _gruppe_sichtbar(ansicht, hat_muster)))
+                        continue
                     idx = ANSICHTEN.index(ansicht)
                     spalte.button(NAV_NAMEN.get(ansicht, ansicht), key=f"nav_b{idx}",
                                   width="stretch", on_click=_nav_waehle, args=(ansicht,))
@@ -2803,6 +2915,7 @@ def navigation():
                     unsafe_allow_html=True)
         c3.button("⏳" if laeuft else "🔄", key="nav_refresh_klein", help=hilfe, on_click=_nav_aktualisieren,
                   disabled=laeuft)
+    _gruppen_leiste(aktiv)
     if aktiv not in OHNE_KURSE:              # Ansichten ohne Live-Kurse: dort zeigt jede Liste ihren eigenen Stand
         st.markdown(stand_html, unsafe_allow_html=True)
     _kurslauf_fortschritt(stx)
