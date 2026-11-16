@@ -24,7 +24,8 @@ except ImportError:                                   # Rechen-CI ohne Streamlit
 
 # Texte, mit denen app.py eine abgefangene Ausnahme einer Ansicht anzeigt (st.error vor notify_app_error)
 ABGEFANGEN = re.compile(r"^\W*(Fehler (in|im) |Kurs konnte nicht geladen|Position .{0,80} konnte nicht)")
-MIN_ANSICHTEN = 20            # faellt das Menue unter diese Zahl, stimmt etwas mit dem Test nicht
+MIN_ANSICHTEN = 16            # Menue-Kacheln; faellt es darunter, stimmt etwas mit dem Test nicht
+MIN_UNTERANSICHTEN = 8        # ueber die Umschalter der Sammel-Kacheln (Charts, Portfolio, Scanner) erreichbar
 ZEITLIMIT = 180
 
 
@@ -71,6 +72,7 @@ class AlleAnsichten(unittest.TestCase):
         ansichten = self._menue()
         self.assertGreaterEqual(len(ansichten), MIN_ANSICHTEN, ansichten)
         fehler = {}
+        unter = 0
         for name in ansichten:
             knopf = [b for b in self.at.button if b.label == name]
             if not knopf:
@@ -80,10 +82,25 @@ class AlleAnsichten(unittest.TestCase):
                     knopf[0].click().run()
                     if self._ausnahmen():
                         fehler[name] = self._ausnahmen()
+                    # Sammel-Kachel: jede weitere Ansicht ueber den Umschalter oeffnen
+                    leiste = [s for s in self.at.segmented_control if (s.key or "").startswith("nav_gruppe_")]
+                    for teil in (leiste[0].options if leiste else []):
+                        if teil == leiste[0].value:
+                            unter += 1
+                            continue
+                        leiste[0].set_value(teil).run()
+                        unter += 1
+                        if self._ausnahmen():
+                            fehler[f"{name} › {teil}"] = self._ausnahmen()
+                        leiste = [s for s in self.at.segmented_control if (s.key or "").startswith("nav_gruppe_")]
+                        if not leiste:
+                            fehler[f"{name} › {teil}"] = ["Umschalter nach dem Wechsel verschwunden"]
+                            break
                 except Exception as e:                    # z. B. Zeitlimit (haengende Ansicht)
                     fehler[name] = [f"{type(e).__name__}: {e}"[:300]]
             self._menue()
         self.assertEqual(fehler, {}, "Ansichten mit Ausnahme: " + ", ".join(fehler))
+        self.assertGreaterEqual(unter, MIN_UNTERANSICHTEN, "Umschalter der Sammel-Kacheln nicht gefunden")
 
 
 if __name__ == "__main__":
