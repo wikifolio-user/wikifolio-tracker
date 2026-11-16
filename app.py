@@ -3003,7 +3003,7 @@ def render_chronik():
             schritte.titel(st, "chronik", 3)
             with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
                 with st.form("trade_form", clear_on_submit=True):
-                    col1, col2 = st.columns([2, 3])
+                    col1, col2 = st.columns([1, 1])
                     with col1: ed = st.date_input("Datum", heute_date, format="DD.MM.YYYY")
                     with col2: eti = st.text_input("Titel")
                     ei = st.text_area("Details")
@@ -7949,7 +7949,7 @@ def render_dashboard():
 
                 b1, b2 = st.columns(2)
                 b1.metric("Mittleres Ergebnis (Median)", fmt(mc_perzentile[50], 0))
-                b2.metric("Wahrscheinlichkeit eines Verlusts",
+                b2.metric("Verlustrisiko",
                           f"{mc_kennzahlen['verlust_wahrscheinlichkeit']:.0f} %",
                           help="Anteil der Verläufe, die unter dem insgesamt eingesetzten Geld enden "
                                f"(heutiger Wert + Sparraten − Entnahmen = {fmt(mc_kennzahlen['eingesetzt'], 0)}).")
@@ -8523,6 +8523,41 @@ _LADE_JS = """
   var code = function () {
     var D = document;
     D.documentElement.classList.add('lade-js');
+    D.documentElement.lang = 'de';          // deutsche Silbentrennung (hyphens: auto) statt Trennung mitten im Wort
+    // Eingabefelder nebeneinander buendig: Beschriftungen derselben Zeile bekommen die Hoehe der hoechsten
+    // (sonst rutscht ein Feld nach unten, wenn seine Beschriftung zwei Zeilen braucht und die daneben eine)
+    var angleichen = function () {
+      var main = D.querySelector('[data-testid="stMain"]'); if (!main) return;
+      main.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function (hb) {
+        var spalten = Array.prototype.filter.call(hb.children, function (c) { return c.matches('[data-testid="stColumn"]'); });
+        if (spalten.length < 2) return;
+        var labs = [];
+        spalten.forEach(function (c) {
+          c.querySelectorAll('[data-testid="stWidgetLabel"]').forEach(function (l) {
+            if (l.closest('[data-testid="stHorizontalBlock"]') === hb) { l.style.minHeight = ''; labs.push(l); }
+          });
+        });
+        labs = labs.filter(function (l) { return l.getBoundingClientRect().width > 0; });
+        var fertig = [];
+        for (var runde = 0; runde < 12; runde++) {
+          var offen = labs.filter(function (l) { return fertig.indexOf(l) < 0; });
+          if (offen.length < 2) break;
+          var tops = offen.map(function (l) { return l.getBoundingClientRect().top; });
+          var t0 = Math.min.apply(null, tops);
+          var zeile = offen.filter(function (l, i) { return tops[i] - t0 < 30; });
+          var h = Math.max.apply(null, zeile.map(function (l) { return l.getBoundingClientRect().height; }));
+          if (zeile.length > 1) zeile.forEach(function (l) { if (l.getBoundingClientRect().height < h - 1) l.style.minHeight = h + 'px'; });
+          fertig = fertig.concat(zeile);
+        }
+      });
+    };
+    var angleichenPlan = null;
+    var angleichenSpaeter = function () {
+      if (angleichenPlan) return;
+      angleichenPlan = setTimeout(function () { angleichenPlan = null; window.requestAnimationFrame(angleichen); }, 120);
+    };
+    new window.MutationObserver(angleichenSpaeter).observe(D.body, { childList: true, subtree: true, characterData: true });
+    window.addEventListener('resize', angleichenSpaeter);
     var st = D.createElement('style');
     st.textContent =
       'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +

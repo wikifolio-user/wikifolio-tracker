@@ -320,7 +320,9 @@ CSS_BASIS = """
         /* Streamlit fuegt zwischen Label und Feld bereits einen eigenen
            Abstand ein - deshalb hier deutlich weniger als der rechnerische
            Wert der .abschnitt-Ueberschriften, sonst klafft eine Luecke. */
-        margin: 16px 0 4px 2px !important;
+        /* oben KEIN Zusatzabstand: sonst sitzt jedes Auswahlfeld 16 px tiefer als ein Zahlen- oder
+           Textfeld in derselben Reihe (der Abstand nach oben kommt vom Streamlit-Raster) */
+        margin: 0 0 4px 2px !important;
         padding-bottom: 0 !important;
         border-bottom: none !important;
     }
@@ -1679,6 +1681,46 @@ CSS_RESPONSIV = """
        auf 35 px Breite gequetscht und der Text stand Buchstabe fuer Buchstabe untereinander. Jetzt bekommt
        der Knopf seine Textbreite, der Rest der Zeile teilt sich den uebrigen Platz; passt beides nicht,
        bricht die Zeile um. Menue und Kopfleiste haben ihr eigenes Raster und sind ausgenommen. */
+    /* --- Gleich hohe Kacheln je Reihe: steht in jeder Spalte nur eine Kennzahl (st.metric) oder nur eine
+       HTML-Karte, werden alle Kacheln der Reihe so hoch wie die hoechste (vorher richtete sich jede nach
+       ihrem Inhalt, z. B. "kein früher Beginn" zweizeilig -> eine Kachel hoeher als die daneben). */
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child :is([data-testid="stMetric"], .hero, .karte, .pb-kpi, .q-kpi, .da-box, .wk-karte, .ic-karte, .sc-karte, .eks-karte)) {
+        align-items: stretch !important; }
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:only-child :is([data-testid="stMetric"], .hero, .karte, .pb-kpi, .q-kpi, .da-box, .wk-karte, .ic-karte, .sc-karte, .eks-karte)) {
+        height: 100%; }
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child:has(:is([data-testid="stMetric"], .hero, .karte, .pb-kpi, .q-kpi, .da-box, .wk-karte, .ic-karte, .sc-karte, .eks-karte)) {
+        flex: 1 1 auto; height: 100%; }
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child :is([data-testid="stMetric"], [data-testid="stMarkdown"], [data-testid="stMarkdown"] > div, [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] > :is(.hero, .karte, .pb-kpi, .q-kpi, .da-box, .wk-karte, .ic-karte, .sc-karte, .eks-karte)) {
+        height: 100%; box-sizing: border-box; }
+    /* Ueberblick-Kacheln der Startseite (Karte + unsichtbarer Knopf je Spalte) */
+    .st-key-ueberblick [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
+    .st-key-ueberblick [data-testid="stColumn"] :is([data-testid="stVerticalBlock"], [data-testid="stLayoutWrapper"]),
+    .st-key-ueberblick [class*="st-key-ueb_"] > [data-testid="stElementContainer"]:first-child,
+    .st-key-ueberblick [class*="st-key-ueb_"] :is([data-testid="stMarkdown"], [data-testid="stMarkdown"] > div,
+        [data-testid="stMarkdownContainer"], .ueb-karte) {
+        height: 100%; box-sizing: border-box; }
+
+    /* --- Eingabefelder nebeneinander auf einer Linie: steht in jeder Spalte genau ein Feld, richten sich die
+       Felder an der Unterkante aus. Sonst rutscht ein Feld nach unten, sobald seine Beschriftung zwei Zeilen
+       braucht und die daneben nur eine ("Startkapital" | "Monatliche Ent-nahme"). */
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child :is([data-testid="stNumberInput"], [data-testid="stTextInput"], [data-testid="stSelectbox"], [data-testid="stMultiSelect"], [data-testid="stDateInput"], [data-testid="stTimeInput"])):not(:has(> [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > :nth-child(2))) {
+        align-items: flex-end !important; }
+
+    /* --- Eingabe-Reihen mit 3 und mehr Spalten (z. B. Startkapital | Einzahlung | Entnahme | Laufzeit | Ziel):
+       am Handy hoechstens ZWEI Felder nebeneinander, der Rest rutscht in die naechste Zeile (ein einzelnes Feld
+       am Ende nimmt die ganze Breite). Sonst wurden die Spalten auf ~70 px gequetscht und die Beschriftungen
+       brachen mitten im Wort ("Startka-pital"). Tablet und Desktop bleiben einzeilig. */
+    @media (max-width: 599px) {
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]):has(> [data-testid="stColumn"]:nth-child(3)):has(> [data-testid="stColumn"] :is([data-testid="stNumberInput"], [data-testid="stTextInput"], [data-testid="stSelectbox"], [data-testid="stMultiSelect"], [data-testid="stDateInput"], [data-testid="stTimeInput"], [data-testid="stTextArea"], [data-testid="stSlider"])) {
+            flex-wrap: wrap !important; row-gap: 12px !important; }
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]):has(> [data-testid="stColumn"]:nth-child(3)):has(> [data-testid="stColumn"] :is([data-testid="stNumberInput"], [data-testid="stTextInput"], [data-testid="stSelectbox"], [data-testid="stMultiSelect"], [data-testid="stDateInput"], [data-testid="stTimeInput"], [data-testid="stTextArea"], [data-testid="stSlider"])) > [data-testid="stColumn"] {
+            flex: 1 1 calc(50% - 0.5rem) !important; min-width: calc(50% - 0.5rem) !important; max-width: 100% !important; }
+        /* Beschriftungen von Eingabefeldern nie mitten im Wort trennen (nur ein einzelnes Wort, das
+           breiter ist als das ganze Feld, darf als Notloesung umbrechen) */
+        [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] .stMarkdownEllipsis,
+        [data-testid="stMetricLabel"] p {
+            word-break: normal !important; overflow-wrap: break-word !important; hyphens: auto; }
+    }
     @media (max-width: 599px) {
         /* (:has() darf nicht verschachtelt werden - deshalb Geschwister-Selektoren statt "Zeile hat ...") */
         /* Knopf-Spalte hinter Text/Feld: Textbreite; die Spalte davor schrumpft (kein Umbruch der Zeile).
