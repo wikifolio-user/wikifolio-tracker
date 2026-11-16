@@ -1699,6 +1699,12 @@ CSS_RESPONSIV = """
     .st-key-ueberblick [class*="st-key-ueb_"] :is([data-testid="stMarkdown"], [data-testid="stMarkdownContainer"], .ueb-karte) {
         height: 100%; box-sizing: border-box; }
 
+    /* --- Eingabefelder nebeneinander auf einer Linie: steht in jeder Spalte genau ein Feld, richten sich die
+       Felder an der Unterkante aus. Sonst rutscht ein Feld nach unten, sobald seine Beschriftung zwei Zeilen
+       braucht und die daneben nur eine ("Startkapital" | "Monatliche Ent-nahme"). */
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child :is([data-testid="stNumberInput"], [data-testid="stTextInput"], [data-testid="stSelectbox"], [data-testid="stMultiSelect"], [data-testid="stDateInput"], [data-testid="stTimeInput"])):not(:has(> [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > :nth-child(2))) {
+        align-items: flex-end !important; }
+
     /* --- Eingabe-Reihen mit 3 und mehr Spalten (z. B. Startkapital | Einzahlung | Entnahme | Laufzeit | Ziel):
        am Handy hoechstens ZWEI Felder nebeneinander, der Rest rutscht in die naechste Zeile (ein einzelnes Feld
        am Ende nimmt die ganze Breite). Sonst wurden die Spalten auf ~70 px gequetscht und die Beschriftungen

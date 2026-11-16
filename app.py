@@ -7949,7 +7949,7 @@ def render_dashboard():
 
                 b1, b2 = st.columns(2)
                 b1.metric("Mittleres Ergebnis (Median)", fmt(mc_perzentile[50], 0))
-                b2.metric("Wahrscheinlich\u00adkeit eines Verlusts",
+                b2.metric("Verlustrisiko",
                           f"{mc_kennzahlen['verlust_wahrscheinlichkeit']:.0f} %",
                           help="Anteil der Verläufe, die unter dem insgesamt eingesetzten Geld enden "
                                f"(heutiger Wert + Sparraten − Entnahmen = {fmt(mc_kennzahlen['eingesetzt'], 0)}).")
