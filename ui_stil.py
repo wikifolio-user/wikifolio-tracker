@@ -1679,6 +1679,20 @@ CSS_RESPONSIV = """
        auf 35 px Breite gequetscht und der Text stand Buchstabe fuer Buchstabe untereinander. Jetzt bekommt
        der Knopf seine Textbreite, der Rest der Zeile teilt sich den uebrigen Platz; passt beides nicht,
        bricht die Zeile um. Menue und Kopfleiste haben ihr eigenes Raster und sind ausgenommen. */
+    /* --- Eingabe-Reihen mit 3 und mehr Spalten (z. B. Startkapital | Einzahlung | Entnahme | Laufzeit | Ziel):
+       am Handy hoechstens ZWEI Felder nebeneinander, der Rest rutscht in die naechste Zeile (ein einzelnes Feld
+       am Ende nimmt die ganze Breite). Sonst wurden die Spalten auf ~70 px gequetscht und die Beschriftungen
+       brachen mitten im Wort ("Startka-pital"). Tablet und Desktop bleiben einzeilig. */
+    @media (max-width: 599px) {
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]):has(> [data-testid="stColumn"]:nth-child(3)):has(> [data-testid="stColumn"] :is([data-testid="stNumberInput"], [data-testid="stTextInput"], [data-testid="stSelectbox"], [data-testid="stMultiSelect"], [data-testid="stDateInput"], [data-testid="stTimeInput"], [data-testid="stTextArea"], [data-testid="stSlider"])) {
+            flex-wrap: wrap !important; row-gap: 12px !important; }
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"]:not(.st-key-nav_menue [data-testid="stHorizontalBlock"]):not(.st-key-nav_leiste [data-testid="stHorizontalBlock"]):has(> [data-testid="stColumn"]:nth-child(3)):has(> [data-testid="stColumn"] :is([data-testid="stNumberInput"], [data-testid="stTextInput"], [data-testid="stSelectbox"], [data-testid="stMultiSelect"], [data-testid="stDateInput"], [data-testid="stTimeInput"], [data-testid="stTextArea"], [data-testid="stSlider"])) > [data-testid="stColumn"] {
+            flex: 1 1 calc(50% - 0.5rem) !important; min-width: calc(50% - 0.5rem) !important; max-width: 100% !important; }
+        /* Beschriftungen von Eingabefeldern nie mitten im Wort trennen (nur ein einzelnes Wort, das
+           breiter ist als das ganze Feld, darf als Notloesung umbrechen) */
+        [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] .stMarkdownEllipsis {
+            word-break: normal !important; overflow-wrap: break-word !important; }
+    }
     @media (max-width: 599px) {
         /* (:has() darf nicht verschachtelt werden - deshalb Geschwister-Selektoren statt "Zeile hat ...") */
         /* Knopf-Spalte hinter Text/Feld: Textbreite; die Spalte davor schrumpft (kein Umbruch der Zeile).
