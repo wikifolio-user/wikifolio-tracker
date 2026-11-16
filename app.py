@@ -8524,6 +8524,40 @@ _LADE_JS = """
     var D = document;
     D.documentElement.classList.add('lade-js');
     D.documentElement.lang = 'de';          // deutsche Silbentrennung (hyphens: auto) statt Trennung mitten im Wort
+    // Eingabefelder nebeneinander buendig: Beschriftungen derselben Zeile bekommen die Hoehe der hoechsten
+    // (sonst rutscht ein Feld nach unten, wenn seine Beschriftung zwei Zeilen braucht und die daneben eine)
+    var angleichen = function () {
+      var main = D.querySelector('[data-testid="stMain"]'); if (!main) return;
+      main.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function (hb) {
+        var spalten = Array.prototype.filter.call(hb.children, function (c) { return c.matches('[data-testid="stColumn"]'); });
+        if (spalten.length < 2) return;
+        var labs = [];
+        spalten.forEach(function (c) {
+          c.querySelectorAll('[data-testid="stWidgetLabel"]').forEach(function (l) {
+            if (l.closest('[data-testid="stHorizontalBlock"]') === hb) { l.style.minHeight = ''; labs.push(l); }
+          });
+        });
+        labs = labs.filter(function (l) { return l.getBoundingClientRect().width > 0; });
+        var fertig = [];
+        for (var runde = 0; runde < 12; runde++) {
+          var offen = labs.filter(function (l) { return fertig.indexOf(l) < 0; });
+          if (offen.length < 2) break;
+          var tops = offen.map(function (l) { return l.getBoundingClientRect().top; });
+          var t0 = Math.min.apply(null, tops);
+          var zeile = offen.filter(function (l, i) { return tops[i] - t0 < 30; });
+          var h = Math.max.apply(null, zeile.map(function (l) { return l.getBoundingClientRect().height; }));
+          if (zeile.length > 1) zeile.forEach(function (l) { if (l.getBoundingClientRect().height < h - 1) l.style.minHeight = h + 'px'; });
+          fertig = fertig.concat(zeile);
+        }
+      });
+    };
+    var angleichenPlan = null;
+    var angleichenSpaeter = function () {
+      if (angleichenPlan) return;
+      angleichenPlan = setTimeout(function () { angleichenPlan = null; window.requestAnimationFrame(angleichen); }, 120);
+    };
+    new window.MutationObserver(angleichenSpaeter).observe(D.body, { childList: true, subtree: true, characterData: true });
+    window.addEventListener('resize', angleichenSpaeter);
     var st = D.createElement('style');
     st.textContent =
       'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +
