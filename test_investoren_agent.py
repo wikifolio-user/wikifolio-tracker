@@ -96,13 +96,88 @@ class Drosselung(unittest.TestCase):
     def test_bewerte_speichert_bei_drosselung_nichts(self):
         from investor_checks import abruf as AB
         alt = AB.roh_laden
-        AB.roh_laden = lambda sym, parallel=4: {"info": {"symbol": sym}, "fehler": ["gj"],
+        AB.roh_laden = lambda sym, parallel=4, ohne=(): {"info": {"symbol": sym}, "fehler": ["gj"],
                                                  "fehlerarten": ["YFRateLimitError"]}
         try:
             self.assertEqual(A.bewerte({"ticker": "X"}, None, None, {}, {}, {}, datetime.date(2026, 11, 6)),
                              A.DROSSEL)
         finally:
             AB.roh_laden = alt
+
+
+class NewsSperre(unittest.TestCase):
+    def setUp(self):
+        A._news.update(folge=0, aus=False)
+
+    def tearDown(self):
+        A._news.update(folge=0, aus=False)
+
+    def test_nach_n_fehlern_in_folge_aus(self):
+        for _ in range(A.NEWS_AUS_NACH - 1):
+            A.news_merken({"fehler": ["news"], "fehlerarten": ["YFDataException"]})
+        self.assertFalse(A._news["aus"])
+        A.news_merken({"fehler": ["news"], "fehlerarten": ["YFDataException"]})
+        self.assertTrue(A._news["aus"])
+
+    def test_erfolg_setzt_zaehler_zurueck(self):
+        for _ in range(A.NEWS_AUS_NACH - 1):
+            A.news_merken({"fehler": ["news"], "fehlerarten": ["YFDataException"]})
+        A.news_merken({"fehler": [], "fehlerarten": []})
+        A.news_merken({"fehler": ["news"], "fehlerarten": ["YFDataException"]})
+        self.assertFalse(A._news["aus"])
+
+    def test_drosselung_zaehlt_nicht(self):
+        for _ in range(A.NEWS_AUS_NACH + 5):
+            A.news_merken({"fehler": ["news", "info"], "fehlerarten": ["YFRateLimitError"] * 2})
+        self.assertFalse(A._news["aus"])
+
+    def test_bewerte_laesst_news_aus(self):
+        from investor_checks import abruf as AB
+        alt, aufrufe = AB.roh_laden, []
+
+        def roh(sym, parallel=4, ohne=()):
+            aufrufe.append(ohne)
+            return {"info": {"symbol": sym}, "fehler": ["gj"], "fehlerarten": ["YFRateLimitError"]}
+        AB.roh_laden = roh
+        try:
+            A._news["aus"] = True
+            A.bewerte({"ticker": "X"}, None, None, {}, {}, {}, datetime.date(2026, 11, 6))
+        finally:
+            AB.roh_laden = alt
+        self.assertEqual(aufrufe, [("news",)])
+
+    def test_roh_laden_ohne_news_kein_fehler(self):
+        from investor_checks import abruf as AB
+
+        class T:
+            info = {"symbol": "X"}
+            income_stmt = balance_sheet = cashflow = quarterly_income_stmt = dividends = None
+            insider_transactions = eps_revisions = None
+
+            @property
+            def news(self):
+                raise AssertionError("News duerfen nicht abgerufen werden")
+
+        class Yf:
+            Ticker = staticmethod(lambda s: T())
+        alt = AB._yf
+        AB._yf = lambda: Yf
+        try:
+            r = AB.roh_laden("X", parallel=2, ohne=("news",))
+        finally:
+            AB._yf = alt
+        self.assertIsNone(r["news"])
+        self.assertEqual(r["fehler"], [])
+
+
+class Aufraeumen(unittest.TestCase):
+    def test_nur_alte_eintraege_ausserhalb_des_universums(self):
+        heute = datetime.date(2026, 11, 16)
+        werte = {"AKTUELL": {"st": "2026-01-01"}, "ALT": {"st": "2026-10-01"}, "NEU": {"st": "2026-11-10"},
+                 "OHNE": {}}
+        n = A.aufraeumen(werte, {"AKTUELL": {}}, heute)
+        self.assertEqual(n, 2)
+        self.assertEqual(sorted(werte), ["AKTUELL", "NEU"])
 
 
 if __name__ == "__main__":

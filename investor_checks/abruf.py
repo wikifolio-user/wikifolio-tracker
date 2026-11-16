@@ -14,15 +14,18 @@ def _yf():
     return yf
 
 
-def roh_laden(symbol, parallel=8, timeout=20):
-    """Fundamentaldaten: info, Jahres-GuV/Bilanz/Cashflow, Quartals-GuV, Dividenden, Insider, Revisionen.
-    Teilausfaelle (Yahoo drosselt) landen in "fehler" statt eine Ausnahme zu werfen."""
+def roh_laden(symbol, parallel=8, timeout=20, ohne=()):
+    """Fundamentaldaten: info, Jahres-GuV/Bilanz/Cashflow, Quartals-GuV, Dividenden, Insider, Revisionen, News.
+    Teilausfaelle (Yahoo drosselt) landen in "fehler" statt eine Ausnahme zu werfen.
+    ohne: Abrufe, die ausgelassen werden (Wert None, kein Fehler) - z. B. ("news",), wenn Yahoo sie gerade
+    grundsaetzlich ablehnt (spart eine Anfrage je Aktie)."""
     t = _yf().Ticker(symbol)
     abrufe = {"info": lambda: t.info, "gj": lambda: t.income_stmt, "bilanz": lambda: t.balance_sheet,
               "cashflow": lambda: t.cashflow, "q_gj": lambda: t.quarterly_income_stmt,
               "dividenden": lambda: t.dividends, "insider": lambda: t.insider_transactions,
               "revisionen": lambda: t.eps_revisions, "news": lambda: t.news}
-    aus, fehler, arten = {}, [], []
+    aus, fehler, arten = {k: None for k in ohne if k in abrufe}, [], []
+    abrufe = {k: fn for k, fn in abrufe.items() if k not in ohne}
     with ThreadPoolExecutor(max_workers=parallel) as ex:
         laeufe = {k: ex.submit(fn) for k, fn in abrufe.items()}
         for k, lauf in laeufe.items():

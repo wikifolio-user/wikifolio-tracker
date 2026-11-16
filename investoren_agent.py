@@ -13,6 +13,7 @@ import datetime
 import os
 import statistics
 import sys
+import threading
 import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -47,6 +48,13 @@ ABSTAND_SEK = float(os.environ.get("INVESTOREN_ABSTAND_SEK", "1.5"))
 PAUSE_START, PAUSE_MAX = 60.0, 900.0
 WIEDERHOLUNGEN = 2                # je Aktie hoechstens so viele weitere Versuche nach einer Drosselung
 DROSSEL = "drossel"
+# News: lehnt Yahoo den News-Abruf fuer die Server von GitHub grundsaetzlich ab ("Will be right back" ->
+# YFDataException bei JEDER Aktie), kostet er nur eine Anfrage je Aktie, die gegen die Drosselgrenze zaehlt.
+# Nach NEWS_AUS_NACH Fehlern in Folge werden News fuer den Rest des Laufs ausgelassen.
+NEWS_AUS_NACH = 25
+ALTE_EINTRAEGE_TAGE = 30          # Eintraege von Aktien, die so lange nicht mehr im Universum sind, entfallen
+_news = {"folge": 0, "aus": False}
+_news_lock = threading.Lock()
 _schlafen = time.sleep            # in Tests ersetzbar
 _uhr = time.monotonic             # in Tests ersetzbar
 
@@ -80,10 +88,35 @@ def fue_mediane(werte, min_n=5):
     return {s: round(statistics.median(v), 2) for s, v in je.items() if len(v) >= min_n}
 
 
+def news_merken(roh):
+    """Zaehlt News-Fehler in Folge; ab NEWS_AUS_NACH bleiben News fuer den Rest des Laufs aus."""
+    if _news["aus"] or AB.gedrosselt(roh):
+        return                                        # Drosselung sagt nichts ueber den News-Endpunkt
+    with _news_lock:
+        if "news" in ((roh or {}).get("fehler") or []):
+            _news["folge"] += 1
+            if _news["folge"] >= NEWS_AUS_NACH and not _news["aus"]:
+                _news["aus"] = True
+                log.warning(f"News-Abruf {NEWS_AUS_NACH}x in Folge abgelehnt - für den Rest des Laufs ausgelassen.")
+        else:
+            _news["folge"] = 0
+
+
+def aufraeumen(werte, aktuell, heute, tage=ALTE_EINTRAEGE_TAGE):
+    """Entfernt Eintraege von Aktien, die nicht mehr im Universum sind und seit `tage` Tagen nicht bewertet
+    wurden (sie wuerden nie mehr aufgefrischt). -> Anzahl entfernt"""
+    grenze = (heute - datetime.timedelta(days=tage)).isoformat()
+    weg = [s for s, w in werte.items() if s not in aktuell and str((w or {}).get("st") or "") < grenze]
+    for s in weg:
+        del werte[s]
+    return len(weg)
+
+
 def bewerte(e, ver, vgl, fx, fue_median, index_cache, heute):
     """Eine Aktie: Abruf, alle Checks, Kurzform. -> Datensatz oder None (technischer Fehler / keine Daten)."""
     sym = e["ticker"]
-    roh = AB.roh_laden(sym, parallel=4)
+    roh = AB.roh_laden(sym, parallel=4, ohne=("news",) if _news["aus"] else ())
+    news_merken(roh)
     if AB.gedrosselt(roh):
         return DROSSEL                                # spaeter erneut - nie mit Teildaten speichern
     if not roh.get("info") and len(roh.get("fehler") or []) >= 4:
@@ -279,7 +312,9 @@ def main():
     fue = meta.get("fue_median") or fue_mediane(werte)
     plan = faellige(aktien, werte, heute, MAX_ABRUFE)
     je_sym = {e["ticker"]: e for e in aktien}
-    log.info(f"Investoren-Checks: {len(aktien)} Aktien, {len(werte)} vorhanden, {len(plan)} fällig")
+    entfernt = aufraeumen(werte, je_sym, heute)
+    log.info(f"Investoren-Checks: {len(aktien)} Aktien, {sum(1 for s in je_sym if s in werte)} vorhanden, "
+             f"{len(plan)} fällig" + (f", {entfernt} alte Einträge entfernt" if entfernt else ""))
     index_cache = {}
 
     def gespeichert(s, r, n):
@@ -293,11 +328,13 @@ def main():
         log.info(f"Branchenmodell {typ}: {a['n']} Werte, Abdeckung " +
                  ", ".join(f"{k} {v:.0%}" for k, v in a.items() if k != "n"))
     speichern(werte, status, heute)
-    T.speichere_state(STATE_META, {"stand": heute.isoformat(), "abdeckung": len(werte), "aktien": len(aktien),
+    abdeckung = sum(1 for s in je_sym if s in werte)          # nur Aktien, die aktuell im Universum sind
+    T.speichere_state(STATE_META, {"stand": heute.isoformat(), "abdeckung": abdeckung, "aktien": len(aktien),
                                    "fue_median": fue_mediane(werte), "branchen_abdeckung": abd},
                       "investoren-checks meta [skip ci]")
     log.info(f"Fertig: {neu} neu bewertet, {fehler} ohne Ergebnis, {st_['drossel']} Drosselungen "
-             f"({st_['pausen']} Pausen, {st_['offen']} nicht mehr geschafft), {len(werte)} von {len(aktien)} vorhanden.")
+             f"({st_['pausen']} Pausen, {st_['offen']} nicht mehr geschafft), {abdeckung} von {len(aktien)} vorhanden"
+             + (", News ausgelassen" if _news["aus"] else "") + ".")
     return 0
 
 
