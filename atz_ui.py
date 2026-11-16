@@ -120,7 +120,7 @@ def _eingaben(p, depotwert):
                             "Kirchensteuer 8 % in Bayern/Baden-Württemberg, sonst 9 %; Pflegeversicherung Sachsen.")
     c1, c2 = t.columns(2)
     e["kirche"] = _schalter(c1, "kirche", "Kirchensteuer")
-    e["kinder"] = _schalter(c2, "kinder", "Kinder (Pflegeversicherung)",
+    e["kinder"] = _schalter(c2, "kinder", "Kinder (Pflege\u00adversicherung)",
                             "Ohne Kinder 0,6 % Zuschlag zur Pflegeversicherung.")
     e["schwerbehindert"] = _schalter(t, "schwerbehindert", "Schwerbehinderung (GdB ≥ 50)")
     e["kv_art"] = _wahl(t, "kv_art", "Krankenversicherung",

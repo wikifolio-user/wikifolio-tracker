@@ -1690,8 +1690,9 @@ CSS_RESPONSIV = """
             flex: 1 1 calc(50% - 0.5rem) !important; min-width: calc(50% - 0.5rem) !important; max-width: 100% !important; }
         /* Beschriftungen von Eingabefeldern nie mitten im Wort trennen (nur ein einzelnes Wort, das
            breiter ist als das ganze Feld, darf als Notloesung umbrechen) */
-        [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] .stMarkdownEllipsis {
-            word-break: normal !important; overflow-wrap: break-word !important; }
+        [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] .stMarkdownEllipsis,
+        [data-testid="stMetricLabel"] p {
+            word-break: normal !important; overflow-wrap: break-word !important; hyphens: auto; }
     }
     @media (max-width: 599px) {
         /* (:has() darf nicht verschachtelt werden - deshalb Geschwister-Selektoren statt "Zeile hat ...") */

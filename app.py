@@ -2890,7 +2890,7 @@ def render_chronik():
             schritte.titel(st, "chronik", 3)
             with st.expander("✏️ Eigene Notiz hinzufügen", expanded=False):
                 with st.form("trade_form", clear_on_submit=True):
-                    col1, col2 = st.columns([2, 3])
+                    col1, col2 = st.columns([1, 1])
                     with col1: ed = st.date_input("Datum", heute_date, format="DD.MM.YYYY")
                     with col2: eti = st.text_input("Titel")
                     ei = st.text_area("Details")
@@ -7836,7 +7836,7 @@ def render_dashboard():
 
                 b1, b2 = st.columns(2)
                 b1.metric("Mittleres Ergebnis (Median)", fmt(mc_perzentile[50], 0))
-                b2.metric("Wahrscheinlichkeit eines Verlusts",
+                b2.metric("Wahrscheinlich\u00adkeit eines Verlusts",
                           f"{mc_kennzahlen['verlust_wahrscheinlichkeit']:.0f} %",
                           help="Anteil der Verläufe, die unter dem insgesamt eingesetzten Geld enden "
                                f"(heutiger Wert + Sparraten − Entnahmen = {fmt(mc_kennzahlen['eingesetzt'], 0)}).")
@@ -8410,6 +8410,7 @@ _LADE_JS = """
   var code = function () {
     var D = document;
     D.documentElement.classList.add('lade-js');
+    D.documentElement.lang = 'de';          // deutsche Silbentrennung (hyphens: auto) statt Trennung mitten im Wort
     var st = D.createElement('style');
     st.textContent =
       'html.lade-js [data-testid="stApp"]::before, html.lade-js [data-testid="stApp"]::after { display:none !important; }' +
