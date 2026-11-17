@@ -1642,7 +1642,7 @@ html body [data-testid="stExpander"] summary:hover, html body [data-testid="stEx
     font-size: 0.85rem; font-weight: 600; white-space: nowrap; transition: box-shadow .2s ease, transform .15s ease; }
 .sf-leiste span.sf-s { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 3px 14px 3px 4px;
     border-radius: 999px; border: 1px dashed var(--rand); color: var(--label); font-size: 0.85rem; font-weight: 600;
-    white-space: nowrap; opacity: 0.7; }
+    white-space: nowrap; }       /* volle Deckkraft (Kontrast); "noch nicht erreichbar" zeigt der gestrichelte Rand */
 .sf-leiste span.sf-s b { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
     border-radius: 50%; font-weight: 800; font-size: 0.85rem; border: 1px solid var(--rand); color: var(--label); }
 .sf-leiste a.sf-s:hover { box-shadow: 0 0 16px var(--glas-glow-stark); transform: translateY(-1px); }
@@ -1681,6 +1681,41 @@ CSS_RESPONSIV = """
        auf 35 px Breite gequetscht und der Text stand Buchstabe fuer Buchstabe untereinander. Jetzt bekommt
        der Knopf seine Textbreite, der Rest der Zeile teilt sich den uebrigen Platz; passt beides nicht,
        bricht die Zeile um. Menue und Kopfleiste haben ihr eigenes Raster und sind ausgenommen. */
+    /* --- Barrierefreiheit (Audit A11Y-01) ---
+       Kontrast: Streamlit dimmt Hilfetexte (st.caption) zusaetzlich auf 60 % Deckkraft - dann reicht selbst eine
+       gute Farbe nicht mehr fuer 4,5:1. Die Farbe allein (hell #6E6E73, dunkel #8A93A8) erfuellt WCAG AA. */
+    [data-testid="stCaptionContainer"] { opacity: 1 !important; }
+    /* Schalter (st.toggle) ausgeschaltet: Bahn mit mindestens 3:1 gegen den Hintergrund (Bedienelement, WCAG 1.4.11) */
+    [data-testid="stCheckbox"] label:has(input[role="switch"]:not(:checked)) > span + div { background-color: rgba(232, 236, 246, 0.45) !important; }
+    /* Touch-Ziele mindestens 44 x 44 px am Handy (Finger statt Maus) - sichtbare Groesse bleibt, nur die
+       antippbare Flaeche waechst (negative Raender gleichen den Platz aus) */
+    @media (pointer: coarse), (max-width: 599px) {
+        /* Plus/Minus an Zahlenfeldern */
+        [data-testid="stNumberInput"] button[data-testid^="stNumberInputStep"] { min-width: 44px !important; min-height: 44px !important; }
+        /* Auswahlfelder */
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div:first-child,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div:first-child,
+        :is([data-testid="stSelectbox"], [data-testid="stMultiSelect"]) .react-aria-ComboBox > [role="group"] {
+            min-height: 44px !important; }
+        /* Checkbox, Schalter, Optionsfelder: die ganze Zeile ist antippbar - mindestens 44 px hoch */
+        [data-testid="stCheckbox"] label, [data-testid="stToggle"] label, [data-testid="stRadio"] label {
+            min-height: 44px !important; align-items: center !important; }
+        /* Hilfe-"?": unsichtbare Tippflaeche (::before) von 44 x 44 px um das Symbol - Groesse und Lage des
+           Symbols bleiben unveraendert (ein groesseres Element haette die Beschriftungen verschoben) */
+        html body :is([data-testid="stTooltipIcon"], [data-testid="stWidgetLabel"]) [data-testid="stTooltipHoverTarget"],
+        html body [data-testid="stMain"] [data-testid="stTooltipHoverTarget"]:has(> svg) { position: relative !important; }
+        html body :is([data-testid="stTooltipIcon"], [data-testid="stWidgetLabel"]) [data-testid="stTooltipHoverTarget"]::before,
+        html body [data-testid="stMain"] [data-testid="stTooltipHoverTarget"]:has(> svg)::before {
+            content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px;
+            transform: translate(-50%, -50%); }
+        /* Werkzeugleisten von Tabellen/Diagrammen (Vollbild, Download, Suche) */
+        html body [data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"] button[kind="elementToolbar"] {
+            min-width: 44px !important; min-height: 44px !important; margin: -14px -12px !important;
+            display: inline-flex !important; align-items: center !important; justify-content: center !important; }
+        /* Pfeile der Reiterleiste */
+        [data-testid="stTabsScrollLeft"], [data-testid="stTabsScrollRight"] { min-width: 44px !important; min-height: 44px !important; }
+    }
+
     /* --- Gleich hohe Kacheln je Reihe: steht in jeder Spalte nur eine Kennzahl (st.metric) oder nur eine
        HTML-Karte, werden alle Kacheln der Reihe so hoch wie die hoechste (vorher richtete sich jede nach
        ihrem Inhalt, z. B. "kein früher Beginn" zweizeilig -> eine Kachel hoeher als die daneben). */
