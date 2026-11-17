@@ -13,6 +13,7 @@ import pandas as pd
 import streamlit as st
 
 import portfolio_builder as P
+import speicherleiste as SL
 import formate as FMT
 import ui_stil as UI
 import schritte
@@ -23,6 +24,7 @@ except Exception:        # pragma: no cover - ohne nutzerdaten.py: gemeinsamer P
     N = None
 
 PFAD = "state/portfolio_builder.json"
+SL_BEREICH = "builder"
 FELDER = ("anfangskapital", "sonstiges_kapital", "kredit_summe", "kredit_zins_pa", "kredit_rate",
           "einzahlung", "entnahme", "entnahme_art", "ausgaben", "laufzeit", "laufzeit_einheit", "rendite_pa", "nur_ganze_stuecke",
           "zielvermoegen", "auto_ziel", "rendite_basis",
@@ -150,7 +152,8 @@ def _speichern(h, e):
     try:
         akt = (h or {}).get("gh_aktualisiere")
         if akt:
-            ok, _ = akt(_pfad(h), lambda d: daten, default={}, message="portfolio-builder: speichern [skip ci]")
+            ok, _ = SL.aktualisieren(st.session_state, SL_BEREICH, akt, _pfad(h), lambda d: daten, {},
+                                     "portfolio-builder: speichern [skip ci]")
             return bool(ok)
         return bool(h["gh_write"](_pfad(h), daten, message="portfolio-builder: speichern [skip ci]"))
     except Exception:
@@ -1232,16 +1235,29 @@ def _automatisch_speichern(h, e):
     return "fehler", None
 
 
+def _rueckgaengig(h):
+    """Letzte Speicherung zuruecknehmen (speicherleiste) und die Felder auf diesen Stand setzen - ohne ihn gleich
+    wieder als neue Aenderung zu speichern."""
+    akt = (h or {}).get("gh_aktualisiere")
+    stand = SL.zuruecknehmen(st.session_state, SL_BEREICH, akt, _pfad(h), {},
+                             "portfolio-builder: rückgängig [skip ci]") if akt else None
+    if not isinstance(stand, dict) or not isinstance(stand.get("eingaben"), dict):
+        return
+    e = P.bereinigen(stand["eingaben"])
+    _in_widgets(e)
+    st.session_state["pb_daten"] = copy.deepcopy(e)
+    st.session_state["pb_gespeichert"] = _fingerabdruck(e)
+
+
 def _speicherleiste(h, e):
-    art, zeit = _automatisch_speichern(h, e)
-    text = {"ok": f"✓ Automatisch gespeichert · {zeit} Uhr",
-            "unveraendert": f"✓ Gespeichert{f' · {zeit} Uhr' if zeit else ''} – Änderungen werden automatisch "
-                            "gespeichert",
-            "lesefehler": "⚠ Dein gespeicherter Stand war beim Öffnen nicht lesbar – damit er nicht überschrieben "
-                          "wird, wird gerade nicht automatisch gespeichert. Bitte die Seite neu laden.",
-            "fehler": "⚠ Speichern gerade nicht möglich (Datenspeicher nicht erreichbar) – wird bei der nächsten "
-                      "Änderung erneut versucht."}[art]
-    st.markdown(f'<div class="pb-hinweis" style="margin-bottom:6px">{_esc(text)}</div>', unsafe_allow_html=True)
+    art, _zeit = _automatisch_speichern(h, e)
+    if art == "lesefehler":
+        SL.fehlgeschlagen(st.session_state, SL_BEREICH)
+        SL.leiste(st, SL_BEREICH, hinweis="dein gespeicherter Stand war beim Öffnen nicht lesbar – damit er nicht "
+                                          "überschrieben wird, bitte die Seite neu laden")
+    else:
+        SL.leiste(st, SL_BEREICH, rueck=(lambda: _rueckgaengig(h)) if (h or {}).get("gh_aktualisiere") else None,
+                  hinweis="Änderungen werden automatisch gespeichert")
     # Zuruecksetzen ueberschreibt den gespeicherten Stand sofort - deshalb mit Rueckfrage
     if not st.session_state.get("pb_reset_frage"):
         st.button("↺ Standardwerte", key="pb_standard", width="stretch",

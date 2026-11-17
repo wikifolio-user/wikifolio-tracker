@@ -15,8 +15,10 @@ import analyse_depot as A
 import depot_analyse as D
 import portfolio_builder_ui as B
 import schritte
+import speicherleiste as SL
 
 P = "ad_"
+SL_BEREICH = "analyse_depot"
 
 CSS = """
 <style>
@@ -70,7 +72,8 @@ def _speichern(h, depot, meldung):
     ok = False
     if h.get("speichern") and not st.session_state.get(P + "lesefehler"):
         try:
-            ok, _ = h["gh_aktualisiere"](h["pfad"], lambda alt: depot, {}, "analyse-depot [skip ci]")
+            ok, _ = SL.aktualisieren(st.session_state, SL_BEREICH, h["gh_aktualisiere"], h["pfad"],
+                                     lambda alt: depot, {}, "analyse-depot [skip ci]")
         except Exception as e:
             logging.warning(f"Analyse-Depot: Speichern fehlgeschlagen: {e}")
     st.session_state[P + "meldung"] = (("✅ " + meldung) if ok else
@@ -254,9 +257,23 @@ def _rueckgaengig(h):
     c1, c2 = ([st.container()] * 2 if B._smartphone()
               else st.columns([4, 1], vertical_alignment="center"))
     c1.markdown(f'<div class="ad-weg">{html.escape(text)}</div>', unsafe_allow_html=True)
-    if c2.button("↩️ Rückgängig", key=P + "rueck", width="stretch"):
-        _speichern(h, alt, "Entfernen rückgängig gemacht")
+    if c2.button("↶ Rückgängig", key=P + "rueck", width="stretch"):
+        _zuruecknehmen(h)
         st.rerun(scope="fragment")
+
+
+def _zuruecknehmen(h):
+    """Letzte Speicherung zuruecknehmen (speicherleiste - dieselbe Funktion wie in der Statuszeile)."""
+    st.session_state.pop(P + "rueckgaengig", None)
+    stand = SL.zuruecknehmen(st.session_state, SL_BEREICH, h["gh_aktualisiere"], h["pfad"], {},
+                             "analyse-depot rückgängig [skip ci]") if h.get("gh_aktualisiere") else None
+    if not isinstance(stand, dict):
+        st.session_state[P + "meldung"] = "ℹ️ Rückgängig gerade nicht möglich – der Speicher ist nicht erreichbar."
+        return
+    st.session_state[P + "depot"] = A.bereinigen(stand)
+    st.session_state[P + "ed_nr"] = st.session_state.get(P + "ed_nr", 0) + 1
+    st.session_state.pop("da_zustand_bestand", None)
+    st.session_state[P + "meldung"] = "✅ Letzte Änderung zurückgenommen"
 
 
 def _uebernehmen_zeilen(h, depot, zeilen, quelle):
@@ -400,5 +417,10 @@ def seite(h):
             with st.container(border=True):
                 teil(h, depot)
         _leeren(h, depot)
-        if depot.get("stand"):
-            st.caption(f"Zuletzt gespeichert: {datetime.datetime.fromisoformat(depot['stand']).strftime('%d.%m.%Y %H:%M')}")
+        if h.get("speichern") and not st.session_state.get(P + "lesefehler"):
+            stand = depot.get("stand")
+            SL.leiste(st, SL_BEREICH, rueck=lambda: _zuruecknehmen(h),
+                      hinweis=("Stand vom " + datetime.datetime.fromisoformat(stand).strftime("%d.%m.%Y %H:%M"))
+                      if stand else None)
+        else:
+            SL.leiste(st, SL_BEREICH, modus="sitzung")
