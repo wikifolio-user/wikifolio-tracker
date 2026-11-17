@@ -17,10 +17,12 @@ import formate as FMT
 import klassen_score as KS
 import kurs_vorrat as KV
 import schritte
+import speicherleiste as SL
 import ui_stil as UI
 import wiki_idee as WI
 
 PFAD_DEPOT = "state/wiki_idee/depot.json"
+SL_BEREICH = "ki_invest"
 PFAD_RANG = "state/wiki_idee/rangliste.json"
 TEIL_TITEL = {k: t for k, t, _ in WI.BAUSTEINE}
 VORSCHLAG = "_wiki_vorschlag"
@@ -803,19 +805,22 @@ def seite(h):
                          height=min(38 + 35 * len(df), 420))
         else:
             st.caption("Keine Anpassungen.")
-    if "vorher" in depot:
-        with st.expander("↩️ Letzte Übernahme bzw. Korrektur rückgängig machen"):
-            st.caption("Setzt das Modelldepot auf den Stand vor der letzten Übernahme oder Korrektur zurück "
-                       "(nur einen Schritt).")
-            if st.button("Rückgängig machen", key="wiki_zurueck", disabled=not h.get("schreiben_ok", True)):
-                ok, _ = h["schreiben"](PFAD_DEPOT, lambda g: WI.rueckgaengig(g), {},
-                                       "wiki-idee: rückgängig [skip ci]")
-                st.session_state["_wiki_meldung"] = ("↩️ Letzte Übernahme rückgängig gemacht." if ok
-                                                     else None)
-                if not ok:
-                    st.error("Rückgängig machen fehlgeschlagen.")
-                else:
-                    st.rerun()
+    # Einheitliche Statuszeile (speicherleiste); den einen Schritt zurueck fuehrt das Modelldepot selbst ("vorher")
+    def _zuruecknehmen():
+        try:
+            ok, _ = h["schreiben"](PFAD_DEPOT, lambda g: WI.rueckgaengig(g), {}, "wiki-idee: rückgängig [skip ci]")
+        except Exception:
+            ok = False
+        if ok:
+            SL.gespeichert(st.session_state, SL_BEREICH, merken=False)
+            st.session_state["_wiki_meldung"] = "↶ Letzte Übernahme bzw. Korrektur zurückgenommen."
+        else:
+            SL.fehlgeschlagen(st.session_state, SL_BEREICH)
+    if h.get("schreiben_ok", True):
+        SL.leiste(st, SL_BEREICH, rueck=_zuruecknehmen, anzahl=1 if "vorher" in depot else 0,
+                  hinweis="Rückgängig setzt das Modelldepot auf den Stand vor der letzten Übernahme oder Korrektur")
+    else:
+        SL.leiste(st, SL_BEREICH, modus="sitzung")
     aus = depot.get("ausgeschlossen") or []
     if aus:
         with st.expander(f"🚫 Wegen Warnsignalen ausgeschlossen ({len(aus)})"):

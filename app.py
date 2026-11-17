@@ -19,6 +19,7 @@ import github_store
 import chronik
 import startseite
 import depot_summe
+import speicherleiste as SL
 import charts_ansichten
 from depot_html import (  # noqa: F401 - ausgelagert (Audit ARCH-01), Namen bleiben in app.py verfuegbar
     ALLE_ZEITRAEUME, KERN_ZEITRAEUME, _richtung_html, badge_html, depot_hero_html, depot_kachel_html,
@@ -773,7 +774,59 @@ def _liste_aktualisieren(pfad, aendern, startbestand, message):
 
     ok, _ = gh_aktualisiere(pfad, _a, default=None, message=message)
     geschrieben = bool(ok and erg.get("neu") is not None)
+    if geschrieben:
+        SL.gespeichert(st.session_state, SL_DEPOT, {"pfad": pfad, "inhalt": copy.deepcopy(erg.get("alt"))})
+    elif not ok:
+        SL.fehlgeschlagen(st.session_state, SL_DEPOT)
     return geschrieben, erg.get("alt"), erg.get("neu")
+
+
+# --- Depot verwalten: Statuszeile und Rueckgaengig (speicherleiste) ueber alle Dateien des Bereichs ---
+SL_DEPOT = "depot"
+_SL_DEPOT_FELDER = ("haupt_sparrate_input", "_haupt_sparrate_input_basis", "haupt_entnommen_input",
+                    "_haupt_entnommen_input_basis", "sparplan_beenden_ok")
+
+
+def depot_aktualisieren(pfad, aendern, default=None, message="update state [skip ci]"):
+    """gh_aktualisiere fuer Depot-Dateien (Sparplan, Entnahme) - merkt den alten Stand fuer Rueckgaengig."""
+    alt_box = {}
+
+    def _a(d):
+        alt_box["alt"] = copy.deepcopy(d)
+        return aendern(d)
+    ok, neu = gh_aktualisiere(pfad, _a, default=default, message=message)
+    if ok:
+        SL.gespeichert(st.session_state, SL_DEPOT, {"pfad": pfad, "inhalt": alt_box.get("alt")})
+    else:
+        SL.fehlgeschlagen(st.session_state, SL_DEPOT)
+    return ok, neu
+
+
+def depot_rueckgaengig():
+    """Letzte Speicherung in "Depot verwalten" zuruecknehmen (Callback). Die betroffene Datei bekommt ihren
+    vorherigen Inhalt; Sparrate/Entnahme-Felder werden danach neu aus dem gespeicherten Stand vorbelegt."""
+    z = SL.zustand(st.session_state, SL_DEPOT)
+    if not z["stapel"] or not GH_STATE_READY:
+        return
+    stand = z["stapel"][-1]
+    inhalt = stand.get("inhalt")
+    try:
+        ok, _ = gh_aktualisiere(stand["pfad"], lambda _alt: copy.deepcopy(inhalt if inhalt is not None else {}),
+                                default=None, message="depot rückgängig [skip ci]")
+    except Exception:
+        ok = False
+    if not ok:
+        SL.fehlgeschlagen(st.session_state, SL_DEPOT)
+        return
+    z["stapel"].pop()
+    SL.gespeichert(st.session_state, SL_DEPOT, merken=False)
+    for k in _SL_DEPOT_FELDER:
+        st.session_state.pop(k, None)
+    try:
+        gh_read_cached.clear()
+    except Exception:
+        pass
+    chronik_eintrag("depot", "↶ Letzte Änderung zurückgenommen", stand["pfad"].rsplit("/", 1)[-1])
 
 
 def aendere_positionen(aendern, message="update positionen [skip ci]"):
@@ -818,8 +871,33 @@ def aendere_prognose_basis(aendern, message="update prognose-basis [skip ci]"):
         erg["neu"] = aendern(copy.deepcopy(alt))
         return None if erg["neu"] is None else {"werte": erg["neu"]}
 
-    ok, _ = gh_aktualisiere(upfad(PROG_BASIS.PFAD), _a, default=None, message=message)
+    ok, _ = SL.aktualisieren(st.session_state, "prognose", gh_aktualisiere, upfad(PROG_BASIS.PFAD), _a, None,
+                             message)
     return bool(ok and erg.get("neu") is not None)
+
+
+def prognose_rueckgaengig():
+    """Letzte Aenderung der Prognose-Werteliste zuruecknehmen (Callback, speicherleiste). War vorher noch nichts
+    gespeichert, gilt wieder die Startliste aus der Beobachtungsliste."""
+    z = SL.zustand(st.session_state, "prognose")
+    if not z["stapel"] or not GH_STATE_READY:
+        return
+    stand = z["stapel"][-1]
+    inhalt = stand if isinstance(stand, dict) else {"werte": PROG_BASIS.start_aus_beobachtung(lade_beobachtung())}
+    try:
+        ok, _ = gh_aktualisiere(upfad(PROG_BASIS.PFAD), lambda _alt: copy.deepcopy(inhalt), default=None,
+                                message="prognose-basis rückgängig [skip ci]")
+    except Exception:
+        ok = False
+    if not ok:
+        SL.fehlgeschlagen(st.session_state, "prognose")
+        return
+    z["stapel"].pop()
+    SL.gespeichert(st.session_state, "prognose", merken=False)
+    try:
+        gh_read_cached.clear()
+    except Exception:
+        pass
 
 
 # --- VERGLEICHSWERTE (Vermoegensaufbau, Performance seit 2026/2021) je Benutzer ---
@@ -1612,12 +1690,56 @@ def rechner_merken(bereich, sofort=False):
         # zeit 0: die erste echte Aenderung wird sofort gespeichert
         st.session_state[merk] = {"werte": nutzerdaten._sauber(werte), "zeit": 0}
         return False
+    vorher = (st.session_state.get(merk) or {}).get("werte")
     try:
-        return nutzerdaten.eingaben_merken(gh_aktualisiere, st.session_state, _nutzer(), bereich, werte,
-                                           sofort=sofort)
+        ok = nutzerdaten.eingaben_merken(gh_aktualisiere, st.session_state, _nutzer(), bereich, werte,
+                                         sofort=sofort)
     except Exception as e:
         logging.warning(f"Eingaben '{bereich}' nicht gemerkt: {type(e).__name__}")
-        return False
+        ok = False
+    # Statuszeile/Rueckgaengig (speicherleiste): gespeichert -> alten Stand merken; gedrosselt -> "ungespeichert"
+    if ok:
+        SL.gespeichert(st.session_state, "rechner_" + bereich, vorher)
+    elif st.session_state.get(merk + "_offen") is not None:
+        SL.geaendert(st.session_state, "rechner_" + bereich)
+    return ok
+
+
+def rechner_rueckgaengig(bereich):
+    """Letzte Speicherung der Rechner-Eingaben zuruecknehmen: nur dieser Bereich der Eingaben-Datei wird auf den
+    vorherigen Stand gesetzt, die Felder ebenso (Callback - laeuft vor dem Zeichnen der Felder)."""
+    z = SL.zustand(st.session_state, "rechner_" + bereich)
+    if not z["stapel"] or not GH_STATE_READY:
+        return
+    stand = z["stapel"][-1]
+
+    def aendern(daten):
+        daten = daten if isinstance(daten, dict) else {}
+        daten[bereich] = stand
+        return daten
+    try:
+        ok, _ = gh_aktualisiere(nutzerdaten.eingaben_pfad(_nutzer()), aendern, default={},
+                                message=f"eingaben {bereich} rückgängig [skip ci]")
+    except Exception:
+        ok = False
+    if not ok:
+        SL.fehlgeschlagen(st.session_state, "rechner_" + bereich)
+        return
+    z["stapel"].pop()
+    for k, v in stand.items():
+        st.session_state[k] = v
+    st.session_state[f"_eingaben_{bereich}"] = {"werte": stand, "zeit": time.time()}
+    st.session_state.pop(f"_eingaben_{bereich}_offen", None)
+    SL.gespeichert(st.session_state, "rechner_" + bereich, merken=False)
+
+
+def rechner_leiste(bereich):
+    """Statuszeile am Ende des Rechners (automatisches Speichern, Rueckgaengig)."""
+    if GH_STATE_READY:
+        SL.leiste(st, "rechner_" + bereich, rueck=lambda: rechner_rueckgaengig(bereich),
+                  hinweis="Eingaben werden automatisch gespeichert")
+    else:
+        SL.leiste(st, "rechner_" + bereich, modus="sitzung")
 
 
 # Eingaben ohne eigene Datei (Zukunfts-Prognose, Simulation): Streamlit loescht Widget-Werte,
@@ -1661,7 +1783,9 @@ def eingaben_offene_speichern():
         if offen is None:
             continue
         try:
-            nutzerdaten.eingaben_merken(gh_aktualisiere, st.session_state, _nutzer(), bereich, offen, sofort=True)
+            vorher = (st.session_state.get(f"_eingaben_{bereich}") or {}).get("werte")
+            if nutzerdaten.eingaben_merken(gh_aktualisiere, st.session_state, _nutzer(), bereich, offen, sofort=True):
+                SL.gespeichert(st.session_state, "rechner_" + bereich, vorher)
         except Exception as e:
             logging.warning(f"Offene Eingaben '{bereich}' nicht gespeichert: {type(e).__name__}")
 
@@ -4667,6 +4791,7 @@ def render_dashboard():
             _gemerkt = rechner_vorbelegen("zinsrechner")
             zinsrechner.render(_app_url(), gespeichert=_gemerkt, null=eigener_bereich())
             rechner_merken("zinsrechner")
+            rechner_leiste("zinsrechner")
         except Exception as e:
             st.error(f"⚠️ Fehler im Zinseszinsrechner: {e}")
             notify_app_error("Tab-Zinsrechner", e)
@@ -4678,6 +4803,7 @@ def render_dashboard():
             _gemerkt = rechner_vorbelegen("abfindung")
             abfindung.render(gespeichert=_gemerkt, null=eigener_bereich())
             rechner_merken("abfindung")
+            rechner_leiste("abfindung")
         except Exception as e:
             st.error(f"⚠️ Fehler im Abfindungsrechner: {e}")
             notify_app_error("Tab-Abfindungsrechner", e)
@@ -5986,8 +6112,8 @@ def render_dashboard():
             if st.button("🛑 Sparplan beenden" if _beenden else "💾 Sparrate speichern",
                          key="sparplan_speichern_btn", disabled=not _bestaetigt):
                 if _beenden:
-                    ok, _ = gh_aktualisiere(upfad(config.STATE_PATH_SPARPLAN), lambda d: {}, default={},
-                                            message="sparplan gestoppt [skip ci]")
+                    ok, _ = depot_aktualisieren(upfad(config.STATE_PATH_SPARPLAN), lambda d: {}, default={},
+                                                message="sparplan gestoppt [skip ci]")
                     if ok:
                         chronik_eintrag("depot", "⏹️ Sparplan gestoppt",
                                         f"Lief seit {sparplan_start.strftime('%d.%m.%Y')}." if sparplan_start else "")
@@ -5998,7 +6124,7 @@ def render_dashboard():
                     else:
                         st.error("Beenden fehlgeschlagen - der Sparplan-Zustand wurde NICHT geändert.")
                 else:
-                    ok, neu = gh_aktualisiere(
+                    ok, neu = depot_aktualisieren(
                         upfad(config.STATE_PATH_SPARPLAN),
                         lambda d: sparplan_state_neu(d, _sp_neu, heute_date), default={},
                         message="sparplan gespeichert [skip ci]")
@@ -6027,9 +6153,9 @@ def render_dashboard():
             if not entnahme_lesbar:
                 st.warning("Entnahme-Zustand gerade nicht lesbar - Speichern ist bis dahin gesperrt.")
             elif st.button("💾 Entnahme speichern", key="entnahme_speichern_btn"):
-                ok, _ = gh_aktualisiere(upfad(STATE_PATH_ENTNAHME),
-                                        lambda d: dict(d if isinstance(d, dict) else {}, rate=_en_neu),
-                                        default={}, message="entnahme gespeichert [skip ci]")
+                ok, _ = depot_aktualisieren(upfad(STATE_PATH_ENTNAHME),
+                                            lambda d: dict(d if isinstance(d, dict) else {}, rate=_en_neu),
+                                            default={}, message="entnahme gespeichert [skip ci]")
                 if ok:
                     chronik_eintrag("depot", f"💸 Monatliche Entnahme: {FMT.eur(_en_neu, 2)}",
                                     "Gilt für Netto (Simulation) und Real.")
@@ -6842,6 +6968,11 @@ def render_dashboard():
     if gewaehlte_ansicht == "🔮 Zukunfts-Prognose":
         melde("ansicht", 0.3, "Berechne Prognose …")
         _render_forecast()
+        if GH_STATE_READY:
+            SL.leiste(st, "prognose", rueck=prognose_rueckgaengig,
+                      hinweis="die Werteliste wird gespeichert; Renditen und Zeitraum gelten nur in dieser Sitzung")
+        else:
+            SL.leiste(st, "prognose", modus="sitzung")
         lade_fertig()
 
     # --- DEPOT-ANALYSE & OPTIMIERUNG (depot_analyse.py / depot_analyse_ui.py): bewertet das echte Depot,
@@ -7267,6 +7398,7 @@ def render_dashboard():
     if gewaehlte_ansicht == "📊 Szenario-Simulator (5 Jahre)":
         melde("ansicht", 0.3, "Berechne Szenarien …")
         _render_scenarios()
+        SL.leiste(st, "szenario", modus="sitzung", hinweis="zum Ausprobieren")
         lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_EINST:
@@ -7274,6 +7406,11 @@ def render_dashboard():
         # Bewusst als Letztes: im Alltag interessieren die Kurse/Charts, der
         # Systemstatus wird nur im Fehlerfall gebraucht. Faellt der persistente
         # State aus, klappt der Expander weiterhin automatisch auf.
+        if GH_STATE_READY:
+            SL.leiste(st, SL_DEPOT, rueck=depot_rueckgaengig,
+                      hinweis="Positionen, Sparrate, Entnahme und Beobachtungsliste")
+        else:
+            SL.leiste(st, SL_DEPOT, modus="sitzung")
         schritte.titel(st, "verwalten", 4)
 
         with st.expander("System-Status / Diagnose", expanded=not GH_STATE_READY):

@@ -38,6 +38,7 @@ import planer_engine as E
 import bewertung as BW
 import analyse as AN
 import ui_stil as UI
+import speicherleiste as SL
 
 try:
     import nutzerdaten as N
@@ -88,6 +89,7 @@ PFAD_SZENARIEN = "state/planer/szenarien.json"     # je Benutzer ueber nutzerdat
 # Arbeitsstand: nur hierhin speichert die automatische Speicherung. Gespeicherte Varianten
 # (alle anderen Namen) aendern sich nur, wenn man sie ausdruecklich unter ihrem Namen speichert.
 AKTUELL = "Aktuelles Modell"
+SL_BEREICH = "planer"
 PFAD_MUSTERDEPOT = "state/musterdepot.json"        # je Benutzer ueber nutzerdaten.pfad
 QUALITAET_DETAIL_TEILE = 32          # wie qualitaet_agent.DETAIL_TEILE
 HIST_CACHE_SEK = 6 * 3600
@@ -444,7 +446,7 @@ def _aendern_speichern(h, pfad, aendern, message):
     akt = (h or {}).get("gh_aktualisiere")
     try:
         if akt:
-            ok, _ = akt(pfad, _a, default={}, message=message)
+            ok, _ = SL.aktualisieren(st.session_state, SL_BEREICH, akt, pfad, _a, {}, message)
             return bool(ok)
         neu = _a(h["gh_read"](pfad, {}) or {})
         return True if neu is None else bool(h["gh_write"](pfad, neu, message=message))
@@ -586,6 +588,21 @@ def _auto_speichern(m, h):
     else:
         st.session_state["planer_auto"] = ("fehler", name, None)
     return st.session_state["planer_auto"]
+
+
+def _rueckgaengig(h):
+    """Letzte Speicherung zuruecknehmen (speicherleiste): die Datei bekommt ihren vorherigen Inhalt, der
+    Arbeitsstand dessen "Aktuelles Modell" - ohne ihn gleich wieder als neue Aenderung zu speichern."""
+    akt = (h or {}).get("gh_aktualisiere")
+    stand = SL.zuruecknehmen(st.session_state, SL_BEREICH, akt, _pfad(h, PFAD_SZENARIEN), {},
+                             "planer: rückgängig [skip ci]") if akt else None
+    eintrag = ((stand or {}).get("szenarien") or {}).get(AKTUELL) if isinstance(stand, dict) else None
+    if isinstance(eintrag, dict) and isinstance(eintrag.get("modell"), dict):
+        m = _migriere(copy.deepcopy(eintrag["modell"]))
+        st.session_state["planer_modell"] = m
+        st.session_state["planer_hash"] = _hash(m)
+        st.session_state.pop("planer_opt", None)
+        _neu_zeichnen()
 
 
 def _asset(m, aid):
@@ -5792,7 +5809,6 @@ def render(h):
                            help="Schritt für Schritt: geführter Ablauf mit Vorschau. Alle Bereiche: alle Seiten direkt "
                                 "(für Erfahrene) – beide arbeiten mit demselben Modell.") or standard
     gefuehrt = ansicht == ANSICHTEN[0]
-    status_platz = st.empty()
     platz = {"bilanz": None, "kpi": None}
     if gefuehrt:
         with st.container(key="pl_nav_schritt"):
@@ -5942,12 +5958,11 @@ def render(h):
                 _schritt_navigation(pruef, schritt)
 
     status = _auto_speichern(m, h)
-    if status:
-        art, sz_name, zeit = status
-        text = (f"✓ Automatisch gespeichert im Arbeitsstand „{sz_name}“ · {zeit} Uhr – gespeicherte Varianten bleiben "
-                "unverändert" if art == "ok" else
-                "⚠ Dein gespeichertes Modell war beim Öffnen nicht lesbar – damit es nicht überschrieben wird, "
-                "wird gerade nicht automatisch gespeichert. Bitte die Seite neu laden." if art == "lesefehler" else
-                "⚠ Automatische Speicherung nicht möglich (GitHub-Speicher nicht erreichbar) – "
-                "Änderungen gelten nur bis zum Neuladen.")
-        status_platz.markdown(f'<div class="pl-hinweis">{_esc(text)}</div>', unsafe_allow_html=True)
+    # Einheitliche Statuszeile (speicherleiste) am Seitenende
+    if status and status[0] == "lesefehler":
+        SL.fehlgeschlagen(st.session_state, SL_BEREICH)
+        SL.leiste(st, SL_BEREICH, hinweis="dein gespeichertes Modell war beim Öffnen nicht lesbar – damit es nicht "
+                                          "überschrieben wird, bitte die Seite neu laden")
+    else:
+        SL.leiste(st, SL_BEREICH, rueck=(lambda: _rueckgaengig(h)) if (h or {}).get("gh_aktualisiere") else None,
+                  hinweis=f"Arbeitsstand „{AKTUELL}“ wird automatisch gespeichert – Varianten bleiben unverändert")

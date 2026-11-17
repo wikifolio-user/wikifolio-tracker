@@ -14,11 +14,13 @@ import streamlit as st
 
 import formate as FMT
 import schritte
+import speicherleiste as SL
 import ui_stil as UI
 from eks_rechner import modell as M
 from eks_rechner import rechnen as R
 
 P = "eks_"
+SL_BEREICH = "eks"
 BEREICHE = ["Übersicht", "Idee bearbeiten", "Vergleich", "Einstellungen"]
 SZ_FARBE = {"pess": "#F87171", "real": UI.AKZENT, "opt": "#5EEAD4"}
 CSS = """<style>
@@ -118,12 +120,30 @@ def _speichern(h, daten, meldung):
                 neu = dict(daten)
                 neu["letzter_lauf"] = M.bereinigen(alt).get("letzter_lauf") or daten.get("letzter_lauf") or {}
                 return neu
-            ok, _ = h["gh_aktualisiere"](h["pfad"], aendern, {}, "eks-ideen [skip ci]")
+            ok, _ = SL.aktualisieren(st.session_state, SL_BEREICH, h["gh_aktualisiere"], h["pfad"], aendern, {},
+                                     "eks-ideen [skip ci]")
         except Exception as e:
             logging.warning(f"EKS: Speichern fehlgeschlagen: {e}")
     st.session_state[P + "meldung"] = (("✅ " + meldung) if ok else
                                       f"ℹ️ {meldung} – nur für diese Sitzung (Speicher gerade nicht verfügbar).")
     return ok
+
+
+# Eingabefelder einer Idee (Schluessel mit Ideen-ID) - nach "Rueckgaengig" neu aus den Daten aufbauen
+_FELD_PRAEFIXE = ("ph_t_", "ph_s_", "nw_", "fin_", "sz_", "ist_", "ab_", "weg_", "kr_editor")
+
+
+def _rueckgaengig(h):
+    """Letzte Speicherung zuruecknehmen (speicherleiste) und die Eingabefelder neu aus dem Stand fuellen."""
+    stand = SL.zuruecknehmen(st.session_state, SL_BEREICH, h["gh_aktualisiere"], h["pfad"], {},
+                             "eks-ideen rückgängig [skip ci]")
+    if stand is None:
+        st.session_state[P + "meldung"] = "⚠️ Rückgängig gerade nicht möglich – der Speicher ist nicht erreichbar."
+        return
+    st.session_state[P + "daten"] = M.bereinigen(stand)
+    for k in [k for k in st.session_state.keys() if str(k).startswith(tuple(P + x for x in _FELD_PRAEFIXE))]:
+        del st.session_state[k]
+    st.session_state[P + "meldung"] = "↶ Letzte Änderung zurückgenommen"
 
 
 def _idee(daten, iid):
@@ -757,3 +777,7 @@ def _seite(h):
     st.caption("Vereinfachte Annahmen: Beträge netto, linearer Umsatz-Hochlauf, Steuer je Geschäftsjahr mit Abschreibung, "
                "Verlustvortrag und Gewerbesteuer (Freibetrag 24.500 €, Anrechnung), kein Restwert, monatliche "
                "Diskontierung. Orientierungshilfe, keine Steuer- oder Anlageberatung.")
+    if h.get("speichern") and not s.get(P + "lesefehler"):
+        SL.leiste(st, SL_BEREICH, rueck=lambda: _rueckgaengig(h))
+    else:
+        SL.leiste(st, SL_BEREICH, modus="sitzung")
