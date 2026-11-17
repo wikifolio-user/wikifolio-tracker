@@ -447,5 +447,19 @@ class SzenarioAktien(unittest.TestCase):
         self.assertEqual(D.szenario_aktien({}, "defensiv", [])[0], [])
 
 
+class FesteReihenfolge(unittest.TestCase):
+    """Abweichungen und damit die Warnungen kommen immer in derselben Reihenfolge (nicht je Programmstart anders)."""
+    def test_abweichung_reihenfolge_fest(self):
+        import subprocess, sys
+        code = ("import depot_analyse as D, test_depot_analyse as T;"
+                "k = D.kennzahlen([T.pos('W', 1000.0, 'wikifolio', ist_wikifolio=True)]);"
+                "print(list(k['abweichung']))")
+        aus = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                              env={**__import__("os").environ, "PYTHONHASHSEED": str(seed)}).stdout.strip()
+               for seed in (1, 2, 3, 4, 5)}
+        self.assertEqual(len(aus), 1, aus)
+        self.assertTrue(next(iter(aus)).startswith("['etf', 'aktie', 'wikifolio'"), aus)
+
+
 if __name__ == "__main__":
     unittest.main()
