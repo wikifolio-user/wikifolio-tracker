@@ -14,6 +14,7 @@ import streamlit as st
 
 import formate as FMT
 import schritte
+import speicherleiste as SL
 import ui_stil as UI
 from atz_rechner import kapital as K
 from atz_rechner import parameter as PM
@@ -691,3 +692,5 @@ def _seite(h):
                "(ohne Vorabpauschale); Gehalt, Rentenwert und Beitragsbemessungsgrenzen steigen gleichmäßig; "
                "Entgeltpunkte ohne Ost/West- und Zurechnungszeiten; Hinterbliebenen- und Erwerbsminderungsrenten "
                "nur als Info.")
+    # Bewusst ohne Speicher (Gehalt, persoenliche Rentendaten) - sichern per Datei (Reiter "Weiteres")
+    SL.leiste(st, "atz", modus="sitzung", hinweis="zum Sichern „Eingaben & Szenarien als Datei“ herunterladen")
