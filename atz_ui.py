@@ -258,10 +258,17 @@ def _eingaben(p, depotwert):
 
     # 5) Kapital
     t = reiter[4]
-    if depotwert is not None and t.button(f"Depotwert aus dem Dashboard übernehmen ({_eur(depotwert)})",
-                                          key=P + "depot_btn"):
-        st.session_state[P + "kapital"] = float(round(depotwert))
-        st.session_state[P + "einstand"] = min(float(st.session_state.get(P + "einstand", 0.0)), float(round(depotwert)))
+    # depotwert: Zahl (alt) oder {"wert", "stand"} aus derselben Quelle wie die Depot-Ansicht (depot_summe)
+    info = depotwert if isinstance(depotwert, dict) else ({"wert": depotwert} if depotwert is not None else None)
+    wert = (info or {}).get("wert")
+    if wert is not None and t.button(f"Depotwert aus dem Dashboard übernehmen ({_eur(wert)}"
+                                     + (f", Stand {info['stand']}" if info.get("stand") else "") + ")",
+                                     key=P + "depot_btn"):
+        st.session_state[P + "kapital"] = float(round(wert))
+        st.session_state[P + "einstand"] = min(float(st.session_state.get(P + "einstand", 0.0)), float(round(wert)))
+    elif info is not None and wert is None:
+        t.caption("Depotwert noch nicht verfügbar: einmal die Depot-Ansicht öffnen – danach lässt er sich hier "
+                  "mit einem Klick übernehmen.")
     c1, c2 = t.columns(2)
     e["kapital"] = _zahl(c1, "kapital", "Vorhandenes Kapital (€)", 0.0, 50000000.0, 1000.0, "%.0f")
     e["einstand"] = _zahl(c2, "einstand", "davon eingezahlt (Einstand, €)", 0.0, 50000000.0, 1000.0, "%.0f",

@@ -18,6 +18,7 @@ import config
 import github_store
 import chronik
 import startseite
+import depot_summe
 import glossar_ui
 import login
 import nutzerdaten
@@ -5351,9 +5352,13 @@ def render_dashboard():
     # liest er nur (letzter Stand der Depot-Ansicht in dieser App-Instanz), er veraendert nichts
     if gewaehlte_ansicht == ANSICHT_ATZ:
         def _atz_depotwert():
+            """Gleicher Wert wie die Kachel "Depot gesamt" (depot_summe, zuletzt berechnet in der Depot-Ansicht)."""
             if not _sichtbar(ANSICHT_DEPOT):
                 return None
-            return (_depot_kurzinfo_speicher().get(st.session_state.get("login_name") or "_") or {}).get("wert")
+            info = _depot_kurzinfo_speicher().get(st.session_state.get("login_name") or "_") or {}
+            zeit = info.get("zeit")
+            return {"wert": info.get("wert"),
+                    "stand": zeit.strftime("%d.%m. %H:%M Uhr") if hasattr(zeit, "strftime") else ""}
 
         @st.fragment
         def _render_atz():
@@ -6549,8 +6554,12 @@ def render_dashboard():
 
     # ---------- DEPOT GESAMT: Wert und Gewinn/Verlust zuerst (ab einer Position) ----------
     if positions_karten and any(k[2] for k in positions_karten):
-        gesamt_gewinn = gesamt_wert + gesamt_ausgezahlt - gesamt_einstand
-        gesamt_rendite = (gesamt_gewinn / gesamt_einstand * 100) if gesamt_einstand else 0.0
+        # EINE Quelle fuer Depotwert, Gewinn und Rendite (Audit FIN-03): dieselbe Rechnung wie Depot-Analyse
+        # und Altersteilzeit (depot_summe.summe ueber den Depotbestand)
+        _summe = depot_summe.summe(depot_bestand)
+        gesamt_wert, gesamt_einstand, gesamt_ausgezahlt = _summe["wert"], _summe["einstand"], _summe["ausgezahlt"]
+        gesamt_gewinn = _summe["gewinn"] or 0.0
+        gesamt_rendite = _summe["rendite_pct"] or 0.0
 
         # Prozent je Zeitraum aus den summierten €-Betraegen ableiten, NICHT die
         # Einzelprozente mitteln - Positionen haben unterschiedliche Groessen,
