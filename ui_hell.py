@@ -288,7 +288,7 @@ WIDGETS = """
 [data-testid="stRadio"] label:not(#fd-hell), [data-testid="stToggle"] label:not(#fd-hell),
 [role="tab"]:not(#fd-hell), [role="tab"] p:not(#fd-hell) { color: #1C1C1E !important; }
 [data-testid="stCaptionContainer"]:not(#fd-hell), [data-testid="stCaptionContainer"] *:not(#fd-hell) { color: #6E6E73 !important; }
-[role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #4C6EF5 !important; }
+[role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #3B5BDB !important; }
 /* Eingabefelder */
 :is([data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
     [data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"], [data-testid="stDateInputField"],
@@ -348,7 +348,7 @@ WIDGETS = """
     --karte: linear-gradient(160deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.74) 100%) !important;
     --rand: rgba(15, 23, 42, 0.12) !important;
     --rand-glow: 0 0 0 transparent !important;
-    --accent: #4C6EF5 !important;
+    --accent: #3B5BDB !important;          /* 5,4:1 auf Weiss (vorher #4C6EF5: 4,1:1) */
     --bg-0: #EEF1F8 !important;
     --bg-1: #FFFFFF !important;
     --text: #0F172A !important;
@@ -363,7 +363,7 @@ WIDGETS = """
     --puls-licht-weit: rgba(76, 110, 245, 0.22) !important;
     --sf-nr-text: #FFFFFF !important;
     --accent-hell: #3B5BDB !important;
-    --pos: #047857 !important;
+    --pos: #03684B !important;             /* 5,3:1 auch auf grauen Pillen (vorher 4,2:1) */
     --neg: #B91C1C !important;
 }
 button:disabled:not([data-testid^="stNumberInputStep"]):not(#fd-hell) { background: #E5E5EA !important; border-color: #D1D1D6 !important; }

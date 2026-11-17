@@ -1681,6 +1681,31 @@ CSS_RESPONSIV = """
        auf 35 px Breite gequetscht und der Text stand Buchstabe fuer Buchstabe untereinander. Jetzt bekommt
        der Knopf seine Textbreite, der Rest der Zeile teilt sich den uebrigen Platz; passt beides nicht,
        bricht die Zeile um. Menue und Kopfleiste haben ihr eigenes Raster und sind ausgenommen. */
+    /* --- Barrierefreiheit (Audit A11Y-01) ---
+       Kontrast: Streamlit dimmt Hilfetexte (st.caption) zusaetzlich auf 60 % Deckkraft - dann reicht selbst eine
+       gute Farbe nicht mehr fuer 4,5:1. Die Farbe allein (hell #6E6E73, dunkel #8A93A8) erfuellt WCAG AA. */
+    [data-testid="stCaptionContainer"] { opacity: 1 !important; }
+    /* Touch-Ziele mindestens 44 x 44 px am Handy (Finger statt Maus) - sichtbare Groesse bleibt, nur die
+       antippbare Flaeche waechst (negative Raender gleichen den Platz aus) */
+    @media (pointer: coarse), (max-width: 599px) {
+        /* Plus/Minus an Zahlenfeldern */
+        [data-testid="stNumberInput"] button[data-testid^="stNumberInputStep"] { min-width: 44px !important; min-height: 44px !important; }
+        /* Auswahlfelder */
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div:first-child,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div:first-child { min-height: 44px !important; }
+        /* Checkbox, Schalter, Optionsfelder: die ganze Zeile ist antippbar - mindestens 44 px hoch */
+        [data-testid="stCheckbox"] label, [data-testid="stToggle"] label, [data-testid="stRadio"] label {
+            min-height: 44px !important; align-items: center !important; }
+        /* Hilfe-"?" und Werkzeugleisten von Tabellen/Diagrammen (Vollbild, Download) */
+        [data-testid="stTooltipIcon"] [data-testid="stTooltipHoverTarget"],
+        [data-testid="stWidgetLabel"] [data-testid="stTooltipHoverTarget"],
+        [data-testid="stElementToolbarButton"] button {
+            min-width: 44px !important; min-height: 44px !important; margin: -14px -12px !important;
+            display: inline-flex !important; align-items: center !important; justify-content: center !important; }
+        /* Pfeile der Reiterleiste */
+        [data-testid="stTabsScrollLeft"], [data-testid="stTabsScrollRight"] { min-width: 44px !important; }
+    }
+
     /* --- Gleich hohe Kacheln je Reihe: steht in jeder Spalte nur eine Kennzahl (st.metric) oder nur eine
        HTML-Karte, werden alle Kacheln der Reihe so hoch wie die hoechste (vorher richtete sich jede nach
        ihrem Inhalt, z. B. "kein früher Beginn" zweizeilig -> eine Kachel hoeher als die daneben). */
