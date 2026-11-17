@@ -291,6 +291,11 @@ WIDGETS = """
 [role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #3B5BDB !important; }
 /* Gruppen-Ueberschriften im Menue pulsieren bis 80 % Deckkraft - dunkler, damit es auch dann 4,5:1 bleibt */
 .nav-wander:not(#fd-hell) { color: #3D4660 !important; }
+/* Hilfe-"?" an Auswahlfeldern wie ueberall nur umrandet (die Regel fuer den Pfeil fuellte es schwarz) */
+[data-testid="stSelectbox"] [data-testid="stTooltipHoverTarget"] svg:not(#fd-hell) { fill: none !important; }
+/* Schalter ausgeschaltet: im hellen Modus waren Bahn und Knopf fast weiss auf weiss - Bahn grau (3,6:1), Knopf weiss */
+[data-testid="stCheckbox"] label:has(input[role="switch"]:not(:checked)) > span + div:not(#fd-hell) { background-color: #7C8496 !important; }
+[data-testid="stCheckbox"] label:has(input[role="switch"]:not(:checked)) > span + div > div:not(#fd-hell) { background-color: #FFFFFF !important; }
 /* Eingabefelder */
 :is([data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
     [data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"], [data-testid="stDateInputField"],

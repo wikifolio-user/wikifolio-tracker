@@ -1685,6 +1685,8 @@ CSS_RESPONSIV = """
        Kontrast: Streamlit dimmt Hilfetexte (st.caption) zusaetzlich auf 60 % Deckkraft - dann reicht selbst eine
        gute Farbe nicht mehr fuer 4,5:1. Die Farbe allein (hell #6E6E73, dunkel #8A93A8) erfuellt WCAG AA. */
     [data-testid="stCaptionContainer"] { opacity: 1 !important; }
+    /* Schalter (st.toggle) ausgeschaltet: Bahn mit mindestens 3:1 gegen den Hintergrund (Bedienelement, WCAG 1.4.11) */
+    [data-testid="stCheckbox"] label:has(input[role="switch"]:not(:checked)) > span + div { background-color: rgba(232, 236, 246, 0.45) !important; }
     /* Touch-Ziele mindestens 44 x 44 px am Handy (Finger statt Maus) - sichtbare Groesse bleibt, nur die
        antippbare Flaeche waechst (negative Raender gleichen den Platz aus) */
     @media (pointer: coarse), (max-width: 599px) {
@@ -1698,10 +1700,15 @@ CSS_RESPONSIV = """
         /* Checkbox, Schalter, Optionsfelder: die ganze Zeile ist antippbar - mindestens 44 px hoch */
         [data-testid="stCheckbox"] label, [data-testid="stToggle"] label, [data-testid="stRadio"] label {
             min-height: 44px !important; align-items: center !important; }
-        /* Hilfe-"?" und Werkzeugleisten von Tabellen/Diagrammen (Vollbild, Download) */
-        html body [data-testid="stTooltipIcon"] [data-testid="stTooltipHoverTarget"],
-        html body [data-testid="stMain"] [data-testid="stTooltipHoverTarget"]:has(> svg),
-        html body [data-testid="stWidgetLabel"] [data-testid="stTooltipHoverTarget"],
+        /* Hilfe-"?": unsichtbare Tippflaeche (::before) von 44 x 44 px um das Symbol - Groesse und Lage des
+           Symbols bleiben unveraendert (ein groesseres Element haette die Beschriftungen verschoben) */
+        html body :is([data-testid="stTooltipIcon"], [data-testid="stWidgetLabel"]) [data-testid="stTooltipHoverTarget"],
+        html body [data-testid="stMain"] [data-testid="stTooltipHoverTarget"]:has(> svg) { position: relative !important; }
+        html body :is([data-testid="stTooltipIcon"], [data-testid="stWidgetLabel"]) [data-testid="stTooltipHoverTarget"]::before,
+        html body [data-testid="stMain"] [data-testid="stTooltipHoverTarget"]:has(> svg)::before {
+            content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px;
+            transform: translate(-50%, -50%); }
+        /* Werkzeugleisten von Tabellen/Diagrammen (Vollbild, Download, Suche) */
         html body [data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"] button[kind="elementToolbar"] {
             min-width: 44px !important; min-height: 44px !important; margin: -14px -12px !important;
             display: inline-flex !important; align-items: center !important; justify-content: center !important; }
