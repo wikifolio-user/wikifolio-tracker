@@ -1724,3 +1724,643 @@ def ranglisten(k):
     except Exception as e:
         st.error(f"⚠️ Fehler in diesem Tab: {e}")
         notify_app_error("Tab-Qualitaet", e)
+
+
+def _trend(k, vor, jetzt):
+    """Frueher _trend in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    TREND_BIS = k['TREND_BIS']
+    """-> (text, art) - ▲ 3 / ▼ 2 / o / NEU; ab Platz 51 kein Vergleich ("·")"""
+    if jetzt > TREND_BIS:
+        return "·", "gleich"
+    if vor is None:
+        return "NEU", "neu"
+    d = vor - jetzt
+    if d > 0:
+        return f"▲ {d}", "up"
+    if d < 0:
+        return f"▼ {-d}", "down"
+    return "o", "gleich"
+
+
+def _seit_text(k, seit):
+    """Frueher _seit_text in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    try:
+        d = datetime.date.fromisoformat(seit)
+    except Exception:
+        return None
+    tage = (datetime.date.today() - d).days
+    text = f"Vergleich mit dem Stand vom {d.strftime('%d.%m.%Y')}"
+    if tage < 7:
+        text += f" (erst {tage} Tag{'e' if tage != 1 else ''} Verlauf – volle Woche folgt)"
+    return text
+
+
+def _lade_teile(k, muster, anzahl):
+    """Frueher _lade_teile in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    gh_read_streng = k['gh_read_streng']
+    zeilen, felder, stand = [], None, None
+    # gleichzeitig gelesen; streng: ein Lesefehler wirft und landet so NICHT 15 Min. im Cache (DATA-01)
+    for d in UI.parallel_lesen(gh_read_streng, [muster.format(i) for i in range(anzahl)]):
+        d = d or {}
+        felder = d.get("felder") or felder
+        stand = d.get("stand") or stand
+        zeilen += d.get("zeilen") or []
+    if not felder:
+        return {}, None
+    return {z[0]: dict(zip(felder, z)) for z in zeilen}, stand
+
+
+def _q_alle(k):
+    """Frueher _q_alle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    _lade_teile = k['_lade_teile']
+    github_store = k['github_store']
+    try:
+        return _lade_teile("state/qualitaet/alle_{}.json", 6)
+    except github_store.LeseFehler:
+        return {}, None
+
+
+def _p_alle(k):
+    """Frueher _p_alle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    _lade_teile = k['_lade_teile']
+    github_store = k['github_store']
+    try:
+        return _lade_teile("state/top50_alle_{}.json", 4)
+    except github_store.LeseFehler:
+        return {}, None
+
+
+def _index_auswahl(k, prefix, indizes, regionen):
+    """Frueher _index_auswahl in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    auswahl_kompakt = k['auswahl_kompakt']
+    """Region + Index als Knoepfe. indizes = {key: {"titel","region","s"}}.
+    Indizes ohne zugeordnete Aktien (Quelle beim letzten Lauf nicht lesbar)
+    bleiben sichtbar – mit "(–)" und dem Grund. -> index_schluessel oder None"""
+    if not any(v.get("s") for v in indizes.values()):
+        st.info("Die Indexzuordnung liegt noch nicht vor – sie entsteht beim nächsten Lauf der Agenten.")
+        return None
+    regionen = list(regionen) + sorted({v.get("region") for v in indizes.values()
+                                        if v.get("region") and v.get("region") not in regionen})
+    vorhanden = [r for r in regionen if any(v.get("region") == r for v in indizes.values())]
+    region = st.pills("Region", vorhanden, default=vorhanden[0], key=f"{prefix}_region") or vorhanden[0]
+    keys = [k for k, v in indizes.items() if v.get("region") == region]
+    keys = [k for k in keys if indizes[k].get("s")] + [k for k in keys if not indizes[k].get("s")]
+    titel = [f'{indizes[k]["titel"]} ({len(indizes[k]["s"])})' if indizes[k].get("s")
+             else f'{indizes[k]["titel"]} (–)' for k in keys]
+    wahl = auswahl_kompakt("Index", titel, default=titel[0], key=f"{prefix}_index_{region}")
+    # Die Anzahl im Namen kann sich ueber Nacht aendern - eine gespeicherte,
+    # nicht mehr vorhandene Auswahl faellt dann auf den ersten Index zurueck
+    key = keys[titel.index(wahl)] if wahl in titel else keys[0]
+    if not indizes[key].get("s"):
+        grund = indizes[key].get("hinweis") or "Quelle beim letzten Lauf nicht lesbar"
+        st.info(f'Für {indizes[key]["titel"]} liegt noch keine Mitgliederliste vor ({grund}). '
+                "Der nächste Lauf der Agenten versucht es erneut.")
+        return None
+    return key
+
+
+def _listen_laenge(k, prefix, alle=False):
+    """Frueher _listen_laenge in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    LISTEN_LAENGEN = k['LISTEN_LAENGEN']
+    """Wie viele Plaetze die Rangliste zeigt (Standard: Top 500; alle=True bietet zusaetzlich "Alle")."""
+    titel = [f"Top {n}" for n in LISTEN_LAENGEN] + (["Alle"] if alle else [])
+    wahl = st.pills("Länge", titel, default="Top 500", key=f"{prefix}_laenge") or "Top 500"
+    if wahl == "Alle":
+        return 10 ** 6
+    return LISTEN_LAENGEN[titel.index(wahl)] if wahl in titel else 500
+
+
+def _auswahl_art(k, prefix):
+    """Frueher _auswahl_art in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    return st.pills("Auswahl nach", ["Kategorie", "Index"], default="Kategorie",
+                    key=f"{prefix}_auswahl_art") or "Kategorie"
+
+
+def _p_index_kat(k, idx_key, info, daten, laenge=50):
+    """Frueher _p_index_kat in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    _p_alle = k['_p_alle']
+    gh_read_taeglich = k['gh_read_taeglich']
+    """Baut aus den Gesamtdaten eine Rangliste im Format einer Kategorie
+    (top/mit_daten/vergleich), damit dieselbe Anzeige genutzt werden kann."""
+    alle, _ = _p_alle()
+    if not alle:
+        return None, None
+    iv = gh_read_taeglich("state/top50_index_vergleich.json", None) or {}
+    div_key = (daten.get("dividenden_zeitraum") or ["DIV"])[0]
+    mitglieder = [alle[s] for s in info.get("s", []) if s in alle]
+    top, mit_daten, vergleich = {}, {}, {}
+    zrs = [z[0] for z in daten.get("zeitraeume") or []] + [div_key]
+    for zr in zrs:
+        mit = [z for z in mitglieder if z.get(zr) is not None and (zr != div_key or z[zr] > 0)]
+        mit.sort(key=lambda z: (-z[zr], z["s"]))
+        mit_daten[zr] = len(mit)
+        v = (iv.get("listen") or {}).get(f"{idx_key}|{zr}")
+        eintraege = []
+        for z in mit[:laenge]:
+            e = {"name": z["name"], "wkn": z["kennung"], "div": z.get(div_key),
+                 "perf": z.get("1J") if zr == div_key else z[zr]}
+            if v is not None:
+                e["vor"] = v["vor"].get(z["s"])
+            eintraege.append(e)
+        top[zr] = eintraege
+        if v is not None:
+            vergleich[zr] = {"raus": v["raus"]}
+    kat = {"titel": info.get("titel"), "top": top, "mit_daten": mit_daten, "aktiv": len(mitglieder),
+           "dividende": True, "kennung": "WKN/Symbol", "vergleich": vergleich}
+    return kat, (iv.get("seit") or {}).get(info.get("region"))
+
+
+def _q_pct(k, x, vorzeichen=True, nachkomma=1):
+    """Frueher _q_pct in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    if x is None:
+        return "–"
+    return f"{x:+.{nachkomma}f} %" if vorzeichen else f"{x:.{nachkomma}f} %"
+
+
+def _q_x(k, x, suffix='x'):
+    """Frueher _q_x in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    return "–" if x is None else f"{x:.1f}{suffix}"
+
+
+def _qf_pct(k, nachkomma=1, vorzeichen=True):
+    """Frueher _qf_pct in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    return lambda x: "–" if x is None else f"{x:+.{nachkomma}f} %" if vorzeichen else f"{x:.{nachkomma}f} %"
+
+
+def _qf_zahl(k, suffix=''):
+    """Frueher _qf_zahl in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    return lambda x: "–" if x is None else f"{x:.1f}{suffix}"
+
+
+def _qc_schwelle(k, gut, schlecht, umgekehrt=False):
+    """Frueher _qc_schwelle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    def farbe(x):
+        if x is None:
+            return ""
+        if umgekehrt:
+            return "pt-up" if x <= gut else "pt-down" if x >= schlecht else ""
+        return "pt-up" if x >= gut else "pt-down" if x <= schlecht else ""
+    return farbe
+
+
+def _qc_label(k, gut, schlecht):
+    """Frueher _qc_label in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    return lambda x: "pt-up" if x in gut else "pt-down" if x in schlecht else ""
+
+
+def _q_tabelle(k, werte, symbole, vergleich=None, fokus='roic'):
+    """Frueher _q_tabelle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    BR = k['BR']
+    Q_KLASSE_CSS = k['Q_KLASSE_CSS']
+    Q_SPALTEN = k['Q_SPALTEN']
+    TREND_FARBE = k['TREND_FARBE']
+    _trend = k['_trend']
+    html = k['html']
+    """HTML-Tabelle. Am Desktop alle Kennzahlen (seitlich scrollbar), auf
+    dem iPhone nur Rang, Trend, Name, die gewaehlte Kennzahl und Punkte -
+    so bleiben alle Werte untereinander direkt vergleichbar."""
+    mit_trend = vergleich is not None
+    kopf = '<th class="pt-num">#</th>' + ('<th class="pt-num">7&nbsp;T.</th>' if mit_trend else "")
+    kopf += '<th class="pt-wert">Unternehmen</th>'
+    for key, titel, _, _ in Q_SPALTEN:
+        hl = " q-fokus-hl" if key == fokus else ""
+        kopf += f'<th class="pt-num{hl}" data-spalte="q_{key}">{titel}</th>'
+    kopf += '<th class="pt-num">Punkte</th>'
+    zeilen = ""
+    for rang, sym in enumerate(symbole, 1):
+        e = werte.get(sym)
+        if not e:
+            continue
+        z = f'<td class="pt-num pt-seit">{rang}</td>'
+        if mit_trend:
+            t, art = _trend(vergleich["vor"].get(sym), rang)
+            z += f'<td class="pt-num" style="color:{TREND_FARBE[art]};font-weight:700">{t}</td>'
+        unter = " · ".join(x for x in (sym, BR.kategorie_text(e.get("br"))) if x)
+        z += (f'<td class="pt-wert"><span class="pt-name">{html.escape(str(e["name"]))}</span>'
+              f'<span class="pt-sub">{html.escape(unter)}</span></td>')
+        for key, _, fmt, farbe in Q_SPALTEN:
+            x = e.get(key)
+            hl = " q-fokus-hl" if key == fokus else ""
+            z += (f'<td class="pt-num pt-stark {farbe(x)}{hl}" data-spalte="q_{key}">'
+                  f'{html.escape(fmt(x))}</td>')
+        z += (f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(e.get("klasse"), "")}">'
+              f'{e.get("gesamt", "–")}</td>')
+        zeilen += f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">{z}</tr>'
+    # Nur die gewaehlte Kennzahl auf schmalen Bildschirmen einblenden
+    # (die allgemeine Regel blendet dort alle data-spalte-Zellen aus)
+    stil = (f'<style>@media (max-width: 700px) {{ .pt.qt td[data-spalte="q_{fokus}"], '
+            f'.pt.qt th[data-spalte="q_{fokus}"] {{ display: table-cell; }} }}</style>')
+    st.markdown(stil + f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt qt"><thead><tr>{kopf}</tr></thead>'
+                f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+    st.markdown('<div class="q-legende">Punkte: <span class="q-prio">■</span> Hohe Analysepriorität · '
+                '<span class="q-beob">■</span> Beobachtungsliste · <span class="q-nicht">■</span> '
+                'Nicht weiterverfolgen · * = aus Kennzahlen angenähert</div>', unsafe_allow_html=True)
+
+
+def _q_mitglieder(k, kat_key, alle):
+    """Frueher _q_mitglieder in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    gh_read_taeglich = k['gh_read_taeglich']
+    """Alle Aktien der gewaehlten Kategorie bzw. des Index (fuer den Sektor-Filter)."""
+    if not alle:
+        return []
+    if kat_key == "alle":
+        return list(alle)
+    gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
+    if kat_key.startswith("i:"):
+        g = (gruppen.get("indizes") or {}).get(kat_key[2:]) or {}
+    else:
+        g = (gruppen.get("kategorien") or {}).get(kat_key) or {}
+    return [s_ for s_ in g.get("s") or [] if s_ in alle]
+
+
+def _q_dividenden_tabelle(k, alle, mitglieder):
+    """Frueher _q_dividenden_tabelle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    DV = k['DV']
+    _de_zahl = k['_de_zahl']
+    html = k['html']
+    """Je Dividenden-Kategorie: Anzahl, Ø Punkte, davon nachhaltig, bester Wert."""
+    zeilen = ""
+    for i, z in enumerate(DV.uebersicht([alle[s_] for s_ in mitglieder]), 1):
+        b = z["bester"]
+        zeilen += (f'<tr class="{"pt-zebra" if i % 2 == 0 else ""}">'
+                   f'<td class="pt-wert"><span class="pt-name">{DV.ICON[z["schluessel"]]} '
+                   f'{html.escape(z["titel"])}</span></td>'
+                   f'<td class="pt-num">{z["anzahl"]}</td><td class="pt-num">{_de_zahl(z["schnitt_punkte"], 0)}</td>'
+                   f'<td class="pt-num">{z["nachhaltig"] if z["schluessel"] != "keine" else "–"}</td>'
+                   f'<td class="pt-wert"><span class="pt-name">{html.escape(str(b["name"]))}</span>'
+                   f'<span class="pt-sub">{b.get("gesamt")} Punkte · Dividende '
+                   f'{FMT.pct(b.get("div") or 0, 1)}</span></td></tr>')
+    st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                '<table class="pt"><thead><tr><th class="pt-wert">Dividende</th><th class="pt-num">Aktien</th>'
+                '<th class="pt-num">Ø Punkte</th><th class="pt-num">nachhaltig</th>'
+                '<th class="pt-wert">Bester Wert</th></tr></thead>'
+                f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+    st.caption("Dividendenrendite und Ausschüttungsquote vom Qualitäts-Agenten (Yahoo Finance). „nachhaltig“ = "
+               "Ausschüttungsquote höchstens 80 % des Gewinns. Filter und Sortierung oben unter „🔎 Filter“.")
+
+
+def _q_sektoren_tabelle(k, alle, mitglieder):
+    """Frueher _q_sektoren_tabelle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    BR = k['BR']
+    _de_zahl = k['_de_zahl']
+    html = k['html']
+    """Je Sektor: Anzahl, Ø Punkte, Hohe Prioritaet, bester Wert."""
+    je = {}
+    for s_ in mitglieder:
+        e = alle[s_]
+        je.setdefault(BR.sektor(e.get("br")), []).append(e)
+    zeilen = ""
+    for i, (sek, liste) in enumerate(sorted(je.items(), key=lambda kv: -len(kv[1])), 1):
+        bester = max(liste, key=lambda e: e.get("gesamt") or 0)
+        schnitt = sum(e.get("gesamt") or 0 for e in liste) / len(liste)
+        prio = sum(1 for e in liste if e.get("klasse") == "prio")
+        branchen_n = len({BR.branche_de(e.get("br")) for e in liste})
+        zeilen += (f'<tr class="{"pt-zebra" if i % 2 == 0 else ""}">'
+                   f'<td class="pt-wert"><span class="pt-name">{BR.SEKTOR_ICON.get(sek, "")} {html.escape(sek)}</span>'
+                   f'<span class="pt-sub">{"ohne Branchenangabe" if sek == "Sonstige" else f"{branchen_n} Branche" + ("n" if branchen_n != 1 else "")}</span></td>'
+                   f'<td class="pt-num">{len(liste)}</td><td class="pt-num">{_de_zahl(schnitt, 0)}</td>'
+                   f'<td class="pt-num">{prio}</td>'
+                   f'<td class="pt-wert"><span class="pt-name">{html.escape(str(bester["name"]))}</span>'
+                   f'<span class="pt-sub">{bester.get("gesamt")} Punkte · '
+                   f'{html.escape(BR.branche_de(bester.get("br")))}</span></td></tr>')
+    st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                '<table class="pt"><thead><tr><th class="pt-wert">Sektor</th><th class="pt-num">Aktien</th>'
+                '<th class="pt-num">Ø Punkte</th><th class="pt-num">Priorität</th>'
+                '<th class="pt-wert">Bester Wert</th></tr></thead>'
+                f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+    st.caption("Sektor und Branche aus der Yahoo-Branchenangabe (11 Sektoren). „Sonstige“ = keine "
+               "Branchenangabe. Filter oben: „Firmen-Kategorie“.")
+
+
+def _div_rhythmen(k):
+    """Frueher _div_rhythmen in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    gh_read_taeglich = k['gh_read_taeglich']
+    """{Yahoo-Symbol: Auszahlungsrhythmus} aus dem Top-50-Agenten (gleiche Symbole wie der Qualitaets-Agent)."""
+    d = gh_read_taeglich("state/top50_dividenden.json", None) or {}
+    return {s_: v[1] for s_, v in (d.get("werte") or {}).items() if isinstance(v, list) and len(v) > 1 and v[1]}
+
+
+def _qk_daten(k):
+    """Frueher _qk_daten in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    _q_alle = k['_q_alle']
+    gh_read_taeglich = k['gh_read_taeglich']
+    """Gesamtdaten aller bewerteten Aktien + Kategorien/Indizes."""
+    alle, _ = _q_alle()
+    gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
+    if not alle or not gruppen.get("kategorien"):
+        return None
+    return {"alle": alle, "gruppen": gruppen}
+
+
+def _qk_zeilen(k, m, kat_key):
+    """Frueher _qk_zeilen in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    if kat_key == "alle":
+        return list(m["alle"].values())
+    return [m["alle"][s_] for s_ in m["gruppen"]["kategorien"].get(kat_key, {}).get("s", []) if s_ in m["alle"]]
+
+
+def _qk_einteilen(k, zeilen, zr_key):
+    """Frueher _qk_einteilen in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    QK_FELDER = k['QK_FELDER']
+    QK_QUAL_GRENZE = k['QK_QUAL_GRENZE']
+    """-> ({feld: [zeilen sortiert]}, median) fuer Zeilen mit Kursdaten"""
+    mit = [z for z in zeilen if z.get(zr_key) is not None and z.get("q_ant") is not None]
+    if not mit:
+        return {f: [] for f, _, _ in QK_FELDER}, None
+    werte = sorted(z[zr_key] for z in mit)
+    median = werte[len(werte) // 2]
+    felder = {f: [] for f, _, _ in QK_FELDER}
+    for z in mit:
+        q_hoch = z["q_ant"] >= QK_QUAL_GRENZE
+        k_stark = z[zr_key] >= median
+        felder[("gut_" if q_hoch else "schwach_") + ("stark" if k_stark else "schwach")].append(z)
+    felder["gut_schwach"].sort(key=lambda z: (-z["gesamt"], z[zr_key]))
+    felder["gut_stark"].sort(key=lambda z: -z["gesamt"])
+    felder["schwach_stark"].sort(key=lambda z: -z[zr_key])
+    felder["schwach_schwach"].sort(key=lambda z: -z["gesamt"])
+    return felder, median
+
+
+def _qk_tabelle(k, zeilen, zr_key, zr_titel):
+    """Frueher _qk_tabelle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    Q_KLASSE_CSS = k['Q_KLASSE_CSS']
+    html = k['html']
+    vz_zahl = k['vz_zahl']
+    kopf = ('<th class="pt-num">#</th><th class="pt-wert">Unternehmen</th>'
+            f'<th class="pt-num">Kurs {html.escape(zr_titel)}</th><th class="pt-num">FCF-<br>Rendite</th>'
+            '<th class="pt-num">Punkte</th>')
+    z_html = ""
+    for platz, z in enumerate(zeilen, 1):
+        perf = z[zr_key]
+        bew = z.get("bew") or "–"
+        mos = z.get("mos")
+        unter = f'{z["s"]} · Qualität {z["q_ant"]:.0f} % · Bewertung {bew}'
+        if mos is not None and mos > -200:
+            unter += f" · MoS {mos:+.0f} %"
+        unter = unter.replace(" %", "\u00a0%")          # Zahl und % nie getrennt umbrechen
+        fy = z.get("fcfy")
+        z_html += (
+            f'<tr class="{"pt-zebra" if platz % 2 == 0 else ""}">'
+            f'<td class="pt-num pt-seit">{platz}</td>'
+            f'<td class="pt-wert"><span class="pt-name">{html.escape(z["name"])}</span>'
+            f'<span class="pt-sub">{html.escape(unter)}</span></td>'
+            f'<td class="pt-num pt-stark {"pt-up" if perf >= 0 else "pt-down"}">{vz_zahl(perf, 1)} %</td>'
+            f'<td class="pt-num pt-stark {"pt-up" if (fy or 0) >= 5 else "pt-down" if fy is not None and fy < 2 else ""}">'
+            f'{"–" if fy is None else f"{FMT.pct(fy, 1)}"}</td>'
+            f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(z["klasse"], "")}">{z["gesamt"]}</td></tr>')
+    st.markdown(f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr>{kopf}</tr></thead>'
+                f'<tbody>{z_html}</tbody></table></div>', unsafe_allow_html=True)
+
+
+def _qk_diagramm(k, zeilen, zr_key, zr_titel, median):
+    """Frueher _qk_diagramm in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    QK_QUAL_GRENZE = k['QK_QUAL_GRENZE']
+    _h = k['_h']
+    vz_zahl = k['vz_zahl']
+    mit = [z for z in zeilen if z.get(zr_key) is not None and z.get("q_ant") is not None]
+    if not mit:
+        return
+    # Ausreisser (z.B. +900 %) stauchen sonst alles andere zusammen
+    werte = sorted(z[zr_key] for z in mit)
+    oben = werte[int(len(werte) * 0.98)] if len(werte) > 20 else werte[-1]
+    unten = werte[int(len(werte) * 0.02)] if len(werte) > 20 else werte[0]
+    fig = go.Figure()
+    for kl, titel_kl, farbe in (("nicht", "Nicht weiterverfolgen", "#6B7280"),
+                                ("beobachten", "Beobachtungsliste", "#F5B942"),
+                                ("prio", "Hohe Analysepriorität", "#34D399")):
+        pts = [z for z in mit if z["klasse"] == kl]
+        if not pts:
+            continue
+        fig.add_trace(go.Scattergl(
+            x=[min(max(z[zr_key], unten), oben) for z in pts], y=[z["q_ant"] for z in pts],
+            mode="markers", name=titel_kl,
+            marker=dict(color=farbe, size=6 if kl != "nicht" else 5, opacity=0.85 if kl != "nicht" else 0.45),
+            text=[f'{_h(z["name"])} ({_h(z["s"])})<br>Kurs {zr_titel}: {vz_zahl(z[zr_key], 1)} %<br>'
+                  f'Qualität {z["q_ant"]:.0f} % · {z["gesamt"]} Punkte' for z in pts],
+            hovertemplate="%{text}<extra></extra>"))
+    for x0, y0, text in ((unten, 99, "Qualität hoch · Kurs schwach"), (oben, 99, "Qualität hoch · Kurs stark"),
+                         (unten, 1, "Qualität niedrig · Kurs schwach"), (oben, 1, "Qualität niedrig · Kurs stark")):
+        fig.add_annotation(x=x0, y=y0, text=text, showarrow=False, font=dict(size=10, color="#71717A"),
+                           xanchor="left" if x0 == unten else "right", yanchor="top" if y0 > 50 else "bottom")
+    fig.add_vline(x=median, line=dict(color="#A1A1AA", width=1, dash="dot"))
+    fig.add_hline(y=QK_QUAL_GRENZE, line=dict(color="#A1A1AA", width=1, dash="dot"))
+    fig.update_layout(
+        paper_bgcolor="#000000", plot_bgcolor="#000000", height=380, margin=dict(l=10, r=10, t=10, b=40),
+        showlegend=True, legend=dict(orientation="h", y=-0.14, x=0, font=dict(color="#A1A1AA", size=10)),
+        xaxis=dict(title=dict(text=f"Kursentwicklung {zr_titel} (EUR)", font=dict(color="#A1A1AA", size=12)),
+                   ticksuffix=" %", showgrid=True, gridcolor="#1A1A1A", zeroline=True, zerolinecolor="#333",
+                   tickfont=dict(color="#A1A1AA")),
+        yaxis=dict(title=dict(text="Qualität (%)", font=dict(color="#A1A1AA", size=12)), range=[0, 100],
+                   showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
+        dragmode=False)
+    st.plotly_chart(UI.chart_stil(fig), width="stretch", key="qk_diagramm", config={"displayModeBar": False})
+
+
+def _ue_z(k, text, farbe=None, fett=False):
+    """Frueher _ue_z in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    return (str(text), farbe, fett)
+
+
+def _ue_css_farbe(k, klasse):
+    """Frueher _ue_css_farbe in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    return {"pt-up": "up", "pt-down": "down"}.get(klasse)
+
+
+def _ue_trend(k, vor, platz):
+    """Frueher _ue_trend in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    _trend = k['_trend']
+    _ue_z = k['_ue_z']
+    t, art = _trend(vor, platz)
+    return _ue_z(t, {"up": "up", "down": "down", "neu": "up", "gleich": "grau"}[art], art != "gleich")
+
+
+def _ue_qualitaets_tabelle(k, werte, symbole, vergleich, umfang):
+    """Frueher _ue_qualitaets_tabelle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    BR = k['BR']
+    Q_KLASSEN_KURZ = k['Q_KLASSEN_KURZ']
+    Q_SPALTEN = k['Q_SPALTEN']
+    _ue_css_farbe = k['_ue_css_farbe']
+    _ue_trend = k['_ue_trend']
+    _ue_z = k['_ue_z']
+    spalten = [("#", 3, "r"), ("7 T.", 4, "r"), ("Unternehmen", 17, "l"), ("Branche", 11, "l"),
+               ("Punkte", 5, "r"), ("Einordnung", 7, "l")]
+    spalten[3] = ("Branche", 10, "l")
+    spalten += [(titel, 7 if key == "nde" else 6, "r") for key, titel, _, _ in Q_SPALTEN]
+    zeilen = []
+    for platz, sym in enumerate(symbole[:umfang], 1):
+        e = werte.get(sym)
+        if not e:
+            continue
+        kl = e.get("klasse")
+        z = [_ue_z(platz, fett=True),
+             _ue_trend((vergleich or {}).get("vor", {}).get(sym), platz) if vergleich is not None else _ue_z("–", "grau"),
+             _ue_z(f'{e["name"]} ({sym})', fett=True), _ue_z(BR.kategorie_text(e.get("br")) if e.get("br") else "–"),
+             _ue_z(e.get("gesamt", "–"), {"prio": "prio", "beobachten": "beob"}.get(kl, "nicht"), True),
+             _ue_z(Q_KLASSEN_KURZ.get(kl, "–"), {"prio": "prio", "beobachten": "beob"}.get(kl, "nicht"))]
+        for key, _, fmt, farbe in Q_SPALTEN:
+            x = e.get(key)
+            z.append(_ue_z(fmt(x), _ue_css_farbe(farbe(x))))
+        zeilen.append(z)
+    return spalten, zeilen
+
+
+def _ue_html(k, abschnitte):
+    """Frueher _ue_html in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    UE_FARBEN_SCHIRM = k['UE_FARBEN_SCHIRM']
+    html = k['html']
+    """Bildschirm: breite Tabellen scrollen seitlich, die Namensspalte bleibt stehen."""
+    for a in abschnitte:
+        st.markdown(f'<div class="abschnitt">{html.escape(a["titel"])}</div>', unsafe_allow_html=True)
+        if a.get("text"):
+            st.caption(a["text"])
+        if not a["zeilen"]:
+            st.caption("– keine Einträge –")
+            continue
+        namensspalte = next((i for i, (n, _, _) in enumerate(a["spalten"])
+                             if n in ("Unternehmen", "Kategorie")), None)
+        kopf = "".join(
+            f'<th class="{"pt-wert" if aus == "l" else "pt-num"}{" ue-fix" if i == namensspalte else ""}">'
+            f'{html.escape(n).replace("7 T.", "7&nbsp;T.")}</th>' for i, (n, _, aus) in enumerate(a["spalten"]))
+        zeilen = ""
+        for r, zeile in enumerate(a["zeilen"]):
+            zellen = ""
+            for i, ((text, farbe, fett), (_, _, aus)) in enumerate(zip(zeile, a["spalten"])):
+                stil = f"color:{UE_FARBEN_SCHIRM[farbe]};" if farbe else ""
+                stil += "font-weight:700;" if fett else ""
+                inhalt = "<br>".join(html.escape(t) for t in text.split("\n")).replace(
+                    "\t", '&nbsp;&nbsp;<span style="font-weight:700">') + ("</span>" if "\t" in text else "")
+                zellen += (f'<td class="{"pt-wert" if aus == "l" else "pt-num"}'
+                           f'{" ue-fix" if i == namensspalte else ""}" style="{stil}">{inhalt}</td>')
+            zeilen += f'<tr class="{"pt-zebra" if r % 2 else ""}">{zellen}</tr>'
+        st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt ue"><thead><tr>{kopf}</tr></thead>'
+                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+
+
+def _render_uebersicht(k):
+    """Frueher _render_uebersicht in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    UE_TEILE = k['UE_TEILE']
+    _ue_abschnitte = k['_ue_abschnitte']
+    _ue_html = k['_ue_html']
+    _ue_pdf = k['_ue_pdf']
+    gh_read_taeglich = k['gh_read_taeglich']
+    dq = gh_read_taeglich("state/qualitaet.json", None)
+    dp = gh_read_taeglich("state/top50.json", None)
+    if not dq and not dp:
+        st.info("Noch keine Daten vorhanden – die Übersicht erscheint nach dem ersten Lauf der Agenten.")
+        return
+    # Umfang und Inhalt in einem Klappbereich (UX 10/2026: am Handy standen drei Auswahlgruppen mit ~500 px
+    # vor dem ersten Inhalt) - die Beschriftung zeigt die aktuelle Wahl
+    _u = st.session_state.get("ue_umfang") or "Top 10"
+    _t = st.session_state.get("ue_teile", UE_TEILE)
+    with st.expander(f"⚙️ Umfang & Inhalt · {_u} · {len(_t or [])} von {len(UE_TEILE)} Bereichen",
+                     key="ue_einstellungen"):
+        umfang_txt = st.pills("Umfang je Liste", ["Top 10", "Top 25", "Top 50"], default="Top 10",
+                              key="ue_umfang") or "Top 10"
+        teile = st.pills("Inhalt", UE_TEILE, default=UE_TEILE, selection_mode="multi", key="ue_teile") or []
+    umfang = int(umfang_txt.split()[1])
+    try:
+        stand = datetime.datetime.fromisoformat((dq or dp)["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
+    except Exception:
+        stand = "–"
+    stand_text = f"Stand {stand}"
+    abschnitte = _ue_abschnitte(dq, dp, umfang, teile)
+    if not abschnitte:
+        st.info("Bitte mindestens einen Inhalt auswählen.")
+        return
+
+    # PDF erst auf Knopfdruck erzeugen - das Bauen kostet einige Sekunden
+    schluessel = f"ue_pdf|{stand}|{umfang}|{'/'.join(teile)}"
+    if st.button("📄 PDF zum Drucken erstellen", key="ue_pdf_knopf", width="stretch"):
+        try:
+            st.session_state["ue_pdf"] = (schluessel, _ue_pdf(abschnitte, stand_text))
+        except ImportError:
+            st.error("Für das PDF fehlt das Paket **reportlab**: bitte die Zeile `reportlab` in die "
+                     "requirements.txt des Repos aufnehmen – Streamlit installiert es dann automatisch.")
+    fertig = st.session_state.get("ue_pdf")
+    if fertig and fertig[0] == schluessel:
+        st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
+                           file_name=f"Ranglisten_Uebersicht_{datetime.date.today().isoformat()}.pdf",
+                           key="ue_pdf_download", width="stretch")
+    st.caption(f"{stand_text} · A4 quer · breite Tabellen lassen sich hier seitlich wischen, "
+               "die Namensspalte bleibt stehen.")
+    _ue_html(abschnitte)
+
+
+def _wk_seite(k, nr, p='wk'):
+    """Frueher _wk_seite in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    st.session_state[f"{p}_seite"] = nr
+
+
+def _render_wikifolios_alle(k, teile, stand):
+    """Frueher _render_wikifolios_alle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    _render_liste_alle = k['_render_liste_alle']
+    wikifolio_alle = k['wikifolio_alle']
+    _render_liste_alle("wikifolio", wikifolio_alle(datetime.date.today().isoformat()), stand)
+
+
+def _render_etfs(k):
+    """Frueher _render_etfs in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    _render_liste_alle = k['_render_liste_alle']
+    etf_alle = k['etf_alle']
+    gh_read_taeglich = k['gh_read_taeglich']
+    ranglisten_stand = k['ranglisten_stand']
+    """Alle ETFs mit allen Kennzahlen, Merkmal-Filtern und eigener Bewertung - bis der Watchlist-Agent die
+    ETF-Kennzahlen geschrieben hat, ein Hinweis auf den ETF-Score."""
+    werte = etf_alle(datetime.date.today().isoformat())
+    if not werte:
+        st.info("Die erweiterte ETF-Übersicht entsteht beim nächsten Lauf des Watchlist-Agenten (täglich "
+                "07:30 Uhr). Bis dahin: Bewertung der ETFs unter „🏅 ETF- & wikifolio-Score“.")
+        return
+    daten = gh_read_taeglich("state/top50.json", None) or {}
+    _render_liste_alle("etf", werte, ranglisten_stand(daten) if daten else "–")
+
+
+def _ks_de(k, x, dez=1):
+    """Frueher _ks_de in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    return f"{x:,.{dez}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _ks_seite(k, nr):
+    """Frueher _ks_seite in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    st.session_state["ks_seite"] = nr
+
+
+def _ks_rangliste(k, art):
+    """Frueher _ks_rangliste in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    gh_read_taeglich = k['gh_read_taeglich']
+    """ETF-/wikifolio-Score aus dem Top-500-Katalog - je Sitzung und Datenstand gemerkt."""
+    import klassen_score as KS
+    teile = [d or {} for d in UI.parallel_lesen(gh_read_taeglich, [f"state/planer/katalog_gross_{i}.json"
+                                                                   for i in range(4)], {})]
+    stand = next((t.get("stand") for t in teile if t.get("stand")), "")
+    gemerkt = st.session_state.get(f"_ks_{art}")
+    if gemerkt and gemerkt[0] == stand:
+        return stand, gemerkt[1]
+    liste = KS.rangliste(teile, art)
+    st.session_state[f"_ks_{art}"] = (stand, liste)
+    return stand, liste
+
+
+def _ks_tabelle(k, spalten, zeilen):
+    """Frueher _ks_tabelle in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    kopf = "".join(f'<th class="{"pt-num" if a == "r" else "pt-wert"}">{t}</th>' for t, a in spalten)
+    rumpf = "".join("<tr>" + "".join(f'<td class="{"pt-num" if a == "r" else ""}">{z}</td>'
+                                     for z, (_, a) in zip(r, spalten)) + "</tr>" for r in zeilen)
+    st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
+                f'<table class="pt pt-kompakt ks-mini"><thead><tr>{kopf}</tr></thead>'
+                f'<tbody>{rumpf}</tbody></table></div>', unsafe_allow_html=True)

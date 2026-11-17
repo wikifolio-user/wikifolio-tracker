@@ -536,3 +536,289 @@ def candlestick(k):
     except Exception as e:
         st.error(f"⚠️ Fehler in diesem Tab: {e}")
         notify_app_error("Tab-Candlestick", e)
+
+
+def lade_benchmarks_mit_fortschritt(k, df_index, start_datum, kapital, hinweis='Lade Vergleichswerte'):
+    """Frueher lade_benchmarks_mit_fortschritt in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    benchmark_normiert_auf_startkapital = k['benchmark_normiert_auf_startkapital']
+    heute_date = k['heute_date']
+    lade_vergleichswerte = k['lade_vergleichswerte']
+    melde = k['melde']
+    vergleich_label = k['vergleich_label']
+    vergleichswerte_vorladen = k['vergleichswerte_vorladen']
+    """Laedt alle Vergleichswerte und zeigt dabei einen zentrierten
+    Fortschrittsbalken mit Prozentangabe. Gibt (series_dict, startdaten_dict)
+    zurueck. Die Anzeige wird am Ende restlos entfernt."""
+    series, startdaten = {}, {}
+    items = [(vergleich_label(e), str(e["instrument_id"])) for e in lade_vergleichswerte()]
+    gesamt = len(items)
+    melde("benchmarks", 0.0, f"{hinweis} … ({gesamt} Werte)")
+    vergleichswerte_vorladen([i for _, i in items])
+    for i, (label, inst_id) in enumerate(items):
+        melde("benchmarks", i / gesamt if gesamt else 1.0,
+              f"{hinweis} … ({i + 1}/{gesamt}) · {label}")
+        s, erstes_datum = benchmark_normiert_auf_startkapital(
+            df_index, inst_id, start_datum, heute_date, kapital
+        )
+        if s is not None:
+            series[label] = s
+            startdaten[label] = erstes_datum
+    return series, startdaten
+
+
+def zeige_chart_legende_liste(k, eintraege):
+    """Frueher zeige_chart_legende_liste in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    """eintraege: Liste von (label, emoji) Tupeln. Fuer NICHT abwaehlbare
+    Linien (Startkapital, eigenes Zertifikat) - einfacher Text mit
+    Emoji-Symbol, garantiert einzeilig auf jeder Bildschirmbreite."""
+    for label, emoji in eintraege:
+        st.write(f"{emoji} {label}")
+
+
+def lese_pills_auswahl_still(k, labels, key):
+    """Frueher lese_pills_auswahl_still in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    """Wie pills_auswahl(), aber OHNE das Widget zu rendern - liest nur
+    den zuletzt gespeicherten Auswahlzustand (Standard: alle an). Fuer
+    die Performance-Tabelle, die VOR dem sichtbaren Auswahl-Bereich
+    steht, aber trotzdem die aktuelle Auswahl beruecksichtigen soll."""
+    optionen = [f"{config.BENCHMARK_EMOJI.get(label, '⚪')} {label}" for label in labels]
+    gespeichert = st.session_state.get(key, optionen)
+    praefix_map = {opt: label for opt, label in zip(optionen, labels)}
+    return [praefix_map[opt] for opt in gespeichert if opt in praefix_map]
+
+
+def pills_auswahl(k, labels, key):
+    """Frueher pills_auswahl in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    """Mehrfachauswahl per st.pills (anklickbare 'Pillen'-Buttons) statt
+    Checkboxen - komplett anderes Widget ohne Checkbox-Innenleben, das
+    sich per CSS nicht anpassen liess (moegliches Shadow-DOM). Emoji
+    stecken direkt im Options-Text, keine separate Farbzuordnung noetig.
+    Gibt die Liste der aktuell ausgewaehlten (reinen) Labels zurueck."""
+    optionen = [f"{config.BENCHMARK_EMOJI.get(label, '⚪')} {label}" for label in labels]
+    ausgewaehlt = st.pills(
+        "Vergleichswerte im Chart anzeigen",
+        optionen, selection_mode="multi", default=optionen, key=key,
+    )
+    ausgewaehlt = ausgewaehlt or []
+    praefix_map = {opt: label for opt, label in zip(optionen, labels)}
+    return [praefix_map[opt] for opt in ausgewaehlt]
+
+
+def pct_ueber_tage(k, reihe, tage):
+    """Frueher pct_ueber_tage in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    """Prozentuale Veraenderung einer Wertreihe ueber die letzten N Tage.
+    Gibt None zurueck, wenn die Reihe nicht weit genug zurueckreicht - dann
+    bleibt die Tabellenzelle leer, statt einen zu kurzen Zeitraum als
+    Quartals-/Halbjahreswert auszugeben."""
+    if reihe is None:
+        return None
+    gueltig = reihe.dropna()
+    if gueltig.empty:
+        return None
+    stichtag = gueltig.index[-1] - pd.Timedelta(days=tage)
+    davor = gueltig[gueltig.index <= stichtag]
+    if davor.empty:
+        return None
+    # Toleranz: der Stichtag darf auf ein Wochenende/Feiertag fallen,
+    # aber die Reihe muss wirklich bis in seine Naehe zurueckreichen.
+    if (stichtag - davor.index[-1]).days > 10:
+        return None
+    basis = float(davor.iloc[-1])
+    if not basis:
+        return None
+    return (float(gueltig.iloc[-1]) / basis - 1) * 100
+
+
+def kennzahl_umschalter(k, key, eintraege):
+    """Frueher kennzahl_umschalter in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+
+    """Waehlt, WELCHE Kennzahl auf schmalen Bildschirmen in der
+    Vergleichstabelle steht. Am Desktop sind ohnehin alle Spalten
+    sichtbar - dort dient der Umschalter nur der Hervorhebung.
+
+    Bewusst st.pills statt eines Dropdowns: die Auswahl ist dauerhaft
+    sichtbar, ein Tap genuegt, und man sieht sofort, welche
+    Vergleichsmoeglichkeiten es ueberhaupt gibt."""
+    moeglich = [("Ø/Jahr", "jaehrlich"), ("Ø/Mon.", "monatlich"), ("Gesamt", "perf")]
+    if not any(e.get("_jaehrlich") is not None for e in eintraege):
+        # Audit DEP-08: unter 1 Jahr kein Ø/Jahr -> Gesamtrendite als Vorauswahl
+        moeglich = [("Gesamt", "perf"), ("Ø/Mon.", "monatlich"), ("Ø/Jahr", "jaehrlich")]
+    for k, titel in [("_q", "3 Mon."), ("_h", "6 Mon."),
+                     ("_n", "9 Mon."), ("_z", "12 Mon.")]:
+        if any(e.get(k) is not None for e in eintraege):
+            moeglich.append((titel, k))
+    moeglich.append(("+/- €", "euro"))
+
+    beschriftungen = [b for b, _ in moeglich]
+    schritte.titel(st, "vergleich", 2)
+    wahl = st.pills("Vergleichen nach", beschriftungen,
+                    default=beschriftungen[0], key=key)
+    zuordnung = dict(moeglich)
+    return zuordnung.get(wahl or beschriftungen[0], moeglich[0][1])
+
+
+def performance_tabelle_html(k, eintraege, eigene_kennung=None, fokus='jaehrlich'):
+    """Frueher performance_tabelle_html in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    _h = k['_h']
+    re = k['re']
+    vz_zahl = k['vz_zahl']
+    """Baut die Vergleichstabelle. Bewusst eine gemeinsame Funktion fuer
+    alle drei Ansichten - vorher stand derselbe HTML-Block dreimal fast
+    identisch im Code.
+
+    Verbesserungen gegenueber der frueheren Fassung:
+    - Zeitraum-Spalten ohne einen einzigen Wert werden WEGGELASSEN. Bei
+      jungen Produkten waren "9 Mon." und "12 Mon." komplett leer und
+      haben nur Breite gekostet.
+    - Zebra-Streifen und Trennlinien zwischen den Spaltengruppen machen
+      lange Zeilen ueber die ganze Breite verfolgbar.
+    - Die eigene Position ist farblich hervorgehoben - sie ist der
+      Bezugspunkt, alles andere ist Vergleich.
+    - Name und WKN uebereinander statt nebeneinander: spart Breite und
+      verhindert den unruhigen Zeilenumbruch mitten im Namen.
+    - Zahlen in Tabellenziffern (Monospace), damit die Nachkommastellen
+      untereinander stehen.
+    """
+    if not eintraege:
+        return ""
+
+    # Nur Zeitraum-Spalten zeigen, die mindestens einen Wert haben.
+    zeitraeume = [("_q", "3 Mon."), ("_h", "6 Mon."),
+                  ("_n", "9 Mon."), ("_z", "12 Mon.")]
+    aktive_zeitraeume = [
+        (key, titel) for key, titel in zeitraeume
+        if any(e.get(key) is not None for e in eintraege)
+    ]
+
+    def zelle(wert, fett=False, klein=False, label="", spalte=""):
+        """spalte kennzeichnet die Kennzahl (z.B. "jaehrlich") - auf
+        schmalen Bildschirmen blendet das CSS alle bis auf die gewaehlte
+        aus, damit die Tabelle ohne seitliches Scrollen vergleichbar
+        bleibt."""
+        attr = f' data-label="{label}" data-spalte="{spalte}"'
+        if wert is None:
+            return f'<td class="pt-num pt-leer"{attr}>–</td>'
+        farbe = "pt-up" if wert >= 0 else "pt-down"
+        klassen = f"pt-num {farbe}" + (" pt-stark" if fett else "") + (" pt-klein" if klein else "")
+        return f'<td class="{klassen}"{attr}>{vz_zahl(wert, 2)} %</td>'
+
+    zeilen = ""
+    for i, e in enumerate(eintraege):
+        ist_eigene = eigene_kennung and eigene_kennung in str(e.get("Wert", ""))
+        zeilen_klasse = "pt-eigene" if ist_eigene else ("pt-zebra" if i % 2 else "")
+
+        # Name und WKN trennen: "MSCI World (A0RPWH)" -> zwei Zeilen
+        roh = str(e.get("Wert", ""))
+        m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", roh)
+        name, kuerzel = (m.group(1), m.group(2)) if m else (roh, "")
+
+        euro = e.get("_euro")
+        euro_klasse = "pt-up" if (euro or 0) >= 0 else "pt-down"
+        seit = e.get("_gelistet_seit")
+        seit_txt = seit.strftime("%d.%m.%y") if seit else "–"
+
+        zeilen += (
+            f'<tr class="{zeilen_klasse}">'
+            f'<td class="pt-wert"><span class="pt-name">{_h(name)}</span></td>'
+            + zelle(e.get("_monatlich"), fett=True, label="Ø/Mon.", spalte="monatlich")
+            + zelle(e.get("_jaehrlich"), fett=True, label="Ø/Jahr", spalte="jaehrlich")
+            + zelle(e.get("_perf"), fett=True, label="Gesamt", spalte="perf")
+            + "".join(zelle(e.get(k), fett=True, label=titel, spalte=k)
+                      for k, titel in aktive_zeitraeume)
+            + f'<td class="pt-num pt-stark {euro_klasse}" data-label="+/- €" data-spalte="euro">{fmt(euro or 0, 0)}</td>'
+            + f'<td class="pt-num pt-wknval" data-label="WKN" data-spalte="wkn">{_h(kuerzel) or "–"}</td>'
+            + f'<td class="pt-num pt-seit" data-label="seit" data-spalte="seit">{seit_txt}</td>'
+            '</tr>'
+        )
+
+    kopf = (
+        '<th class="pt-wert">Wert</th>'
+        '<th class="pt-num" data-spalte="monatlich">Ø/Mon.</th>'
+          '<th class="pt-num" data-spalte="jaehrlich">Ø/Jahr</th>'
+          '<th class="pt-num" data-spalte="perf">Gesamt</th>'
+        + "".join(f'<th class="pt-num" data-spalte="{k}">{t}</th>'
+                  for k, t in aktive_zeitraeume)
+        + '<th class="pt-num" data-spalte="euro">+/- €</th>'
+          '<th class="pt-num" data-spalte="wkn">WKN</th>'
+          '<th class="pt-num" data-spalte="seit">seit</th>'
+    )
+    # Die Fokus-Klasse steuert per CSS, welche Kennzahl auf schmalen
+    # Bildschirmen sichtbar ist (am Desktop sind ohnehin alle zu sehen).
+    return (f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-fokus-{fokus}">'
+            f'<thead><tr>{kopf}</tr></thead><tbody>{zeilen}</tbody></table></div>')
+
+
+def _vergleichswerte_verwalten(k, offen=False):
+    """Frueher _vergleichswerte_verwalten in app.render_dashboard (Rumpf unveraendert). k: alle benoetigten Werte und Funktionen der App."""
+    PROG_BASIS = k['PROG_BASIS']
+    _h = k['_h']
+    aendere_vergleichswerte = k['aendere_vergleichswerte']
+    lade_vergleichswerte = k['lade_vergleichswerte']
+    suche_instrument = k['suche_instrument']
+    time = k['time']
+    top500_optionen_bei_bedarf = k['top500_optionen_bei_bedarf']
+    vergleich_label = k['vergleich_label']
+    """Eigene Vergleichswerte (Vermoegensaufbau, Performance seit 2026/2021): aus der Top-500-Liste oder per
+    Suche hinzufuegen, wieder entfernen - je Benutzer gespeichert."""
+    liste = lade_vergleichswerte()
+    schritte.leiste(st, "vergleich")
+    schritte.titel(st, "vergleich", 1)
+    with st.expander(f"⭐ Vergleichswerte verwalten ({len(liste)})", expanded=offen):
+        st.caption("Deine Vergleichswerte – gespeichert und in allen Vergleichs-Charts verwendet. Aus der "
+                   f"Top-500-Liste übernehmen oder einen beliebigen Wert suchen. Höchstens "
+                   f"{PROG_BASIS.MAX_EINTRAEGE} Werte.")
+        optionen = top500_optionen_bei_bedarf("vgl_top500")
+        if optionen is not None:
+            optionen = [w for w in optionen if not PROG_BASIS.enthalten(liste, w)]
+
+        def _hinzu(w):
+            if not w.get("instrument_id"):                     # Kurs-ID fehlt: exakte Suche ueber WKN/ISIN
+                import investment_scanner_pro_engine as PRO
+                t, art = PRO.treffer_waehlen(w, suche_instrument(w.get("isin") or w.get("wkn") or w["name"]) or [])
+                w["instrument_id"] = int(t["instrument_id"]) if t and art == "exakt" else None
+            if not w.get("instrument_id"):
+                st.error(f"Für „{w['name']}“ wurde keine Kursquelle gefunden – nicht hinzugefügt.")
+            elif aendere_vergleichswerte(lambda l: PROG_BASIS.hinzufuegen(l, PROG_BASIS.eintrag(w, time.time())),
+                                         "vergleichswert hinzugefuegt [skip ci]"):
+                for k in ("vgl_wahl", "vgl_such", "vgl_treffer"):
+                    st.session_state.pop(k, None)
+                st.rerun()
+            else:
+                st.error("Nicht gespeichert – schon in der Liste, Liste voll oder Speicher gerade nicht "
+                         "erreichbar.")
+
+        if optionen is not None:
+            c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+            wahl = c1.selectbox(
+                f"Aus der Top-500-Liste ({len(optionen)} Werte)", range(len(optionen)), index=None,
+                format_func=lambda i: " · ".join(x for x in (optionen[i]["name"], PROG_BASIS.ARTEN[optionen[i]["art"]],
+                                                             optionen[i]["wkn"] or optionen[i]["isin"]) if x),
+                placeholder="Name, WKN oder ISIN eintippen …", key="vgl_wahl")
+            if c2.button("➕ Hinzufügen", key="vgl_add", disabled=wahl is None, type="primary", width="stretch"):
+                _hinzu(dict(optionen[wahl]))
+        begriff = st.text_input("Oder eigenen Wert suchen (Name, WKN oder ISIN)", key="vgl_such",
+                                placeholder="z. B. Siemens, 723610, LS9…").strip()
+        if len(begriff) >= 2:
+            treffer = [t for t in (suche_instrument(begriff) or [])[:12] if t.get("instrument_id")]
+            if not treffer:
+                st.caption("Keine Treffer – andere Schreibweise oder WKN/ISIN versuchen.")
+            else:
+                t1, t2 = st.columns([4, 1], vertical_alignment="bottom")
+                t = t1.selectbox("Treffer", treffer, key="vgl_treffer", format_func=lambda t: " · ".join(
+                    x for x in (t.get("name"), t.get("wkn") or t.get("isin"), t.get("kategorie")) if x))
+                if t2.button("➕ Hinzufügen", key="vgl_add_such", type="primary", width="stretch"):
+                    _hinzu({"name": t.get("name") or begriff, "wkn": t.get("wkn") or "",
+                            "isin": t.get("isin") or "", "instrument_id": int(t["instrument_id"])})
+        for e in liste:
+            z1, z2 = st.columns([5, 1], vertical_alignment="center")
+            z1.markdown(f"**{_h(vergleich_label(e))}**")
+            if z2.button("🗑️ Entfernen", key=f"vgl_weg_{e.get('id')}", width="stretch"):
+                if aendere_vergleichswerte(lambda l, _id=e.get("id"): PROG_BASIS.entfernen(l, _id),
+                                           "vergleichswert entfernt [skip ci]"):
+                    st.rerun()
+                else:
+                    st.error("Entfernen fehlgeschlagen (Speicher gerade nicht erreichbar).")
