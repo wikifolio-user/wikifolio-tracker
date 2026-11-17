@@ -1,11 +1,7 @@
 """Depot-Kacheln (UX 10/2026): Kennzahlen Tag/Woche/Monat/Jahr vorne, Rest aufklappbar,
 Gewinn/Verlust nie nur ueber Farbe."""
-import ast
-import html
-import os
 import unittest
 
-import formate
 
 NAMEN = ["zeitraeume_teilen", "_richtung_html", "gv_zeile_html", "kennzahl_kacheln_html",
          "zeitraum_zeilen_html", "depot_kachel_html"]
@@ -13,15 +9,9 @@ KONSTANTEN = ["KERN_ZEITRAEUME", "ALLE_ZEITRAEUME"]
 
 
 def _lade():
-    pfad = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")
-    with open(pfad, encoding="utf-8") as f:
-        baum = ast.parse(f.read())
-    teile = [n for n in baum.body if isinstance(n, ast.FunctionDef) and n.name in NAMEN]
-    teile += [n for n in baum.body if isinstance(n, ast.Assign)
-              and any(getattr(t, "id", None) in KONSTANTEN for t in n.targets)]
-    ns = {"FMT": formate, "html": html}
-    exec(compile(ast.Module(body=teile, type_ignores=[]), pfad, "exec"), ns)
-    return ns
+    """Die HTML-Bausteine liegen in depot_html.py (aus app.py ausgelagert)."""
+    import depot_html
+    return {n: getattr(depot_html, n) for n in NAMEN + KONSTANTEN}
 
 
 A = _lade()
