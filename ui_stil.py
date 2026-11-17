@@ -1692,12 +1692,15 @@ CSS_RESPONSIV = """
         [data-testid="stNumberInput"] button[data-testid^="stNumberInputStep"] { min-width: 44px !important; min-height: 44px !important; }
         /* Auswahlfelder */
         [data-testid="stSelectbox"] [data-baseweb="select"] > div:first-child,
-        [data-testid="stMultiSelect"] [data-baseweb="select"] > div:first-child { min-height: 44px !important; }
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div:first-child,
+        :is([data-testid="stSelectbox"], [data-testid="stMultiSelect"]) .react-aria-ComboBox > [role="group"] {
+            min-height: 44px !important; }
         /* Checkbox, Schalter, Optionsfelder: die ganze Zeile ist antippbar - mindestens 44 px hoch */
         [data-testid="stCheckbox"] label, [data-testid="stToggle"] label, [data-testid="stRadio"] label {
             min-height: 44px !important; align-items: center !important; }
         /* Hilfe-"?" und Werkzeugleisten von Tabellen/Diagrammen (Vollbild, Download) */
         html body [data-testid="stTooltipIcon"] [data-testid="stTooltipHoverTarget"],
+        html body [data-testid="stMain"] [data-testid="stTooltipHoverTarget"]:has(> svg),
         html body [data-testid="stWidgetLabel"] [data-testid="stTooltipHoverTarget"],
         html body [data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"] button[kind="elementToolbar"] {
             min-width: 44px !important; min-height: 44px !important; margin: -14px -12px !important;
