@@ -415,8 +415,9 @@ def kennzahlen(positionen, cash=0.0, profil=None):
                         if ter_bek else None)
     # Abweichung von der Zielstruktur
     k["ziel"] = zs
+    # feste Reihenfolge der Klassen (vorher Mengen-Vereinigung: Reihenfolge der Warnungen wechselte je Neustart)
     k["abweichung"] = {a: klassen.get(a, 0.0) - zs["ziel"].get(a, 0.0)
-                       for a in set(zs["ziel"]) | set(klassen) if a in ("etf", "aktie", "wikifolio", "cash")}
+                       for a in ("etf", "aktie", "wikifolio", "cash") if a in zs["ziel"] or a in klassen}
     k["ueberschneidungen"] = ueberschneidungen(bewertbar, gew)
     k["uebergewichtig"] = [(p["name"], gew[schluessel(p)], hoechstgewicht(p, zs["max_gewicht"])) for p in bewertbar
                            if gew[schluessel(p)] > hoechstgewicht(p, zs["max_gewicht"])]
