@@ -21,6 +21,7 @@ import startseite
 import depot_summe
 import speicherleiste as SL
 import charts_ansichten
+import depot_verwalten_ansichten
 import ranglisten_ansichten
 import prognose_ansichten
 from depot_html import (  # noqa: F401 - ausgelagert (Audit ARCH-01), Namen bleiben in app.py verfuegbar
@@ -2431,28 +2432,10 @@ def render_dashboard():
     Q_KLASSEN_KURZ = {"prio": "Priorität", "beobachten": "Beobachten", "nicht": "Nicht weiterv."}
 
     def _trend(vor, jetzt):
-        """-> (text, art) - ▲ 3 / ▼ 2 / o / NEU; ab Platz 51 kein Vergleich ("·")"""
-        if jetzt > TREND_BIS:
-            return "·", "gleich"
-        if vor is None:
-            return "NEU", "neu"
-        d = vor - jetzt
-        if d > 0:
-            return f"▲ {d}", "up"
-        if d < 0:
-            return f"▼ {-d}", "down"
-        return "o", "gleich"
+        return ranglisten_ansichten._trend({'TREND_BIS': TREND_BIS}, vor=vor, jetzt=jetzt)
 
     def _seit_text(seit):
-        try:
-            d = datetime.date.fromisoformat(seit)
-        except Exception:
-            return None
-        tage = (datetime.date.today() - d).days
-        text = f"Vergleich mit dem Stand vom {d.strftime('%d.%m.%Y')}"
-        if tage < 7:
-            text += f" (erst {tage} Tag{'e' if tage != 1 else ''} Verlauf – volle Woche folgt)"
-        return text
+        return ranglisten_ansichten._seit_text({}, seit=seit)
 
     def _wochen_bilanz(eintraege, raus, seit):
         return ranglisten_ansichten.wochen_bilanz({'Q_KLASSEN_KURZ': Q_KLASSEN_KURZ, 'TREND_BIS': TREND_BIS, 'TREND_FARBE': TREND_FARBE, '_seit_text': _seit_text, 'html': html}, eintraege=eintraege, raus=raus, seit=seit)
@@ -2464,101 +2447,30 @@ def render_dashboard():
     # aus dem Wochenvergleich, den die Agenten je Index-Rangliste fuehren.
     @st.cache_data(ttl=900, show_spinner=False)
     def _lade_teile(muster, anzahl):
-        zeilen, felder, stand = [], None, None
-        # gleichzeitig gelesen; streng: ein Lesefehler wirft und landet so NICHT 15 Min. im Cache (DATA-01)
-        for d in UI.parallel_lesen(gh_read_streng, [muster.format(i) for i in range(anzahl)]):
-            d = d or {}
-            felder = d.get("felder") or felder
-            stand = d.get("stand") or stand
-            zeilen += d.get("zeilen") or []
-        if not felder:
-            return {}, None
-        return {z[0]: dict(zip(felder, z)) for z in zeilen}, stand
+        return ranglisten_ansichten._lade_teile({'gh_read_streng': gh_read_streng}, muster=muster, anzahl=anzahl)
 
     def _q_alle():
-        try:
-            return _lade_teile("state/qualitaet/alle_{}.json", 6)
-        except github_store.LeseFehler:
-            return {}, None
+        return ranglisten_ansichten._q_alle({'_lade_teile': _lade_teile, 'github_store': github_store})
 
     def _p_alle():
-        try:
-            return _lade_teile("state/top50_alle_{}.json", 4)
-        except github_store.LeseFehler:
-            return {}, None
+        return ranglisten_ansichten._p_alle({'_lade_teile': _lade_teile, 'github_store': github_store})
 
     def _index_auswahl(prefix, indizes, regionen):
-        """Region + Index als Knoepfe. indizes = {key: {"titel","region","s"}}.
-        Indizes ohne zugeordnete Aktien (Quelle beim letzten Lauf nicht lesbar)
-        bleiben sichtbar – mit "(–)" und dem Grund. -> index_schluessel oder None"""
-        if not any(v.get("s") for v in indizes.values()):
-            st.info("Die Indexzuordnung liegt noch nicht vor – sie entsteht beim nächsten Lauf der Agenten.")
-            return None
-        regionen = list(regionen) + sorted({v.get("region") for v in indizes.values()
-                                            if v.get("region") and v.get("region") not in regionen})
-        vorhanden = [r for r in regionen if any(v.get("region") == r for v in indizes.values())]
-        region = st.pills("Region", vorhanden, default=vorhanden[0], key=f"{prefix}_region") or vorhanden[0]
-        keys = [k for k, v in indizes.items() if v.get("region") == region]
-        keys = [k for k in keys if indizes[k].get("s")] + [k for k in keys if not indizes[k].get("s")]
-        titel = [f'{indizes[k]["titel"]} ({len(indizes[k]["s"])})' if indizes[k].get("s")
-                 else f'{indizes[k]["titel"]} (–)' for k in keys]
-        wahl = auswahl_kompakt("Index", titel, default=titel[0], key=f"{prefix}_index_{region}")
-        # Die Anzahl im Namen kann sich ueber Nacht aendern - eine gespeicherte,
-        # nicht mehr vorhandene Auswahl faellt dann auf den ersten Index zurueck
-        key = keys[titel.index(wahl)] if wahl in titel else keys[0]
-        if not indizes[key].get("s"):
-            grund = indizes[key].get("hinweis") or "Quelle beim letzten Lauf nicht lesbar"
-            st.info(f'Für {indizes[key]["titel"]} liegt noch keine Mitgliederliste vor ({grund}). '
-                    "Der nächste Lauf der Agenten versucht es erneut.")
-            return None
-        return key
+        return ranglisten_ansichten._index_auswahl({'auswahl_kompakt': auswahl_kompakt}, prefix=prefix, indizes=indizes, regionen=regionen)
 
     LISTEN_LAENGEN = [50, 100, 250, 500]
     TREND_BIS = 50              # Wochenvergleich (Pfeile/NEU) gibt es fuer die ersten 50 Plaetze
 
     def _listen_laenge(prefix, alle=False):
-        """Wie viele Plaetze die Rangliste zeigt (Standard: Top 500; alle=True bietet zusaetzlich "Alle")."""
-        titel = [f"Top {n}" for n in LISTEN_LAENGEN] + (["Alle"] if alle else [])
-        wahl = st.pills("Länge", titel, default="Top 500", key=f"{prefix}_laenge") or "Top 500"
-        if wahl == "Alle":
-            return 10 ** 6
-        return LISTEN_LAENGEN[titel.index(wahl)] if wahl in titel else 500
+        return ranglisten_ansichten._listen_laenge({'LISTEN_LAENGEN': LISTEN_LAENGEN}, prefix=prefix, alle=alle)
 
     def _auswahl_art(prefix):
-        return st.pills("Auswahl nach", ["Kategorie", "Index"], default="Kategorie",
-                        key=f"{prefix}_auswahl_art") or "Kategorie"
+        return ranglisten_ansichten._auswahl_art({}, prefix=prefix)
 
     INDEX_REGIONEN_APP = ["Deutschland", "USA", "Europa", "Asien/Pazifik & Kanada", "Schwellenländer"]
 
     def _p_index_kat(idx_key, info, daten, laenge=50):
-        """Baut aus den Gesamtdaten eine Rangliste im Format einer Kategorie
-        (top/mit_daten/vergleich), damit dieselbe Anzeige genutzt werden kann."""
-        alle, _ = _p_alle()
-        if not alle:
-            return None, None
-        iv = gh_read_taeglich("state/top50_index_vergleich.json", None) or {}
-        div_key = (daten.get("dividenden_zeitraum") or ["DIV"])[0]
-        mitglieder = [alle[s] for s in info.get("s", []) if s in alle]
-        top, mit_daten, vergleich = {}, {}, {}
-        zrs = [z[0] for z in daten.get("zeitraeume") or []] + [div_key]
-        for zr in zrs:
-            mit = [z for z in mitglieder if z.get(zr) is not None and (zr != div_key or z[zr] > 0)]
-            mit.sort(key=lambda z: (-z[zr], z["s"]))
-            mit_daten[zr] = len(mit)
-            v = (iv.get("listen") or {}).get(f"{idx_key}|{zr}")
-            eintraege = []
-            for z in mit[:laenge]:
-                e = {"name": z["name"], "wkn": z["kennung"], "div": z.get(div_key),
-                     "perf": z.get("1J") if zr == div_key else z[zr]}
-                if v is not None:
-                    e["vor"] = v["vor"].get(z["s"])
-                eintraege.append(e)
-            top[zr] = eintraege
-            if v is not None:
-                vergleich[zr] = {"raus": v["raus"]}
-        kat = {"titel": info.get("titel"), "top": top, "mit_daten": mit_daten, "aktiv": len(mitglieder),
-               "dividende": True, "kennung": "WKN/Symbol", "vergleich": vergleich}
-        return kat, (iv.get("seit") or {}).get(info.get("region"))
+        return ranglisten_ansichten._p_index_kat({'_p_alle': _p_alle, 'gh_read_taeglich': gh_read_taeglich}, idx_key=idx_key, info=info, daten=daten, laenge=laenge)
 
     def _render_performance():
         return ranglisten_ansichten.performance({'BERLIN_TZ': BERLIN_TZ, 'GH_STATE_READY': GH_STATE_READY, 'INDEX_REGIONEN_APP': INDEX_REGIONEN_APP, 'KV': KV, 'TREND_BIS': TREND_BIS, 'TREND_FARBE': TREND_FARBE, '_auswahl_art': _auswahl_art, '_index_auswahl': _index_auswahl, '_listen_laenge': _listen_laenge, '_p_index_kat': _p_index_kat, '_trend': _trend, '_wochen_bilanz': _wochen_bilanz, 'auswahl_kompakt': auswahl_kompakt, 'gh_read_taeglich': gh_read_taeglich, 'html': html, 'kurs_vorrat': kurs_vorrat, 'notify_app_error': notify_app_error, 'ranglisten_stand': ranglisten_stand, 'vz_zahl': vz_zahl})
@@ -2577,31 +2489,23 @@ def render_dashboard():
                   ("bewertung", "Bewertung", 15), ("chance", "Chance-Risiko / Margin of Safety", 5)]
 
     def _q_pct(x, vorzeichen=True, nachkomma=1):
-        if x is None:
-            return "–"
-        return f"{x:+.{nachkomma}f} %" if vorzeichen else f"{x:.{nachkomma}f} %"
+        return ranglisten_ansichten._q_pct({}, x=x, vorzeichen=vorzeichen, nachkomma=nachkomma)
 
-    def _q_x(x, suffix="x"):
-        return "–" if x is None else f"{x:.1f}{suffix}"
+    def _q_x(x, suffix='x'):
+        return ranglisten_ansichten._q_x({}, x=x, suffix=suffix)
 
     # Spalten der Qualitaets-Tabelle: (Schluessel, Kopf, Formatierung, Farbe)
     def _qf_pct(nachkomma=1, vorzeichen=True):
-        return lambda x: "–" if x is None else f"{x:+.{nachkomma}f} %" if vorzeichen else f"{x:.{nachkomma}f} %"
+        return ranglisten_ansichten._qf_pct({}, nachkomma=nachkomma, vorzeichen=vorzeichen)
 
-    def _qf_zahl(suffix=""):
-        return lambda x: "–" if x is None else f"{x:.1f}{suffix}"
+    def _qf_zahl(suffix=''):
+        return ranglisten_ansichten._qf_zahl({}, suffix=suffix)
 
     def _qc_schwelle(gut, schlecht, umgekehrt=False):
-        def farbe(x):
-            if x is None:
-                return ""
-            if umgekehrt:
-                return "pt-up" if x <= gut else "pt-down" if x >= schlecht else ""
-            return "pt-up" if x >= gut else "pt-down" if x <= schlecht else ""
-        return farbe
+        return ranglisten_ansichten._qc_schwelle({}, gut=gut, schlecht=schlecht, umgekehrt=umgekehrt)
 
     def _qc_label(gut, schlecht):
-        return lambda x: "pt-up" if x in gut else "pt-down" if x in schlecht else ""
+        return ranglisten_ansichten._qc_label({}, gut=gut, schlecht=schlecht)
 
     Q_SPALTEN = [
         ("roic", "ROIC", _qf_pct(1, False), _qc_schwelle(15, 8)),
@@ -2634,46 +2538,8 @@ def render_dashboard():
     def _q_vergleich(werte, symbole):
         return ranglisten_ansichten.q_vergleich({'BR': BR, 'DV': DV, 'Q_FARBE_CSS': Q_FARBE_CSS, 'Q_KLASSEN': Q_KLASSEN, 'Q_SPALTEN': Q_SPALTEN}, werte=werte, symbole=symbole)
 
-    def _q_tabelle(werte, symbole, vergleich=None, fokus="roic"):
-        """HTML-Tabelle. Am Desktop alle Kennzahlen (seitlich scrollbar), auf
-        dem iPhone nur Rang, Trend, Name, die gewaehlte Kennzahl und Punkte -
-        so bleiben alle Werte untereinander direkt vergleichbar."""
-        mit_trend = vergleich is not None
-        kopf = '<th class="pt-num">#</th>' + ('<th class="pt-num">7&nbsp;T.</th>' if mit_trend else "")
-        kopf += '<th class="pt-wert">Unternehmen</th>'
-        for key, titel, _, _ in Q_SPALTEN:
-            hl = " q-fokus-hl" if key == fokus else ""
-            kopf += f'<th class="pt-num{hl}" data-spalte="q_{key}">{titel}</th>'
-        kopf += '<th class="pt-num">Punkte</th>'
-        zeilen = ""
-        for rang, sym in enumerate(symbole, 1):
-            e = werte.get(sym)
-            if not e:
-                continue
-            z = f'<td class="pt-num pt-seit">{rang}</td>'
-            if mit_trend:
-                t, art = _trend(vergleich["vor"].get(sym), rang)
-                z += f'<td class="pt-num" style="color:{TREND_FARBE[art]};font-weight:700">{t}</td>'
-            unter = " · ".join(x for x in (sym, BR.kategorie_text(e.get("br"))) if x)
-            z += (f'<td class="pt-wert"><span class="pt-name">{html.escape(str(e["name"]))}</span>'
-                  f'<span class="pt-sub">{html.escape(unter)}</span></td>')
-            for key, _, fmt, farbe in Q_SPALTEN:
-                x = e.get(key)
-                hl = " q-fokus-hl" if key == fokus else ""
-                z += (f'<td class="pt-num pt-stark {farbe(x)}{hl}" data-spalte="q_{key}">'
-                      f'{html.escape(fmt(x))}</td>')
-            z += (f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(e.get("klasse"), "")}">'
-                  f'{e.get("gesamt", "–")}</td>')
-            zeilen += f'<tr class="{"pt-zebra" if rang % 2 == 0 else ""}">{z}</tr>'
-        # Nur die gewaehlte Kennzahl auf schmalen Bildschirmen einblenden
-        # (die allgemeine Regel blendet dort alle data-spalte-Zellen aus)
-        stil = (f'<style>@media (max-width: 700px) {{ .pt.qt td[data-spalte="q_{fokus}"], '
-                f'.pt.qt th[data-spalte="q_{fokus}"] {{ display: table-cell; }} }}</style>')
-        st.markdown(stil + f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt qt"><thead><tr>{kopf}</tr></thead>'
-                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
-        st.markdown('<div class="q-legende">Punkte: <span class="q-prio">■</span> Hohe Analysepriorität · '
-                    '<span class="q-beob">■</span> Beobachtungsliste · <span class="q-nicht">■</span> '
-                    'Nicht weiterverfolgen · * = aus Kennzahlen angenähert</div>', unsafe_allow_html=True)
+    def _q_tabelle(werte, symbole, vergleich=None, fokus='roic'):
+        return ranglisten_ansichten._q_tabelle({'BR': BR, 'Q_KLASSE_CSS': Q_KLASSE_CSS, 'Q_SPALTEN': Q_SPALTEN, 'TREND_FARBE': TREND_FARBE, '_trend': _trend, 'html': html}, werte=werte, symbole=symbole, vergleich=vergleich, fokus=fokus)
 
     def _q_details(sym, zeile):
         return ranglisten_ansichten.q_details({'BR': BR, 'Q_BEREICHE': Q_BEREICHE, 'Q_KLASSEN': Q_KLASSEN, 'Q_KLASSE_CSS': Q_KLASSE_CSS, '_q_pct': _q_pct, '_q_x': _q_x, 'daten_q': daten_q, 'gh_read_taeglich': gh_read_taeglich, 'html': html}, sym=sym, zeile=zeile)
@@ -2681,71 +2547,16 @@ def render_dashboard():
     daten_q = {}
 
     def _q_mitglieder(kat_key, alle):
-        """Alle Aktien der gewaehlten Kategorie bzw. des Index (fuer den Sektor-Filter)."""
-        if not alle:
-            return []
-        if kat_key == "alle":
-            return list(alle)
-        gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
-        if kat_key.startswith("i:"):
-            g = (gruppen.get("indizes") or {}).get(kat_key[2:]) or {}
-        else:
-            g = (gruppen.get("kategorien") or {}).get(kat_key) or {}
-        return [s_ for s_ in g.get("s") or [] if s_ in alle]
+        return ranglisten_ansichten._q_mitglieder({'gh_read_taeglich': gh_read_taeglich}, kat_key=kat_key, alle=alle)
 
     def _q_dividenden_tabelle(alle, mitglieder):
-        """Je Dividenden-Kategorie: Anzahl, Ø Punkte, davon nachhaltig, bester Wert."""
-        zeilen = ""
-        for i, z in enumerate(DV.uebersicht([alle[s_] for s_ in mitglieder]), 1):
-            b = z["bester"]
-            zeilen += (f'<tr class="{"pt-zebra" if i % 2 == 0 else ""}">'
-                       f'<td class="pt-wert"><span class="pt-name">{DV.ICON[z["schluessel"]]} '
-                       f'{html.escape(z["titel"])}</span></td>'
-                       f'<td class="pt-num">{z["anzahl"]}</td><td class="pt-num">{_de_zahl(z["schnitt_punkte"], 0)}</td>'
-                       f'<td class="pt-num">{z["nachhaltig"] if z["schluessel"] != "keine" else "–"}</td>'
-                       f'<td class="pt-wert"><span class="pt-name">{html.escape(str(b["name"]))}</span>'
-                       f'<span class="pt-sub">{b.get("gesamt")} Punkte · Dividende '
-                       f'{FMT.pct(b.get("div") or 0, 1)}</span></td></tr>')
-        st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
-                    '<table class="pt"><thead><tr><th class="pt-wert">Dividende</th><th class="pt-num">Aktien</th>'
-                    '<th class="pt-num">Ø Punkte</th><th class="pt-num">nachhaltig</th>'
-                    '<th class="pt-wert">Bester Wert</th></tr></thead>'
-                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
-        st.caption("Dividendenrendite und Ausschüttungsquote vom Qualitäts-Agenten (Yahoo Finance). „nachhaltig“ = "
-                   "Ausschüttungsquote höchstens 80 % des Gewinns. Filter und Sortierung oben unter „🔎 Filter“.")
+        return ranglisten_ansichten._q_dividenden_tabelle({'DV': DV, '_de_zahl': _de_zahl, 'html': html}, alle=alle, mitglieder=mitglieder)
 
     def _q_sektoren_tabelle(alle, mitglieder):
-        """Je Sektor: Anzahl, Ø Punkte, Hohe Prioritaet, bester Wert."""
-        je = {}
-        for s_ in mitglieder:
-            e = alle[s_]
-            je.setdefault(BR.sektor(e.get("br")), []).append(e)
-        zeilen = ""
-        for i, (sek, liste) in enumerate(sorted(je.items(), key=lambda kv: -len(kv[1])), 1):
-            bester = max(liste, key=lambda e: e.get("gesamt") or 0)
-            schnitt = sum(e.get("gesamt") or 0 for e in liste) / len(liste)
-            prio = sum(1 for e in liste if e.get("klasse") == "prio")
-            branchen_n = len({BR.branche_de(e.get("br")) for e in liste})
-            zeilen += (f'<tr class="{"pt-zebra" if i % 2 == 0 else ""}">'
-                       f'<td class="pt-wert"><span class="pt-name">{BR.SEKTOR_ICON.get(sek, "")} {html.escape(sek)}</span>'
-                       f'<span class="pt-sub">{"ohne Branchenangabe" if sek == "Sonstige" else f"{branchen_n} Branche" + ("n" if branchen_n != 1 else "")}</span></td>'
-                       f'<td class="pt-num">{len(liste)}</td><td class="pt-num">{_de_zahl(schnitt, 0)}</td>'
-                       f'<td class="pt-num">{prio}</td>'
-                       f'<td class="pt-wert"><span class="pt-name">{html.escape(str(bester["name"]))}</span>'
-                       f'<span class="pt-sub">{bester.get("gesamt")} Punkte · '
-                       f'{html.escape(BR.branche_de(bester.get("br")))}</span></td></tr>')
-        st.markdown('<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
-                    '<table class="pt"><thead><tr><th class="pt-wert">Sektor</th><th class="pt-num">Aktien</th>'
-                    '<th class="pt-num">Ø Punkte</th><th class="pt-num">Priorität</th>'
-                    '<th class="pt-wert">Bester Wert</th></tr></thead>'
-                    f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
-        st.caption("Sektor und Branche aus der Yahoo-Branchenangabe (11 Sektoren). „Sonstige“ = keine "
-                   "Branchenangabe. Filter oben: „Firmen-Kategorie“.")
+        return ranglisten_ansichten._q_sektoren_tabelle({'BR': BR, '_de_zahl': _de_zahl, 'html': html}, alle=alle, mitglieder=mitglieder)
 
     def _div_rhythmen():
-        """{Yahoo-Symbol: Auszahlungsrhythmus} aus dem Top-50-Agenten (gleiche Symbole wie der Qualitaets-Agent)."""
-        d = gh_read_taeglich("state/top50_dividenden.json", None) or {}
-        return {s_: v[1] for s_, v in (d.get("werte") or {}).items() if isinstance(v, list) and len(v) > 1 and v[1]}
+        return ranglisten_ansichten._div_rhythmen({'gh_read_taeglich': gh_read_taeglich})
 
     def _render_qualitaet():
         return ranglisten_ansichten.qualitaet({'BR': BR, 'DV': DV, 'INDEX_REGIONEN_APP': INDEX_REGIONEN_APP, 'Q_KLASSEN': Q_KLASSEN, 'Q_SPALTEN': Q_SPALTEN, '_auswahl_art': _auswahl_art, '_div_rhythmen': _div_rhythmen, '_index_auswahl': _index_auswahl, '_listen_laenge': _listen_laenge, '_q_alle': _q_alle, '_q_details': _q_details, '_q_dividenden_tabelle': _q_dividenden_tabelle, '_q_mitglieder': _q_mitglieder, '_q_sektoren_tabelle': _q_sektoren_tabelle, '_q_tabelle': _q_tabelle, '_q_vergleich': _q_vergleich, '_wochen_bilanz': _wochen_bilanz, 'auswahl_kompakt': auswahl_kompakt, 'daten_q': daten_q, 'gh_read_taeglich': gh_read_taeglich, 'ranglisten_stand': ranglisten_stand})
@@ -2774,100 +2585,19 @@ def render_dashboard():
     ]
 
     def _qk_daten():
-        """Gesamtdaten aller bewerteten Aktien + Kategorien/Indizes."""
-        alle, _ = _q_alle()
-        gruppen = gh_read_taeglich("state/qualitaet/gruppen.json", None) or {}
-        if not alle or not gruppen.get("kategorien"):
-            return None
-        return {"alle": alle, "gruppen": gruppen}
+        return ranglisten_ansichten._qk_daten({'_q_alle': _q_alle, 'gh_read_taeglich': gh_read_taeglich})
 
     def _qk_zeilen(m, kat_key):
-        if kat_key == "alle":
-            return list(m["alle"].values())
-        return [m["alle"][s_] for s_ in m["gruppen"]["kategorien"].get(kat_key, {}).get("s", []) if s_ in m["alle"]]
+        return ranglisten_ansichten._qk_zeilen({}, m=m, kat_key=kat_key)
 
     def _qk_einteilen(zeilen, zr_key):
-        """-> ({feld: [zeilen sortiert]}, median) fuer Zeilen mit Kursdaten"""
-        mit = [z for z in zeilen if z.get(zr_key) is not None and z.get("q_ant") is not None]
-        if not mit:
-            return {f: [] for f, _, _ in QK_FELDER}, None
-        werte = sorted(z[zr_key] for z in mit)
-        median = werte[len(werte) // 2]
-        felder = {f: [] for f, _, _ in QK_FELDER}
-        for z in mit:
-            q_hoch = z["q_ant"] >= QK_QUAL_GRENZE
-            k_stark = z[zr_key] >= median
-            felder[("gut_" if q_hoch else "schwach_") + ("stark" if k_stark else "schwach")].append(z)
-        felder["gut_schwach"].sort(key=lambda z: (-z["gesamt"], z[zr_key]))
-        felder["gut_stark"].sort(key=lambda z: -z["gesamt"])
-        felder["schwach_stark"].sort(key=lambda z: -z[zr_key])
-        felder["schwach_schwach"].sort(key=lambda z: -z["gesamt"])
-        return felder, median
+        return ranglisten_ansichten._qk_einteilen({'QK_FELDER': QK_FELDER, 'QK_QUAL_GRENZE': QK_QUAL_GRENZE}, zeilen=zeilen, zr_key=zr_key)
 
     def _qk_tabelle(zeilen, zr_key, zr_titel):
-        kopf = ('<th class="pt-num">#</th><th class="pt-wert">Unternehmen</th>'
-                f'<th class="pt-num">Kurs {html.escape(zr_titel)}</th><th class="pt-num">FCF-<br>Rendite</th>'
-                '<th class="pt-num">Punkte</th>')
-        z_html = ""
-        for platz, z in enumerate(zeilen, 1):
-            perf = z[zr_key]
-            bew = z.get("bew") or "–"
-            mos = z.get("mos")
-            unter = f'{z["s"]} · Qualität {z["q_ant"]:.0f} % · Bewertung {bew}'
-            if mos is not None and mos > -200:
-                unter += f" · MoS {mos:+.0f} %"
-            unter = unter.replace(" %", "\u00a0%")          # Zahl und % nie getrennt umbrechen
-            fy = z.get("fcfy")
-            z_html += (
-                f'<tr class="{"pt-zebra" if platz % 2 == 0 else ""}">'
-                f'<td class="pt-num pt-seit">{platz}</td>'
-                f'<td class="pt-wert"><span class="pt-name">{html.escape(z["name"])}</span>'
-                f'<span class="pt-sub">{html.escape(unter)}</span></td>'
-                f'<td class="pt-num pt-stark {"pt-up" if perf >= 0 else "pt-down"}">{vz_zahl(perf, 1)} %</td>'
-                f'<td class="pt-num pt-stark {"pt-up" if (fy or 0) >= 5 else "pt-down" if fy is not None and fy < 2 else ""}">'
-                f'{"–" if fy is None else f"{FMT.pct(fy, 1)}"}</td>'
-                f'<td class="pt-num q-punkte {Q_KLASSE_CSS.get(z["klasse"], "")}">{z["gesamt"]}</td></tr>')
-        st.markdown(f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt"><thead><tr>{kopf}</tr></thead>'
-                    f'<tbody>{z_html}</tbody></table></div>', unsafe_allow_html=True)
+        return ranglisten_ansichten._qk_tabelle({'Q_KLASSE_CSS': Q_KLASSE_CSS, 'html': html, 'vz_zahl': vz_zahl}, zeilen=zeilen, zr_key=zr_key, zr_titel=zr_titel)
 
     def _qk_diagramm(zeilen, zr_key, zr_titel, median):
-        mit = [z for z in zeilen if z.get(zr_key) is not None and z.get("q_ant") is not None]
-        if not mit:
-            return
-        # Ausreisser (z.B. +900 %) stauchen sonst alles andere zusammen
-        werte = sorted(z[zr_key] for z in mit)
-        oben = werte[int(len(werte) * 0.98)] if len(werte) > 20 else werte[-1]
-        unten = werte[int(len(werte) * 0.02)] if len(werte) > 20 else werte[0]
-        fig = go.Figure()
-        for kl, titel_kl, farbe in (("nicht", "Nicht weiterverfolgen", "#6B7280"),
-                                    ("beobachten", "Beobachtungsliste", "#F5B942"),
-                                    ("prio", "Hohe Analysepriorität", "#34D399")):
-            pts = [z for z in mit if z["klasse"] == kl]
-            if not pts:
-                continue
-            fig.add_trace(go.Scattergl(
-                x=[min(max(z[zr_key], unten), oben) for z in pts], y=[z["q_ant"] for z in pts],
-                mode="markers", name=titel_kl,
-                marker=dict(color=farbe, size=6 if kl != "nicht" else 5, opacity=0.85 if kl != "nicht" else 0.45),
-                text=[f'{_h(z["name"])} ({_h(z["s"])})<br>Kurs {zr_titel}: {vz_zahl(z[zr_key], 1)} %<br>'
-                      f'Qualität {z["q_ant"]:.0f} % · {z["gesamt"]} Punkte' for z in pts],
-                hovertemplate="%{text}<extra></extra>"))
-        for x0, y0, text in ((unten, 99, "Qualität hoch · Kurs schwach"), (oben, 99, "Qualität hoch · Kurs stark"),
-                             (unten, 1, "Qualität niedrig · Kurs schwach"), (oben, 1, "Qualität niedrig · Kurs stark")):
-            fig.add_annotation(x=x0, y=y0, text=text, showarrow=False, font=dict(size=10, color="#71717A"),
-                               xanchor="left" if x0 == unten else "right", yanchor="top" if y0 > 50 else "bottom")
-        fig.add_vline(x=median, line=dict(color="#A1A1AA", width=1, dash="dot"))
-        fig.add_hline(y=QK_QUAL_GRENZE, line=dict(color="#A1A1AA", width=1, dash="dot"))
-        fig.update_layout(
-            paper_bgcolor="#000000", plot_bgcolor="#000000", height=380, margin=dict(l=10, r=10, t=10, b=40),
-            showlegend=True, legend=dict(orientation="h", y=-0.14, x=0, font=dict(color="#A1A1AA", size=10)),
-            xaxis=dict(title=dict(text=f"Kursentwicklung {zr_titel} (EUR)", font=dict(color="#A1A1AA", size=12)),
-                       ticksuffix=" %", showgrid=True, gridcolor="#1A1A1A", zeroline=True, zerolinecolor="#333",
-                       tickfont=dict(color="#A1A1AA")),
-            yaxis=dict(title=dict(text="Qualität (%)", font=dict(color="#A1A1AA", size=12)), range=[0, 100],
-                       showgrid=True, gridcolor="#1A1A1A", tickfont=dict(color="#A1A1AA")),
-            dragmode=False)
-        st.plotly_chart(UI.chart_stil(fig), width="stretch", key="qk_diagramm", config={"displayModeBar": False})
+        return ranglisten_ansichten._qk_diagramm({'QK_QUAL_GRENZE': QK_QUAL_GRENZE, '_h': _h, 'vz_zahl': vz_zahl}, zeilen=zeilen, zr_key=zr_key, zr_titel=zr_titel, median=median)
 
     def _render_qualitaet_kurs():
         return ranglisten_ansichten.qualitaet_kurs({'INDEX_REGIONEN_APP': INDEX_REGIONEN_APP, 'QK_FELDER': QK_FELDER, 'QK_QUAL_GRENZE': QK_QUAL_GRENZE, 'QK_ZEITRAEUME': QK_ZEITRAEUME, '_auswahl_art': _auswahl_art, '_index_auswahl': _index_auswahl, '_listen_laenge': _listen_laenge, '_q_details': _q_details, '_qk_daten': _qk_daten, '_qk_diagramm': _qk_diagramm, '_qk_einteilen': _qk_einteilen, '_qk_tabelle': _qk_tabelle, '_qk_zeilen': _qk_zeilen, 'auswahl_kompakt': auswahl_kompakt, 'vz_zahl': vz_zahl})
@@ -2886,136 +2616,43 @@ def render_dashboard():
     UE_ZEITRAEUME = ["1W", "1M", "3M", "6M", "1J", "3J", "5J", "10J"]
 
     def _ue_z(text, farbe=None, fett=False):
-        return (str(text), farbe, fett)
+        return ranglisten_ansichten._ue_z({}, text=text, farbe=farbe, fett=fett)
 
     def _ue_css_farbe(klasse):
-        return {"pt-up": "up", "pt-down": "down"}.get(klasse)
+        return ranglisten_ansichten._ue_css_farbe({}, klasse=klasse)
 
     def _ue_trend(vor, platz):
-        t, art = _trend(vor, platz)
-        return _ue_z(t, {"up": "up", "down": "down", "neu": "up", "gleich": "grau"}[art], art != "gleich")
+        return ranglisten_ansichten._ue_trend({'_trend': _trend, '_ue_z': _ue_z}, vor=vor, platz=platz)
 
     def _ue_qualitaets_tabelle(werte, symbole, vergleich, umfang):
-        spalten = [("#", 3, "r"), ("7 T.", 4, "r"), ("Unternehmen", 17, "l"), ("Branche", 11, "l"),
-                   ("Punkte", 5, "r"), ("Einordnung", 7, "l")]
-        spalten[3] = ("Branche", 10, "l")
-        spalten += [(titel, 7 if key == "nde" else 6, "r") for key, titel, _, _ in Q_SPALTEN]
-        zeilen = []
-        for platz, sym in enumerate(symbole[:umfang], 1):
-            e = werte.get(sym)
-            if not e:
-                continue
-            kl = e.get("klasse")
-            z = [_ue_z(platz, fett=True),
-                 _ue_trend((vergleich or {}).get("vor", {}).get(sym), platz) if vergleich is not None else _ue_z("–", "grau"),
-                 _ue_z(f'{e["name"]} ({sym})', fett=True), _ue_z(BR.kategorie_text(e.get("br")) if e.get("br") else "–"),
-                 _ue_z(e.get("gesamt", "–"), {"prio": "prio", "beobachten": "beob"}.get(kl, "nicht"), True),
-                 _ue_z(Q_KLASSEN_KURZ.get(kl, "–"), {"prio": "prio", "beobachten": "beob"}.get(kl, "nicht"))]
-            for key, _, fmt, farbe in Q_SPALTEN:
-                x = e.get(key)
-                z.append(_ue_z(fmt(x), _ue_css_farbe(farbe(x))))
-            zeilen.append(z)
-        return spalten, zeilen
+        return ranglisten_ansichten._ue_qualitaets_tabelle({'BR': BR, 'Q_KLASSEN_KURZ': Q_KLASSEN_KURZ, 'Q_SPALTEN': Q_SPALTEN, '_ue_css_farbe': _ue_css_farbe, '_ue_trend': _ue_trend, '_ue_z': _ue_z}, werte=werte, symbole=symbole, vergleich=vergleich, umfang=umfang)
 
     def _ue_abschnitte(dq, dp, umfang, teile):
         return ranglisten_ansichten.ue_abschnitte({'BR': BR, 'QK_FELDER': QK_FELDER, 'Q_KLASSEN_KURZ': Q_KLASSEN_KURZ, 'UE_ZEITRAEUME': UE_ZEITRAEUME, '_qk_daten': _qk_daten, '_qk_einteilen': _qk_einteilen, '_seit_text': _seit_text, '_trend': _trend, '_ue_qualitaets_tabelle': _ue_qualitaets_tabelle, '_ue_z': _ue_z, 'vz_zahl': vz_zahl}, dq=dq, dp=dp, umfang=umfang, teile=teile)
 
     def _ue_html(abschnitte):
-        """Bildschirm: breite Tabellen scrollen seitlich, die Namensspalte bleibt stehen."""
-        for a in abschnitte:
-            st.markdown(f'<div class="abschnitt">{html.escape(a["titel"])}</div>', unsafe_allow_html=True)
-            if a.get("text"):
-                st.caption(a["text"])
-            if not a["zeilen"]:
-                st.caption("– keine Einträge –")
-                continue
-            namensspalte = next((i for i, (n, _, _) in enumerate(a["spalten"])
-                                 if n in ("Unternehmen", "Kategorie")), None)
-            kopf = "".join(
-                f'<th class="{"pt-wert" if aus == "l" else "pt-num"}{" ue-fix" if i == namensspalte else ""}">'
-                f'{html.escape(n).replace("7 T.", "7&nbsp;T.")}</th>' for i, (n, _, aus) in enumerate(a["spalten"]))
-            zeilen = ""
-            for r, zeile in enumerate(a["zeilen"]):
-                zellen = ""
-                for i, ((text, farbe, fett), (_, _, aus)) in enumerate(zip(zeile, a["spalten"])):
-                    stil = f"color:{UE_FARBEN_SCHIRM[farbe]};" if farbe else ""
-                    stil += "font-weight:700;" if fett else ""
-                    inhalt = "<br>".join(html.escape(t) for t in text.split("\n")).replace(
-                        "\t", '&nbsp;&nbsp;<span style="font-weight:700">') + ("</span>" if "\t" in text else "")
-                    zellen += (f'<td class="{"pt-wert" if aus == "l" else "pt-num"}'
-                               f'{" ue-fix" if i == namensspalte else ""}" style="{stil}">{inhalt}</td>')
-                zeilen += f'<tr class="{"pt-zebra" if r % 2 else ""}">{zellen}</tr>'
-            st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-kompakt ue"><thead><tr>{kopf}</tr></thead>'
-                        f'<tbody>{zeilen}</tbody></table></div>', unsafe_allow_html=True)
+        return ranglisten_ansichten._ue_html({'UE_FARBEN_SCHIRM': UE_FARBEN_SCHIRM, 'html': html}, abschnitte=abschnitte)
 
     def _ue_pdf(abschnitte, stand_text):
         return ranglisten_ansichten.ue_pdf({'UE_FARBEN_DRUCK': UE_FARBEN_DRUCK, 'html': html}, abschnitte=abschnitte, stand_text=stand_text)
 
     def _render_uebersicht():
-        dq = gh_read_taeglich("state/qualitaet.json", None)
-        dp = gh_read_taeglich("state/top50.json", None)
-        if not dq and not dp:
-            st.info("Noch keine Daten vorhanden – die Übersicht erscheint nach dem ersten Lauf der Agenten.")
-            return
-        # Umfang und Inhalt in einem Klappbereich (UX 10/2026: am Handy standen drei Auswahlgruppen mit ~500 px
-        # vor dem ersten Inhalt) - die Beschriftung zeigt die aktuelle Wahl
-        _u = st.session_state.get("ue_umfang") or "Top 10"
-        _t = st.session_state.get("ue_teile", UE_TEILE)
-        with st.expander(f"⚙️ Umfang & Inhalt · {_u} · {len(_t or [])} von {len(UE_TEILE)} Bereichen",
-                         key="ue_einstellungen"):
-            umfang_txt = st.pills("Umfang je Liste", ["Top 10", "Top 25", "Top 50"], default="Top 10",
-                                  key="ue_umfang") or "Top 10"
-            teile = st.pills("Inhalt", UE_TEILE, default=UE_TEILE, selection_mode="multi", key="ue_teile") or []
-        umfang = int(umfang_txt.split()[1])
-        try:
-            stand = datetime.datetime.fromisoformat((dq or dp)["stand"]).strftime("%d.%m.%Y, %H:%M Uhr")
-        except Exception:
-            stand = "–"
-        stand_text = f"Stand {stand}"
-        abschnitte = _ue_abschnitte(dq, dp, umfang, teile)
-        if not abschnitte:
-            st.info("Bitte mindestens einen Inhalt auswählen.")
-            return
-
-        # PDF erst auf Knopfdruck erzeugen - das Bauen kostet einige Sekunden
-        schluessel = f"ue_pdf|{stand}|{umfang}|{'/'.join(teile)}"
-        if st.button("📄 PDF zum Drucken erstellen", key="ue_pdf_knopf", width="stretch"):
-            try:
-                st.session_state["ue_pdf"] = (schluessel, _ue_pdf(abschnitte, stand_text))
-            except ImportError:
-                st.error("Für das PDF fehlt das Paket **reportlab**: bitte die Zeile `reportlab` in die "
-                         "requirements.txt des Repos aufnehmen – Streamlit installiert es dann automatisch.")
-        fertig = st.session_state.get("ue_pdf")
-        if fertig and fertig[0] == schluessel:
-            st.download_button("⬇️ PDF herunterladen", data=fertig[1], mime="application/pdf",
-                               file_name=f"Ranglisten_Uebersicht_{datetime.date.today().isoformat()}.pdf",
-                               key="ue_pdf_download", width="stretch")
-        st.caption(f"{stand_text} · A4 quer · breite Tabellen lassen sich hier seitlich wischen, "
-                   "die Namensspalte bleibt stehen.")
-        _ue_html(abschnitte)
+        return ranglisten_ansichten._render_uebersicht({'UE_TEILE': UE_TEILE, '_ue_abschnitte': _ue_abschnitte, '_ue_html': _ue_html, '_ue_pdf': _ue_pdf, 'gh_read_taeglich': gh_read_taeglich})
 
     WK_SEITE = 25                                       # Raenge je Seite der wikifolio-Liste
     WK_SPALTEN = ["1M", "3M", "6M", "1J", "2J", "3J", "5J"]
 
-    def _wk_seite(nr, p="wk"):
-        st.session_state[f"{p}_seite"] = nr
+    def _wk_seite(nr, p='wk'):
+        return ranglisten_ansichten._wk_seite({}, nr=nr, p=p)
 
     def _render_wikifolios_alle(teile, stand):
-        _render_liste_alle("wikifolio", wikifolio_alle(datetime.date.today().isoformat()), stand)
+        return ranglisten_ansichten._render_wikifolios_alle({'_render_liste_alle': _render_liste_alle, 'wikifolio_alle': wikifolio_alle}, teile=teile, stand=stand)
 
     def _render_liste_alle(art, werte, stand):
         return ranglisten_ansichten.liste_alle({'WK_SEITE': WK_SEITE, '_h': _h, '_listen_laenge': _listen_laenge, '_startauswahl': _startauswahl, '_startwert': _startwert, '_wk_seite': _wk_seite, 'vz_zahl': vz_zahl}, art=art, werte=werte, stand=stand)
 
     def _render_etfs():
-        """Alle ETFs mit allen Kennzahlen, Merkmal-Filtern und eigener Bewertung - bis der Watchlist-Agent die
-        ETF-Kennzahlen geschrieben hat, ein Hinweis auf den ETF-Score."""
-        werte = etf_alle(datetime.date.today().isoformat())
-        if not werte:
-            st.info("Die erweiterte ETF-Übersicht entsteht beim nächsten Lauf des Watchlist-Agenten (täglich "
-                    "07:30 Uhr). Bis dahin: Bewertung der ETFs unter „🏅 ETF- & wikifolio-Score“.")
-            return
-        daten = gh_read_taeglich("state/top50.json", None) or {}
-        _render_liste_alle("etf", werte, ranglisten_stand(daten) if daten else "–")
+        return ranglisten_ansichten._render_etfs({'_render_liste_alle': _render_liste_alle, 'etf_alle': etf_alle, 'gh_read_taeglich': gh_read_taeglich, 'ranglisten_stand': ranglisten_stand})
 
     def _render_wikifolios():
         return ranglisten_ansichten.wikifolios({'WK_SEITE': WK_SEITE, 'WK_SPALTEN': WK_SPALTEN, '_h': _h, '_listen_laenge': _listen_laenge, '_render_wikifolios_alle': _render_wikifolios_alle, '_wk_seite': _wk_seite, 'gh_read_taeglich': gh_read_taeglich, 'ranglisten_stand': ranglisten_stand, 'vz_zahl': vz_zahl, 'wikifolio_alle': wikifolio_alle, 'wikifolio_kennzahlen': wikifolio_kennzahlen, 'wikifolio_rangliste': wikifolio_rangliste, 'wikifolio_werte': wikifolio_werte})
@@ -3023,34 +2660,19 @@ def render_dashboard():
     KS_SEITE = 25
 
     def _ks_de(x, dez=1):
-        return f"{x:,.{dez}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return ranglisten_ansichten._ks_de({}, x=x, dez=dez)
 
     def _ks_seite(nr):
-        st.session_state["ks_seite"] = nr
+        return ranglisten_ansichten._ks_seite({}, nr=nr)
 
     def _ks_rangliste(art):
-        """ETF-/wikifolio-Score aus dem Top-500-Katalog - je Sitzung und Datenstand gemerkt."""
-        import klassen_score as KS
-        teile = [d or {} for d in UI.parallel_lesen(gh_read_taeglich, [f"state/planer/katalog_gross_{i}.json"
-                                                                       for i in range(4)], {})]
-        stand = next((t.get("stand") for t in teile if t.get("stand")), "")
-        gemerkt = st.session_state.get(f"_ks_{art}")
-        if gemerkt and gemerkt[0] == stand:
-            return stand, gemerkt[1]
-        liste = KS.rangliste(teile, art)
-        st.session_state[f"_ks_{art}"] = (stand, liste)
-        return stand, liste
+        return ranglisten_ansichten._ks_rangliste({'gh_read_taeglich': gh_read_taeglich}, art=art)
 
     def _render_klassen_score():
         return ranglisten_ansichten.klassen_score({'KS_SEITE': KS_SEITE, 'Q_KLASSE_CSS': Q_KLASSE_CSS, '_h': _h, '_ks_de': _ks_de, '_ks_rangliste': _ks_rangliste, '_ks_seite': _ks_seite, '_ks_tabelle': _ks_tabelle, '_listen_laenge': _listen_laenge, 'vz_zahl': vz_zahl})
 
     def _ks_tabelle(spalten, zeilen):
-        kopf = "".join(f'<th class="{"pt-num" if a == "r" else "pt-wert"}">{t}</th>' for t, a in spalten)
-        rumpf = "".join("<tr>" + "".join(f'<td class="{"pt-num" if a == "r" else ""}">{z}</td>'
-                                         for z, (_, a) in zip(r, spalten)) + "</tr>" for r in zeilen)
-        st.markdown(f'<div class="ue-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)">'
-                    f'<table class="pt pt-kompakt ks-mini"><thead><tr>{kopf}</tr></thead>'
-                    f'<tbody>{rumpf}</tbody></table></div>', unsafe_allow_html=True)
+        return ranglisten_ansichten._ks_tabelle({}, spalten=spalten, zeilen=zeilen)
 
     @st.fragment
     def _render_top50():
@@ -3467,25 +3089,8 @@ def render_dashboard():
     # "Running get_benchmark_history(...)"-Widget oben rechts (per CSS
     # ausgeblendet). Jeder Vergleichswert ist ein eigener Netzabruf, deshalb
     # laesst sich der Fortschritt hier ehrlich in Schritten anzeigen.
-    def lade_benchmarks_mit_fortschritt(df_index, start_datum, kapital, hinweis="Lade Vergleichswerte"):
-        """Laedt alle Vergleichswerte und zeigt dabei einen zentrierten
-        Fortschrittsbalken mit Prozentangabe. Gibt (series_dict, startdaten_dict)
-        zurueck. Die Anzeige wird am Ende restlos entfernt."""
-        series, startdaten = {}, {}
-        items = [(vergleich_label(e), str(e["instrument_id"])) for e in lade_vergleichswerte()]
-        gesamt = len(items)
-        melde("benchmarks", 0.0, f"{hinweis} … ({gesamt} Werte)")
-        vergleichswerte_vorladen([i for _, i in items])
-        for i, (label, inst_id) in enumerate(items):
-            melde("benchmarks", i / gesamt if gesamt else 1.0,
-                  f"{hinweis} … ({i + 1}/{gesamt}) · {label}")
-            s, erstes_datum = benchmark_normiert_auf_startkapital(
-                df_index, inst_id, start_datum, heute_date, kapital
-            )
-            if s is not None:
-                series[label] = s
-                startdaten[label] = erstes_datum
-        return series, startdaten
+    def lade_benchmarks_mit_fortschritt(df_index, start_datum, kapital, hinweis='Lade Vergleichswerte'):
+        return charts_ansichten.lade_benchmarks_mit_fortschritt({'benchmark_normiert_auf_startkapital': benchmark_normiert_auf_startkapital, 'heute_date': heute_date, 'lade_vergleichswerte': lade_vergleichswerte, 'melde': melde, 'vergleich_label': vergleich_label, 'vergleichswerte_vorladen': vergleichswerte_vorladen}, df_index=df_index, start_datum=start_datum, kapital=kapital, hinweis=hinweis)
 
     # Nur fuer den Vermoegensaufbau-Chart der Hauptposition (Admin) gebraucht - in allen anderen
     # Ansichten (Depot, Analyse, Prognose …) wird nichts davon angezeigt, also auch nichts geladen.
@@ -3505,170 +3110,22 @@ def render_dashboard():
     df_chart["Depotwert_Brutto"] = df_chart["Close"] * (stueckzahl_aktiv + df_chart["Sparplan_Stueck"])
 
     def zeige_chart_legende_liste(eintraege):
-        """eintraege: Liste von (label, emoji) Tupeln. Fuer NICHT abwaehlbare
-        Linien (Startkapital, eigenes Zertifikat) - einfacher Text mit
-        Emoji-Symbol, garantiert einzeilig auf jeder Bildschirmbreite."""
-        for label, emoji in eintraege:
-            st.write(f"{emoji} {label}")
+        return charts_ansichten.zeige_chart_legende_liste({}, eintraege=eintraege)
 
     def lese_pills_auswahl_still(labels, key):
-        """Wie pills_auswahl(), aber OHNE das Widget zu rendern - liest nur
-        den zuletzt gespeicherten Auswahlzustand (Standard: alle an). Fuer
-        die Performance-Tabelle, die VOR dem sichtbaren Auswahl-Bereich
-        steht, aber trotzdem die aktuelle Auswahl beruecksichtigen soll."""
-        optionen = [f"{config.BENCHMARK_EMOJI.get(label, '⚪')} {label}" for label in labels]
-        gespeichert = st.session_state.get(key, optionen)
-        praefix_map = {opt: label for opt, label in zip(optionen, labels)}
-        return [praefix_map[opt] for opt in gespeichert if opt in praefix_map]
+        return charts_ansichten.lese_pills_auswahl_still({}, labels=labels, key=key)
 
     def pills_auswahl(labels, key):
-        """Mehrfachauswahl per st.pills (anklickbare 'Pillen'-Buttons) statt
-        Checkboxen - komplett anderes Widget ohne Checkbox-Innenleben, das
-        sich per CSS nicht anpassen liess (moegliches Shadow-DOM). Emoji
-        stecken direkt im Options-Text, keine separate Farbzuordnung noetig.
-        Gibt die Liste der aktuell ausgewaehlten (reinen) Labels zurueck."""
-        optionen = [f"{config.BENCHMARK_EMOJI.get(label, '⚪')} {label}" for label in labels]
-        ausgewaehlt = st.pills(
-            "Vergleichswerte im Chart anzeigen",
-            optionen, selection_mode="multi", default=optionen, key=key,
-        )
-        ausgewaehlt = ausgewaehlt or []
-        praefix_map = {opt: label for opt, label in zip(optionen, labels)}
-        return [praefix_map[opt] for opt in ausgewaehlt]
+        return charts_ansichten.pills_auswahl({}, labels=labels, key=key)
 
     def pct_ueber_tage(reihe, tage):
-        """Prozentuale Veraenderung einer Wertreihe ueber die letzten N Tage.
-        Gibt None zurueck, wenn die Reihe nicht weit genug zurueckreicht - dann
-        bleibt die Tabellenzelle leer, statt einen zu kurzen Zeitraum als
-        Quartals-/Halbjahreswert auszugeben."""
-        if reihe is None:
-            return None
-        gueltig = reihe.dropna()
-        if gueltig.empty:
-            return None
-        stichtag = gueltig.index[-1] - pd.Timedelta(days=tage)
-        davor = gueltig[gueltig.index <= stichtag]
-        if davor.empty:
-            return None
-        # Toleranz: der Stichtag darf auf ein Wochenende/Feiertag fallen,
-        # aber die Reihe muss wirklich bis in seine Naehe zurueckreichen.
-        if (stichtag - davor.index[-1]).days > 10:
-            return None
-        basis = float(davor.iloc[-1])
-        if not basis:
-            return None
-        return (float(gueltig.iloc[-1]) / basis - 1) * 100
+        return charts_ansichten.pct_ueber_tage({}, reihe=reihe, tage=tage)
 
     def kennzahl_umschalter(key, eintraege):
-        """Waehlt, WELCHE Kennzahl auf schmalen Bildschirmen in der
-        Vergleichstabelle steht. Am Desktop sind ohnehin alle Spalten
-        sichtbar - dort dient der Umschalter nur der Hervorhebung.
+        return charts_ansichten.kennzahl_umschalter({}, key=key, eintraege=eintraege)
 
-        Bewusst st.pills statt eines Dropdowns: die Auswahl ist dauerhaft
-        sichtbar, ein Tap genuegt, und man sieht sofort, welche
-        Vergleichsmoeglichkeiten es ueberhaupt gibt."""
-        moeglich = [("Ø/Jahr", "jaehrlich"), ("Ø/Mon.", "monatlich"), ("Gesamt", "perf")]
-        if not any(e.get("_jaehrlich") is not None for e in eintraege):
-            # Audit DEP-08: unter 1 Jahr kein Ø/Jahr -> Gesamtrendite als Vorauswahl
-            moeglich = [("Gesamt", "perf"), ("Ø/Mon.", "monatlich"), ("Ø/Jahr", "jaehrlich")]
-        for k, titel in [("_q", "3 Mon."), ("_h", "6 Mon."),
-                         ("_n", "9 Mon."), ("_z", "12 Mon.")]:
-            if any(e.get(k) is not None for e in eintraege):
-                moeglich.append((titel, k))
-        moeglich.append(("+/- €", "euro"))
-
-        beschriftungen = [b for b, _ in moeglich]
-        schritte.titel(st, "vergleich", 2)
-        wahl = st.pills("Vergleichen nach", beschriftungen,
-                        default=beschriftungen[0], key=key)
-        zuordnung = dict(moeglich)
-        return zuordnung.get(wahl or beschriftungen[0], moeglich[0][1])
-
-    def performance_tabelle_html(eintraege, eigene_kennung=None, fokus="jaehrlich"):
-        """Baut die Vergleichstabelle. Bewusst eine gemeinsame Funktion fuer
-        alle drei Ansichten - vorher stand derselbe HTML-Block dreimal fast
-        identisch im Code.
-
-        Verbesserungen gegenueber der frueheren Fassung:
-        - Zeitraum-Spalten ohne einen einzigen Wert werden WEGGELASSEN. Bei
-          jungen Produkten waren "9 Mon." und "12 Mon." komplett leer und
-          haben nur Breite gekostet.
-        - Zebra-Streifen und Trennlinien zwischen den Spaltengruppen machen
-          lange Zeilen ueber die ganze Breite verfolgbar.
-        - Die eigene Position ist farblich hervorgehoben - sie ist der
-          Bezugspunkt, alles andere ist Vergleich.
-        - Name und WKN uebereinander statt nebeneinander: spart Breite und
-          verhindert den unruhigen Zeilenumbruch mitten im Namen.
-        - Zahlen in Tabellenziffern (Monospace), damit die Nachkommastellen
-          untereinander stehen.
-        """
-        if not eintraege:
-            return ""
-
-        # Nur Zeitraum-Spalten zeigen, die mindestens einen Wert haben.
-        zeitraeume = [("_q", "3 Mon."), ("_h", "6 Mon."),
-                      ("_n", "9 Mon."), ("_z", "12 Mon.")]
-        aktive_zeitraeume = [
-            (key, titel) for key, titel in zeitraeume
-            if any(e.get(key) is not None for e in eintraege)
-        ]
-
-        def zelle(wert, fett=False, klein=False, label="", spalte=""):
-            """spalte kennzeichnet die Kennzahl (z.B. "jaehrlich") - auf
-            schmalen Bildschirmen blendet das CSS alle bis auf die gewaehlte
-            aus, damit die Tabelle ohne seitliches Scrollen vergleichbar
-            bleibt."""
-            attr = f' data-label="{label}" data-spalte="{spalte}"'
-            if wert is None:
-                return f'<td class="pt-num pt-leer"{attr}>–</td>'
-            farbe = "pt-up" if wert >= 0 else "pt-down"
-            klassen = f"pt-num {farbe}" + (" pt-stark" if fett else "") + (" pt-klein" if klein else "")
-            return f'<td class="{klassen}"{attr}>{vz_zahl(wert, 2)} %</td>'
-
-        zeilen = ""
-        for i, e in enumerate(eintraege):
-            ist_eigene = eigene_kennung and eigene_kennung in str(e.get("Wert", ""))
-            zeilen_klasse = "pt-eigene" if ist_eigene else ("pt-zebra" if i % 2 else "")
-
-            # Name und WKN trennen: "MSCI World (A0RPWH)" -> zwei Zeilen
-            roh = str(e.get("Wert", ""))
-            m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", roh)
-            name, kuerzel = (m.group(1), m.group(2)) if m else (roh, "")
-
-            euro = e.get("_euro")
-            euro_klasse = "pt-up" if (euro or 0) >= 0 else "pt-down"
-            seit = e.get("_gelistet_seit")
-            seit_txt = seit.strftime("%d.%m.%y") if seit else "–"
-
-            zeilen += (
-                f'<tr class="{zeilen_klasse}">'
-                f'<td class="pt-wert"><span class="pt-name">{_h(name)}</span></td>'
-                + zelle(e.get("_monatlich"), fett=True, label="Ø/Mon.", spalte="monatlich")
-                + zelle(e.get("_jaehrlich"), fett=True, label="Ø/Jahr", spalte="jaehrlich")
-                + zelle(e.get("_perf"), fett=True, label="Gesamt", spalte="perf")
-                + "".join(zelle(e.get(k), fett=True, label=titel, spalte=k)
-                          for k, titel in aktive_zeitraeume)
-                + f'<td class="pt-num pt-stark {euro_klasse}" data-label="+/- €" data-spalte="euro">{fmt(euro or 0, 0)}</td>'
-                + f'<td class="pt-num pt-wknval" data-label="WKN" data-spalte="wkn">{_h(kuerzel) or "–"}</td>'
-                + f'<td class="pt-num pt-seit" data-label="seit" data-spalte="seit">{seit_txt}</td>'
-                '</tr>'
-            )
-
-        kopf = (
-            '<th class="pt-wert">Wert</th>'
-            '<th class="pt-num" data-spalte="monatlich">Ø/Mon.</th>'
-              '<th class="pt-num" data-spalte="jaehrlich">Ø/Jahr</th>'
-              '<th class="pt-num" data-spalte="perf">Gesamt</th>'
-            + "".join(f'<th class="pt-num" data-spalte="{k}">{t}</th>'
-                      for k, t in aktive_zeitraeume)
-            + '<th class="pt-num" data-spalte="euro">+/- €</th>'
-              '<th class="pt-num" data-spalte="wkn">WKN</th>'
-              '<th class="pt-num" data-spalte="seit">seit</th>'
-        )
-        # Die Fokus-Klasse steuert per CSS, welche Kennzahl auf schmalen
-        # Bildschirmen sichtbar ist (am Desktop sind ohnehin alle zu sehen).
-        return (f'<div class="pt-wrap" tabindex="0" role="region" aria-label="Tabelle (seitlich scrollbar)"><table class="pt pt-fokus-{fokus}">'
-                f'<thead><tr>{kopf}</tr></thead><tbody>{zeilen}</tbody></table></div>')
+    def performance_tabelle_html(eintraege, eigene_kennung=None, fokus='jaehrlich'):
+        return charts_ansichten.performance_tabelle_html({'_h': _h, 're': re, 'vz_zahl': vz_zahl}, eintraege=eintraege, eigene_kennung=eigene_kennung, fokus=fokus)
 
     # Kennzahlen je Zeitraum: module-weites berechne_performance_kennzahlen() (Audit DEP-08:
     # Ø/Jahr erst ab 365 Tagen, sonst None -> "–" in der Tabelle).
@@ -3819,10 +3276,7 @@ def render_dashboard():
     kurs_zeit_text = (kurs_zeit.strftime("%d.%m.%Y %H:%M Uhr") if kurs_zeit is not None else "unbekannt")
 
     def de_zahl(wert, nachkomma=2):
-        """Deutsche Schreibweise (zentral: formate.zahl) - bewusst nur auf den ZAHLENWERT
-        angewendet, nicht auf das umgebende HTML. Kurse mit 2 Nachkommastellen (UX 10/2026:
-        "150,000 €" las sich wie 150 Tausend)."""
-        return FMT.zahl(wert, nachkomma)
+        return depot_verwalten_ansichten.de_zahl({}, wert=wert, nachkomma=nachkomma)
 
     # ---------- PERFORMANCE JE ZEITRAUM (Tag/Woche/Monat/Jahr/seit Kauf) ----------
     # Referenzkurse werden aus der Kurshistorie berechnet (letzter Schlusskurs
@@ -3853,122 +3307,14 @@ def render_dashboard():
     haupt_name, weitere_positionen = depot_aufteilung(alle_positionen, eigen)
 
     # ---------- POSITIONEN VERWALTEN (anlegen / aendern / loeschen) ----------
-    def instrument_suchblock(prefix, label="WKN, ISIN oder Name suchen"):
-        """Wiederverwendbarer Suchblock. Muss AUSSERHALB eines st.form stehen,
-        da Formulare erst beim Submit einen Rerun ausloesen - die Suche soll
-        aber sofort reagieren. Sucht bei Eingabe (Enter/Verlassen des Felds),
-        ohne extra Klick. Gibt den gewaehlten Treffer als dict zurueck (oder None).
-
-        prefix trennt die session_state-Keys, damit jede Position ihren
-        eigenen, unabhaengigen Suchzustand hat."""
-        # Schluessel mit Zaehler: nach dem Speichern bekommt das Feld einen neuen Schluessel und ist
-        # wirklich leer - sonst schickt der Browser den alten Begriff erneut und das naechste
-        # Formular uebernaehme wieder WKN/Kursquelle des alten Treffers (360°-Pruefung F-04)
-        suchbegriff = st.text_input(
-            label, key=f"{prefix}_suche_{st.session_state.get(f'{prefix}_nr', 0)}",
-            placeholder="z. B. A0LC12, IE00B4L5Y983 oder MSCI World",
-        )
-
-        # Nur neu suchen, wenn sich der Begriff geaendert hat - sonst wuerde
-        # jeder Rerun (z.B. durch ein anderes Widget) erneut suchen.
-        if suchbegriff and st.session_state.get(f"{prefix}_letzter") != suchbegriff:
-            st.session_state[f"{prefix}_letzter"] = suchbegriff
-            st.session_state[f"{prefix}_treffer"] = suche_instrument(suchbegriff)
-            st.session_state.pop(f"{prefix}_wahl", None)
-
-        if not suchbegriff:
-            return None
-
-        treffer = st.session_state.get(f"{prefix}_treffer", [])
-        if not treffer:
-            st.caption("⚠️ Keine Treffer – Schreibweise prüfen oder die Kursquelle-ID manuell eintragen.")
-            return None
-
-        optionen = {
-            f"{t['name']} · {t['kategorie']} · WKN {t['wkn'] or '–'}": t
-            for t in treffer
-        }
-        wahl = st.selectbox("Treffer auswählen", list(optionen.keys()), key=f"{prefix}_wahl")
-        gewaehlt = optionen[wahl]
-
-        live_kurs, _, _ = get_live_kurs(gewaehlt["instrument_id"])
-        kurs_txt = f"{FMT.eur(live_kurs, 2)}" if live_kurs else "kein Kurs verfügbar"
-        st.caption(
-            f"→ **{gewaehlt['name']}** · ID {gewaehlt['instrument_id']} · "
-            f"ISIN {gewaehlt['isin'] or '–'} · aktuell {kurs_txt}"
-        )
-        return gewaehlt
+    def instrument_suchblock(prefix, label='WKN, ISIN oder Name suchen'):
+        return depot_verwalten_ansichten.instrument_suchblock({'get_live_kurs': get_live_kurs, 'suche_instrument': suche_instrument}, prefix=prefix, label=label)
 
     def suche_zuruecksetzen(prefix):
-        """Suchblock leeren (neues, leeres Suchfeld; Treffer und Auswahl vergessen)."""
-        for k in (f"{prefix}_letzter", f"{prefix}_treffer", f"{prefix}_wahl"):
-            st.session_state.pop(k, None)
-        st.session_state[f"{prefix}_nr"] = st.session_state.get(f"{prefix}_nr", 0) + 1
+        return depot_verwalten_ansichten.suche_zuruecksetzen({}, prefix=prefix)
 
     def positions_anlage_formular(prefix):
-        """Neue Position anlegen (Suche + Formular). prefix trennt die Schluessel - das
-        Formular steht in den Einstellungen ("neu") und im leeren Depot ("leer")."""
-        gewaehlt = instrument_suchblock(prefix)
-        # Schluessel haengen am gewaehlten Treffer - so uebernimmt das Formular eine neue
-        # Suche als Vorbelegung (gleiches Muster wie beim Bearbeiten)
-        sfx = f"{prefix}_{gewaehlt['instrument_id'] if gewaehlt else 0}"
-
-        with st.form(f"pos_form_{prefix}", clear_on_submit=True):
-            neu_name = st.text_input(
-                "Name", value=(gewaehlt["name"] if gewaehlt else ""),
-                placeholder="z. B. MSCI World ETF", key=f"{sfx}_f_name")
-            neu_wkn = st.text_input(
-                "WKN / ISIN",
-                value=(gewaehlt["wkn"] or gewaehlt["isin"]) if gewaehlt else "",
-                placeholder="z. B. A0RPWH", key=f"{sfx}_f_wkn")
-            neu_inst = st.number_input(
-                "Kursquelle-ID (wird über die Suche gesetzt, optional)", min_value=0, step=1,
-                value=int(gewaehlt["instrument_id"]) if gewaehlt else 0,
-                help="Wird durch die Suche oben automatisch gefüllt. Kann auch leer "
-                     "(0) bleiben - dann werden für diese Position keine Kurse geladen "
-                     "und sie zählt nicht in die Depot-Summe. Jederzeit nachtragbar.",
-                key=f"{sfx}_f_inst",
-            )
-            neu_datum = st.date_input("Kaufdatum", value=heute_date, key=f"{prefix}_f_datum", format="DD.MM.YYYY")
-            neu_kurs = st.number_input("Kaufkurs (€)", min_value=0.0, step=0.01, format="%.4f", value=0.0,
-                                       key=f"{prefix}_f_kurs")
-            neu_kapital = st.number_input("Investiertes Kapital (€)", min_value=0.0, step=100.0, value=0.0,
-                                          key=f"{prefix}_f_kapital")
-
-            if st.form_submit_button("➕ Position anlegen", width="stretch"):
-                if not neu_name or neu_kurs <= 0 or neu_kapital <= 0:
-                    st.error("Bitte Name, Kaufkurs und Kapital ausfüllen.")
-                else:
-                    # Instrument-ID, falls angegeben, vor dem Speichern pruefen -
-                    # verhindert stumme Fehlkonfiguration. Ohne ID wird die
-                    # Position angelegt und spaeter als "keine Kursquelle" markiert.
-                    test_kurs = None
-                    if neu_inst:
-                        test_kurs, _, _ = get_live_kurs(int(neu_inst))
-
-                    if neu_inst and test_kurs is None:
-                        st.error(
-                            f"Für die Kursquelle-ID {int(neu_inst)} liefert ls-tc.de keine Kursdaten. "
-                            "Bitte die ID prüfen – oder das Feld leer (0) lassen und später nachtragen."
-                        )
-                    else:
-                        _p_anlage = {
-                            "id": f"pos-{uuid.uuid4().hex[:12]}",     # eindeutig, auch bei zwei Anlagen je Sekunde
-                            "name": neu_name, "wkn": neu_wkn,
-                            "instrument_id": int(neu_inst) if neu_inst else None,
-                            "kaufdatum": neu_datum.isoformat(), "kaufkurs": float(neu_kurs),
-                            "startkapital": float(neu_kapital),
-                        }
-                        if aendere_positionen(lambda l: l + [_p_anlage], "position angelegt [skip ci]"):
-                            suche_zuruecksetzen(prefix)
-                            if test_kurs is not None:
-                                st.success(f"„{neu_name}“ angelegt (aktueller Kurs {FMT.eur(test_kurs, 2)}).")
-                            else:
-                                st.success(f"„{neu_name}“ angelegt – ohne Kursquelle. "
-                                           "Kursquelle-ID kann oben jederzeit ergänzt werden.")
-                            st.rerun()
-                        else:
-                            st.error("Anlegen fehlgeschlagen (kein persistenter State?).")
+        return depot_verwalten_ansichten.positions_anlage_formular({'aendere_positionen': aendere_positionen, 'get_live_kurs': get_live_kurs, 'heute_date': heute_date, 'instrument_suchblock': instrument_suchblock, 'suche_zuruecksetzen': suche_zuruecksetzen, 'uuid': uuid}, prefix=prefix)
 
     # ---------- HIGH WATERMARK: als Zeile in der Kurskachel ----------
     # Bewusst KEINE eigene Kachel mehr: der Hoechststand ist eine Eigenschaft
@@ -4006,60 +3352,7 @@ def render_dashboard():
         klasse="quote", wert_klasse="q-price", titel_klasse="q-name")
     # ---------- BEOBACHTETE WERTE: reine Kursanzeige, NICHT im Depot ----------
     def beobachtungs_karte(eintrag, fortschritt=None, im_depot=False):
-        """Baut eine Kurskachel im selben Aufbau wie die Hauptkachel, aber fuer
-        einen reinen Beobachtungswert. Höchststand wird hier aus der geladenen
-        Historie bestimmt (kein persistenter State noetig) - fuer einen Wert,
-        den man nicht besitzt, ist die Performance Fee ohnehin irrelevant."""
-        if fortschritt:
-            fortschritt(35, "Rufe Live-Kurs ab …")
-        b_kurs, b_vortag, _ = get_live_kurs(eintrag["instrument_id"])
-        if b_kurs is None:
-            return (
-                '<div class="quote">'
-                f'<div class="q-name">{_h(eintrag.get("name", ""))} · {_h(eintrag.get("wkn", ""))}</div>'
-                '<div class="price-line">'
-                '<span class="q-price">–</span>'
-                '<span class="meta-chip">keine Live-Daten</span>'
-                '</div>'
-                '<div class="card-footnote">ls-tc.de liefert für diesen Wert gerade '
-                'keine Kurse. Kursquelle-ID prüfen oder später erneut versuchen.</div>'
-                '</div>'
-            )
-
-        if fortschritt:
-            fortschritt(65, "Lade Kurshistorie …")
-        b_hist = get_kurshistorie(
-            eintrag["instrument_id"], heute_date - datetime.timedelta(days=420), heute_date
-        )
-        if fortschritt:
-            fortschritt(90, "Berechne Zeiträume …")
-        b_perioden = berechne_zeitraeume(b_kurs, b_vortag, b_hist, heute_date)
-
-        b_hw_zeile = ""
-        if not b_hist.empty:
-            b_hoch = float(b_hist.max())
-            b_hoch_datum = b_hist.idxmax().strftime("%d.%m.%Y")
-            b_abstand_pct = (b_kurs - b_hoch) / b_hoch * 100 if b_hoch else 0.0
-            b_wert_html = ('<span class="up">erreicht</span>' if b_abstand_pct >= -0.0005
-                           else f'<span class="down">{FMT.pct(b_abstand_pct, 2)}</span>')
-            b_hw_zeile = (
-                '<div class="perf-row"><span class="perf-label">Höchststand</span>'
-                f'<span class="perf-vals"><span class="neutral">{FMT.eur(b_hoch, 2)}</span>'
-                f'{b_wert_html}</span></div>'
-            )
-            b_fuss = (f'Lang &amp; Schwarz · je Anteil · Höchststand vom {b_hoch_datum} '
-                      f'(aus verfügbarer Kurshistorie)')
-        else:
-            b_fuss = 'Lang &amp; Schwarz · je Anteil'
-        if not im_depot:
-            b_fuss += ' · nicht im Depot enthalten'
-
-        return depot_kachel_html(
-            f'{_h(eintrag.get("name", ""))} · {_h(eintrag.get("wkn", ""))}', FMT.kurs(b_kurs),
-            chips=kurs_pill(*kurs_status(kurs_zeitpunkt(eintrag["instrument_id"]), now_berlin, True))
-            + ('' if im_depot else '<span class="meta-chip">Beobachtung</span>'),
-            zeilen=b_perioden, kopfzeile=("Vortag", FMT.kurs(b_vortag)) if b_vortag else None,
-            fusszeile=b_hw_zeile, fussnote=b_fuss, klasse="quote", wert_klasse="q-price", titel_klasse="q-name")
+        return depot_verwalten_ansichten.beobachtungs_karte({'_h': _h, 'berechne_zeitraeume': berechne_zeitraeume, 'depot_kachel_html': depot_kachel_html, 'get_kurshistorie': get_kurshistorie, 'get_live_kurs': get_live_kurs, 'heute_date': heute_date, 'kurs_pill': kurs_pill, 'kurs_status': kurs_status, 'kurs_zeitpunkt': kurs_zeitpunkt, 'now_berlin': now_berlin}, eintrag=eintrag, fortschritt=fortschritt, im_depot=im_depot)
 
     beobachtung = [e for e in lade_beobachtung() if e.get("instrument_id")]
 
@@ -5002,66 +4295,7 @@ def render_dashboard():
     # erzeugten Container - Streamlit erlaubt das bei Fragment-Reruns nicht.
     # Noetig ist es auch nicht mehr, da nur die gewaehlte Ansicht laeuft.
     def _vergleichswerte_verwalten(offen=False):
-        """Eigene Vergleichswerte (Vermoegensaufbau, Performance seit 2026/2021): aus der Top-500-Liste oder per
-        Suche hinzufuegen, wieder entfernen - je Benutzer gespeichert."""
-        liste = lade_vergleichswerte()
-        schritte.leiste(st, "vergleich")
-        schritte.titel(st, "vergleich", 1)
-        with st.expander(f"⭐ Vergleichswerte verwalten ({len(liste)})", expanded=offen):
-            st.caption("Deine Vergleichswerte – gespeichert und in allen Vergleichs-Charts verwendet. Aus der "
-                       f"Top-500-Liste übernehmen oder einen beliebigen Wert suchen. Höchstens "
-                       f"{PROG_BASIS.MAX_EINTRAEGE} Werte.")
-            optionen = top500_optionen_bei_bedarf("vgl_top500")
-            if optionen is not None:
-                optionen = [w for w in optionen if not PROG_BASIS.enthalten(liste, w)]
-
-            def _hinzu(w):
-                if not w.get("instrument_id"):                     # Kurs-ID fehlt: exakte Suche ueber WKN/ISIN
-                    import investment_scanner_pro_engine as PRO
-                    t, art = PRO.treffer_waehlen(w, suche_instrument(w.get("isin") or w.get("wkn") or w["name"]) or [])
-                    w["instrument_id"] = int(t["instrument_id"]) if t and art == "exakt" else None
-                if not w.get("instrument_id"):
-                    st.error(f"Für „{w['name']}“ wurde keine Kursquelle gefunden – nicht hinzugefügt.")
-                elif aendere_vergleichswerte(lambda l: PROG_BASIS.hinzufuegen(l, PROG_BASIS.eintrag(w, time.time())),
-                                             "vergleichswert hinzugefuegt [skip ci]"):
-                    for k in ("vgl_wahl", "vgl_such", "vgl_treffer"):
-                        st.session_state.pop(k, None)
-                    st.rerun()
-                else:
-                    st.error("Nicht gespeichert – schon in der Liste, Liste voll oder Speicher gerade nicht "
-                             "erreichbar.")
-
-            if optionen is not None:
-                c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
-                wahl = c1.selectbox(
-                    f"Aus der Top-500-Liste ({len(optionen)} Werte)", range(len(optionen)), index=None,
-                    format_func=lambda i: " · ".join(x for x in (optionen[i]["name"], PROG_BASIS.ARTEN[optionen[i]["art"]],
-                                                                 optionen[i]["wkn"] or optionen[i]["isin"]) if x),
-                    placeholder="Name, WKN oder ISIN eintippen …", key="vgl_wahl")
-                if c2.button("➕ Hinzufügen", key="vgl_add", disabled=wahl is None, type="primary", width="stretch"):
-                    _hinzu(dict(optionen[wahl]))
-            begriff = st.text_input("Oder eigenen Wert suchen (Name, WKN oder ISIN)", key="vgl_such",
-                                    placeholder="z. B. Siemens, 723610, LS9…").strip()
-            if len(begriff) >= 2:
-                treffer = [t for t in (suche_instrument(begriff) or [])[:12] if t.get("instrument_id")]
-                if not treffer:
-                    st.caption("Keine Treffer – andere Schreibweise oder WKN/ISIN versuchen.")
-                else:
-                    t1, t2 = st.columns([4, 1], vertical_alignment="bottom")
-                    t = t1.selectbox("Treffer", treffer, key="vgl_treffer", format_func=lambda t: " · ".join(
-                        x for x in (t.get("name"), t.get("wkn") or t.get("isin"), t.get("kategorie")) if x))
-                    if t2.button("➕ Hinzufügen", key="vgl_add_such", type="primary", width="stretch"):
-                        _hinzu({"name": t.get("name") or begriff, "wkn": t.get("wkn") or "",
-                                "isin": t.get("isin") or "", "instrument_id": int(t["instrument_id"])})
-            for e in liste:
-                z1, z2 = st.columns([5, 1], vertical_alignment="center")
-                z1.markdown(f"**{_h(vergleich_label(e))}**")
-                if z2.button("🗑️ Entfernen", key=f"vgl_weg_{e.get('id')}", width="stretch"):
-                    if aendere_vergleichswerte(lambda l, _id=e.get("id"): PROG_BASIS.entfernen(l, _id),
-                                               "vergleichswert entfernt [skip ci]"):
-                        st.rerun()
-                    else:
-                        st.error("Entfernen fehlgeschlagen (Speicher gerade nicht erreichbar).")
+        return charts_ansichten._vergleichswerte_verwalten({'PROG_BASIS': PROG_BASIS, '_h': _h, 'aendere_vergleichswerte': aendere_vergleichswerte, 'lade_vergleichswerte': lade_vergleichswerte, 'suche_instrument': suche_instrument, 'time': time, 'top500_optionen_bei_bedarf': top500_optionen_bei_bedarf, 'vergleich_label': vergleich_label}, offen=offen)
 
     def _render_vergleich_eigen():
         charts_ansichten.vergleich_eigen({'_vergleichswerte_verwalten': _vergleichswerte_verwalten, 'heute_date': heute_date, 'kennzahl_umschalter': kennzahl_umschalter, 'lade_benchmarks_mit_fortschritt': lade_benchmarks_mit_fortschritt, 'lade_vergleichswerte': lade_vergleichswerte, 'pct_ueber_tage': pct_ueber_tage, 'performance_tabelle_html': performance_tabelle_html, 'tab_wealth': tab_wealth, 'vergleich_farbe': vergleich_farbe})
