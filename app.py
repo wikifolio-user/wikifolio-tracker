@@ -18,6 +18,7 @@ import config
 import github_store
 import chronik
 import startseite
+import glossar_ui
 import login
 import nutzerdaten
 import kurs_dienst as KD
@@ -2077,6 +2078,7 @@ ANSICHT_BEWERTUNG = "⚖️ Bewertung"
 ANSICHT_ATZ = "🏖️ Altersteilzeit & Rente"
 ANSICHT_WIKI = "💹 KI_Invest_System"
 ANSICHT_EKS = "🎯 EKS-Investmentbewertung"
+ANSICHT_GLOSSAR = "📖 Begriffe"         # Fachbegriffe erklaert (glossar.py) - fuer alle sichtbar
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -2107,6 +2109,7 @@ ANSICHTEN = [
     ANSICHT_ATZ,
     ANSICHT_WIKI,               # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_EKS,                # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_GLOSSAR,            # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -2134,6 +2137,7 @@ ANSICHT_KURZ = {
     ANSICHT_ATZ: "🏖️ Altersteilzeit",
     ANSICHT_WIKI: "💹 KI_Invest_System",
     ANSICHT_EKS: "🎯 EKS-Bewertung",
+    ANSICHT_GLOSSAR: "📖 Begriffe",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -2161,6 +2165,7 @@ NAV_NAMEN = {
     ANSICHT_ATZ: "🏖️ Altersteilzeit & Rente",
     ANSICHT_WIKI: "💹 KI_Invest_System (wikifolio)",
     ANSICHT_EKS: "🎯 EKS-Bewertung",
+    ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -2169,6 +2174,7 @@ NAV_TITEL = {
     ANSICHT_BEWERTUNG: "⚖️ Bewertung (Top 500)",
     ANSICHT_ATZ: "🏖️ Altersteilzeit & Rentenplanung",
     ANSICHT_EKS: "🎯 EKS-Investmentbewertung",
+    ANSICHT_GLOSSAR: "📖 Begriffe erklärt",
     "🔍 Seit 01.01.2026": "🔍 Performance seit 01.01.2026",
     "🔎 Seit 01.01.2021": "🔎 Performance seit 01.01.2021",
 }
@@ -2189,12 +2195,13 @@ NAV_ZEILEN = [
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
     ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
+    ("Hilfe", [ANSICHT_GLOSSAR]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
-                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS}
+                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -2202,7 +2209,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
-              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS}
+              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -2575,6 +2582,8 @@ def _sichtbar(ansicht):
     """Darf der angemeldete Benutzer diese Ansicht sehen? Die Benutzerverwaltung
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
+    if ansicht == ANSICHT_GLOSSAR:           # reine Erklaerungen, keine Daten - fuer alle
+        return True
     if ansicht == ANSICHT_BENUTZER:
         return bool(n) and n.get("rolle") == "admin"
     if ansicht == ANSICHT_WIKI:          # eigene Handelsidee: Admin, sonst nur bei ausdruecklich vergebenem Recht
@@ -3024,6 +3033,15 @@ def render_chronik():
 # Vermeidet den harten Full-Page-Rerun von st_autorefresh (sichtbares
 # Aufhellen/Neuzeichnen alle 30s). Ein Fragment aktualisiert sich selbst
 # periodisch, ohne die komplette Seite neu zu bauen/zu scrollen.
+def begriffe_erklaeren(ansicht):
+    """Fachbegriffe der geoeffneten Ansicht kurz erklaert (eingeklappt, am Seitenende - Audit UX-04).
+    Innerhalb des Fragments aufrufen: ein Menue-Klick baut nur das Fragment neu auf."""
+    try:
+        glossar_ui.zur_ansicht(st, ansicht)
+    except Exception as e:
+        logging.warning(f"Glossar nicht angezeigt: {type(e).__name__}")
+
+
 @st.fragment(run_every=NAV_PRUEF_SEK)
 def render_dashboard():
     _zugang_pruefen()       # Audit SEC-10: auch der periodische Fragment-Neuaufbau prueft die Anmeldung
@@ -5399,7 +5417,7 @@ def render_dashboard():
 
     if gewaehlte_ansicht == ANSICHT_BENUTZER:
         try:
-            waehlbar = [a for a in ANSICHTEN if a != ANSICHT_BENUTZER]
+            waehlbar = [a for a in ANSICHTEN if a not in (ANSICHT_BENUTZER, ANSICHT_GLOSSAR)]
             def _gh_write_frisch(*args, **kwargs):
                 # nach dem Speichern den 60-s-Zwischenspeicher leeren: Sperren und
                 # Rechte wirken dann bei den anderen Benutzern beim naechsten Klick
@@ -5460,6 +5478,10 @@ def render_dashboard():
             notify_app_error("Tab-Musterdepot", e)
         lade_fertig()
 
+    if gewaehlte_ansicht == ANSICHT_GLOSSAR:
+        glossar_ui.seite(st)
+        lade_fertig()
+
     if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
         melde("ansicht", 0.3, "Lade Chronik …")
         render_chronik()
@@ -5469,6 +5491,7 @@ def render_dashboard():
     # dort endet der Aufbau hier, ohne Live-Kurs, Historie und Vergleichswerte.
     if gewaehlte_ansicht is None or gewaehlte_ansicht in LEICHTE_ANSICHTEN:
         lade_fertig()
+        begriffe_erklaeren(gewaehlte_ansicht)
         return
 
     melde("live", 0.0, "Rufe Live-Kurs ab …")
@@ -8504,6 +8527,7 @@ def render_dashboard():
                              f" ({len(df_chart)} Handelstage){_warnung}")
                     st.write(f"- Erster Schlusskurs der Reihe: **{df_chart['Close'].iloc[0]:.4f} €**")
 
+    begriffe_erklaeren(gewaehlte_ansicht)
 
 
 # ---------- LOGIN: vor allem anderen (ohne [login] in den Secrets aus) ----------
