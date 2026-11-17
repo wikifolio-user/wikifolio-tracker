@@ -1,4 +1,4 @@
-"""Tests fuer die reinen Depot-Rechenfunktionen aus app.py (python3 -m unittest test_app_rechner).
+"""Tests fuer die reinen Depot-Rechenfunktionen (depot_rechnen.py, frueher in app.py; python3 -m unittest test_app_rechner).
 
 app.py selbst laesst sich ohne Streamlit/Plotly nicht importieren. Deshalb werden die
 benoetigten Modul-Funktionen per AST aus app.py herausgeloest und in einem eigenen
@@ -6,9 +6,7 @@ Namensraum ausgefuehrt (nur pandas/numpy/Standardbibliothek). Sollwerte sind
 unabhaengig von Hand bzw. mit eigenen Formeln gerechnet.
 """
 import ast
-import bisect
 import datetime
-import html
 import math
 import os
 import unittest
@@ -29,16 +27,12 @@ FUNKTIONEN = [
 
 
 def _lade_funktionen():
-    pfad = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")
-    with open(pfad, encoding="utf-8") as f:
-        baum = ast.parse(f.read())
-    defs = {n.name: n for n in baum.body if isinstance(n, ast.FunctionDef)}
-    fehlend = [f for f in FUNKTIONEN if f not in defs]
+    """Die Rechenfunktionen liegen in depot_rechnen.py (aus app.py ausgelagert) - direkt importierbar."""
+    import depot_rechnen
+    ns = vars(depot_rechnen)
+    fehlend = [f for f in FUNKTIONEN if f not in ns]
     if fehlend:
-        raise AssertionError(f"Funktionen fehlen in app.py: {fehlend}")
-    modul = ast.Module(body=[defs[f] for f in FUNKTIONEN], type_ignores=[])
-    ns = {"FMT": __import__("formate"), "html": html, "bisect": bisect, "datetime": datetime, "pd": pd, "np": np, "math": math}
-    exec(compile(modul, pfad, "exec"), ns)
+        raise AssertionError(f"Funktionen fehlen in depot_rechnen.py: {fehlend}")
     return ns
 
 

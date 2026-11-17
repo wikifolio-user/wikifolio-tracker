@@ -174,13 +174,16 @@ def _lade_app():
         baum = ast.parse(f.read())
     defs = {n.name: n for n in baum.body if isinstance(n, ast.FunctionDef)}
     zuw = {t.id: n for n in baum.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)}
-    fehlend = [f for f in FUNKTIONEN if f not in defs] + [z for z in ZUWEISUNGEN if z not in zuw]
+    import depot_rechnen                                  # aus app.py ausgelagerte Rechenfunktionen
+    ausgelagert = {f: getattr(depot_rechnen, f) for f in FUNKTIONEN if f not in defs and hasattr(depot_rechnen, f)}
+    fehlend = [f for f in FUNKTIONEN if f not in defs and f not in ausgelagert] + [z for z in ZUWEISUNGEN if z not in zuw]
     if fehlend:
         raise AssertionError(f"fehlt in app.py: {fehlend}")
-    modul = ast.Module(body=[zuw[z] for z in ZUWEISUNGEN] + [defs[f] for f in FUNKTIONEN], type_ignores=[])
+    modul = ast.Module(body=[zuw[z] for z in ZUWEISUNGEN] + [defs[f] for f in FUNKTIONEN if f in defs],
+                       type_ignores=[])
     st = types.SimpleNamespace(session_state={})
     ns = {"FMT": __import__("formate"), "html": html, "bisect": bisect, "datetime": datetime, "pd": pd, "math": math, "re": re,
-          "config": config, "nutzerdaten": N, "st": st}
+          "config": config, "nutzerdaten": N, "st": st, **ausgelagert}
     exec(compile(modul, pfad, "exec"), ns)
     return ns, st
 

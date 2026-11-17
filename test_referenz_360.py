@@ -3,9 +3,7 @@
 Sollwerte stammen aus geschlossenen Formeln oder Handrechnung - nie aus dem App-Code selbst.
 Die Funktionen aus app.py werden wie in test_app_rechner per AST geladen.
 """
-import ast
 import datetime
-import os
 import unittest
 
 import pandas as pd
@@ -17,11 +15,10 @@ from test_app_rechner import A as _A
 
 
 def _lade(namen):
-    pfad = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")
-    baum = ast.parse(open(pfad, encoding="utf-8").read())
-    defs = {n.name: n for n in baum.body if isinstance(n, ast.FunctionDef)}
+    """Die Funktionen liegen in depot_rechnen.py (aus app.py ausgelagert)."""
+    import depot_rechnen
     ns = dict(_A)
-    exec(compile(ast.Module(body=[defs[f] for f in namen], type_ignores=[]), pfad, "exec"), ns)
+    ns.update({f: getattr(depot_rechnen, f) for f in namen})
     return ns
 
 
