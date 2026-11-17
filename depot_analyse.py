@@ -17,6 +17,7 @@ import math
 import re
 
 import branchen as BR
+import depot_summe as DS
 import dividenden as DV
 import klassen_score as KS
 import formate as FMT
@@ -349,14 +350,15 @@ def kennzahlen(positionen, cash=0.0, profil=None):
     cash = max(_z(cash, 0.0) or 0.0, 0.0)
     investiert = sum(_wert(p) for p in bewertbar)
     gesamt = investiert + cash
-    # Gewinn/Rendite nur ueber Positionen mit bekanntem Einstand (sonst zaehlte ihr Wert als Gewinn)
-    mit_einstand = [p for p in bewertbar if _z(p.get("einstand")) is not None]
-    einstand = sum(_z(p.get("einstand")) for p in mit_einstand)
-    ausgezahlt = sum(_z(p.get("ausgezahlt"), 0.0) or 0.0 for p in mit_einstand)
-    wert_mit = sum(_wert(p) for p in mit_einstand)
+    # Gewinn/Rendite aus EINER Quelle wie Depot-Ansicht und Altersteilzeit (depot_summe, Audit FIN-03): nur
+    # ueber Positionen mit bekanntem Einstand (sonst zaehlte ihr Wert als Gewinn); ein Totalverlust (Wert 0)
+    # zaehlt mit
+    sm = DS.summe(positionen)
+    einstand, ausgezahlt = sm["einstand"], sm["ausgezahlt"]
+    wert_mit = sum(_wert(p) for p in DS.mit_kurs(positionen) if _z(p.get("einstand")) is not None)
     k = {"gesamt": gesamt, "investiert": investiert, "cash": cash, "einstand": einstand, "ausgezahlt": ausgezahlt,
-         "gv": wert_mit + ausgezahlt - einstand if einstand else None,
-         "rendite": ((wert_mit + ausgezahlt) / einstand - 1) * 100 if einstand else None,
+         "gv": sm["gewinn"] if einstand else None,
+         "rendite": sm["rendite_pct"] if einstand else None,
          "einstand_abdeckung": (wert_mit / investiert * 100) if investiert else 0.0,
          "anzahl": len(bewertbar), "ohne_kurs": [p for p in positionen if p.get("ohne_kurs")]}
     if gesamt <= 0:
