@@ -289,6 +289,8 @@ WIDGETS = """
 [role="tab"]:not(#fd-hell), [role="tab"] p:not(#fd-hell) { color: #1C1C1E !important; }
 [data-testid="stCaptionContainer"]:not(#fd-hell), [data-testid="stCaptionContainer"] *:not(#fd-hell) { color: #6E6E73 !important; }
 [role="tab"][aria-selected="true"]:not(#fd-hell), [role="tab"][aria-selected="true"] p:not(#fd-hell) { color: #3B5BDB !important; }
+/* Gruppen-Ueberschriften im Menue pulsieren bis 80 % Deckkraft - dunkler, damit es auch dann 4,5:1 bleibt */
+.nav-wander:not(#fd-hell) { color: #3D4660 !important; }
 /* Eingabefelder */
 :is([data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-testid="stNumberInputContainer"],
     [data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"], [data-testid="stDateInputField"],
