@@ -48,7 +48,7 @@ jobs:
           GH_STATE_TOKEN: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           # Alle Aktien der Rangliste Qualitaets-Score pruefen (nicht nur den Katalog): ~14.000 je Woche
           INVESTOREN_ALLE: "1"
-          INVESTOREN_MAX: "2000"
+          INVESTOREN_MAX: "2500"         # ~15.400 Aktien in rund 6 Tagen; gemessen ~55 min je 2.000 (11.-16.11.2026)
           INVESTOREN_ZEITBUDGET_MIN: ${{ github.event.schedule == '23 10 * * 1-6' && '200' || '150' }}
         run: python investoren_agent.py
 
