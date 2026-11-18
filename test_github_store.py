@@ -145,9 +145,12 @@ class GitHubStoreTests(unittest.TestCase):
             self.assertEqual(sorted(p for p, _ in geloescht),
                              ["state/benutzer/anna/planer/szenarien.json", "state/benutzer/anna/positionen.json"])
             # gemeinsame / Admin-Daten sind nie loeschbar
-            for verboten in ("state", "state/benutzer", "state/positionen.json", "state/benutzer/../x", ""):
+            for verboten in ("state", "state/benutzer", "state/positionen.json", "state/benutzer/../x", "",
+                             "state/gesundheitx", "state/gesundheit/../kurse", "state/gesundheit/tage"):
                 self.assertEqual(G.loesche_ordner("o/r", "b", verboten, "t"), (False, 0))
             self.assertEqual(len(geloescht), 2)
+            # Gesundheitsdaten des Admins: genau dieser Ordner ist erlaubt (Leerer Ordner -> nichts zu loeschen)
+            self.assertEqual(G.loesche_ordner("o/r", "b", "state/gesundheit", "t"), (True, 0))
 
     def test_loesche_ordner_lesefehler_loescht_nichts(self):
         with mock.patch.object(G.requests, "get", lambda *a, **k: _Antwort(503)), \

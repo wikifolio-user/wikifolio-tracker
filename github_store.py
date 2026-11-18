@@ -231,11 +231,12 @@ def _liste(repo, branch, path, token):
 
 def loesche_ordner(repo, branch, path, token, message="delete", max_retries=3):
     """Loescht alle Dateien unter path (z. B. den Datenordner eines geloeschten Benutzers).
-    -> (ok, anzahl_geloescht). Nur Pfade unterhalb von state/benutzer/ sind erlaubt -
-    so kann ein Fehler nie gemeinsame Daten treffen. Die Git-Historie enthaelt die
+    -> (ok, anzahl_geloescht). Nur Pfade unterhalb von state/benutzer/ und der Gesundheitsordner
+    state/gesundheit sind erlaubt - so kann ein Fehler nie gemeinsame Daten treffen. Die Git-Historie enthaelt die
     Dateien weiter, bis squash-state-history.yml die Historie komprimiert."""
     path = str(path or "").strip("/")
-    if not path.startswith("state/benutzer/") or ".." in path or path.count("/") < 2:
+    gesundheit = path == "state/gesundheit"               # Gesundheitsdaten des Admins ("alles loeschen")
+    if ".." in path or not (gesundheit or (path.startswith("state/benutzer/") and path.count("/") >= 2)):
         logging.error(f"github_store.loesche_ordner: Pfad nicht erlaubt ({path})")
         return False, 0
     try:

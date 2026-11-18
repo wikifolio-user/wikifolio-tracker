@@ -13,11 +13,15 @@ import copy
 import datetime
 import uuid
 
+from . import naehrstoffe as _N
 from . import rechnen as R
 from . import supplements as SU
 
 PFAD_PROFIL = "state/gesundheit/profil.json"
 PFAD_MONAT = "state/gesundheit/tage/{}.json"
+MI_NAME = {n: x.name for n, x in _N.NAEHRSTOFFE.items()}
+MI_EINHEIT = {n: x.einheit for n, x in _N.NAEHRSTOFFE.items()}
+PFAD_ORDNER = "state/gesundheit"
 MAHLZEITEN = ["Frühstück", "Mittagessen", "Nachmittag", "Abendessen", "Snacks"]
 GETRAENKE = [("wasser", "Wasser", 0), ("kaffee", "Kaffee", 2), ("tee", "Tee", 1), ("saft", "Saft", 45),
              ("milch", "Milch", 47), ("softdrink", "Softdrink", 42)]      # (art, Name, kcal je 100 ml)
