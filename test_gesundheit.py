@@ -17,7 +17,9 @@ from gesundheit import supplements as SU
 from gesundheit import naehrstoffe as N
 from gesundheit import quellen as Q
 from gesundheit import rechnen as R
+from gesundheit import bericht_pdf as BP
 from gesundheit import speicher as S
+from gesundheit import statistik as ST
 from gesundheit import sport as SP
 
 R_BERLIN = ZoneInfo("Europe/Berlin")
@@ -420,6 +422,87 @@ class KoerperUndVorlagen(unittest.TestCase):
         self.assertEqual(S.profil_doc({})["einstellungen"]["mahlzeiten"], S.MAHLZEITEN)
 
 
+class Statistik(unittest.TestCase):
+    def _daten(self):
+        m, doc = {}, S.profil_doc({})
+        doc = S.supplement_speichern(doc, SU.neues(SU.VORLAGEN[2], "mg", datetime.date(2026, 11, 1)))
+        for i in range(14):                                         # 05.11. - 18.11.
+            tag = HEUTE - datetime.timedelta(days=i)
+            if i % 2 == 0:                                         # nur jeder zweite Tag dokumentiert
+                m = S.essen_hinzu(m, tag, [S.essen_eintrag(L.NACH_ID["mandeln"], 100 + i, "g", "Snacks", ZEIT)])
+                m = S.trinken_hinzu(m, tag, "wasser", 1000, ZEIT)
+                m = S.einnahme_setzen(m, tag, doc["supplements"][0], "eingenommen", ZEIT)
+            if i in (0, 13):
+                m = S.gewicht_setzen(m, tag, 80 - (13 - i) * 0.1)
+            if i == 3:
+                m = S.sport_hinzu(m, tag, SP.eintrag("laufen", "Laufen", 30, "mittel", 350, False, ZEIT, "s"))
+        return m, doc
+
+    def test_zeitraum_und_monate(self):
+        self.assertEqual(ST.zeitraum("7 Tage", HEUTE), (datetime.date(2026, 11, 12), HEUTE))
+        self.assertEqual(ST.zeitraum("Monat", HEUTE), (datetime.date(2026, 11, 1), HEUTE))
+        self.assertEqual(ST.zeitraum("Eigener", HEUTE, HEUTE, datetime.date(2026, 10, 1)),
+                         (datetime.date(2026, 10, 1), HEUTE))
+        self.assertEqual(ST.monate_zwischen(datetime.date(2025, 12, 15), datetime.date(2026, 2, 2)),
+                         [datetime.date(2025, 12, 1), datetime.date(2026, 1, 1), datetime.date(2026, 2, 1)])
+
+    def test_zusammenfassung_nur_erfasste_tage(self):
+        m, doc = self._daten()
+        r = ST.reihe(HEUTE - datetime.timedelta(days=13), HEUTE, lambda d: m, doc)
+        z = ST.zusammenfassung(r)
+        self.assertEqual((z["tage"], z["erfasst"]), (14, 7))
+        mandeln = [100 + i for i in range(0, 14, 2)]
+        self.assertAlmostEqual(z["kcal"], sum(595 * g / 100 for g in mandeln) / 7)   # Luecken zaehlen nicht als 0
+        self.assertAlmostEqual(z["fluessigkeit_ml"], 1000)
+        self.assertEqual((z["sport_tage"], z["sport_kcal"]), (1, 350))
+        self.assertAlmostEqual(z["gewicht_diff"], -1.3)       # 80 kg (vor 13 Tagen) -> 78,7 kg (heute)
+        self.assertAlmostEqual(z["supp_treue"], 50)                # 7 von 14 geplanten
+        saetze = ST.aussagen(z, "in den letzten 14 Tagen")
+        self.assertIn("an 7 von 14 Tagen", saetze[0])
+        self.assertTrue(any("um -1,3 kg" in x for x in saetze))
+        self.assertFalse(any("Mangel" in x for x in saetze))          # keine Diagnosen
+        self.assertEqual(ST.aussagen(ST.zusammenfassung([]))[0][:6], "Für im")
+
+    def test_wochenvergleich(self):
+        m, doc = self._daten()
+        diese = ST.reihe(HEUTE - datetime.timedelta(days=6), HEUTE, lambda d: m, doc)
+        letzte = ST.reihe(HEUTE - datetime.timedelta(days=13), HEUTE - datetime.timedelta(days=7), lambda d: m, doc)
+        v = {x[0]: x for x in ST.wochenvergleich(diese, letzte)}
+        self.assertIn("Magnesium", v)
+        self.assertIsNotNone(v["Kalorien"][3])
+        self.assertIsNone(ST.veraenderung(5, 0))
+        self.assertAlmostEqual(ST.veraenderung(110, 100), 10)
+        self.assertEqual(v["Gewicht"][4], "kg")
+
+    def test_kalender_und_export(self):
+        m, doc = self._daten()
+        r = ST.reihe(HEUTE - datetime.timedelta(days=13), HEUTE, lambda d: m, doc)
+        self.assertEqual(ST.kalender_zeichen(r[-1]), ["🍽", "💧", "⚖", "💊"])
+        self.assertEqual(ST.kalender_zeichen(r[-2]), [])
+        csv_text = ST.als_csv(r)
+        self.assertTrue(csv_text.startswith("\ufeffDatum;Kalorien"))
+        self.assertIn("2026-11-18;", csv_text)
+        self.assertIn(",", csv_text.splitlines()[-1])                # Dezimalkomma
+        import json
+        j = json.loads(ST.als_json(doc, {"2026-11": m}))
+        self.assertEqual(j["profil"]["supplements"][0]["id"], "mg")
+        self.assertIn("2026-11-18", j["monate"]["2026-11"]["tage"])
+
+    def test_pdf(self):
+        try:
+            import reportlab  # noqa: F401
+        except ImportError:
+            self.skipTest("reportlab nicht installiert")
+        m, doc = self._daten()
+        r = ST.reihe(HEUTE - datetime.timedelta(days=13), HEUTE, lambda d: m, doc)
+        z = R.ziele({"gewicht_kg": 80, "groesse_cm": 180, "geburtsjahr": 1986, "ziel": "halten"}, HEUTE)
+        for detail in (False, True):
+            pdf = BP.bericht(r, doc, z, "Gesundheitsbericht", r[0]["datum"], HEUTE, detail=detail)
+            self.assertTrue(pdf.startswith(b"%PDF"))
+        leer = BP.bericht(ST.reihe(HEUTE, HEUTE, lambda d: {}, {}), {}, R.ziele({}), "Leer", HEUTE, HEUTE, True)
+        self.assertTrue(leer.startswith(b"%PDF"))
+
+
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
     """Rauchtest der Oberflaeche (AppTest, Speicher im Arbeitsspeicher): Einrichtung, Wasser, Essen."""
@@ -438,8 +521,14 @@ class Oberflaeche(unittest.TestCase):
                 neu = f(copy.deepcopy(store.get(p, d)))
                 store[p] = copy.deepcopy(neu)
                 return True, neu
+            def ordner_loeschen(ordner):
+                weg = [p for p in list(store) if p.startswith(ordner + "/")]
+                for p in weg:
+                    del store[p]
+                return True, len(weg)
             gesundheit_ui.seite({"lesen": lesen, "aktualisiere": akt, "upfad": lambda p: p, "speichern": True,
-                                 "get": None})
+                                 "get": None, "liste": lambda o: [p for p in store if p.startswith(o + "/")],
+                                 "ordner_loeschen": ordner_loeschen})
 
         at = AppTest.from_function(app, default_timeout=30).run()
         self.assertFalse(at.exception)
@@ -496,6 +585,18 @@ class Oberflaeche(unittest.TestCase):
         t = S.tag_aus(store[S.monat_pfad(heute)], heute)
         self.assertEqual([(x["art"], x["minuten"]) for x in t["sport"]], [("laufen", 30.0)])
         self.assertGreater(t["sport"][0]["kcal"], 0)
+        # Statistik ohne Fehler, dann alles loeschen -> Einrichtung beginnt von vorn
+        at.session_state["gs_bereich_neu"] = "Statistik"
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any("an 1 von 7 Tagen" in m.value for m in at.markdown))
+        at.session_state["gs_bereich_neu"] = "Profil"
+        at.run()
+        at.text_input(key="gs_loeschen_text").input("LÖSCHEN").run()
+        knopf("Endgültig löschen").click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(store, {})
+        self.assertTrue(any(b.label == "Gewicht halten" for b in at.button))
 
 
 class NurAdmin(unittest.TestCase):

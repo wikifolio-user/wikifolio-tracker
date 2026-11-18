@@ -2906,8 +2906,20 @@ def render_dashboard():
             _zugang_pruefen(ANSICHT_GESUNDHEIT)
             try:
                 import gesundheit_ui
+                def _liste(ordner):
+                    return [p for p, _ in github_store._liste(GITHUB_REPO, config.GITHUB_STATE_BRANCH, ordner,
+                                                              GITHUB_TOKEN) if p.endswith(".json")]
+
+                def _ordner_loeschen(ordner):
+                    if not GH_STATE_READY:
+                        return False, 0
+                    ok, anzahl = github_store.loesche_ordner(GITHUB_REPO, config.GITHUB_STATE_BRANCH, ordner,
+                                                             GITHUB_TOKEN, message="gesundheitsdaten geloescht")
+                    gh_read_cached.clear()
+                    return ok, anzahl
                 gesundheit_ui.seite({"lesen": gh_read_cached_status, "aktualisiere": gh_aktualisiere, "upfad": upfad,
-                                     "speichern": GH_STATE_READY, "get": requests.get})
+                                     "speichern": GH_STATE_READY, "get": requests.get, "liste": _liste,
+                                     "ordner_loeschen": _ordner_loeschen})
             except Exception as e:
                 st.error("⚠️ Im Gesundheitsbereich ist ein Fehler aufgetreten. Bitte lade die Seite neu.")
                 notify_app_error("Tab-Gesundheit", e)

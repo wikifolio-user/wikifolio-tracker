@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
+from gesundheit import bericht_pdf as BP
 from gesundheit import fasten as FA
 from gesundheit import lebensmittel as L
 from gesundheit import mikro as MI
@@ -24,11 +25,13 @@ from gesundheit import rechnen as R
 from gesundheit import referenz as F
 from gesundheit import speicher as S
 from gesundheit import sport as SP
+from gesundheit import statistik as ST
 from gesundheit import supplements as SU
 
 BERLIN = ZoneInfo("Europe/Berlin")
 P = "gs_"
-BEREICHE = ["Heute", "Essen", "Trinken", "Sport", "Fasten", "Supplements", "Nährstoffe", "Körper", "Profil"]
+BEREICHE = ["Heute", "Essen", "Trinken", "Sport", "Fasten", "Supplements", "Nährstoffe", "Körper", "Statistik",
+            "Profil"]
 AUSBLENDBAR = {"Supplements": "supplements_zeigen", "Fasten": "fasten_zeigen"}     # Bereich -> Einstellung
 HINWEIS = ("Alle Werte sind rechnerische Schätzungen zur Dokumentation. Sie ersetzen keine medizinische oder "
            "ernährungsmedizinische Beratung.")
@@ -68,6 +71,20 @@ CSS = """<style>
 .st-key-gs_seite [class*="st-key-gs_reihe"] > div { flex: 1 1 140px !important; min-width: 0; }
 .st-key-gs_seite [class*="st-key-gs_eintrag_"] button { justify-content: flex-start !important; text-align: left; }
 .st-key-gs_tagleiste { max-width: 640px; }
+/* Bereichsleiste: am Handy kompakter, damit alle Bereiche in zwei Zeilen passen */
+@media (max-width: 640px) {
+  .st-key-gs_bereichsleiste [data-testid="stButtonGroup"] button { padding: 4px 10px !important; min-height: 44px; }
+  .st-key-gs_bereichsleiste [data-testid="stButtonGroup"] button p { font-size: .86rem !important; }
+  .st-key-gs_bereichsleiste [data-testid="stButtonGroup"] > div { gap: 6px !important; }
+}
+.gs-kal-kopf { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; font-size: .75rem;
+    color: var(--label, #A9B1C4); font-weight: 650; margin: 4px 0; }
+.st-key-gs_seite [class*="st-key-gs_kal_w"] { flex-wrap: nowrap !important; gap: 3px !important; }
+.gs-kal-kopf { gap: 3px; }
+.st-key-gs_kalkopf button { min-width: 48px !important; }
+.st-key-gs_seite [class*="st-key-gs_kal_w"] > div { flex: 1 1 0 !important; min-width: 0 !important; }
+.st-key-gs_seite [class*="st-key-gs_kal_w"] button { min-width: 0 !important; padding: 2px !important;
+    font-size: .8rem; line-height: 1.15; }
 .st-key-gs_seite [data-testid="stButtonGroup"] button { min-width: 48px; }
 .st-key-gs_tagleiste [data-testid="stButton"] button { min-width: 48px; }
 </style>"""
@@ -202,12 +219,13 @@ def seite(h):
         bereiche = [b for b in BEREICHE if doc["einstellungen"].get(AUSBLENDBAR.get(b, ""), True)]
         if s.get(P + "bereich") not in bereiche:
             s[P + "bereich"] = bereiche[0]
-        bereich = st.segmented_control("Bereich", bereiche, key=P + "bereich", label_visibility="collapsed",
-                                       width="stretch") or bereiche[0]
-        if bereich != "Profil":
+        with st.container(key="gs_bereichsleiste"):
+            bereich = st.segmented_control("Bereich", bereiche, key=P + "bereich", label_visibility="collapsed",
+                                           width="stretch") or bereiche[0]
+        if bereich not in ("Profil", "Statistik"):
             _tag_leiste()
         {"Heute": _heute_seite, "Essen": _essen_seite, "Trinken": _trinken_seite, "Sport": _sport_seite,
-         "Fasten": _fasten_seite, "Supplements": _supplement_seite,
+         "Fasten": _fasten_seite, "Supplements": _supplement_seite, "Statistik": _statistik_seite,
          "Nährstoffe": _naehrstoff_seite, "Körper": _koerper_seite, "Profil": _profil_seite}[bereich](h, doc)
         st.caption(HINWEIS)
 
@@ -947,8 +965,7 @@ def _profil_seite(h, doc):
         st.button("Einrichtung erneut durchlaufen", key=P + "neu_einrichten",
                   on_click=lambda: st.session_state.update({P + "einrichtung": True, P + "schritt": 1,
                                                             P + "entwurf": dict(doc.get("profil") or {})}))
-        st.caption("Deine Gesundheitsdaten liegen nur in deinem privaten Datenspeicher und sind nur für dich sichtbar. "
-                   "Export und vollständiges Löschen folgen mit den Berichten.")
+    _meine_daten(h, doc)
 
 
 def _schalter(h, doc, name, text, hilfe):
@@ -1345,7 +1362,7 @@ def _fasten_seite(h, doc):
         st.caption(f"{_z(ziel)} Stunden fasten, danach {_z(max(0, 24 - ziel))} Stunden Essensfenster.")
         st.button("⏱ Fasten starten", key=P + "fa_start", type="primary", width="stretch",
                   on_click=_fasten_plan_start, args=(h, P + "fa_plan", P + "fa_eigen"))
-    verlauf = list(reversed(f.get("verlauf") or []))[:14]
+    verlauf = sorted(f.get("verlauf") or [], key=lambda v: str(v.get("start") or ""), reverse=True)[:14]
     if verlauf:
         st.markdown("**Letzte Fastenzeiten**")
         for v in verlauf:
@@ -1392,3 +1409,248 @@ def _fasten_start_setzen(h, k_d, k_z):
         return d
     _profil_aendern(h, f, "gesundheit fasten")
     _melden("Startzeit geändert")
+
+
+# ====================================================================== Statistik
+def _reihe(h, doc, von, bis):
+    for m in ST.monate_zwischen(von, bis):
+        _monat(h, m)
+    return ST.reihe(von, bis, lambda d: _monat(h, d), doc)
+
+
+def _statistik_seite(h, doc):
+    s = st.session_state
+    heute = _heute()
+    namen = list(ST.ZEITRAEUME) + ["Eigener"]
+    s.setdefault(P + "st_zeitraum", "7 Tage")
+    name = st.segmented_control("Zeitraum", namen, key=P + "st_zeitraum", width="stretch",
+                                label_visibility="collapsed") or "7 Tage"
+    von = bis = None
+    if name == "Eigener":
+        wahl = st.date_input("Zeitraum", (heute - datetime.timedelta(days=29), heute), key=P + "st_eigen",
+                             format="DD.MM.YYYY", max_value=heute)
+        if isinstance(wahl, (list, tuple)) and len(wahl) == 2:
+            von, bis = wahl
+        else:
+            st.caption("Bitte Start- und Enddatum wählen.")
+            return
+    von, bis = ST.zeitraum(name, heute, von, bis)
+    r = _reihe(h, doc, von, bis)
+    z = ST.zusammenfassung(r)
+    z_ziele = _ziele(doc)
+    text = {"7 Tage": "in den letzten 7 Tagen", "14 Tage": "in den letzten 14 Tagen", "30 Tage": "in den letzten 30 Tagen",
+            "Monat": "in diesem Monat", "Quartal": "in den letzten drei Monaten", "Jahr": "im letzten Jahr"}.get(
+        name, f"vom {von.strftime('%d.%m.%Y')} bis {bis.strftime('%d.%m.%Y')}")
+    st.markdown("\n".join(f"- {x}" for x in ST.aussagen(z, text)))
+    if z["erfasst"]:
+        kacheln = [_kachel("Ø Kalorien", z["kcal"], z_ziele["kcal"], "kcal"),
+                   _kachel("Ø Protein", z["protein"], z_ziele["protein"], "g"),
+                   _kachel("Ø Getrunken", (z["fluessigkeit_ml"] or 0) / 1000, (z_ziele["wasser_ml"] or 0) / 1000, "L",
+                           stellen=1)]
+        if z["gewicht_diff"] is not None:
+            kacheln.append(_kachel("Gewicht", z["gewicht_ende"], None, "kg",
+                                   f"{'+' if z['gewicht_diff'] > 0 else ''}{_z(z['gewicht_diff'], 1)} kg im Zeitraum",
+                                   stellen=1))
+        st.markdown('<div class="gs-kacheln">' + "".join(kacheln) + "</div>", unsafe_allow_html=True)
+    _st_diagramm(h, doc, r, z_ziele)
+    with st.expander("Diese Woche gegen letzte Woche"):
+        _wochenvergleich(h, doc, heute)
+    with st.expander("Kalender", expanded=False):
+        _kalender(h, doc)
+    with st.expander("Bericht und Export"):
+        _bericht_export(h, doc, r, z_ziele, von, bis)
+
+
+_DIAGRAMME = ["Kalorien", "Makros", "Gewicht", "Getrunken", "Sport", "Nährstoff", "Supplements", "Fasten"]
+
+
+def _st_diagramm(h, doc, r, z):
+    import plotly.graph_objects as go
+    s = st.session_state
+    s.setdefault(P + "st_diag", "Kalorien")
+    art = st.pills("Diagramm", _DIAGRAMME, key=P + "st_diag", label_visibility="collapsed") or "Kalorien"
+    x = [d["datum"] for d in r]
+    fig, einheit, ziel = go.Figure(), "", None
+    blau, tuerkis, violett = "#7C9CFF", "#5EEAD4", "#C4B5FD"
+    if art == "Kalorien":
+        fig.add_bar(x=x, y=[d["kcal"] if d["erfasst"] else None for d in r], marker_color=blau, name="Kalorien")
+        einheit, ziel = "kcal", z["kcal"]
+    elif art == "Makros":
+        for k, n, f in (("protein", "Protein", blau), ("kh", "Kohlenhydrate", tuerkis), ("fett", "Fett", violett)):
+            fig.add_bar(x=x, y=[d[k] if d["erfasst"] else None for d in r], name=n, marker_color=f)
+        fig.update_layout(barmode="stack", showlegend=True, legend={"orientation": "h", "y": -0.2})
+        einheit = "g"
+    elif art == "Gewicht":
+        pts = [(d["datum"], d["gewicht"]) for d in r if d["gewicht"]]
+        fig.add_scatter(x=[p[0] for p in pts], y=[p[1] for p in pts], mode="lines+markers",
+                        line={"color": blau, "width": 3}, name="Gewicht")
+        einheit, ziel = "kg", (doc.get("profil") or {}).get("zielgewicht_kg")
+    elif art == "Getrunken":
+        fig.add_bar(x=x, y=[d["fluessigkeit_ml"] / 1000 if d["erfasst"] else None for d in r], marker_color=tuerkis)
+        einheit, ziel = "L", (z["wasser_ml"] or 0) / 1000 or None
+    elif art == "Sport":
+        fig.add_bar(x=x, y=[d["sport_min"] or None for d in r], marker_color=blau, name="Minuten")
+        einheit = "Minuten"
+    elif art == "Nährstoff":
+        n = st.selectbox("Nährstoff", N.MIKRO, key=P + "st_nst", format_func=lambda i: N.NAEHRSTOFFE[i].name)
+        werte = [MI.tag_naehrstoffe(d["_tag"], [n])[n]["wert"] if d["erfasst"] else None for d in r]
+        fig.add_bar(x=x, y=werte, marker_color=violett)
+        p = doc.get("profil") or {}
+        ref = F.suchen(n, p.get("geschlecht", "x"), R.alter(p.get("geburtsjahr")))
+        einheit, ziel = N.NAEHRSTOFFE[n].einheit, ref.ziel if ref else None
+    elif art == "Supplements":
+        fig.add_bar(x=x, y=[d["supp_ein"] for d in r], marker_color=blau, name="eingenommen")
+        fig.add_scatter(x=x, y=[d["supp_geplant"] for d in r], mode="lines", name="geplant",
+                        line={"color": tuerkis, "dash": "dot"})
+        fig.update_layout(showlegend=True, legend={"orientation": "h", "y": -0.2})
+        einheit = "Anzahl"
+    else:
+        fig.add_bar(x=x, y=[d["fasten_h"] for d in r], marker_color=violett)
+        einheit = "Stunden"
+    if ziel:
+        fig.add_hline(y=ziel, line_dash="dot", line_color=tuerkis, annotation_text="Ziel")
+    if not any(v for tr in fig.data for v in (tr.y or []) if v):
+        st.markdown('<div class="gs-leer">Für diesen Zeitraum gibt es dazu noch keine Einträge.</div>',
+                    unsafe_allow_html=True)
+        return
+    fig.update_layout(height=260, margin={"l": 10, "r": 10, "t": 10, "b": 10}, paper_bgcolor="rgba(0,0,0,0)",
+                      plot_bgcolor="rgba(0,0,0,0)", yaxis={"title": einheit}, xaxis={"tickformat": "%d.%m."},
+                      hovermode="x unified")
+    if not fig.layout.showlegend:
+        fig.update_layout(showlegend=False)
+    st.plotly_chart(fig, config={"displayModeBar": False}, key=P + "st_chart")
+
+
+def _wochenvergleich(h, doc, heute):
+    diese = _reihe(h, doc, heute - datetime.timedelta(days=6), heute)
+    letzte = _reihe(h, doc, heute - datetime.timedelta(days=13), heute - datetime.timedelta(days=7))
+    zeilen = ST.wochenvergleich(diese, letzte)
+    st.caption("Letzte 7 Tage gegen die 7 Tage davor (Durchschnitt je dokumentiertem Tag).")
+    karten = []
+    for name, a, b, proz, e in zeilen:
+        if a is None and b is None:
+            continue
+        if name == "Gewicht" and a is not None and b is not None:
+            d = a - b
+            sub = f"{'+' if d > 0 else ''}{_z(d, 1)} kg"
+        elif proz is not None:
+            sub = f"{'+' if proz > 0 else ''}{_z(proz)} %"
+        else:
+            sub = "kein Vergleichswert"
+        stellen = 1 if e in ("kg",) or (a or 0) < 10 else 0
+        karten.append(f'<div class="gs-kachel"><div class="gs-k-label">{html.escape(name)}</div>'
+                      f'<div class="gs-k-wert">{html.escape(sub)}</div><div class="gs-k-sub">'
+                      f'{_z(a, stellen)} {e} gegen {_z(b, stellen)} {e}</div></div>')
+    if karten:
+        st.markdown('<div class="gs-kacheln">' + "".join(karten) + "</div>", unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="gs-leer">Noch zu wenige Einträge für einen Vergleich.</div>', unsafe_allow_html=True)
+
+
+def _kalender(h, doc):
+    s = st.session_state
+    heute = _heute()
+    erster = s.get(P + "kal_monat") or heute.replace(day=1)
+    with st.container(key="gs_kalkopf", horizontal=True, vertical_alignment="center",
+                      horizontal_alignment="distribute"):
+        st.button("←", key=P + "kal_zurueck", on_click=lambda: s.update(
+            {P + "kal_monat": (erster - datetime.timedelta(days=1)).replace(day=1)}), help="Voriger Monat")
+        monat = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
+                 "November", "Dezember"][erster.month - 1]
+        st.markdown(f"**{monat} {erster.year}**")
+        st.button("→", key=P + "kal_vor", disabled=erster >= heute.replace(day=1), help="Nächster Monat",
+                  on_click=lambda: s.update({P + "kal_monat": (erster + datetime.timedelta(days=32)).replace(day=1)}))
+    letzter = (erster + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
+    r = {x["datum"]: x for x in _reihe(h, doc, erster, min(letzter, heute))}
+    st.markdown('<div class="gs-kal-kopf">' + "".join(f"<span>{t}</span>" for t in SU.WOCHENTAGE) + "</div>",
+                unsafe_allow_html=True)
+    tag = erster - datetime.timedelta(days=erster.weekday())
+    woche = 0
+    while tag <= letzter:
+        with st.container(key=f"gs_kal_w{woche}", horizontal=True, gap="small"):
+            for _ in range(7):
+                if tag.month != erster.month or tag > heute:
+                    st.button(" ", key=P + f"kal_{tag}", disabled=True, width="stretch")
+                else:
+                    z = ST.kalender_zeichen(r[tag]) if tag in r else []
+                    st.button(f"{tag.day}" + (f" {''.join(z[:2])}" if z else ""), key=P + f"kal_{tag}", width="stretch",
+                              type="primary" if tag == _tag() else "secondary", on_click=_kal_oeffnen, args=(tag,),
+                              help=(", ".join({"🍽": "Ernährung", "💧": "Getränke", "🏃": "Sport", "⚖": "Gewicht",
+                                                "💊": "Supplements", "⏱": "Fasten"}[x] for x in z) or "keine Einträge"))
+                tag += datetime.timedelta(days=1)
+        woche += 1
+    st.caption("🍽 Ernährung · 💧 Getränke · 🏃 Sport · ⚖ Gewicht · 💊 Supplements · ⏱ Fasten – Tag antippen öffnet ihn.")
+
+
+def _kal_oeffnen(tag):
+    _tag_setzen(tag)
+    _zu("Heute")
+
+
+def _bericht_export(h, doc, r, z_ziele, von, bis):
+    s = st.session_state
+    art = st.radio("Bericht", ["Kurzbericht", "Detailbericht"], horizontal=True, key=P + "pdf_art",
+                   help="Kurzbericht: Zusammenfassung und Durchschnitte. Detailbericht: zusätzlich Diagramme, "
+                        "Vitamine und Mineralstoffe und alle Tageswerte.")
+    schluessel = (art, von, bis)
+    if st.button("📄 PDF erstellen", key=P + "pdf_los", width="stretch"):
+        p = doc.get("profil") or {}
+        with st.spinner("Bericht wird erstellt …"):
+            try:
+                s[P + "pdf"] = (schluessel, BP.bericht(r, doc, z_ziele, "Gesundheitsbericht", von, bis,
+                                                       detail=art == "Detailbericht",
+                                                       alter=R.alter(p.get("geburtsjahr")) or 40))
+            except Exception as e:
+                logging.warning(f"Gesundheit PDF: {type(e).__name__}")
+                st.error("Der Bericht konnte gerade nicht erstellt werden. Bitte versuche es erneut.")
+    fertig = s.get(P + "pdf")
+    if fertig and fertig[0] == schluessel:
+        st.download_button("⬇ PDF herunterladen", fertig[1], file_name=f"gesundheit_{von}_{bis}.pdf",
+                           mime="application/pdf", key=P + "pdf_dl", type="primary", width="stretch")
+    st.download_button("⬇ Tageswerte als CSV (Excel)", ST.als_csv(r).encode("utf-8"),
+                       file_name=f"gesundheit_{von}_{bis}.csv", mime="text/csv", key=P + "csv_dl", width="stretch")
+
+
+# ====================================================================== Meine Daten (Export, Loeschen)
+def _meine_daten(h, doc):
+    s = st.session_state
+    with st.expander("Meine Daten: Export und Löschen"):
+        st.caption("Deine Gesundheitsdaten liegen nur in deinem privaten Datenspeicher und sind nur für dich "
+                   "(angemeldeter Admin) sichtbar.")
+        if st.button("Alle Daten als JSON vorbereiten", key=P + "json_los", width="stretch",
+                     help="Profil, Lebensmittel, Supplements und alle Tage – vollständig, maschinenlesbar"):
+            try:
+                monate = {}
+                for pfad in h["liste"](h["upfad"](S.PFAD_ORDNER) + "/tage"):
+                    name = pfad.rsplit("/", 1)[-1][:-5]
+                    daten, ok = h["lesen"](pfad, None)
+                    if not ok:
+                        raise RuntimeError("nicht lesbar")
+                    monate[name] = daten
+                s[P + "json"] = ST.als_json(doc, monate)
+            except Exception as e:
+                logging.warning(f"Gesundheit Export: {type(e).__name__}")
+                st.error("Die Daten konnten gerade nicht vollständig gelesen werden. Bitte versuche es erneut.")
+        if s.get(P + "json"):
+            st.download_button("⬇ JSON herunterladen", s[P + "json"].encode("utf-8"), file_name="gesundheit_export.json",
+                               mime="application/json", key=P + "json_dl", type="primary", width="stretch")
+        st.divider()
+        st.markdown("**Alle Gesundheitsdaten löschen**")
+        st.caption("Löscht Profil, eigene Lebensmittel, Supplements, Vorlagen und alle Tage endgültig aus dem "
+                   "Datenspeicher. Ältere Stände verschwinden aus der Versionsgeschichte, sobald die regelmäßige "
+                   "Verdichtung des Datenspeichers gelaufen ist. Lade vorher den JSON-Export herunter, wenn du die "
+                   "Daten behalten möchtest.")
+        st.text_input("Zum Bestätigen LÖSCHEN eingeben", key=P + "loeschen_text", max_chars=10)
+        st.button("Endgültig löschen", key=P + "loeschen_los", disabled=(s.get(P + "loeschen_text") or "").strip() != "LÖSCHEN",
+                  on_click=_alles_loeschen, args=(h,))
+
+
+def _alles_loeschen(h):
+    s = st.session_state
+    ok, anzahl = h["ordner_loeschen"](h["upfad"](S.PFAD_ORDNER))
+    if not ok:
+        _melden("Die Daten konnten gerade nicht gelöscht werden. Bitte versuche es erneut.", "fehler")
+        return
+    for k in [k for k in s.keys() if str(k).startswith(P)]:
+        del s[k]
+    _melden(f"Alle Gesundheitsdaten gelöscht ({anzahl} Dateien).")
