@@ -22,6 +22,10 @@ try:
 except ImportError:                                   # Rechen-CI ohne Streamlit: Test entfaellt
     OBERFLAECHE = False
 
+# Oberflaechentest des Gesundheitsbereichs (nur Admin - im Rundgang unten ohne Login nicht sichtbar) laeuft hier
+# mit, weil nur dieser CI-Schritt Streamlit installiert hat
+from test_gesundheit import Oberflaeche as GesundheitOberflaeche  # noqa: E402,F401
+
 # Texte, mit denen app.py eine abgefangene Ausnahme einer Ansicht anzeigt (st.error vor notify_app_error)
 ABGEFANGEN = re.compile(r"^\W*(Fehler (in|im) |Kurs konnte nicht geladen|Position .{0,80} konnte nicht)")
 MIN_ANSICHTEN = 16            # Menue-Kacheln; faellt es darunter, stimmt etwas mit dem Test nicht

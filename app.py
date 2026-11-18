@@ -1376,6 +1376,7 @@ ANSICHT_ATZ = "🏖️ Altersteilzeit & Rente"
 ANSICHT_WIKI = "💹 KI_Invest_System"
 ANSICHT_EKS = "🎯 EKS-Investmentbewertung"
 ANSICHT_GLOSSAR = "📖 Begriffe"         # Fachbegriffe erklaert (glossar.py) - fuer alle sichtbar
+ANSICHT_GESUNDHEIT = "❤️ Gesundheit"     # gesundheit_ui.py - Gesundheitsdaten, NUR fuer den Admin
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -1407,6 +1408,7 @@ ANSICHTEN = [
     ANSICHT_WIKI,               # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_EKS,                # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_GLOSSAR,            # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_GESUNDHEIT,         # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1435,6 +1437,7 @@ ANSICHT_KURZ = {
     ANSICHT_WIKI: "💹 KI_Invest_System",
     ANSICHT_EKS: "🎯 EKS-Bewertung",
     ANSICHT_GLOSSAR: "📖 Begriffe",
+    ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1463,6 +1466,7 @@ NAV_NAMEN = {
     ANSICHT_WIKI: "💹 KI_Invest_System (wikifolio)",
     ANSICHT_EKS: "🎯 EKS-Bewertung",
     ANSICHT_GLOSSAR: "📖 Begriffe",
+    ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1492,13 +1496,15 @@ NAV_ZEILEN = [
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
     ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
+    ("Gesundheit", [ANSICHT_GESUNDHEIT]),
     ("Hilfe", [ANSICHT_GLOSSAR]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
 ]
 # Ansichten ohne Depot-/Kursdaten: dort wird gar nichts vom Depot geladen
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
-                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR}
+                     ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
+                     ANSICHT_GESUNDHEIT}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1506,7 +1512,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
-              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR}
+              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1895,7 +1901,7 @@ def _sichtbar(ansicht):
     n = _nutzer()
     if ansicht == ANSICHT_GLOSSAR:           # reine Erklaerungen, keine Daten - fuer alle
         return True
-    if ansicht == ANSICHT_BENUTZER:
+    if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT):     # Gesundheitsdaten: nur angemeldeter Admin
         return bool(n) and n.get("rolle") == "admin"
     if ansicht == ANSICHT_WIKI:          # eigene Handelsidee: Admin, sonst nur bei ausdruecklich vergebenem Recht
         return n is None or n.get("rolle") == "admin" or ansicht in (n.get("ansichten") or [])
@@ -2891,6 +2897,21 @@ def render_dashboard():
 
     if gewaehlte_ansicht == ANSICHT_GLOSSAR:
         glossar_ui.seite(st)
+        lade_fertig()
+
+    # --- GESUNDHEIT (gesundheit/ + gesundheit_ui.py): nur fuer den angemeldeten Admin; Daten im privaten State-Repo
+    if gewaehlte_ansicht == ANSICHT_GESUNDHEIT:
+        @st.fragment
+        def _render_gesundheit():
+            _zugang_pruefen(ANSICHT_GESUNDHEIT)
+            try:
+                import gesundheit_ui
+                gesundheit_ui.seite({"lesen": gh_read_cached_status, "aktualisiere": gh_aktualisiere, "upfad": upfad,
+                                     "speichern": GH_STATE_READY, "get": requests.get})
+            except Exception as e:
+                st.error("⚠️ Im Gesundheitsbereich ist ein Fehler aufgetreten. Bitte lade die Seite neu.")
+                notify_app_error("Tab-Gesundheit", e)
+        _render_gesundheit()
         lade_fertig()
 
     if gewaehlte_ansicht == "📝 Trader-Log (Trades & Kommentare)":
