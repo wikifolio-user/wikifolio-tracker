@@ -1851,13 +1851,13 @@ def depot_kurzinfo_karte(jetzt):
 
 @st.fragment(run_every=300)
 def startseite_ticker():
-    """Kurs-Ticker unter der Depot-Karte: eigene Depotwerte und Vergleichswerte, heute ±%. Liest nur die
+    """Kurs-Ticker unter der Depot-Karte: eigene Depotwerte und echte Indexstaende (DAX in Punkten …), heute ±%. Liest nur die
     gespeicherten Kurse des Kurs-Agenten (keine Kursabrufe beim Start); laeuft alle 5 Min. neu (Agent: alle 30 Min.)."""
     if not GH_STATE_READY:
         return
     try:
         vorrat = kurs_vorrat()
-        eintraege = startseite.ticker_daten(lade_positionen(), config.BENCHMARKS, vorrat.alle_live())
+        eintraege = startseite.ticker_daten(lade_positionen(), vorrat.alle_live(), vorrat.indizes())
     except Exception as e:
         logging.warning(f"Ticker nicht geladen: {type(e).__name__}")
         return

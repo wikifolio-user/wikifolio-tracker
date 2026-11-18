@@ -24,6 +24,7 @@ import requests
 
 import config
 import github_store
+import indizes
 import kurs_vorrat as KV
 import planer_daten
 import portfolio_builder
@@ -308,6 +309,21 @@ def top50_aktualisieren(stand):
     return 0 if _schreiben(KV.PFAD_TOP50, neue_top50(alt, ziele, geladen, stand), "kurse top50 [skip ci]") else 1
 
 
+def indizes_aktualisieren(stand):
+    """Echte Indexstaende fuer den Ticker der Startseite (indizes.py). Fehler hier lassen den Lauf nicht scheitern."""
+    geladen = {}
+    for symbol, _, _ in indizes.INDIZES:
+        w = indizes.abrufen(symbol, requests.get, stand)
+        if w:
+            geladen[symbol] = w
+    log.info(f"Indizes: {len(geladen)} von {len(indizes.INDIZES)} geladen")
+    if not geladen:
+        return
+    alt, ok = _lies(indizes.PFAD)
+    if ok:
+        _schreiben(indizes.PFAD, indizes.neue_datei(alt, geladen, stand), "kurse indizes [skip ci]")
+
+
 def main():
     if not (GITHUB_REPO and GITHUB_TOKEN):
         log.error("GITHUB_REPOSITORY / GH_STATE_TOKEN fehlen")
@@ -349,6 +365,10 @@ def main():
     except Exception as e:
         log.error(f"Top-50-Kurse fehlgeschlagen: {type(e).__name__}: {e}")
         fehler += 1
+    try:
+        indizes_aktualisieren(stand)
+    except Exception as e:
+        log.warning(f"Indizes fehlgeschlagen: {type(e).__name__}: {e}")
     return 1 if fehler else 0
 
 
