@@ -1,43 +1,9 @@
 """Kurs-Ticker der Startseite - ohne Streamlit, ohne Netz testbar.
 
 Quelle sind nur die gespeicherten Kurse des Kurs-Agenten (state/kurse/live.json, siehe kurs_vorrat.py) - beim Start
-werden keine Kurse abgerufen. Gezeigt werden die eigenen Depotwerte und echte Indexstaende (indizes.py).
+werden keine Kurse abgerufen. Gezeigt werden nur echte Indexstaende (indizes.py: DAX in Punkten usw.).
 """
 import html
-import re
-
-import indizes
-import kurs_vorrat as KV
-
-_KLAMMER = re.compile(r"\s*\([^)]*\)\s*$")
-
-
-def kurzname(name, max_len=28):
-    """"MSCI World (A0RPWH)" -> "MSCI World"; zu lange Namen gekuerzt."""
-    n = _KLAMMER.sub("", str(name or "")).strip() or str(name or "").strip()
-    return n if len(n) <= max_len else n[:max_len - 1].rstrip() + "…"
-
-
-def ticker_daten(positionen, live_werte, indizes_daten=None):
-    """-> [(name, kurs, veraenderung_pct, einheit)] - erst die eigenen Depotwerte (Kurs in €), dann die echten
-    Indexstaende (indizes.py: DAX in Punkten usw.). Jede Kurs-ID nur einmal, nur Werte mit Kurs UND Vortageskurs
-    (sonst gaebe es kein "heute ±%"). Die Vergleichswerte aus config.BENCHMARKS kommen bewusst NICHT vor: das sind
-    ETFs - "DAX 214,80 €" waere der Kurs des ETFs, nicht der DAX-Stand."""
-    werte = live_werte if isinstance(live_werte, dict) else {}
-    aus, gesehen = [], set()
-    for p in positionen or []:
-        if not isinstance(p, dict):
-            continue
-        name, iid = p.get("name"), str(p.get("instrument_id") or "").strip()
-        if not iid or iid in gesehen or not name:
-            continue
-        h = KV.heute(werte.get(iid) or {})
-        if not h:
-            continue
-        gesehen.add(iid)
-        kurs, vor = h
-        aus.append((kurzname(name), kurs, (kurs / vor - 1) * 100, "€"))
-    return aus + indizes.ticker_eintraege(indizes_daten)
 
 
 def _zahl(x, stellen=2):
@@ -59,7 +25,8 @@ def _vorlese(kurs, einheit):
 
 def ticker_html(eintraege, stand_text=""):
     """Laufband: Inhalt doppelt hintereinander, per CSS um eine Breite verschoben -> nahtlose Endlosschleife.
-    Geschwindigkeit je Eintrag gleich (Dauer waechst mit der Anzahl)."""
+    Geschwindigkeit je Eintrag gleich (Dauer waechst mit der Anzahl). Jede Haelfte ist mindestens so breit wie
+    der Bildschirm - so ist jeder Wert nur einmal zu sehen, auch wenn es wenige sind."""
     if not eintraege:
         return ""
     teile = []
@@ -69,7 +36,7 @@ def ticker_html(eintraege, stand_text=""):
         teile.append(f'<span class="tk-wert"><b>{html.escape(name)}</b> {_kurs_text(kurs, einheit)} '
                      f'<span class="tk-{klasse}">{pfeil}&nbsp;{"+" if pct > 0 else ""}{_zahl(pct)}&nbsp;%</span></span>')
     band = "".join(teile)
-    dauer = max(20, 5 * len(eintraege))
+    dauer = max(10, 2.5 * len(eintraege))       # 2,5 s je Wert
     vorlese = "; ".join(f"{n} {_vorlese(k, e)}, {'+' if p > 0 else ''}{_zahl(p)} Prozent" for n, k, p, e in eintraege)
     return (f'<div class="tk-rahmen" role="marquee" aria-label="Kurse heute: {html.escape(vorlese)}">'
             + (f'<div class="tk-stand">{html.escape(stand_text)}</div>' if stand_text else "")
@@ -87,7 +54,7 @@ CSS = """<style>
             mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%); }
 .tk-band { display: flex; width: max-content; animation: tk-lauf linear infinite; }
 .tk-rahmen:hover .tk-band, .tk-rahmen:active .tk-band { animation-play-state: paused; }
-.tk-teil { display: flex; flex-shrink: 0; }
+.tk-teil { display: flex; flex-shrink: 0; min-width: calc(100vw + 20rem); }   /* breiter als Bildschirm + ein Wert */
 .tk-wert { white-space: nowrap; padding: 0 18px; font-size: .9rem; color: var(--text, #E8ECF6);
     font-variant-numeric: tabular-nums; border-right: 1px solid var(--rand, rgba(255,255,255,.12)); }
 .tk-wert b { font-weight: 650; margin-right: 4px; }
