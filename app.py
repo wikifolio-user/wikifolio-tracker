@@ -1849,51 +1849,20 @@ def depot_kurzinfo_karte(jetzt):
         + '</div>', unsafe_allow_html=True)
 
 
-UEBERBLICK_CSS = """<style>
-/* Ueberblick-Kacheln der Startseite: ganze Kachel antippbar (unsichtbarer Knopf ueber der Karte) */
-.st-key-ueberblick [class*="st-key-ueb_"] { position: relative; }
-.ueb-karte { padding: 12px 14px; border-radius: 18px; min-height: 92px; box-sizing: border-box;
-    background: var(--karte, rgba(255,255,255,.05)); border: 1px solid var(--rand, rgba(255,255,255,.12)); }
-.ueb-label { font-size: .72rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
-    color: var(--label, #A9B1C4); }
-.ueb-wert { font-size: .95rem; font-weight: 650; color: var(--text, #E8ECF6); margin-top: 4px; line-height: 1.3;
-    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
-.ueb-sub { font-size: .76rem; color: var(--muted, #8A93A8); margin-top: 4px; }
-html body .st-key-nav_menue .st-key-ueberblick [class*="st-key-ueb_"] [data-testid="stElementContainer"]:has([data-testid="stButton"]) {
-    position: absolute !important; inset: 0 !important; z-index: 2; margin: 0 !important; }
-html body .st-key-nav_menue .st-key-ueberblick [class*="st-key-ueb_"] [data-testid="stButton"],
-html body .st-key-nav_menue .st-key-ueberblick [class*="st-key-ueb_"] [data-testid="stButton"] button {
-    width: 100% !important; height: 100% !important; min-height: 0 !important; opacity: 0 !important; }
-.st-key-ueberblick [class*="st-key-ueb_"]:has(button:hover) .ueb-karte { border-color: var(--accent, #7C9CFF); }
-.st-key-ueberblick [class*="st-key-ueb_"]:has(button:focus-visible) .ueb-karte {
-    outline: 2px solid var(--accent, #7C9CFF); outline-offset: 2px; }
-</style>"""
-
-
-def startseite_ueberblick():
-    """Ueberblick unter der Depot-Karte (Audit UX-02): letzter Alarm, letzter Chronik-Eintrag, EKS-Ampeln.
-    Liest nur gespeicherte Daten (gecacht) - keine Kursabrufe. Jede Kachel oeffnet ihren Bereich."""
+@st.fragment(run_every=300)
+def startseite_ticker():
+    """Kurs-Ticker unter der Depot-Karte: eigene Depotwerte und Vergleichswerte, heute ±%. Liest nur die
+    gespeicherten Kurse des Kurs-Agenten (keine Kursabrufe beim Start); laeuft alle 5 Min. neu (Agent: alle 30 Min.)."""
     if not GH_STATE_READY:
         return
     try:
-        liste = (gh_read_cached(upfad(config.STATE_PATH_TRADES_DB), []) or []) if _sichtbar(
-            "📝 Trader-Log (Trades & Kommentare)") else []
-        eks = (gh_read_cached(upfad("state/eks_ideen.json"), {}) or {}) if _sichtbar(ANSICHT_EKS) else {}
-        ziele = {"chronik": "📝 Trader-Log (Trades & Kommentare)", "eks": ANSICHT_EKS}
-        kacheln = [(k, l, w, u, ziele[z]) for k, l, w, u, z in startseite.ueberblick_daten(liste, eks)]
+        vorrat = kurs_vorrat()
+        eintraege = startseite.ticker_daten(lade_positionen(), config.BENCHMARKS, vorrat.alle_live())
     except Exception as e:
-        logging.warning(f"Ueberblick nicht geladen: {type(e).__name__}")
+        logging.warning(f"Ticker nicht geladen: {type(e).__name__}")
         return
-    if not kacheln:
-        return
-    st.markdown(UEBERBLICK_CSS, unsafe_allow_html=True)
-    with st.container(key="ueberblick"):
-        for spalte, (key, label, wert, sub, ziel) in zip(st.columns(len(kacheln)), kacheln):
-            with spalte.container(key=f"ueb_{key}"):
-                st.markdown(f'<div class="ueb-karte"><div class="ueb-label">{html.escape(label)}</div>'
-                            f'<div class="ueb-wert">{html.escape(str(wert))}</div>'
-                            f'<div class="ueb-sub">{html.escape(str(sub))}</div></div>', unsafe_allow_html=True)
-                st.button(f"{label} öffnen", key=f"ueb_btn_{key}", on_click=_nav_waehle, args=(ziel,))
+    if eintraege:          # Stand der Kurse steht schon im Chip darueber
+        st.markdown(startseite.CSS + startseite.ticker_html(eintraege, "Kurse heute"), unsafe_allow_html=True)
 
 
 def darstellung_modus():
@@ -2123,7 +2092,7 @@ def navigation():
                       width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
             _kurslauf_fortschritt(stx)
             depot_kurzinfo_karte(jetzt)
-            startseite_ueberblick()
+            startseite_ticker()
             if _nutzer():
                 # klein, fest oben rechts in der Ecke
                 st.markdown("""<style>
