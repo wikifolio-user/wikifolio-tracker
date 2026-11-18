@@ -10,6 +10,7 @@ except ImportError:
     OBERFLAECHE = False
 
 from gesundheit import fasten as FA
+from gesundheit import foto as FO
 from gesundheit import lebensmittel as L
 from gesundheit import mikro as M
 from gesundheit import referenz as F
@@ -503,6 +504,81 @@ class Statistik(unittest.TestCase):
         self.assertTrue(leer.startswith(b"%PDF"))
 
 
+class Foto(unittest.TestCase):
+    class _Antwort:
+        def __init__(self, code, text=None):
+            self.status_code, self._text = code, text
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": self._text}]}}]}
+
+    def test_gemini_aufruf_und_fehler(self):
+        gesendet = {}
+
+        def post(url, headers=None, json=None, timeout=None):
+            gesendet.update(url=url, headers=headers, json=json)
+            return self._Antwort(200, '{"lebensmittel": []}')
+        self.assertEqual(FO.gemini("k", "m1", "Prompt", b"bild", "image/jpeg", post), '{"lebensmittel": []}')
+        teile = gesendet["json"]["contents"][0]["parts"]
+        self.assertEqual(teile[1]["inline_data"]["mime_type"], "image/jpeg")
+        self.assertEqual(gesendet["headers"]["x-goog-api-key"], "k")
+        self.assertIn("m1:generateContent", gesendet["url"])
+        with self.assertRaises(FO.FotoFehler) as f:
+            FO.gemini("", "m", "p", b"x", "image/jpeg", post)
+        self.assertIn("GEMINI_API_KEY", str(f.exception))
+        with self.assertRaises(FO.FotoFehler) as f:
+            FO.gemini("k", "m", "p", b"x", "image/jpeg", lambda *a, **k: self._Antwort(429))
+        self.assertIn("Kontingent", str(f.exception))
+
+        def kaputt(*a, **k):
+            raise OSError("netz")
+        with self.assertRaises(FO.FotoFehler):
+            FO.gemini("k", "m", "p", b"x", "image/jpeg", kaputt)
+
+    def test_mahlzeit_auswerten(self):
+        text = ('{"lebensmittel": [{"name": "Hähnchenbrust, gebraten", "menge_g": 180, "sicherheit": "hoch"},'
+                '{"name": "Reis", "menge_g": "200"}, {"name": "Brokkoli", "menge_g": 99999},'
+                '{"name": ""}, "kaputt"], "hinweis": "Schätzung"}')
+        r = FO.mahlzeit_auswerten(text, L.MITGELIEFERT)
+        self.assertEqual([p["name"] for p in r["posten"]], ["Hähnchenbrust, gebraten", "Reis", "Brokkoli"])
+        self.assertEqual(r["posten"][0]["vorschlaege"][0]["id"], "haehnchen_gebraten")
+        self.assertEqual(r["posten"][1]["gramm"], 200)
+        self.assertEqual(r["posten"][2]["gramm"], 100)                       # unplausible Menge -> Standard
+        self.assertEqual(r["posten"][1]["sicherheit"], "mittel")
+        r = FO.mahlzeit_auswerten('Hier: {"lebensmittel": [{"name": "Banane", "menge_g": 120}]} fertig', L.MITGELIEFERT)
+        self.assertEqual(r["posten"][0]["vorschlaege"][0]["id"], "banane")   # JSON in Text eingebettet
+        with self.assertRaises(FO.FotoFehler):
+            FO.mahlzeit_auswerten("kein json", L.MITGELIEFERT)
+
+    def test_etikett_auswerten(self):
+        text = ('{"produkt": "D3 Forte", "hersteller": "Marke", "form": "kapsel", "portion": "1 Kapsel", "inhalt": ['
+                '{"naehrstoff": "Vitamin D3 (Cholecalciferol)", "menge": 1000, "einheit": "IU"},'
+                '{"naehrstoff": "Zink", "menge": "10", "einheit": "mg"},'
+                '{"naehrstoff": "Zink", "menge": 5, "einheit": "IE"},'
+                '{"naehrstoff": "Coenzym Q10", "menge": 30, "einheit": "mg"}]}')
+        e = FO.etikett_auswerten(text, SU.FORMEN)
+        self.assertEqual((e["name"], e["form"], e["portion"]), ("D3 Forte", "Kapsel", "1 Kapsel"))
+        self.assertEqual([(x["n"], x["menge"], x["einheit"]) for x in e["inhalt"]],
+                         [("vit_d", 1000.0, "IE"), ("zink", 10.0, "mg")])
+        self.assertEqual(e["unbekannt"], ["Zink 5 IE", "Coenzym Q10 30 mg"])   # Zink in IE, Coenzym Q10
+        s = {**SU.neues(None, "x", HEUTE), "inhalt": e["inhalt"]}
+        self.assertAlmostEqual(SU.inhalt_basis(s)[0]["vit_d"], 25)
+        self.assertEqual(FO.etikett_auswerten('{"form": "Dose"}', SU.FORMEN)["form"], SU.FORMEN[0])
+
+    def test_verkleinern(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow nicht installiert")
+        import io
+        puffer = io.BytesIO()
+        Image.new("RGB", (4000, 3000), (200, 100, 50)).save(puffer, "PNG")
+        klein, mime = FO.verkleinern(puffer.getvalue(), "image/png")
+        self.assertEqual(mime, "image/jpeg")
+        self.assertEqual(max(Image.open(io.BytesIO(klein)).size), FO.MAX_KANTE)
+        self.assertEqual(FO.verkleinern(b"kein bild", "image/png"), (b"kein bild", "image/png"))
+
+
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
     """Rauchtest der Oberflaeche (AppTest, Speicher im Arbeitsspeicher): Einrichtung, Wasser, Essen."""
@@ -528,7 +604,8 @@ class Oberflaeche(unittest.TestCase):
                 return True, len(weg)
             gesundheit_ui.seite({"lesen": lesen, "aktualisiere": akt, "upfad": lambda p: p, "speichern": True,
                                  "get": None, "liste": lambda o: [p for p in store if p.startswith(o + "/")],
-                                 "ordner_loeschen": ordner_loeschen})
+                                 "ordner_loeschen": ordner_loeschen, "ki": {"key": "test", "modell": "test"},
+                                 "post": lambda *a, **k: None})
 
         at = AppTest.from_function(app, default_timeout=30).run()
         self.assertFalse(at.exception)
@@ -585,6 +662,23 @@ class Oberflaeche(unittest.TestCase):
         t = S.tag_aus(store[S.monat_pfad(heute)], heute)
         self.assertEqual([(x["art"], x["minuten"]) for x in t["sport"]], [("laufen", 30.0)])
         self.assertGreater(t["sport"][0]["kcal"], 0)
+        # Foto: Erkennungsergebnis liegt vor (wie nach "Erkennen") -> Menge aendern -> erst "Übernehmen" speichert
+        at.session_state["gs_foto_an"] = True
+        at.session_state["gs_foto_ergebnis"] = FO.mahlzeit_auswerten(
+            '{"lebensmittel": [{"name": "Reis, gekocht", "menge_g": 200}, {"name": "Brokkoli", "menge_g": 120}]}',
+            L.MITGELIEFERT)
+        at.session_state["gs_bereich_neu"] = "Essen"
+        at.run()
+        self.assertFalse(at.exception)
+        vorher = len(S.tag_aus(store[S.monat_pfad(heute)], heute)["essen"])
+        at.number_input(key="gs_fp_g_0").set_value(150).run()
+        at.checkbox(key="gs_fp_an_1").uncheck().run()                 # Brokkoli nicht uebernehmen
+        knopf("✓ Übernehmen").click().run()
+        self.assertFalse(at.exception)
+        neu = S.tag_aus(store[S.monat_pfad(heute)], heute)["essen"][vorher:]
+        self.assertEqual([(e["lm"], e["menge"], e["einheit"], e.get("foto")) for e in neu],
+                         [("reis_gekocht", 150.0, "g", True)])
+        self.assertNotIn("gs_foto_an", at.session_state)
         # Statistik ohne Fehler, dann alles loeschen -> Einrichtung beginnt von vorn
         at.session_state["gs_bereich_neu"] = "Statistik"
         at.run()
