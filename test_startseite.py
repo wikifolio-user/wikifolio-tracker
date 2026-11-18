@@ -1,40 +1,9 @@
-"""Tests fuer startseite.py (Kurs-Ticker der Startseite) - ohne Streamlit, ohne Netz."""
+"""Tests fuer startseite.py und indizes.py (Index-Ticker der Startseite) - ohne Streamlit, ohne Netz."""
 import unittest
 
 import kurs_vorrat as KV
 import indizes as I
 import startseite as S
-
-
-def _live(kurs, vor):
-    return {"i": [[1, kurs * 0.99], [2, kurs]], "p": vor, "t": "2026-11-18T10:00:00+01:00"}
-
-
-class TickerDaten(unittest.TestCase):
-    def test_depot_ohne_doppelte_dann_indizes(self):
-        pos = [{"name": "Mein ETF", "instrument_id": 1}, {"name": "Doppelt", "instrument_id": "1"},
-               {"name": "Zwei", "instrument_id": "2"}]
-        live = {"1": _live(110, 100), "2": _live(90, 100)}
-        ind = {"werte": {"^GDAXI": {"k": 24000.0, "p": 23880.0, "t": "2026-11-18T10:00:00+01:00"}}}
-        d = S.ticker_daten(pos, live, ind)
-        self.assertEqual([x[0] for x in d], ["Mein ETF", "Zwei", "DAX"])
-        self.assertAlmostEqual(d[0][2], 10.0)
-        self.assertEqual(d[0][3], "€")
-        self.assertEqual(d[2][3], "")             # Punkte
-
-    def test_keine_etf_vergleichswerte_mehr(self):
-        """config.BENCHMARKS sind ETFs ("DAX 214,80 €") - im Ticker nur echte Indexstaende."""
-        self.assertEqual(S.ticker_daten([], {"42446": _live(214.8, 214.0)}, None), [])
-
-    def test_ohne_kurs_oder_vortag_entfaellt(self):
-        live = {"1": {"i": [[1, 5]], "p": None, "t": "x"}}
-        self.assertEqual(S.ticker_daten([{"name": "A", "instrument_id": 1}, {"name": "B"}], live), [])
-        self.assertEqual(S.ticker_daten(None, None, None), [])
-
-    def test_kurzname(self):
-        self.assertEqual(S.kurzname("MSCI World (A0RPWH)"), "MSCI World")
-        self.assertTrue(S.kurzname("x" * 50).endswith("…"))
-        self.assertLessEqual(len(S.kurzname("x" * 50)), 28)
 
 
 class Indizes(unittest.TestCase):
@@ -89,18 +58,21 @@ class TickerHtml(unittest.TestCase):
         self.assertIn("tk-ab", h)
         self.assertNotIn("<b><b>", h)
         self.assertIn('role="marquee"', h)
+        self.assertIn("animation-duration:10s", h)     # doppelt so schnell wie zuvor (2,5 s je Wert, mind. 10 s)
+
+    def test_nur_einmal_sichtbar(self):
+        """Jede Haelfte des Bands ist mindestens bildschirmbreit - ein Wert erscheint nicht mehrfach nebeneinander."""
+        self.assertIn("min-width: calc(100vw + 20rem)", S.CSS)
 
     def test_leer(self):
         self.assertEqual(S.ticker_html([]), "")
 
 
-class VorratAlleLive(unittest.TestCase):
-    def test_alle_live(self):
-        v = KV.Vorrat(lambda pfad: {"werte": {"1": {"i": [[1, 2]]}}} if pfad == KV.PFAD_LIVE else None)
-        self.assertEqual(list(v.alle_live()), ["1"])
-        self.assertEqual(KV.Vorrat(lambda p: None).alle_live(), {})
+class VorratIndizes(unittest.TestCase):
+    def test_indizes(self):
         v = KV.Vorrat(lambda pfad: {"werte": {"^GDAXI": {}}} if pfad == KV.PFAD_INDIZES else None)
         self.assertEqual(list(v.indizes()["werte"]), ["^GDAXI"])
+        self.assertEqual(KV.Vorrat(lambda p: None).indizes(), {})
 
 
 if __name__ == "__main__":
