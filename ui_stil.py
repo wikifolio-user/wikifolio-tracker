@@ -1727,13 +1727,6 @@ CSS_RESPONSIV = """
         flex: 1 1 auto; height: 100%; }
     [data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:only-child :is([data-testid="stMetric"], [data-testid="stMarkdown"], [data-testid="stMarkdown"] > div, [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] > :is(.hero, .karte, .pb-kpi, .q-kpi, .da-box, .wk-karte, .ic-karte, .sc-karte, .eks-karte)) {
         height: 100%; box-sizing: border-box; }
-    /* Ueberblick-Kacheln der Startseite (Karte + unsichtbarer Knopf je Spalte) */
-    .st-key-ueberblick [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
-    .st-key-ueberblick [data-testid="stColumn"] :is([data-testid="stVerticalBlock"], [data-testid="stLayoutWrapper"]),
-    .st-key-ueberblick [class*="st-key-ueb_"] > [data-testid="stElementContainer"]:first-child,
-    .st-key-ueberblick [class*="st-key-ueb_"] :is([data-testid="stMarkdown"], [data-testid="stMarkdown"] > div,
-        [data-testid="stMarkdownContainer"], .ueb-karte) {
-        height: 100%; box-sizing: border-box; }
 
     /* --- Eingabefelder nebeneinander auf einer Linie: steht in jeder Spalte genau ein Feld, richten sich die
        Felder an der Unterkante aus. Sonst rutscht ein Feld nach unten, sobald seine Beschriftung zwei Zeilen

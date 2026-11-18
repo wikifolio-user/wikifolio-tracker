@@ -175,6 +175,11 @@ class Vorrat:
         t = zeit(w.get("t"))
         return (w, t) if t else None
 
+    def alle_live(self):
+        """Alle Eintraege aus live.json -> {id: eintrag} (fuer den Kurs-Ticker der Startseite)."""
+        w = self._datei(PFAD_LIVE, "live").get("werte")
+        return w if isinstance(w, dict) else {}
+
     def historie(self, instrument_id):
         """-> ([[ts_ms, schluss], ...], abgerufen_um) oder None"""
         pfad = PFAD_HISTORIE.format(teil(instrument_id))
