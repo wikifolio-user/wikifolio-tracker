@@ -21,6 +21,7 @@ PFAD_LIVE = "state/kurse/live.json"
 PFAD_HISTORIE = "state/kurse/historie_{:02d}.json"
 PFAD_SUCHE = "state/kurse/suche.json"
 PFAD_TOP50 = "state/kurse/top50_live.json"
+PFAD_INDIZES = "state/kurse/indizes.json"         # siehe indizes.py
 SUCH_URL = "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main"
 TEILE = 8
 
@@ -179,6 +180,10 @@ class Vorrat:
         """Alle Eintraege aus live.json -> {id: eintrag} (fuer den Kurs-Ticker der Startseite)."""
         w = self._datei(PFAD_LIVE, "live").get("werte")
         return w if isinstance(w, dict) else {}
+
+    def indizes(self):
+        """Indexstaende fuer den Ticker (indizes.py) -> dict wie state/kurse/indizes.json (oder {})."""
+        return self._datei(PFAD_INDIZES, "live")
 
     def historie(self, instrument_id):
         """-> ([[ts_ms, schluss], ...], abgerufen_um) oder None"""

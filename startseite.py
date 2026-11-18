@@ -1,11 +1,12 @@
 """Kurs-Ticker der Startseite - ohne Streamlit, ohne Netz testbar.
 
 Quelle sind nur die gespeicherten Kurse des Kurs-Agenten (state/kurse/live.json, siehe kurs_vorrat.py) - beim Start
-werden keine Kurse abgerufen. Gezeigt werden die eigenen Depotwerte und die Standard-Vergleichswerte (config).
+werden keine Kurse abgerufen. Gezeigt werden die eigenen Depotwerte und echte Indexstaende (indizes.py).
 """
 import html
 import re
 
+import indizes
 import kurs_vorrat as KV
 
 _KLAMMER = re.compile(r"\s*\([^)]*\)\s*$")
@@ -17,15 +18,17 @@ def kurzname(name, max_len=28):
     return n if len(n) <= max_len else n[:max_len - 1].rstrip() + "…"
 
 
-def ticker_daten(positionen, benchmarks, live_werte):
-    """-> [(name, kurs, veraenderung_pct)] - erst die Depotwerte, dann die Vergleichswerte; jede Kurs-ID nur einmal,
-    nur Werte mit Kurs UND Vortageskurs im Vorrat (sonst gaebe es kein "heute ±%")."""
+def ticker_daten(positionen, live_werte, indizes_daten=None):
+    """-> [(name, kurs, veraenderung_pct, einheit)] - erst die eigenen Depotwerte (Kurs in €), dann die echten
+    Indexstaende (indizes.py: DAX in Punkten usw.). Jede Kurs-ID nur einmal, nur Werte mit Kurs UND Vortageskurs
+    (sonst gaebe es kein "heute ±%"). Die Vergleichswerte aus config.BENCHMARKS kommen bewusst NICHT vor: das sind
+    ETFs - "DAX 214,80 €" waere der Kurs des ETFs, nicht der DAX-Stand."""
     werte = live_werte if isinstance(live_werte, dict) else {}
-    kandidaten = [(p.get("name"), p.get("instrument_id")) for p in (positionen or []) if isinstance(p, dict)]
-    kandidaten += list((benchmarks or {}).items())
     aus, gesehen = [], set()
-    for name, iid in kandidaten:
-        iid = str(iid or "").strip()
+    for p in positionen or []:
+        if not isinstance(p, dict):
+            continue
+        name, iid = p.get("name"), str(p.get("instrument_id") or "").strip()
         if not iid or iid in gesehen or not name:
             continue
         h = KV.heute(werte.get(iid) or {})
@@ -33,12 +36,25 @@ def ticker_daten(positionen, benchmarks, live_werte):
             continue
         gesehen.add(iid)
         kurs, vor = h
-        aus.append((kurzname(name), kurs, (kurs / vor - 1) * 100))
-    return aus
+        aus.append((kurzname(name), kurs, (kurs / vor - 1) * 100, "€"))
+    return aus + indizes.ticker_eintraege(indizes_daten)
 
 
 def _zahl(x, stellen=2):
     return f"{x:,.{stellen}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _kurs_text(kurs, einheit):
+    """Punkte ohne Einheit, Waehrungen mit Zeichen, Wechselkurse mit 4 Nachkommastellen."""
+    if einheit == "fx":
+        return _zahl(kurs, 4)
+    return _zahl(kurs) + (f"&nbsp;{einheit}" if einheit else "")
+
+
+def _vorlese(kurs, einheit):
+    if einheit == "fx":
+        return _zahl(kurs, 4)
+    return _zahl(kurs) + {"€": " Euro", "$": " Dollar", "": " Punkte"}.get(einheit, "")
 
 
 def ticker_html(eintraege, stand_text=""):
@@ -47,14 +63,14 @@ def ticker_html(eintraege, stand_text=""):
     if not eintraege:
         return ""
     teile = []
-    for name, kurs, pct in eintraege:
+    for name, kurs, pct, einheit in eintraege:
         klasse = "auf" if pct > 0.005 else "ab" if pct < -0.005 else "gleich"
         pfeil = "▲" if klasse == "auf" else "▼" if klasse == "ab" else "■"
-        teile.append(f'<span class="tk-wert"><b>{html.escape(name)}</b> {_zahl(kurs)}&nbsp;€ '
+        teile.append(f'<span class="tk-wert"><b>{html.escape(name)}</b> {_kurs_text(kurs, einheit)} '
                      f'<span class="tk-{klasse}">{pfeil}&nbsp;{"+" if pct > 0 else ""}{_zahl(pct)}&nbsp;%</span></span>')
     band = "".join(teile)
     dauer = max(20, 5 * len(eintraege))
-    vorlese = "; ".join(f"{n} {_zahl(k)} Euro, {'+' if p > 0 else ''}{_zahl(p)} Prozent" for n, k, p in eintraege)
+    vorlese = "; ".join(f"{n} {_vorlese(k, e)}, {'+' if p > 0 else ''}{_zahl(p)} Prozent" for n, k, p, e in eintraege)
     return (f'<div class="tk-rahmen" role="marquee" aria-label="Kurse heute: {html.escape(vorlese)}">'
             + (f'<div class="tk-stand">{html.escape(stand_text)}</div>' if stand_text else "")
             + f'<div class="tk-fenster"><div class="tk-band" style="animation-duration:{dauer}s" aria-hidden="true">'
