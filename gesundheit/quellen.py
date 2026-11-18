@@ -8,11 +8,26 @@ Exportdateien - kommt nur als Import einer exportierten Datei in Frage).
 """
 import logging
 
+from . import lebensmittel as L
+from . import naehrstoffe as N
+
 OFF_URL = "https://world.openfoodfacts.org/cgi/search.pl"
 OFF_HEADERS = {"User-Agent": "FinanzDashboard-Gesundheit/1.0 (privat)"}   # OFF bittet um eine Kennung, ohne Personendaten
 _OFF_FELDER = {"kcal": "energy-kcal_100g", "protein": "proteins_100g", "kh": "carbohydrates_100g",
                "zucker": "sugars_100g", "fett": "fat_100g", "fett_ges": "saturated-fat_100g",
                "ballast": "fiber_100g", "salz": "salt_100g"}
+
+
+# Mikronaehrstoffe: Open Food Facts liefert sie in g je 100 g -> in die Basiseinheit des Naehrstoffs umrechnen
+_OFF_MIKRO = {"vit_a": "vitamin-a", "vit_b1": "vitamin-b1", "vit_b2": "vitamin-b2", "vit_b3": "vitamin-pp",
+              "vit_b5": "pantothenic-acid", "vit_b6": "vitamin-b6", "vit_b7": "biotin", "vit_b9": "vitamin-b9",
+              "vit_b12": "vitamin-b12", "vit_c": "vitamin-c", "vit_d": "vitamin-d", "vit_e": "vitamin-e",
+              "vit_k": "vitamin-k", "calcium": "calcium", "magnesium": "magnesium", "kalium": "potassium",
+              "natrium": "sodium", "phosphor": "phosphorus", "chlorid": "chloride", "eisen": "iron", "zink": "zinc",
+              "kupfer": "copper", "mangan": "manganese", "selen": "selenium", "jod": "iodine", "chrom": "chromium",
+              "molybdaen": "molybdenum", "fluorid": "fluoride", "omega3": "omega-3-fat",
+              "epa": "eicosapentaenoic-acid", "dha": "docosahexaenoic-acid", "ala": "alpha-linolenic-acid",
+              "omega6": "omega-6-fat", "cholesterin": "cholesterol"}
 
 
 def _zahl(x):
@@ -28,7 +43,11 @@ def off_produkt(p):
     name = str(p.get("product_name_de") or p.get("product_name") or "").strip()
     n = p.get("nutriments") or {}
     pro100 = {k: _zahl(n.get(f)) for k, f in _OFF_FELDER.items()}
-    pro100 = {k: v for k, v in pro100.items() if v is not None}     # fehlend = unbekannt, nicht 0
+    for k, f in _OFF_MIKRO.items():
+        g = _zahl(n.get(f + "_100g"))
+        if g is not None:
+            pro100[k] = round(N.umrechnen(g, "g", N.NAEHRSTOFFE[k].einheit), 4)
+    pro100 = L.natrium_aus_salz({k: v for k, v in pro100.items() if v is not None})   # fehlend = unbekannt
     if not name or "kcal" not in pro100 or not p.get("code"):
         return None
     einheiten = {}
