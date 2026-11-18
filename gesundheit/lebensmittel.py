@@ -2,7 +2,7 @@
 
 Werte je 100 g (bzw. 100 ml bei Getraenken) sind gerundete Richtwerte aus gaengigen Naehrwerttabellen - keine
 Herstellerangaben. Wer es genauer braucht, nimmt ein Produkt aus der Online-Suche (Open Food Facts) oder legt ein
-eigenes Lebensmittel an. Mikronaehrstoffe folgen in Etappe 2 (bis dahin: unbekannt, nicht 0).
+eigenes Lebensmittel an. Mikronaehrstoffe: siehe _MIKRO (fehlende Werte sind unbekannt, nicht 0).
 
 Ein Lebensmittel ist ein dict:
   {"id", "name", "kategorie", "basis": "g"|"ml", "pro100": {naehrstoff: wert}, "einheiten": {name: g je Einheit},
@@ -153,10 +153,100 @@ _DATEN = [
 
 SCHLUESSEL = ("kcal", "protein", "kh", "zucker", "fett", "ballast", "salz")
 
+# Mikronaehrstoffe je 100 g/ml (gerundete Richtwerte gaengiger Naehrwerttabellen; Einheiten wie naehrstoffe.py).
+# Nur, wo die Werte einigermassen stabil sind - stark schwankende (Mineralwasser, Tofu, angereicherte Drinks) bleiben
+# unbekannt statt geraten. Natrium wird ueberall aus dem Salz berechnet (natrium_aus_salz).
+_MIKRO = {
+    "banane": {"kalium": 358, "magnesium": 27, "vit_c": 8.7, "vit_b6": 0.37, "vit_b9": 20, "mangan": 0.27},
+    "apfel": {"kalium": 107, "vit_c": 4.6, "vit_k": 2.2},
+    "birne": {"kalium": 116, "vit_c": 4.3, "vit_k": 4.4},
+    "orange": {"vit_c": 53, "kalium": 181, "calcium": 40, "vit_b9": 30, "vit_b1": 0.09},
+    "mandarine": {"vit_c": 27, "kalium": 166},
+    "erdbeeren": {"vit_c": 59, "kalium": 153, "vit_b9": 24, "mangan": 0.39},
+    "heidelbeeren": {"vit_c": 9.7, "vit_k": 19, "mangan": 0.34},
+    "himbeeren": {"vit_c": 26, "mangan": 0.67, "vit_k": 7.8, "magnesium": 22},
+    "weintrauben": {"kalium": 191, "vit_k": 14.6, "vit_c": 3.2},
+    "kiwi": {"vit_c": 93, "vit_k": 40, "kalium": 312, "vit_e": 1.5},
+    "ananas": {"vit_c": 48, "mangan": 0.93},
+    "mango": {"vit_c": 36, "vit_a": 54, "vit_b9": 43},
+    "wassermelone": {"vit_c": 8, "kalium": 112},
+    "avocado": {"kalium": 485, "vit_k": 21, "vit_b9": 81, "vit_e": 2.1, "magnesium": 29, "vit_b5": 1.4, "vit_c": 10},
+    "tomate": {"vit_c": 14, "kalium": 237, "vit_k": 7.9, "vit_a": 42},
+    "gurke": {"vit_k": 16, "kalium": 147},
+    "paprika": {"vit_c": 128, "vit_a": 157, "vit_b6": 0.29, "kalium": 211, "vit_e": 1.6},
+    "karotte": {"vit_a": 835, "kalium": 320, "vit_k": 13},
+    "brokkoli": {"vit_c": 89, "vit_k": 101, "vit_b9": 63, "kalium": 316, "calcium": 47, "eisen": 0.7},
+    "blumenkohl": {"vit_c": 48, "vit_k": 15.5, "vit_b9": 57, "kalium": 299},
+    "spinat": {"vit_k": 483, "vit_a": 469, "vit_b9": 194, "eisen": 2.7, "magnesium": 79, "calcium": 99, "kalium": 558,
+               "vit_c": 28},
+    "zucchini": {"vit_c": 18, "kalium": 261},
+    "salat": {"vit_k": 126, "vit_a": 370, "vit_b9": 38},
+    "zwiebel": {"vit_c": 7.4, "kalium": 146},
+    "kartoffeln": {"kalium": 379, "vit_c": 7.4, "magnesium": 20, "vit_b6": 0.3},
+    "suesskartoffel": {"vit_a": 709, "kalium": 337, "vit_c": 2.4, "mangan": 0.26},
+    "champignons": {"vit_b2": 0.4, "vit_b3": 3.6, "selen": 9.3, "kalium": 318, "vit_d": 0.2},
+    "erbsen": {"vit_c": 18, "vit_k": 25, "vit_b1": 0.27, "eisen": 1.5, "vit_b9": 59},
+    "kidneybohnen": {"eisen": 1.3, "magnesium": 30, "kalium": 260, "vit_b9": 40},
+    "kichererbsen": {"eisen": 1.3, "magnesium": 29, "vit_b9": 60, "zink": 0.8},
+    "linsen": {"eisen": 3.3, "vit_b9": 181, "magnesium": 36, "kalium": 369, "zink": 1.3},
+    "haferflocken": {"magnesium": 138, "eisen": 4.3, "zink": 3.6, "vit_b1": 0.46, "phosphor": 410, "mangan": 3.6,
+                     "kupfer": 0.4},
+    "vollkornbrot": {"magnesium": 75, "eisen": 2.5, "zink": 1.8, "vit_b1": 0.25, "kalium": 250},
+    "mischbrot": {"magnesium": 40, "eisen": 1.8},
+    "milch_15": {"calcium": 123, "vit_b12": 0.4, "vit_b2": 0.18, "kalium": 155, "phosphor": 95, "jod": 12},
+    "milch_35": {"calcium": 120, "vit_b12": 0.4, "vit_b2": 0.18, "kalium": 150, "phosphor": 92, "jod": 12},
+    "joghurt_35": {"calcium": 120, "vit_b12": 0.4, "vit_b2": 0.18, "kalium": 155},
+    "joghurt_15": {"calcium": 125, "vit_b12": 0.4, "kalium": 160},
+    "griech_joghurt": {"calcium": 100},
+    "skyr": {"calcium": 150},
+    "magerquark": {"calcium": 90, "vit_b12": 0.8},
+    "huettenkaese": {"calcium": 83, "vit_b12": 0.4},
+    "gouda": {"calcium": 700, "vit_b12": 1.5, "zink": 3.9, "vit_a": 165},
+    "emmentaler": {"calcium": 1000, "vit_b12": 3.0, "zink": 4.4},
+    "mozzarella": {"calcium": 500, "vit_b12": 1.0},
+    "feta": {"calcium": 490, "vit_b12": 1.7},
+    "butter": {"vit_a": 680, "vit_e": 2.3, "vit_d": 1.2},
+    "ei": {"vit_b12": 1.1, "vit_d": 2.0, "vit_a": 160, "selen": 30, "eisen": 1.8, "zink": 1.3, "vit_b2": 0.46,
+           "vit_b7": 20, "vit_b9": 47, "cholesterin": 372},
+    "haehnchen_roh": {"vit_b3": 9.6, "vit_b6": 0.8, "selen": 23, "phosphor": 220, "kalium": 330, "zink": 0.7},
+    "haehnchen_gebraten": {"vit_b3": 13.7, "vit_b6": 0.6, "selen": 27.6, "zink": 1.0},
+    "pute": {"vit_b3": 10, "vit_b6": 0.8, "selen": 25},
+    "rinderhack": {"zink": 4.2, "eisen": 2.0, "vit_b12": 2.1, "selen": 15},
+    "hack_gemischt": {"zink": 3.5, "eisen": 1.6, "vit_b12": 1.5},
+    "rindersteak": {"zink": 4.5, "eisen": 2.3, "vit_b12": 2.0, "selen": 22},
+    "schweinefilet": {"vit_b1": 1.0, "zink": 1.9, "selen": 33, "vit_b3": 6.7},
+    "lachs": {"vit_d": 8, "vit_b12": 3.2, "selen": 24, "epa": 860, "dha": 1100, "omega3": 2.3, "kalium": 360,
+              "vit_b3": 8.7},
+    "thunfisch": {"vit_b12": 2.5, "selen": 80, "vit_b3": 13, "vit_d": 1.7, "dha": 200, "epa": 30},
+    "garnelen": {"selen": 38, "vit_b12": 1.1},
+    "olivenoel": {"vit_e": 14, "vit_k": 60},
+    "rapsoel": {"vit_e": 17.5, "vit_k": 71, "ala": 9.1, "omega3": 9.1, "omega6": 18.6},
+    "erdnussbutter": {"vit_e": 9, "magnesium": 168, "vit_b3": 13, "zink": 2.9, "kalium": 560},
+    "mandeln": {"magnesium": 270, "calcium": 269, "vit_e": 25.6, "eisen": 3.7, "zink": 3.1, "vit_b2": 1.1},
+    "walnuesse": {"ala": 9.1, "omega3": 9.1, "omega6": 38, "magnesium": 158, "mangan": 3.4, "kupfer": 1.6},
+    "cashews": {"magnesium": 292, "zink": 5.8, "eisen": 6.7, "kupfer": 2.2},
+    "erdnuesse": {"magnesium": 168, "vit_b3": 13.5, "vit_e": 8.3, "zink": 3.3},
+    "chiasamen": {"ala": 17.8, "omega3": 17.8, "calcium": 631, "magnesium": 335, "eisen": 7.7, "zink": 4.6},
+    "leinsamen": {"ala": 22.8, "omega3": 22.8, "magnesium": 392, "eisen": 5.7, "zink": 4.3},
+    "zartbitter": {"magnesium": 228, "eisen": 11.9, "zink": 3.3, "kupfer": 1.8},
+    "vollmilchschoko": {"calcium": 190, "magnesium": 63},
+    "orangensaft": {"vit_c": 50, "kalium": 200},
+    "apfelsaft": {"kalium": 101},
+    "kaffee": {"kalium": 49, "magnesium": 3},
+}
+
+
+def natrium_aus_salz(pro100):
+    """Natrium (mg) aus Salz (g): Kochsalz ist zu rund 39,3 % Natrium. Ein angegebener Natriumwert hat Vorrang."""
+    if pro100.get("natrium") is None and pro100.get("salz") is not None:
+        return {**pro100, "natrium": round(float(pro100["salz"]) * 393, 1)}
+    return pro100
+
 
 def _lm(z):
     lid, name, kat, basis, *werte, einheiten, such = z
-    return {"id": lid, "name": name, "kategorie": kat, "basis": basis, "pro100": dict(zip(SCHLUESSEL, werte)),
+    pro100 = natrium_aus_salz({**dict(zip(SCHLUESSEL, werte)), **_MIKRO.get(lid, {})})
+    return {"id": lid, "name": name, "kategorie": kat, "basis": basis, "pro100": pro100,
             "einheiten": dict(einheiten), "quelle": "Richtwert", "marke": "", "such": such}
 
 

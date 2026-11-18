@@ -10,6 +10,9 @@ except ImportError:
     OBERFLAECHE = False
 
 from gesundheit import lebensmittel as L
+from gesundheit import mikro as M
+from gesundheit import referenz as F
+from gesundheit import supplements as SU
 from gesundheit import naehrstoffe as N
 from gesundheit import quellen as Q
 from gesundheit import rechnen as R
@@ -217,6 +220,120 @@ class OpenFoodFacts(unittest.TestCase):
 
 
 
+class Mikronaehrstoffe(unittest.TestCase):
+    def test_einheiten_und_ie_stoffabhaengig(self):
+        self.assertAlmostEqual(N.in_basis("vit_d", 1000, "IE"), 25)
+        self.assertAlmostEqual(N.in_basis("vit_a", 1000, "IE"), 300)
+        self.assertAlmostEqual(N.in_basis("vit_e", 10, "IE"), 6.7)
+        self.assertIsNone(N.in_basis("zink", 10, "IE"))               # fuer Zink gibt es keine IE
+        self.assertAlmostEqual(N.in_basis("magnesium", 0.3, "g"), 300)
+        self.assertAlmostEqual(N.in_basis("vit_b12", 0.5, "mg"), 500)
+        self.assertIsNone(N.in_basis("gibtsnicht", 1, "mg"))
+        self.assertEqual(len(N.MIKRO), len(set(N.MIKRO)))
+        for n in N.EINFACH:
+            self.assertIn(n, N.MIKRO)
+
+    def test_referenzwerte(self):
+        for r in F.REFERENZWERTE:                                       # Einheit passt zum Naehrstoff
+            self.assertEqual(r.einheit, N.NAEHRSTOFFE[r.naehrstoff].einheit, r)
+            self.assertTrue(r.ul is None or r.ul > 0)
+        self.assertEqual(F.suchen("eisen", "w", 30).ziel, 16)
+        self.assertEqual(F.suchen("eisen", "w", 60).ziel, 14)
+        self.assertEqual(F.suchen("eisen", "m", 30).ziel, 11)
+        self.assertEqual(F.suchen("magnesium", "x", 40).ziel, 325)        # keine Angabe: Mittelwert
+        self.assertEqual(F.suchen("vit_d", "w", 40).ul, 100)
+        self.assertIsNone(F.suchen("omega3"))
+
+    def test_natrium_aus_salz_und_mikro_der_lebensmittel(self):
+        self.assertAlmostEqual(L.NACH_ID["gouda"]["pro100"]["natrium"], 2.0 * 393)
+        self.assertEqual(L.natrium_aus_salz({"salz": 1, "natrium": 5})["natrium"], 5)   # Angabe hat Vorrang
+        for lm in L.MITGELIEFERT:
+            for n in lm["pro100"]:
+                self.assertIn(n, N.NAEHRSTOFFE, lm["name"])
+        self.assertNotIn("calcium", L.NACH_ID["wasser"]["pro100"])      # schwankt je Wasser: unbekannt, nicht 0
+
+    def test_off_mikro_in_basiseinheit(self):
+        lm = Q.off_produkt({"code": "1", "product_name": "Saft", "nutriments": {
+            "energy-kcal_100g": 45, "vitamin-c_100g": 0.03, "vitamin-d_100g": 0.0000025, "sodium_100g": 0.01}})
+        self.assertAlmostEqual(lm["pro100"]["vit_c"], 30)
+        self.assertAlmostEqual(lm["pro100"]["vit_d"], 2.5)
+        self.assertAlmostEqual(lm["pro100"]["natrium"], 10)
+
+    def test_tagessumme_mit_herkunft(self):
+        m = S.essen_hinzu({}, HEUTE, [S.essen_eintrag(L.NACH_ID["mandeln"], 30, "g", "Snacks", ZEIT),
+                                      S.essen_eintrag(L.NACH_ID["milch_15"], 200, "ml", "Frühstück", ZEIT),
+                                      S.essen_eintrag(L.NACH_ID["toast"], 1, "Scheibe", "Frühstück", ZEIT)])
+        mg = SU.neues(SU.VORLAGEN[2], "mg1", HEUTE)                      # Magnesium 250 mg
+        m = S.einnahme_setzen(m, HEUTE, mg, "eingenommen", ZEIT)
+        d3 = SU.neues(SU.VORLAGEN[0], "d3", HEUTE)
+        m = S.einnahme_setzen(m, HEUTE, d3, "ausgelassen", ZEIT)        # ausgelassen zaehlt nicht
+        t = S.tag_aus(m, HEUTE)
+        w = M.tag_naehrstoffe(t, ["magnesium", "calcium", "vit_d"])
+        self.assertAlmostEqual(w["magnesium"]["quellen"]["Lebensmittel"], 270 * 0.3)
+        self.assertAlmostEqual(w["magnesium"]["quellen"]["Supplements"], 250)
+        self.assertAlmostEqual(w["magnesium"]["wert"], 81 + 250)
+        self.assertEqual((w["magnesium"]["bekannt"], w["magnesium"]["anzahl"]), (1, 3))   # Milch/Toast: unbekannt
+        self.assertAlmostEqual(w["calcium"]["quellen"]["Getränke"], 123 * 2)
+        self.assertEqual(w["vit_d"]["wert"], 0)
+        self.assertEqual(w["magnesium"]["top"][0][0], "Magnesium")
+        self.assertAlmostEqual(M.datenqualitaet(t), 2 / 3 * 100)
+        self.assertIsNone(M.datenqualitaet({"essen": []}))
+        u = {x["id"]: x for x in M.uebersicht(t, {"geschlecht": "m"}, ["magnesium"], 40)}
+        self.assertAlmostEqual(u["magnesium"]["prozent"], 331 / 350 * 100)
+
+    def test_durchschnitt_nur_tage_mit_eintraegen(self):
+        t1 = S.tag_aus(S.essen_hinzu({}, HEUTE, [S.essen_eintrag(L.NACH_ID["kiwi"], 100, "g", "Snacks", ZEIT)]), HEUTE)
+        leer = S.tag_leer()
+        self.assertEqual(M.durchschnitt([t1, leer], "vit_c"), (93, 1))
+        self.assertEqual(M.durchschnitt([leer], "vit_c"), (None, 0))
+
+
+class Supplements(unittest.TestCase):
+    def test_vorlagen_gueltig(self):
+        for v in SU.VORLAGEN:
+            s = SU.neues(v, "x", HEUTE)
+            inhalt, fehler = SU.inhalt_basis(s)
+            self.assertEqual(fehler, [], v["name"])
+            self.assertTrue(inhalt, v["name"])
+            self.assertIn(v["form"], SU.FORMEN)
+            self.assertIn(v["zeit"], SU.ZEITEN)
+        d3 = SU.neues(SU.VORLAGEN[0], "x", HEUTE)
+        self.assertAlmostEqual(SU.inhalt_basis(d3, 2)[0]["vit_d"], 50)
+
+    def test_plan_rhythmus(self):
+        s = SU.neues(SU.VORLAGEN[0], "x", HEUTE)                         # 18.11.2026 = Mittwoch
+        self.assertTrue(SU.geplant_am(s, HEUTE))
+        s["plan"].update(rhythmus="wochentage", tage=[0, 2, 4])            # Mo / Mi / Fr
+        self.assertTrue(SU.geplant_am(s, HEUTE))
+        self.assertFalse(SU.geplant_am(s, HEUTE + datetime.timedelta(days=1)))
+        self.assertEqual(SU.plan_text(s), "morgens, Mo / Mi / Fr")
+        s["plan"].update(rhythmus="intervall", alle=3, ab="2026-11-16")
+        self.assertEqual([SU.geplant_am(s, datetime.date(2026, 11, d)) for d in (15, 16, 17, 19)], [False, True, False, True])
+        s["aktiv"] = False
+        self.assertFalse(SU.geplant_am(s, datetime.date(2026, 11, 16)))
+
+    def test_tagesplan_und_einnahme(self):
+        a, b = SU.neues(SU.VORLAGEN[0], "a", HEUTE), SU.neues(SU.VORLAGEN[2], "b", HEUTE)
+        plan = SU.tagesplan([a, b], HEUTE)
+        self.assertEqual(list(plan), ["Morgens", "Abends"])
+        m = S.einnahme_setzen({}, HEUTE, a, "ausgelassen", ZEIT)
+        m = S.einnahme_setzen(m, HEUTE, a, "eingenommen", ZEIT)           # ersetzt, nicht doppelt
+        t = S.tag_aus(m, HEUTE)
+        self.assertEqual([(x["sup"], x["status"]) for x in t["supplements"]], [("a", "eingenommen")])
+        self.assertAlmostEqual(t["supplements"][0]["inhalt"]["vit_d"], 25)
+        self.assertEqual(S.tag_aus(S.einnahme_loeschen(m, HEUTE, "a"), HEUTE)["supplements"], [])
+
+    def test_speichern_und_deaktivieren(self):
+        a = SU.neues(SU.VORLAGEN[0], "a", HEUTE)
+        d = S.supplement_speichern({}, a)
+        a2 = {**a, "name": "D3 forte"}
+        d = S.supplement_speichern(d, a2)
+        self.assertEqual([x["name"] for x in d["supplements"]], ["D3 forte"])
+        d = S.supplement_entfernen(d, "a")
+        self.assertFalse(d["supplements"][0]["aktiv"])
+        self.assertEqual(SU.tagesplan(d["supplements"], HEUTE), {})
+
+
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
     """Rauchtest der Oberflaeche (AppTest, Speicher im Arbeitsspeicher): Einrichtung, Wasser, Essen."""
@@ -260,12 +377,30 @@ class Oberflaeche(unittest.TestCase):
                  for e in t["essen"]]
         self.assertEqual([(e["name"], e["menge"], e["einheit"]) for e in essen], [("Banane", 1.0, "Stück")])
         self.assertEqual(store[S.PFAD_PROFIL]["nutzung"]["banane"]["n"], 1)
+        # Supplement aus Vorlage anlegen (Vitamin D3 ist vorgewaehlt) und mit einem Tipp einnehmen
+        at.session_state["gs_bereich_neu"] = "Supplements"
+        at.run()
+        knopf("Hinzufügen").click().run()
+        self.assertFalse(at.exception)
+        sups = store[S.PFAD_PROFIL]["supplements"]
+        self.assertEqual([x["name"] for x in sups], ["Vitamin D3"])
+        knopf("☐ Vitamin D3 · 1 Tablette").click().run()
+        heute = datetime.datetime.now(R_BERLIN).date()
+        t = S.tag_aus(store[S.monat_pfad(heute)], heute)
+        self.assertEqual([(x["name"], x["status"]) for x in t["supplements"]], [("Vitamin D3", "eingenommen")])
+        # Naehrstoffe: Vitamin D aus dem Supplement, Details ohne Fehler
+        at.session_state["gs_bereich_neu"] = "Nährstoffe"
+        at.run()
+        at.selectbox(key="gs_mikro_detail").set_value("vit_d").run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any("Supplements: 25,0 µg" in m.value for m in at.markdown))
 
 
 class NurAdmin(unittest.TestCase):
     def test_gesundheit_nur_fuer_angemeldeten_admin(self):
         """Gesundheitsdaten: dieselbe Sperre wie die Benutzerverwaltung (kein Zugriff ohne Admin-Login)."""
-        quelle = open("app.py", encoding="utf-8").read()
+        with open("app.py", encoding="utf-8") as f:
+            quelle = f.read()
         self.assertIn('if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT):', quelle)
         self.assertIn('_zugang_pruefen(ANSICHT_GESUNDHEIT)', quelle)
 

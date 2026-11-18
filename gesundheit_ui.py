@@ -16,13 +16,17 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from gesundheit import lebensmittel as L
+from gesundheit import mikro as MI
+from gesundheit import naehrstoffe as N
 from gesundheit import quellen as Q
 from gesundheit import rechnen as R
+from gesundheit import referenz as F
 from gesundheit import speicher as S
+from gesundheit import supplements as SU
 
 BERLIN = ZoneInfo("Europe/Berlin")
 P = "gs_"
-BEREICHE = ["Heute", "Essen", "Trinken", "Körper", "Profil"]
+BEREICHE = ["Heute", "Essen", "Trinken", "Supplements", "Nährstoffe", "Körper", "Profil"]
 HINWEIS = ("Alle Werte sind rechnerische Schätzungen zur Dokumentation. Sie ersetzen keine medizinische oder "
            "ernährungsmedizinische Beratung.")
 WOCHENTAG = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -61,6 +65,7 @@ CSS = """<style>
 .st-key-gs_seite [class*="st-key-gs_reihe"] > div { flex: 1 1 140px !important; min-width: 0; }
 .st-key-gs_seite [class*="st-key-gs_eintrag_"] button { justify-content: flex-start !important; text-align: left; }
 .st-key-gs_tagleiste { max-width: 640px; }
+.st-key-gs_seite [data-testid="stButtonGroup"] button { min-width: 48px; }
 .st-key-gs_tagleiste [data-testid="stButton"] button { min-width: 48px; }
 </style>"""
 
@@ -158,11 +163,14 @@ def _menge_text(menge, einheit):
     return f"{m} {einheit}"
 
 
-def _kachel(label, wert, ziel, einheit, sub="", stellen=0):
+def _kachel(label, wert, ziel, einheit, sub="", stellen=0, warnung=None):
+    """Kachel mit Fortschrittsbalken. warnung: True/False erzwingt die Warnfarbe (rot); None = ueber 105 % des Ziels
+    (sinnvoll fuer Kalorien, nicht fuer Vitamine - dort nur ueber dem oberen Referenzwert)."""
     anteil = (wert / ziel) if ziel else None
     balken = ""
     if anteil is not None:
-        balken = (f'<div class="gs-balken{" ueber" if anteil > 1.05 else ""}" role="progressbar" '
+        rot = (anteil > 1.05) if warnung is None else warnung
+        balken = (f'<div class="gs-balken{" ueber" if rot else ""}" role="progressbar" '
                   f'aria-valuenow="{round(anteil * 100)}" aria-valuemin="0" aria-valuemax="100" '
                   f'aria-label="{html.escape(label)} {round(anteil * 100)} Prozent"><i style="width:'
                   f'{min(100, anteil * 100):.0f}%"></i></div>')
@@ -188,13 +196,15 @@ def seite(h):
         s = st.session_state
         if s.get(P + "bereich_neu"):
             s[P + "bereich"] = s.pop(P + "bereich_neu")
-        s.setdefault(P + "bereich", BEREICHE[0])
-        bereich = st.segmented_control("Bereich", BEREICHE, key=P + "bereich", label_visibility="collapsed",
-                                       width="stretch") or BEREICHE[0]
+        bereiche = [b for b in BEREICHE if b != "Supplements" or doc["einstellungen"].get("supplements_zeigen", True)]
+        if s.get(P + "bereich") not in bereiche:
+            s[P + "bereich"] = bereiche[0]
+        bereich = st.segmented_control("Bereich", bereiche, key=P + "bereich", label_visibility="collapsed",
+                                       width="stretch") or bereiche[0]
         if bereich != "Profil":
             _tag_leiste()
-        {"Heute": _heute_seite, "Essen": _essen_seite, "Trinken": _trinken_seite, "Körper": _koerper_seite,
-         "Profil": _profil_seite}[bereich](h, doc)
+        {"Heute": _heute_seite, "Essen": _essen_seite, "Trinken": _trinken_seite, "Supplements": _supplement_seite,
+         "Nährstoffe": _naehrstoff_seite, "Körper": _koerper_seite, "Profil": _profil_seite}[bereich](h, doc)
         st.caption(HINWEIS)
 
 
@@ -368,6 +378,12 @@ def _heute_seite(h, doc):
         _kachel("Kohlenhydrate", n["kh"]["wert"], z["kh"], "g"),
         _kachel("Fett", n["fett"]["wert"], z["fett"], "g"),
     ]
+    plan = _sup_plan(doc, tag)
+    if plan:
+        geplant = [x for l in plan.values() for x in l]
+        genommen = _einnahmen(t)
+        n_ein = sum(1 for x in geplant if (genommen.get(x["id"]) or {}).get("status") == "eingenommen")
+        kacheln.append(_kachel("Supplements", n_ein, len(geplant), "", "eingenommen"))
     if b["bilanz"] is not None and su["kcal"] > 0:
         kacheln.append(_kachel("Bilanz bisher", b["bilanz"], None, "kcal",
                                ("Defizit" if b["bilanz"] < 0 else "Überschuss") + f" · Bedarf {_z(z['tdee'])} kcal"))
@@ -379,6 +395,8 @@ def _heute_seite(h, doc):
         for i, (name, ml) in enumerate(_wasser_knoepfe(doc)[:3]):
             st.button(f"💧 {name}", key=P + f"q_wasser_{i}", on_click=_trinken, args=(h, tag, "wasser", ml),
                       help=f"{_z(ml)} ml Wasser hinzufügen")
+        if doc["einstellungen"].get("supplements_zeigen", True):
+            st.button("💊 Supplements", key=P + "q_sup", on_click=_zu, args=("Supplements",))
         st.button("⚖️ Gewicht", key=P + "q_gewicht", on_click=_zu, args=("Körper",))
 
     st.markdown("**Gegessen**")
@@ -789,16 +807,274 @@ def _profil_seite(h, doc):
             _neu_aufbauen()
 
     with st.expander("Weitere Einstellungen"):
-        st.session_state.setdefault(P + "sport_zus", bool(doc["einstellungen"].get("sport_zusaetzlich")))
-        st.toggle("Sportkalorien zusätzlich zum Tagesbedarf rechnen", key=P + "sport_zus",
-                  help="Aus lassen, wenn dein Aktivitätslevel deinen Sport schon enthält – sonst würde er doppelt "
-                       "gezählt. Sport kommt in einer der nächsten Ausbaustufen.",
-                  on_change=lambda: _profil_aendern(
-                      h, lambda d: {**d, "einstellungen": {**d["einstellungen"],
-                                                           "sport_zusaetzlich": bool(st.session_state[P + "sport_zus"])}},
-                      "gesundheit einstellungen"))
+        _schalter(h, doc, "erweitert", "Erweiterte Ansicht",
+                  "Zeigt bei den Nährstoffen alle Vitamine, Mineralstoffe, Spurenelemente und Fettsäuren sowie die "
+                  "Datenvollständigkeit. Aus: nur die wichtigsten.")
+        _schalter(h, doc, "supplements_zeigen", "Supplements anzeigen",
+                  "Aus, wenn du keine Nahrungsergänzung nimmst – dann verschwindet der Bereich.")
+        _schalter(h, doc, "sport_zusaetzlich", "Sportkalorien zusätzlich zum Tagesbedarf rechnen",
+                  "Aus lassen, wenn dein Aktivitätslevel deinen Sport schon enthält – sonst würde er doppelt "
+                  "gezählt. Sport kommt in einer der nächsten Ausbaustufen.")
         st.button("Einrichtung erneut durchlaufen", key=P + "neu_einrichten",
                   on_click=lambda: st.session_state.update({P + "einrichtung": True, P + "schritt": 1,
                                                             P + "entwurf": dict(doc.get("profil") or {})}))
         st.caption("Deine Gesundheitsdaten liegen nur in deinem privaten Datenspeicher und sind nur für dich sichtbar. "
                    "Export und vollständiges Löschen folgen mit den Berichten.")
+
+
+def _schalter(h, doc, name, text, hilfe):
+    """Einstellung als Schalter - speichert sofort (Autosave)."""
+    k = P + "set_" + name
+    st.session_state.setdefault(k, bool(doc["einstellungen"].get(name, S.STANDARD_EINSTELLUNGEN.get(name))))
+
+    def speichern():
+        wert = bool(st.session_state[k])
+        _profil_aendern(h, lambda d: {**d, "einstellungen": {**d["einstellungen"], name: wert}},
+                        "gesundheit einstellungen")
+        _melden("Gespeichert")
+    st.toggle(text, key=k, help=hilfe, on_change=speichern)
+
+
+# ====================================================================== Supplements
+def _sup_plan(doc, tag):
+    return SU.tagesplan(doc.get("supplements") or [], tag)
+
+
+def _einnahmen(t):
+    return {x.get("sup"): x for x in t.get("supplements") or []}
+
+
+def _einnehmen(h, tag, sup, status):
+    _tag_aendern(h, tag, lambda m: S.einnahme_setzen(m, tag, sup, status, _jetzt()), "gesundheit supplement")
+
+
+def _zuruecksetzen(h, tag, sup_id):
+    _tag_aendern(h, tag, lambda m: S.einnahme_loeschen(m, tag, sup_id), "gesundheit supplement")
+
+
+def _alle_einnehmen(h, tag, sups):
+    def f(m):
+        for x in sups:
+            m = S.einnahme_setzen(m, tag, x, "eingenommen", _jetzt())
+        return m
+    _tag_aendern(h, tag, f, "gesundheit supplement routine")
+    _melden(f"{len(sups)} Supplements eingenommen")
+
+
+def _supplement_seite(h, doc):
+    tag = _tag()
+    t = S.tag_aus(_monat(h, tag), tag)
+    plan = _sup_plan(doc, tag)
+    genommen = _einnahmen(t)
+    aktive = [x for x in doc.get("supplements") or [] if x.get("aktiv", True)]
+    if plan:
+        geplant = [x for l in plan.values() for x in l]
+        n_ein = sum(1 for x in geplant if (genommen.get(x["id"]) or {}).get("status") == "eingenommen")
+        st.markdown('<div class="gs-kacheln">' + _kachel("Eingenommen", n_ein, len(geplant), "", "laut Plan")
+                    + "</div>", unsafe_allow_html=True)
+        for zeit, sups in plan.items():
+            offen = [x for x in sups if x["id"] not in genommen]
+            with st.container(key=f"gs_reihe_zeitkopf_{zeit}", horizontal=True, vertical_alignment="center"):
+                st.markdown(f"**{zeit}**")
+                if len(offen) > 1:
+                    st.button(f"✓ Alle {zeit.lower()}", key=P + f"alle_{zeit}", on_click=_alle_einnehmen,
+                              args=(h, tag, offen), help="Alle offenen Supplements dieser Tageszeit als eingenommen markieren")
+            for x in sups:
+                _sup_zeile(h, tag, x, genommen.get(x["id"]))
+    elif aktive:
+        st.markdown('<div class="gs-leer">Für diesen Tag ist nichts geplant.</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="gs-leer">Noch keine Supplements angelegt – unten eines aus der Liste wählen.</div>',
+                    unsafe_allow_html=True)
+    ungeplant = [x for x in aktive if x["id"] not in {y["id"] for l in plan.values() for y in l}]
+    if ungeplant:
+        with st.expander("Zusätzlich eingenommen?"):
+            for x in ungeplant:
+                _sup_zeile(h, tag, x, genommen.get(x["id"]))
+    st.divider()
+    with st.expander("＋ Supplement hinzufügen", expanded=not aktive):
+        namen = ["Eigenes Produkt"] + [v["name"] for v in SU.VORLAGEN]
+        wahl = st.selectbox("Vorlage", namen, index=1 if not aktive else 0, key=P + "sup_vorlage",
+                            help="Vorlagen sind mit typischen Mengen vorbelegt – bitte mit dem Etikett abgleichen.")
+        vorlage = next((v for v in SU.VORLAGEN if v["name"] == wahl), None)
+        _sup_formular(h, SU.neues(vorlage, "sup:" + S.neue_id(), _heute()), "neu_" + wahl, neu=True)
+    if aktive:
+        st.markdown("**Meine Supplements**")
+        for x in aktive:
+            with st.expander(f"{x['name']} · {SU.plan_text(x)}"):
+                st.caption(SU.inhalt_text(x, 8) or "Kein Inhalt hinterlegt")
+                _sup_formular(h, x, x["id"], neu=False)
+
+
+def _sup_zeile(h, tag, x, einnahme):
+    status = (einnahme or {}).get("status")
+    portion = x.get("portion") or "1 Portion"
+    with st.container(key=f"gs_reihe_sup_{x['id']}", horizontal=True, vertical_alignment="center"):
+        if status == "eingenommen":
+            st.button(f"✓ {x['name']} – eingenommen {einnahme.get('zeit', '')}", key=P + f"sup_{x['id']}",
+                      type="primary", width="stretch", on_click=_zuruecksetzen, args=(h, tag, x["id"]),
+                      help="Antippen, um es wieder zurückzusetzen")
+        elif status == "ausgelassen":
+            st.button(f"✗ {x['name']} – ausgelassen", key=P + f"sup_{x['id']}", width="stretch",
+                      on_click=_zuruecksetzen, args=(h, tag, x["id"]), help="Antippen, um es wieder zurückzusetzen")
+        else:
+            st.button(f"☐ {x['name']} · {portion}", key=P + f"sup_{x['id']}", width="stretch",
+                      on_click=_einnehmen, args=(h, tag, x, "eingenommen"), help="Antippen = eingenommen")
+            st.button("Auslassen", key=P + f"sup_aus_{x['id']}", on_click=_einnehmen, args=(h, tag, x, "ausgelassen"),
+                      help="Heute bewusst nicht genommen")
+
+
+def _sup_formular(h, sup, k, neu):
+    import pandas as pd
+    namen = {n: N.NAEHRSTOFFE[n].name for n in N.MIKRO}
+    nach_name = {v: n for n, v in namen.items()}
+    plan = dict(sup.get("plan") or {})
+    with st.form(P + "supf_" + k, border=False):
+        name = st.text_input("Name", sup.get("name") or "", max_chars=60, placeholder="z. B. Vitamin D3 1000")
+        c = st.columns(2)
+        form = c[0].selectbox("Form", SU.FORMEN, index=SU.FORMEN.index(sup.get("form")) if sup.get("form") in SU.FORMEN else 0)
+        portion = c[1].text_input("Eine Portion", sup.get("portion") or "1 Tablette", max_chars=30)
+        c = st.columns(2)
+        zeit = c[0].selectbox("Wann?", SU.ZEITEN, index=SU.ZEITEN.index(plan.get("zeit")) if plan.get("zeit") in SU.ZEITEN else 0)
+        portionen = c[1].number_input("Portionen je Einnahme", 0.5, 20.0, float(plan.get("portionen") or 1), 0.5, format="%g")
+        st.markdown("Inhalt je Portion")
+        zeilen = pd.DataFrame([{"Nährstoff": namen.get(z["n"], z["n"]), "Menge": float(z["menge"]),
+                                "Einheit": z["einheit"]} for z in sup.get("inhalt") or []]
+                              or [{"Nährstoff": None, "Menge": None, "Einheit": "mg"}])
+        tabelle = st.data_editor(
+            zeilen, num_rows="dynamic", hide_index=True, width="stretch", key=P + "supt_" + k,
+            column_config={"Nährstoff": st.column_config.SelectboxColumn("Nährstoff", options=list(namen.values()), required=True),
+                           "Menge": st.column_config.NumberColumn("Menge", min_value=0.0, format="%g", required=True),
+                           "Einheit": st.column_config.SelectboxColumn("Einheit", options=SU.EINHEITEN, required=True)})
+        with st.expander("Weitere Angaben"):
+            rhythmen = {"taeglich": "Jeden Tag", "wochentage": "An bestimmten Wochentagen", "intervall": "Alle paar Tage"}
+            rhythmus = st.radio("Wie oft?", list(rhythmen), format_func=rhythmen.get, horizontal=True,
+                                index=list(rhythmen).index(plan.get("rhythmus", "taeglich")))
+            tage = st.pills("Wochentage", list(range(7)), selection_mode="multi", format_func=lambda i: SU.WOCHENTAGE[i],
+                            default=plan.get("tage") or list(range(7)), help="Nur bei „An bestimmten Wochentagen“")
+            alle = st.number_input("Alle … Tage", 2, 60, int(plan.get("alle") or 2), help="Nur bei „Alle paar Tage“ – ab heute")
+            hersteller = st.text_input("Hersteller", sup.get("hersteller") or "", max_chars=60)
+            notiz = st.text_area("Notiz", sup.get("notiz") or "", max_chars=300, height=68)
+        c = st.columns(2) if not neu else [st]
+        gespeichert = c[0].form_submit_button("Hinzufügen" if neu else "Speichern", type="primary", width="stretch")
+        entfernt = (not neu) and c[1].form_submit_button("🗑 Entfernen", width="stretch")
+    if entfernt:
+        _profil_aendern(h, lambda d: S.supplement_entfernen(d, sup["id"]), "gesundheit supplement entfernt")
+        _melden(f"{sup.get('name')} entfernt – frühere Einnahmen bleiben erhalten")
+        _neu_aufbauen()
+    if not gespeichert:
+        return
+    inhalt, fehler = [], []
+    for _, z in tabelle.iterrows():
+        n = nach_name.get(z.get("Nährstoff"))
+        menge = z.get("Menge")
+        if not n or menge is None or pd.isna(menge):
+            continue
+        if N.in_basis(n, menge, z.get("Einheit")) is None:
+            fehler.append(f"Für {namen[n]} gibt es keine Umrechnung aus {z.get('Einheit')} – bitte mg, µg oder g wählen.")
+            continue
+        inhalt.append({"n": n, "menge": float(menge), "einheit": z.get("Einheit")})
+    if not name.strip():
+        fehler.insert(0, "Bitte gib einen Namen ein.")
+    if fehler:
+        for f in fehler:
+            st.error(f)
+        return
+    neu_sup = {**sup, "name": name.strip(), "form": form, "portion": portion.strip() or "1 Portion", "inhalt": inhalt,
+               "hersteller": hersteller.strip(), "notiz": notiz.strip(), "aktiv": True,
+               "plan": {**plan, "zeit": zeit, "portionen": portionen, "rhythmus": rhythmus,
+                        "tage": sorted(tage or []) or list(range(7)), "alle": int(alle),
+                        "ab": plan.get("ab") if (plan.get("rhythmus") == "intervall" and plan.get("alle") == alle)
+                        else _heute().isoformat()}}
+    _profil_aendern(h, lambda d: S.supplement_speichern(d, neu_sup), "gesundheit supplement")
+    _melden(f"{neu_sup['name']} gespeichert")
+    _neu_aufbauen()
+
+
+# ====================================================================== Naehrstoffe
+def _naehrstoff_seite(h, doc):
+    tag = _tag()
+    t = S.tag_aus(_monat(h, tag), tag)
+    p = doc.get("profil") or {}
+    alter = R.alter(p.get("geburtsjahr"), _heute())
+    erweitert = bool(doc["einstellungen"].get("erweitert"))
+    s = st.session_state
+    s.setdefault(P + "mikro_alle", erweitert)
+    alle = st.toggle("Alle Nährstoffe zeigen", key=P + "mikro_alle")
+    if not t["essen"] and not any(x.get("status") == "eingenommen" for x in t.get("supplements") or []):
+        st.markdown('<div class="gs-leer">Für diesen Tag ist noch nichts eingetragen.</div>', unsafe_allow_html=True)
+        st.button("＋ Essen eintragen", key=P + "mikro_essen", on_click=_zu, args=("Essen",), width="stretch")
+        return
+    q = MI.datenqualitaet(t)
+    if q is not None and (alle or q < 100):
+        st.caption(f"Datenvollständigkeit: Für {_z(q)} % der erfassten Lebensmittel liegen Vitamin- und "
+                   f"Mineralstoffwerte vor. Fehlende Werte zählen nicht als 0 – die Summen sind dann eher zu niedrig.")
+    gruppen = N.GRUPPEN if alle else [("Wichtige Nährstoffe", N.EINFACH)]
+    ids_alle = [n for _, ids in gruppen for n in ids]
+    werte = {x["id"]: x for x in MI.uebersicht(t, p, ids_alle, alter)}
+    for titel, ids in gruppen:
+        st.markdown(f"**{titel}**")
+        st.markdown('<div class="gs-kacheln">' + "".join(_mikro_kachel(werte[n], alle) for n in ids) + "</div>",
+                    unsafe_allow_html=True)
+    st.selectbox("Details", ids_alle, index=None, key=P + "mikro_detail", placeholder="Details zu einem Nährstoff …",
+                 format_func=lambda n: N.NAEHRSTOFFE[n].name, label_visibility="collapsed")
+    if s.get(P + "mikro_detail"):
+        _mikro_detail(h, doc, werte[s[P + "mikro_detail"]], tag)
+    st.caption(f"Referenzwerte: {F.QUELLE_ZIEL}; obere Werte: {F.QUELLE_UL} (Stand {F.VERSION}). "
+               "Rechnerischer Vergleich der dokumentierten Aufnahme – keine Diagnose.")
+
+
+def _mikro_kachel(w, details=False):
+    e = w["einheit"]
+    stellen = 0 if (w["ziel"] or w["wert"] or 0) >= 100 else 1
+    sub = []
+    if w["prozent"] is not None:
+        sub.append(f"{_z(w['prozent'])} %")
+    ueber_ul = bool(w["ul"] and w["wert"] > w["ul"])
+    if ueber_ul:
+        sub.append("über dem oberen Referenzwert")
+    if details and w["anzahl"] and w["bekannt"] < w["anzahl"]:
+        sub.append(f"bekannt für {w['bekannt']} von {w['anzahl']} Lebensmitteln")
+    return _kachel(w["name"], w["wert"], w["ziel"], e, " · ".join(sub), stellen=stellen, warnung=ueber_ul)
+
+
+def _mikro_detail(h, doc, w, tag):
+    e = w["einheit"]
+    stellen = 0 if (w["ziel"] or w["wert"] or 0) >= 100 else 1
+    with st.container(border=True, key="gs_mikro_detailkasten"):
+        st.markdown(f"**{w['name']}** – {html.escape(N.NAEHRSTOFFE[w['id']].beschreibung or '')}")
+        zeilen = [f"{_tag_name(tag)}: **{_z(w['wert'], stellen)} {e}**"]
+        if w["ziel"]:
+            zeilen.append(f"Referenzwert: {_z(w['ziel'], stellen)} {e} → **{_z(w['prozent'])} %**")
+        st.markdown(" · ".join(zeilen))
+        q = w["quellen"]
+        if w["wert"]:
+            st.markdown("  \n".join(f"{name}: {_z(q[name], stellen)} {e}" for name in MI.QUELLEN if q[name]))
+        if w["top"]:
+            st.caption("Größte Quellen: " + ", ".join(f"{html.escape(n)} ({_z(v, stellen)} {e})" for n, v in w["top"]))
+        if w["ziel"] and w["wert"] < w["ziel"]:
+            st.caption("Deine dokumentierte Aufnahme lag unter dem hinterlegten Referenzwert.")
+        if w["ul"] and w["wert"] > w["ul"]:
+            st.warning(f"Deine dokumentierte Aufnahme liegt über dem oberen Referenzwert ({_z(w['ul'])} {e}, EFSA).")
+        if w["ref"] and w["ref"].bemerkung:
+            st.caption(f"Hinweis zum Referenzwert: {w['ref'].bemerkung}.")
+        # Verlauf: 7 und 30 Tage (Tage ohne Eintraege zaehlen nicht mit)
+        tage = [tag - datetime.timedelta(days=i) for i in range(30)]
+        daten = {d: S.tag_aus(_monat(h, d), d) for d in tage}
+        for n_tage in (7, 30):
+            mw, anzahl = MI.durchschnitt([daten[d] for d in tage[:n_tage]], w["id"])
+            if mw is not None:
+                st.markdown(f"Ø {n_tage} Tage: **{_z(mw, stellen)} {e}**"
+                            + (f" ({_z(MI.abdeckung(mw, w['ziel']))} %)" if w["ziel"] else "")
+                            + f" <span style='opacity:.8'>· {anzahl} Tage mit Einträgen</span>", unsafe_allow_html=True)
+        reihe = [(d, MI.tag_naehrstoffe(daten[d], [w["id"]])[w["id"]]["wert"]) for d in reversed(tage[:14])]
+        if sum(1 for _, v in reihe if v) >= 2:
+            import plotly.graph_objects as go
+            fig = go.Figure(go.Bar(x=[d for d, _ in reihe], y=[v for _, v in reihe], marker_color="#7C9CFF",
+                                   hovertemplate="%{x|%d.%m.}: %{y:.1f} " + e + "<extra></extra>"))
+            if w["ziel"]:
+                fig.add_hline(y=w["ziel"], line_dash="dot", line_color="#5EEAD4", annotation_text="Referenz")
+            fig.update_layout(height=220, margin={"l": 10, "r": 10, "t": 10, "b": 10}, showlegend=False,
+                              paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                              yaxis={"title": e}, xaxis={"tickformat": "%d.%m."})
+            st.plotly_chart(fig, config={"displayModeBar": False}, key=P + "mikro_chart")

@@ -14,6 +14,7 @@ import datetime
 import uuid
 
 from . import rechnen as R
+from . import supplements as SU
 
 PFAD_PROFIL = "state/gesundheit/profil.json"
 PFAD_MONAT = "state/gesundheit/tage/{}.json"
@@ -23,7 +24,7 @@ GETRAENKE = [("wasser", "Wasser", 0), ("kaffee", "Kaffee", 2), ("tee", "Tee", 1)
 GETRAENK_KCAL = {a: k for a, _, k in GETRAENKE}
 GETRAENK_NAME = {a: n for a, n, _ in GETRAENKE}
 STANDARD_EINSTELLUNGEN = {"glaeser": [{"name": "Mein Glas", "ml": 300}, {"name": "Meine Flasche", "ml": 750}],
-                          "sport_zusaetzlich": False}
+                          "sport_zusaetzlich": False, "erweitert": False, "supplements_zeigen": True}
 MAX_HISTORIE = 200
 
 
@@ -33,7 +34,7 @@ def monat_pfad(tag):
 
 def leeres_profil():
     return {"profil": {}, "historie": [], "einstellungen": copy.deepcopy(STANDARD_EINSTELLUNGEN), "eigene": [],
-            "favoriten": [], "nutzung": {}}
+            "favoriten": [], "nutzung": {}, "supplements": []}
 
 
 def profil_doc(roh):
@@ -68,7 +69,7 @@ def profil_setzen(doc, neu, zeit):
 
 # ---------------------------------------------------------------- Tage
 def tag_leer():
-    return {"essen": [], "trinken": []}
+    return {"essen": [], "trinken": [], "supplements": []}
 
 
 def tag_aus(monat_doc, tag):
@@ -169,6 +170,44 @@ def gewicht_setzen(monat_doc, tag, kg):
         else:
             t["gewicht"] = round(float(kg), 1)
     return _tag_aendern(monat_doc, tag, f)
+
+
+# ---------------------------------------------------------------- Supplements
+def einnahme_setzen(monat_doc, tag, sup, status, zeit, portionen=None):
+    """Einnahme eines Supplements fuer den Tag setzen (je Supplement und Tag ein Eintrag; erneutes Setzen ersetzt).
+    status: "eingenommen" oder "ausgelassen". Der Inhalt wird umgerechnet als Kopie gespeichert."""
+    portionen = portionen or (sup.get("plan") or {}).get("portionen") or 1
+    inhalt, _ = SU.inhalt_basis(sup, portionen)
+
+    def f(t):
+        t["supplements"] = [x for x in t.get("supplements") or [] if x.get("sup") != sup["id"]]
+        t["supplements"].append({"id": neue_id(), "sup": sup["id"], "name": sup.get("name") or "Supplement",
+                                 "portionen": portionen, "status": status, "zeit": zeit.strftime("%H:%M"),
+                                 "inhalt": inhalt})
+    return _tag_aendern(monat_doc, tag, f)
+
+
+def einnahme_loeschen(monat_doc, tag, sup_id):
+    """Einnahme zuruecksetzen (wieder "geplant")."""
+    def f(t):
+        t["supplements"] = [x for x in t.get("supplements") or [] if x.get("sup") != sup_id]
+    return _tag_aendern(monat_doc, tag, f)
+
+
+def supplement_speichern(doc, sup):
+    """Supplement anlegen oder (gleiche id) ersetzen."""
+    d = profil_doc(doc)
+    d["supplements"] = [x for x in d["supplements"] if x.get("id") != sup["id"]] + [copy.deepcopy(sup)]
+    return d
+
+
+def supplement_entfernen(doc, sup_id):
+    """Nicht loeschen, sondern deaktivieren: alte Tage bleiben nachvollziehbar, der Plan zeigt es nicht mehr."""
+    d = profil_doc(doc)
+    for x in d["supplements"]:
+        if x.get("id") == sup_id:
+            x["aktiv"] = False
+    return d
 
 
 # ---------------------------------------------------------------- Auswertung eines Tages
