@@ -3,6 +3,12 @@ import datetime
 import unittest
 from zoneinfo import ZoneInfo
 
+try:                                                  # Oberflaechentest nur mit echtem Streamlit (CI: test_ui_rauch)
+    from streamlit.testing.v1 import AppTest
+    OBERFLAECHE = True
+except ImportError:
+    OBERFLAECHE = False
+
 from gesundheit import lebensmittel as L
 from gesundheit import naehrstoffe as N
 from gesundheit import quellen as Q
@@ -211,12 +217,11 @@ class OpenFoodFacts(unittest.TestCase):
 
 
 
+@unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
-    """Rauchtest der Oberflaeche (AppTest, Speicher im Arbeitsspeicher): Einrichtung, Wasser, Essen, Gewicht."""
+    """Rauchtest der Oberflaeche (AppTest, Speicher im Arbeitsspeicher): Einrichtung, Wasser, Essen."""
 
     def test_einrichtung_und_eintragen(self):
-        from streamlit.testing.v1 import AppTest
-
         def app():
             import copy
             import streamlit as st
