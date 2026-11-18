@@ -9,6 +9,7 @@ try:                                                  # Oberflaechentest nur mit
 except ImportError:
     OBERFLAECHE = False
 
+from gesundheit import fasten as FA
 from gesundheit import lebensmittel as L
 from gesundheit import mikro as M
 from gesundheit import referenz as F
@@ -17,6 +18,7 @@ from gesundheit import naehrstoffe as N
 from gesundheit import quellen as Q
 from gesundheit import rechnen as R
 from gesundheit import speicher as S
+from gesundheit import sport as SP
 
 R_BERLIN = ZoneInfo("Europe/Berlin")
 HEUTE = datetime.date(2026, 11, 18)
@@ -334,6 +336,90 @@ class Supplements(unittest.TestCase):
         self.assertEqual(SU.tagesplan(d["supplements"], HEUTE), {})
 
 
+class Sport(unittest.TestCase):
+    def test_kalorien_ohne_ruheumsatz(self):
+        # Laufen mittel: MET 9,8 -> (9,8 - 1) x 80 kg x 0,5 h = 352 kcal
+        self.assertEqual(SP.kcal("laufen", 30, "mittel", 80), 352)
+        self.assertEqual(SP.kcal("kraft", 60, "leicht", 80), round(2.5 * 80))
+        self.assertIsNone(SP.kcal("gibtsnicht", 30, "mittel", 80))
+        self.assertIsNone(SP.kcal("laufen", 0, "mittel", 80))
+        self.assertIsNone(SP.kcal("laufen", 30, "mittel", None))
+        for a in SP.AKTIVITAETEN.values():                          # MET steigt mit der Intensitaet
+            self.assertLess(a["met"]["leicht"], a["met"]["intensiv"])
+
+    def test_tag_und_bilanz(self):
+        e = SP.eintrag("laufen", "Laufen", 30, "mittel", 352, False, ZEIT, "s1")
+        m = S.sport_hinzu({}, HEUTE, e)
+        m = S.sport_hinzu(m, HEUTE, SP.eintrag("eigene", "Klettern", 90, "mittel", 500, True, ZEIT, "s2"))
+        t = S.tag_aus(m, HEUTE)
+        self.assertEqual(SP.summe(t), (852, 120))
+        m2, weg = S.entfernen(m, HEUTE, "sport", "s2")
+        self.assertEqual(SP.summe(S.tag_aus(m2, HEUTE)), (352, 30))
+        b = R.bilanz(2000, 2400, 1500, SP.summe(t)[0], sport_zusaetzlich=True)
+        self.assertEqual(b["verbleibend"], 2000 + 852 - 1500)
+
+    def test_sport_merken(self):
+        d = S.sport_merken({}, "kraft", 75, "intensiv")
+        d = S.sport_merken(d, "kraft", 60, "mittel")
+        self.assertEqual(d["sport_nutzung"]["kraft"], {"n": 2, "minuten": 60.0, "intensitaet": "mittel"})
+
+
+class Fasten(unittest.TestCase):
+    def test_ueber_mitternacht(self):
+        start = datetime.datetime(2026, 11, 17, 20, 0, tzinfo=R_BERLIN)
+        d = FA.starten({}, start, FA.ziel_stunden("16:8"))
+        d = FA.starten(d, start + datetime.timedelta(hours=1), 18)      # laeuft schon: kein Neustart
+        st = FA.status(d["fasten"]["laeuft"], datetime.datetime(2026, 11, 18, 10, 30, tzinfo=R_BERLIN))
+        self.assertAlmostEqual(st["dauer_h"], 14.5)
+        self.assertEqual(st["ende_geplant"], datetime.datetime(2026, 11, 18, 12, 0, tzinfo=R_BERLIN))
+        self.assertEqual(st["fenster_bis"], datetime.datetime(2026, 11, 18, 20, 0, tzinfo=R_BERLIN))
+        self.assertFalse(st["erreicht"])
+        d = FA.beenden(d, datetime.datetime(2026, 11, 18, 12, 15, tzinfo=R_BERLIN))
+        self.assertIsNone(d["fasten"]["laeuft"])
+        self.assertEqual([round(x[0], 2) for x in FA.am_tag(d["fasten"]["verlauf"], HEUTE)], [16.25])
+        self.assertEqual(FA.am_tag(d["fasten"]["verlauf"], datetime.date(2026, 11, 17)), [])
+
+    def test_zeitumstellung_und_texte(self):
+        # 25.10.2026: Uhr wird von 3 auf 2 Uhr zurueckgestellt - die Nacht hat 25 Stunden
+        start = datetime.datetime(2026, 10, 24, 20, 0, tzinfo=R_BERLIN)
+        st = FA.status({"start": start.isoformat(), "ziel_h": 16},
+                       datetime.datetime(2026, 10, 25, 12, 0, tzinfo=R_BERLIN))
+        self.assertAlmostEqual(st["dauer_h"], 17)
+        self.assertEqual(FA.dauer_text(14.5), "14:30 h")
+        self.assertEqual(FA.dauer_text(15.999), "16:00 h")
+        self.assertEqual(FA.ziel_stunden("eigene", 20), 20)
+        self.assertEqual(FA.ziel_stunden("eigene", "x"), 16)
+
+    def test_abbrechen_und_ende_nicht_vor_start(self):
+        start = datetime.datetime(2026, 11, 18, 20, 0, tzinfo=R_BERLIN)
+        d = FA.abbrechen(FA.starten({}, start, 16))
+        self.assertEqual((d["fasten"]["laeuft"], d["fasten"]["verlauf"]), (None, []))
+        d = FA.beenden(FA.starten({}, start, 16), start - datetime.timedelta(hours=1))
+        self.assertEqual(d["fasten"]["verlauf"][0]["ende"], d["fasten"]["verlauf"][0]["start"])
+
+
+class KoerperUndVorlagen(unittest.TestCase):
+    def test_masse(self):
+        m = S.masse_setzen({}, HEUTE, {"bauch": 92.04, "koerperfett": 21.5})
+        m = S.masse_setzen(m, HEUTE, {"koerperfett": None})
+        self.assertEqual(S.tag_aus(m, HEUTE)["masse"], {"bauch": 92.0})
+        m = S.masse_setzen(m, datetime.date(2026, 11, 1), {"bauch": 94})
+        self.assertEqual(S.mass_verlauf([m], "bauch"), [(datetime.date(2026, 11, 1), 94.0), (HEUTE, 92.0)])
+
+    def test_vorlagen(self):
+        e = [S.essen_eintrag(L.NACH_ID["haferflocken"], 1, "Portion", "Frühstück", ZEIT),
+             S.essen_eintrag(L.NACH_ID["banane"], 1, "Stück", "Frühstück", ZEIT)]
+        d = S.vorlage_speichern({}, "Standard-Frühstück", e, "v1")
+        d = S.vorlage_speichern(d, "Standard-Frühstück", e[:1], "v2")      # gleicher Name ersetzt
+        self.assertEqual([(v["id"], len(v["eintraege"])) for v in d["vorlagen"]], [("v2", 1)])
+        self.assertNotIn("id", d["vorlagen"][0]["eintraege"][0])
+        k = S.kopieren(d["vorlagen"][0]["eintraege"], ZEIT)
+        m = S.essen_hinzu({}, HEUTE, k)
+        self.assertAlmostEqual(S.tag_summen(S.tag_aus(m, HEUTE))["kcal"], 370 * 0.5)
+        self.assertEqual(S.vorlage_entfernen(d, "v2")["vorlagen"], [])
+        self.assertEqual(S.profil_doc({})["einstellungen"]["mahlzeiten"], S.MAHLZEITEN)
+
+
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
     """Rauchtest der Oberflaeche (AppTest, Speicher im Arbeitsspeicher): Einrichtung, Wasser, Essen."""
@@ -394,6 +480,22 @@ class Oberflaeche(unittest.TestCase):
         at.selectbox(key="gs_mikro_detail").set_value("vit_d").run()
         self.assertFalse(at.exception)
         self.assertTrue(any("Supplements: 25,0 µg" in m.value for m in at.markdown))
+        # Fasten: ein Tipp auf "Heute" startet, einer beendet
+        at.session_state["gs_bereich_neu"] = "Heute"
+        at.run()
+        knopf("⏱ Fasten starten").click().run()
+        self.assertTrue(store[S.PFAD_PROFIL]["fasten"]["laeuft"])
+        knopf("⏹ Fasten beenden").click().run()
+        self.assertEqual(len(store[S.PFAD_PROFIL]["fasten"]["verlauf"]), 1)
+        # Sport: Aktivitaet waehlen, speichern
+        at.session_state["gs_bereich_neu"] = "Sport"
+        at.run()
+        at.button_group(key="gs_sport_art").set_value("laufen").run()
+        knopf("Speichern").click().run()
+        self.assertFalse(at.exception)
+        t = S.tag_aus(store[S.monat_pfad(heute)], heute)
+        self.assertEqual([(x["art"], x["minuten"]) for x in t["sport"]], [("laufen", 30.0)])
+        self.assertGreater(t["sport"][0]["kcal"], 0)
 
 
 class NurAdmin(unittest.TestCase):

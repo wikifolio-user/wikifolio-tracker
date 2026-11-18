@@ -24,7 +24,8 @@ GETRAENKE = [("wasser", "Wasser", 0), ("kaffee", "Kaffee", 2), ("tee", "Tee", 1)
 GETRAENK_KCAL = {a: k for a, _, k in GETRAENKE}
 GETRAENK_NAME = {a: n for a, n, _ in GETRAENKE}
 STANDARD_EINSTELLUNGEN = {"glaeser": [{"name": "Mein Glas", "ml": 300}, {"name": "Meine Flasche", "ml": 750}],
-                          "sport_zusaetzlich": False, "erweitert": False, "supplements_zeigen": True}
+                          "sport_zusaetzlich": False, "erweitert": False, "supplements_zeigen": True,
+                          "fasten_zeigen": True, "mahlzeiten": list(MAHLZEITEN)}
 MAX_HISTORIE = 200
 
 
@@ -34,7 +35,8 @@ def monat_pfad(tag):
 
 def leeres_profil():
     return {"profil": {}, "historie": [], "einstellungen": copy.deepcopy(STANDARD_EINSTELLUNGEN), "eigene": [],
-            "favoriten": [], "nutzung": {}, "supplements": []}
+            "favoriten": [], "nutzung": {}, "supplements": [], "vorlagen": [], "sport_nutzung": {},
+            "fasten": {"plan": "16:8", "laeuft": None, "verlauf": []}}
 
 
 def profil_doc(roh):
@@ -69,7 +71,7 @@ def profil_setzen(doc, neu, zeit):
 
 # ---------------------------------------------------------------- Tage
 def tag_leer():
-    return {"essen": [], "trinken": [], "supplements": []}
+    return {"essen": [], "trinken": [], "supplements": [], "sport": []}
 
 
 def tag_aus(monat_doc, tag):
@@ -170,6 +172,67 @@ def gewicht_setzen(monat_doc, tag, kg):
         else:
             t["gewicht"] = round(float(kg), 1)
     return _tag_aendern(monat_doc, tag, f)
+
+
+# ---------------------------------------------------------------- Sport
+def sport_hinzu(monat_doc, tag, eintrag):
+    return _tag_aendern(monat_doc, tag, lambda t: t["sport"].append(eintrag))
+
+
+def sport_merken(doc, art, minuten, intensitaet):
+    """Zuletzt genutzte Dauer und Intensitaet je Sportart (Standard beim naechsten Mal)."""
+    d = profil_doc(doc)
+    u = d["sport_nutzung"].get(art) or {}
+    d["sport_nutzung"][art] = {"n": int(u.get("n") or 0) + 1, "minuten": float(minuten), "intensitaet": intensitaet}
+    return d
+
+
+# ---------------------------------------------------------------- Koerpermasse
+MASSE = [("koerperfett", "Körperfett", "%"), ("muskel", "Muskelmasse", "kg"), ("bauch", "Bauchumfang", "cm"),
+         ("huefte", "Hüftumfang", "cm"), ("brust", "Brustumfang", "cm"), ("oberarm", "Oberarm", "cm"),
+         ("oberschenkel", "Oberschenkel", "cm")]
+
+
+def masse_setzen(monat_doc, tag, werte):
+    """Koerpermasse eines Tages setzen; None/0 entfernt einen Wert."""
+    def f(t):
+        m = dict(t.get("masse") or {})
+        for k, v in (werte or {}).items():
+            if v:
+                m[k] = round(float(v), 1)
+            else:
+                m.pop(k, None)
+        t["masse"] = m
+    return _tag_aendern(monat_doc, tag, f)
+
+
+def mass_verlauf(monate, schluessel):
+    """-> sortierte [(datum, wert)] eines Koerpermasses (wie gewichte())."""
+    aus = []
+    for m in monate:
+        for tag, t in ((m or {}).get("tage") or {}).items():
+            v = ((t or {}).get("masse") or {}).get(schluessel) if isinstance(t, dict) else None
+            if v:
+                try:
+                    aus.append((datetime.date.fromisoformat(tag), float(v)))
+                except ValueError:
+                    continue
+    return sorted(aus)
+
+
+# ---------------------------------------------------------------- Mahlzeiten-Vorlagen
+def vorlage_speichern(doc, name, eintraege, vid):
+    """Eintraege als Vorlage merken (ohne IDs/Uhrzeit; gleicher Name ersetzt die alte Vorlage)."""
+    d = profil_doc(doc)
+    teile = [{k: v for k, v in e.items() if k not in ("id", "zeit")} for e in eintraege]
+    d["vorlagen"] = [v for v in d["vorlagen"] if v.get("name") != name] + [{"id": vid, "name": name, "eintraege": teile}]
+    return d
+
+
+def vorlage_entfernen(doc, vid):
+    d = profil_doc(doc)
+    d["vorlagen"] = [v for v in d["vorlagen"] if v.get("id") != vid]
+    return d
 
 
 # ---------------------------------------------------------------- Supplements
