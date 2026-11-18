@@ -49,7 +49,7 @@ _DATEN = [
     ("kichererbsen", "Kichererbsen (Dose)", "Hülsenfrüchte", "g", 120, 7.0, 15, 0.5, 2.5, 6.0, 0.5, {"Dose": 240}, ""),
     ("linsen", "Linsen, gekocht", "Hülsenfrüchte", "g", 116, 9.0, 17, 1.8, 0.4, 8.0, 0, {"Portion": 200}, ""),
     # --- Getreide, Brot
-    ("haferflocken", "Haferflocken", "Getreide", "g", 370, 13.5, 58.7, 0.7, 7.0, 10.0, 0, {"EL": 10, "Portion": 50}, "hafer porridge"),
+    ("haferflocken", "Haferflocken", "Getreide", "g", 370, 13.5, 58.7, 0.7, 7.0, 10.0, 0, {"Portion": 50, "EL": 10}, "hafer porridge"),
     ("vollkornbrot", "Vollkornbrot", "Brot", "g", 220, 7.0, 38, 3, 1.5, 7.5, 1.1, {"Scheibe": 50}, "brot"),
     ("mischbrot", "Mischbrot", "Brot", "g", 240, 7.0, 45, 2.5, 1.5, 5.0, 1.2, {"Scheibe": 50}, "brot graubrot"),
     ("toast", "Toastbrot", "Brot", "g", 260, 8.0, 47, 5, 3.5, 3.5, 1.2, {"Scheibe": 25}, "toast"),

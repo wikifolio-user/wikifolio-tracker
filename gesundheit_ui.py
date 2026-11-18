@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
+from gesundheit import fasten as FA
 from gesundheit import lebensmittel as L
 from gesundheit import mikro as MI
 from gesundheit import naehrstoffe as N
@@ -22,11 +23,13 @@ from gesundheit import quellen as Q
 from gesundheit import rechnen as R
 from gesundheit import referenz as F
 from gesundheit import speicher as S
+from gesundheit import sport as SP
 from gesundheit import supplements as SU
 
 BERLIN = ZoneInfo("Europe/Berlin")
 P = "gs_"
-BEREICHE = ["Heute", "Essen", "Trinken", "Supplements", "Nährstoffe", "Körper", "Profil"]
+BEREICHE = ["Heute", "Essen", "Trinken", "Sport", "Fasten", "Supplements", "Nährstoffe", "Körper", "Profil"]
+AUSBLENDBAR = {"Supplements": "supplements_zeigen", "Fasten": "fasten_zeigen"}     # Bereich -> Einstellung
 HINWEIS = ("Alle Werte sind rechnerische Schätzungen zur Dokumentation. Sie ersetzen keine medizinische oder "
            "ernährungsmedizinische Beratung.")
 WOCHENTAG = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -196,14 +199,15 @@ def seite(h):
         s = st.session_state
         if s.get(P + "bereich_neu"):
             s[P + "bereich"] = s.pop(P + "bereich_neu")
-        bereiche = [b for b in BEREICHE if b != "Supplements" or doc["einstellungen"].get("supplements_zeigen", True)]
+        bereiche = [b for b in BEREICHE if doc["einstellungen"].get(AUSBLENDBAR.get(b, ""), True)]
         if s.get(P + "bereich") not in bereiche:
             s[P + "bereich"] = bereiche[0]
         bereich = st.segmented_control("Bereich", bereiche, key=P + "bereich", label_visibility="collapsed",
                                        width="stretch") or bereiche[0]
         if bereich != "Profil":
             _tag_leiste()
-        {"Heute": _heute_seite, "Essen": _essen_seite, "Trinken": _trinken_seite, "Supplements": _supplement_seite,
+        {"Heute": _heute_seite, "Essen": _essen_seite, "Trinken": _trinken_seite, "Sport": _sport_seite,
+         "Fasten": _fasten_seite, "Supplements": _supplement_seite,
          "Nährstoffe": _naehrstoff_seite, "Körper": _koerper_seite, "Profil": _profil_seite}[bereich](h, doc)
         st.caption(HINWEIS)
 
@@ -366,7 +370,8 @@ def _heute_seite(h, doc):
     su = S.tag_summen(t)
     z = _ziele(doc)
     n = su["naehrwerte"]
-    b = R.bilanz(z["kcal"], z["tdee"], su["kcal"], 0, doc["einstellungen"].get("sport_zusaetzlich"))
+    sport_kcal, sport_min = SP.summe(t)
+    b = R.bilanz(z["kcal"], z["tdee"], su["kcal"], sport_kcal, doc["einstellungen"].get("sport_zusaetzlich"))
     if tag == _heute():
         st.markdown(f'<div class="gs-gruss">{_gruss()}</div>', unsafe_allow_html=True)
     rest = b["verbleibend"]
@@ -384,6 +389,14 @@ def _heute_seite(h, doc):
         genommen = _einnahmen(t)
         n_ein = sum(1 for x in geplant if (genommen.get(x["id"]) or {}).get("status") == "eingenommen")
         kacheln.append(_kachel("Supplements", n_ein, len(geplant), "", "eingenommen"))
+    if sport_kcal or sport_min:
+        kacheln.append(_kachel("Sport", sport_kcal, None, "kcal", f"{_z(sport_min)} Minuten"
+                               + ("" if doc["einstellungen"].get("sport_zusaetzlich") else " · im Tagesbedarf enthalten")))
+    fa = FA.status(FA.zustand(doc)["laeuft"], _jetzt()) if doc["einstellungen"].get("fasten_zeigen", True) else None
+    if fa:
+        kacheln.append(_kachel("Fasten", fa["dauer_h"], fa["ziel_h"], "h",
+                               "Ziel erreicht" if fa["erreicht"] else f"bis {fa['ende_geplant'].strftime('%H:%M')} Uhr",
+                               stellen=1, warnung=False))
     if b["bilanz"] is not None and su["kcal"] > 0:
         kacheln.append(_kachel("Bilanz bisher", b["bilanz"], None, "kcal",
                                ("Defizit" if b["bilanz"] < 0 else "Überschuss") + f" · Bedarf {_z(z['tdee'])} kcal"))
@@ -397,15 +410,21 @@ def _heute_seite(h, doc):
                       help=f"{_z(ml)} ml Wasser hinzufügen")
         if doc["einstellungen"].get("supplements_zeigen", True):
             st.button("💊 Supplements", key=P + "q_sup", on_click=_zu, args=("Supplements",))
+        st.button("🏃 Sport", key=P + "q_sport", on_click=_zu, args=("Sport",))
         st.button("⚖️ Gewicht", key=P + "q_gewicht", on_click=_zu, args=("Körper",))
+        if doc["einstellungen"].get("fasten_zeigen", True):
+            if FA.zustand(doc)["laeuft"]:
+                st.button("⏹ Fasten beenden", key=P + "q_fasten", on_click=_fasten_beenden, args=(h,))
+            else:
+                st.button("⏱ Fasten starten", key=P + "q_fasten", on_click=_fasten_starten, args=(h, doc))
 
     st.markdown("**Gegessen**")
     if not t["essen"]:
         st.markdown('<div class="gs-leer">Noch keine Mahlzeiten eingetragen</div>', unsafe_allow_html=True)
         st.button("＋ Erste Mahlzeit hinzufügen", key=P + "leer_essen", on_click=_zu, args=("Essen",), width="stretch")
     else:
-        for m in S.MAHLZEITEN:
-            posten = [e for e in t["essen"] if (e.get("mahlzeit") or "Snacks") == m]
+        for m in _mahlzeiten(doc, t):
+            posten = [e for e in t["essen"] if _mahlzeit_von(e, doc) == m]
             if posten:
                 namen = ", ".join(e["name"] for e in posten[:4]) + (" …" if len(posten) > 4 else "")
                 st.markdown(f'<div class="gs-zeile"><b>{m}</b> · {_z(su["mahlzeiten"].get(m, 0))} kcal '
@@ -415,6 +434,12 @@ def _heute_seite(h, doc):
                     f'<span>({len(t["trinken"])} ×)</span></div>', unsafe_allow_html=True)
     if t.get("gewicht"):
         st.markdown(f'<div class="gs-zeile"><b>Gewicht</b> · {_z(t["gewicht"], 1)} kg</div>', unsafe_allow_html=True)
+    for x in t.get("sport") or []:
+        st.markdown(f'<div class="gs-zeile"><b>{html.escape(x["name"])}</b> · {_z(x["minuten"])} min · '
+                    f'{_z(x["kcal"])} kcal</div>', unsafe_allow_html=True)
+    for dauer, ziel_h, ok in FA.am_tag(FA.zustand(doc)["verlauf"], tag):
+        st.markdown(f'<div class="gs-zeile"><b>Fasten</b> · {FA.dauer_text(dauer)} '
+                    f'<span>({"Ziel erreicht" if ok else f"Ziel {_z(ziel_h)} h"})</span></div>', unsafe_allow_html=True)
 
 
 def _wasser_knoepfe(doc):
@@ -437,6 +462,13 @@ def _essen_seite(h, doc):
     nach_id = {**{lm["id"]: lm for lm in alle}, **extra}
     nutzung, fav = doc.get("nutzung") or {}, doc.get("favoriten") or []
 
+    vorlagen = doc.get("vorlagen") or []
+    if vorlagen:
+        st.markdown("**Mahlzeiten-Vorlagen**")
+        with st.container(key="gs_reihe_vorlagen", horizontal=True):
+            for v in vorlagen:
+                st.button(f"＋ {v['name']}", key=P + f"vl_{v['id']}", on_click=_vorlage_einfuegen, args=(h, tag, v),
+                          help=", ".join(e.get("name", "") for e in v.get("eintraege") or []))
     vorschlaege = L.suchen("", alle, nutzung, fav, limit=8)
     if vorschlaege:
         st.markdown("**Favoriten & zuletzt**")
@@ -460,7 +492,7 @@ def _essen_seite(h, doc):
 
     st.divider()
     t = S.tag_aus(_monat(h, tag), tag)
-    _tagebuch(h, tag, t)
+    _tagebuch(h, doc, tag, t)
     gestern = tag - datetime.timedelta(days=1)
     t_gestern = S.tag_aus(_monat(h, gestern), gestern)
     if t_gestern["essen"]:
@@ -494,7 +526,8 @@ def _erfassen(h, doc, lm, tag):
                         unsafe_allow_html=True)
         mahlzeit_std = R.mahlzeit_vorschlag(_jetzt().time()) if tag == _heute() else s.get(P + "letzte_mahlzeit", "Mittagessen")
         with st.expander("Weitere Angaben"):
-            st.selectbox("Mahlzeit", S.MAHLZEITEN, index=S.MAHLZEITEN.index(mahlzeit_std), key=k + "_mahlzeit")
+            mz = _mahlzeiten(doc)
+            st.selectbox("Mahlzeit", mz, index=mz.index(mahlzeit_std) if mahlzeit_std in mz else 0, key=k + "_mahlzeit")
             fav = lm["id"] in (doc.get("favoriten") or [])
             st.button("★ Aus Favoriten entfernen" if fav else "☆ Als Favorit merken", key=k + "_fav",
                       on_click=lambda: _profil_aendern(h, lambda d: S.favorit_umschalten(d, lm["id"]), "gesundheit favorit"))
@@ -600,23 +633,48 @@ def _eigenes_formular(h):
             _neu_aufbauen()
 
 
-def _tagebuch(h, tag, t):
+def _mahlzeiten(doc, t=None):
+    """Mahlzeit-Kategorien des Benutzers (Einstellungen); Eintraege mit einer nicht (mehr) vorhandenen Kategorie
+    erscheinen unter ihrer eigenen Bezeichnung am Ende."""
+    eigene = [m for m in doc["einstellungen"].get("mahlzeiten") or S.MAHLZEITEN if m] or list(S.MAHLZEITEN)
+    extra = []
+    for e in (t or {}).get("essen") or []:
+        m = e.get("mahlzeit") or "Snacks"
+        if m not in eigene and m not in extra:
+            extra.append(m)
+    return eigene + extra
+
+
+def _mahlzeit_von(e, doc):
+    return e.get("mahlzeit") or "Snacks"
+
+
+def _tagebuch(h, doc, tag, t):
     su = S.tag_summen(t)
     if not t["essen"]:
         st.markdown('<div class="gs-leer">Noch nichts eingetragen – oben ein Lebensmittel suchen.</div>',
                     unsafe_allow_html=True)
         return
     st.markdown(f"**{_tag_name(tag)}: {_z(su['naehrwerte']['kcal']['wert'])} kcal gegessen**")
-    for m in S.MAHLZEITEN:
-        posten = [e for e in t["essen"] if (e.get("mahlzeit") or "Snacks") == m]
+    for i, m in enumerate(_mahlzeiten(doc, t)):
+        posten = [e for e in t["essen"] if _mahlzeit_von(e, doc) == m]
         if not posten:
             continue
         with st.expander(f"{m} · {_z(su['mahlzeiten'].get(m, 0))} kcal", expanded=True):
             for e in posten:
-                _eintrag(h, tag, e)
+                _eintrag(h, doc, tag, e)
+            with st.container(key=f"gs_reihe_mahl_{i}", horizontal=True):
+                with st.popover("☆ Als Vorlage merken", help="Diese Mahlzeit später mit einem Tipp eintragen"):
+                    st.text_input("Name der Vorlage", m, key=P + f"vl_name_{i}", max_chars=40)
+                    st.button("Vorlage speichern", key=P + f"vl_sp_{i}", type="primary",
+                              on_click=lambda n=P + f"vl_name_{i}", p=posten: _vorlage_speichern(
+                                  h, st.session_state.get(n) or "Vorlage", p))
+                if tag != _heute():
+                    st.button("⧉ Auf heute kopieren", key=P + f"mahl_kopie_{i}", on_click=_auf_heute_kopieren,
+                              args=(h, posten))
 
 
-def _eintrag(h, tag, e):
+def _eintrag(h, doc, tag, e):
     nw = S.eintrag_naehrwerte(e)
     k = P + "eintrag_" + e["id"]
     with st.container(key="gs_eintrag_" + e["id"]):
@@ -625,8 +683,8 @@ def _eintrag(h, tag, e):
             stueckig = e["einheit"] not in ("g", "ml")
             st.number_input("Menge", 0.0, 5000.0, float(e["menge"]), 0.5 if stueckig else 10.0, format="%g",
                                     key=k + "_m", help=f"in {e['einheit']}")
-            st.selectbox("Mahlzeit", S.MAHLZEITEN, index=S.MAHLZEITEN.index(e.get("mahlzeit") or "Snacks")
-                                if (e.get("mahlzeit") or "Snacks") in S.MAHLZEITEN else 4, key=k + "_mz")
+            mz = _mahlzeiten(doc, {"essen": [e]})
+            st.selectbox("Mahlzeit", mz, index=mz.index(_mahlzeit_von(e, doc)), key=k + "_mz")
             c = st.columns(2)
             c[0].button("Übernehmen", key=k + "_ok", type="primary", width="stretch",
                         on_click=_menge_uebernehmen, args=(h, tag, e["id"], k))
@@ -651,6 +709,25 @@ def _entfernen(h, tag, liste, eid, name):
     _tag_aendern(h, tag, f, "gesundheit entfernen")
     if box.get("weg"):
         st.session_state[P + "undo"] = {"tag": tag, "liste": liste, "eintrag": box["weg"], "text": f"{name} entfernt"}
+
+
+def _vorlage_speichern(h, name, eintraege):
+    _profil_aendern(h, lambda d: S.vorlage_speichern(d, name.strip()[:40], eintraege, "vl:" + S.neue_id()),
+                    "gesundheit vorlage")
+    _melden(f"Vorlage „{name.strip()[:40]}“ gespeichert")
+
+
+def _vorlage_einfuegen(h, tag, v):
+    kopie = S.kopieren(v.get("eintraege") or [], _jetzt())
+    _tag_aendern(h, tag, lambda m: S.essen_hinzu(m, tag, kopie), "gesundheit vorlage eingetragen")
+    _melden(f"{v['name']} eingetragen ({len(kopie)} Lebensmittel)")
+
+
+def _auf_heute_kopieren(h, eintraege):
+    heute = _heute()
+    kopie = S.kopieren(eintraege, _jetzt())
+    _tag_aendern(h, heute, lambda m: S.essen_hinzu(m, heute, kopie), "gesundheit mahlzeit kopiert")
+    _melden(f"{len(kopie)} Einträge auf heute kopiert")
 
 
 def _gestern_kopieren(h, tag, eintraege):
@@ -735,6 +812,42 @@ def _koerper_seite(h, doc):
     elif not werte:
         st.markdown('<div class="gs-leer">Noch kein Gewicht eingetragen – oben eintragen und speichern.</div>',
                     unsafe_allow_html=True)
+    _masse_bereich(h, t, tag, monate)
+
+
+def _masse_bereich(h, t, tag, monate):
+    masse = t.get("masse") or {}
+    with st.expander("Weitere Körpermaße" + (f" ({len(masse)} eingetragen)" if masse else "")):
+        with st.form(P + f"masse_{tag}", border=False):
+            werte = {}
+            for i in range(0, len(S.MASSE), 2):
+                c = st.columns(2)
+                for j, (k, name, einheit) in enumerate(S.MASSE[i:i + 2]):
+                    werte[k] = c[j].number_input(f"{name} ({einheit})", 0.0, 300.0, float(masse.get(k) or 0), 0.1,
+                                                 format="%.1f", help="0 = nicht erfasst")
+            if st.form_submit_button("Körpermaße speichern", width="stretch"):
+                _tag_aendern(h, tag, lambda m: S.masse_setzen(m, tag, werte), "gesundheit koerpermasse")
+                _melden("Körpermaße gespeichert")
+                _neu_aufbauen()
+        mit_werten = [(k, n, e) for k, n, e in S.MASSE if len(S.mass_verlauf(monate, k)) >= 2]
+        if mit_werten:
+            k = st.selectbox("Verlauf", [x[0] for x in mit_werten], key=P + "masse_verlauf",
+                             format_func=lambda x: next(n for kk, n, _ in S.MASSE if kk == x))
+            einheit = next(e for kk, _, e in S.MASSE if kk == k)
+            _linie(S.mass_verlauf(monate, k), einheit, P + "masse_chart")
+
+
+def _linie(werte, einheit, key, ziel=None):
+    import plotly.graph_objects as go
+    fig = go.Figure(go.Scatter(x=[d for d, _ in werte], y=[w for _, w in werte], mode="lines+markers",
+                               line={"color": "#7C9CFF", "width": 3},
+                               hovertemplate="%{x|%d.%m.%Y}: %{y:.1f} " + einheit + "<extra></extra>"))
+    if ziel:
+        fig.add_hline(y=ziel, line_dash="dot", line_color="#5EEAD4", annotation_text="Ziel")
+    fig.update_layout(height=240, margin={"l": 10, "r": 10, "t": 10, "b": 10}, showlegend=False,
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", yaxis={"title": einheit},
+                      xaxis={"tickformat": "%d.%m."})
+    st.plotly_chart(fig, config={"displayModeBar": False}, key=key)
 
 
 def _gewicht_speichern(h, tag, kg):
@@ -806,10 +919,26 @@ def _profil_seite(h, doc):
             _melden("Gespeichert")
             _neu_aufbauen()
 
+    with st.expander("Meine Mahlzeiten"):
+        st.caption("Reihenfolge und Namen der Mahlzeiten im Tagebuch – eine je Zeile.")
+        with st.form(P + "mahlzeiten_form", border=False):
+            text = st.text_area("Mahlzeiten", "\n".join(_mahlzeiten(doc)), height=150, label_visibility="collapsed")
+            if st.form_submit_button("Mahlzeiten speichern", width="stretch"):
+                liste = list(dict.fromkeys(z.strip()[:30] for z in text.splitlines() if z.strip()))[:12]
+                if not liste:
+                    st.error("Bitte gib mindestens eine Mahlzeit ein.")
+                else:
+                    _profil_aendern(h, lambda d: {**d, "einstellungen": {**d["einstellungen"], "mahlzeiten": liste}},
+                                    "gesundheit einstellungen")
+                    _melden("Gespeichert")
+                    _neu_aufbauen()
+
     with st.expander("Weitere Einstellungen"):
         _schalter(h, doc, "erweitert", "Erweiterte Ansicht",
                   "Zeigt bei den Nährstoffen alle Vitamine, Mineralstoffe, Spurenelemente und Fettsäuren sowie die "
                   "Datenvollständigkeit. Aus: nur die wichtigsten.")
+        _schalter(h, doc, "fasten_zeigen", "Fasten anzeigen",
+                  "Aus, wenn du nicht fastest – dann verschwinden Bereich und Knopf.")
         _schalter(h, doc, "supplements_zeigen", "Supplements anzeigen",
                   "Aus, wenn du keine Nahrungsergänzung nimmst – dann verschwindet der Bereich.")
         _schalter(h, doc, "sport_zusaetzlich", "Sportkalorien zusätzlich zum Tagesbedarf rechnen",
@@ -1078,3 +1207,188 @@ def _mikro_detail(h, doc, w, tag):
                               paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                               yaxis={"title": e}, xaxis={"tickformat": "%d.%m."})
             st.plotly_chart(fig, config={"displayModeBar": False}, key=P + "mikro_chart")
+
+
+# ====================================================================== Sport
+def _sport_seite(h, doc):
+    tag = _tag()
+    s = st.session_state
+    t = S.tag_aus(_monat(h, tag), tag)
+    nutzung = doc.get("sport_nutzung") or {}
+    gewicht = t.get("gewicht") or (doc.get("profil") or {}).get("gewicht_kg")
+    kcal_sum, min_sum = SP.summe(t)
+    st.markdown('<div class="gs-kacheln">' + _kachel("Sport", kcal_sum, None, "kcal", f"{_z(min_sum)} Minuten")
+                + "</div>", unsafe_allow_html=True)
+    # Haeufig genutzte zuerst, dann die uebrigen
+    arten = sorted(SP.AKTIVITAETEN, key=lambda a: (-int((nutzung.get(a) or {}).get("n") or 0),
+                                                   list(SP.AKTIVITAETEN).index(a))) + [SP.EIGENE]
+    if s.get(P + "sport_art") not in arten:
+        s[P + "sport_art"] = None
+    art = st.pills("Aktivität", arten, key=P + "sport_art", label_visibility="collapsed",
+                   format_func=lambda a: "＋ Andere" if a == SP.EIGENE else SP.AKTIVITAETEN[a]["name"])
+    if art:
+        _sport_erfassen(h, tag, art, nutzung.get(art) or {}, gewicht, doc)
+    if t.get("sport"):
+        st.markdown(f"**{_tag_name(tag)}**")
+        for x in t["sport"]:
+            with st.container(key=f"gs_reihe_sp_{x['id']}", horizontal=True, vertical_alignment="center"):
+                st.markdown(f'<div class="gs-zeile">{html.escape(x["name"])} · {_z(x["minuten"])} min '
+                            f'<span>({x.get("intensitaet", "")})</span> · <b>{_z(x["kcal"])} kcal</b></div>',
+                            unsafe_allow_html=True)
+                st.button("🗑", key=P + f"sp_weg_{x['id']}", help="Entfernen", on_click=_entfernen,
+                          args=(h, tag, "sport", x["id"], x["name"]))
+    elif not art:
+        st.markdown('<div class="gs-leer">Noch kein Sport eingetragen – oben eine Aktivität antippen.</div>',
+                    unsafe_allow_html=True)
+    zus = doc["einstellungen"].get("sport_zusaetzlich")
+    st.caption("Sportkalorien zählen zusätzlich zu deinem Tagesbedarf." if zus else
+               "Sportkalorien werden nicht zusätzlich gerechnet, weil deine Aktivitätsstufe den Sport schon enthält "
+               "(änderbar im Profil). Gerechnet wird nur der Verbrauch über dem Ruheumsatz.")
+
+
+def _sport_erfassen(h, tag, art, u, gewicht, doc):
+    k = P + "sp_" + art
+    with st.container(border=True, key="gs_sport_erfassen"):
+        if art == SP.EIGENE:
+            c = st.columns(2)
+            c[0].text_input("Was?", key=k + "_name", placeholder="z. B. Klettern", max_chars=40)
+            c[1].number_input("Kalorien (kcal)", 0, 3000, 300, 10, key=k + "_kcal")
+            st.number_input("Dauer (Minuten)", 1, 600, 60, 5, key=k + "_min")
+        else:
+            a = SP.AKTIVITAETEN[art]
+            minuten = st.number_input("Dauer (Minuten)", 1, 600, int(u.get("minuten") or a["minuten"]), 5,
+                                      key=k + "_min")
+            st.session_state.setdefault(k + "_int", u.get("intensitaet") or "mittel")
+            inten = st.segmented_control("Intensität", SP.INTENSITAETEN, key=k + "_int", width="stretch") or "mittel"
+            berechnet = SP.kcal(art, minuten, inten, gewicht)
+            if berechnet is None:
+                st.caption("Für die Berechnung fehlt dein Gewicht – bitte unter „Körper“ eintragen.")
+            else:
+                st.markdown(f'<div class="gs-vorschau">≈ <b>{_z(berechnet)} kcal</b> '
+                            f'<span>zusätzlich zum Ruheumsatz</span></div>', unsafe_allow_html=True)
+            with st.expander("Weitere Angaben"):
+                st.number_input("Kalorien selbst angeben (0 = berechnen)", 0, 5000, 0, 10, key=k + "_kcal",
+                                help="z. B. aus deiner Sportuhr")
+        st.button("Speichern", key=P + "sport_speichern", type="primary", width="stretch",
+                  on_click=_sport_speichern, args=(h, tag, art, k, gewicht))
+
+
+def _sport_speichern(h, tag, art, k, gewicht):
+    s = st.session_state
+    minuten = s.get(k + "_min") or 0
+    if art == SP.EIGENE:
+        name = (s.get(k + "_name") or "").strip() or "Sport"
+        kcal, inten, manuell = s.get(k + "_kcal") or 0, "", True
+    else:
+        name = SP.AKTIVITAETEN[art]["name"]
+        inten = s.get(k + "_int") or "mittel"
+        eigen = s.get(k + "_kcal") or 0
+        kcal = eigen or SP.kcal(art, minuten, inten, gewicht) or 0
+        manuell = bool(eigen)
+    if minuten <= 0:
+        _melden("Bitte gib eine gültige Dauer ein.", "fehler")
+        return
+    e = SP.eintrag(art, name, minuten, inten, kcal, manuell, _jetzt(), S.neue_id())
+    _tag_aendern(h, tag, lambda m: S.sport_hinzu(m, tag, e), "gesundheit sport")
+    if art != SP.EIGENE:
+        _profil_aendern(h, lambda d: S.sport_merken(d, art, minuten, inten), "gesundheit sport nutzung")
+    s[P + "sport_art"] = None
+    _melden(f"{name} gespeichert · {_z(kcal)} kcal")
+
+
+# ====================================================================== Fasten
+def _fasten_starten(h, doc):
+    f = FA.zustand(doc)
+    ziel = FA.ziel_stunden(f.get("plan"), f.get("eigene_h"))
+    _profil_aendern(h, lambda d: FA.starten(d, _jetzt(), ziel), "gesundheit fasten")
+    _melden(f"Fasten gestartet – Ziel {_z(ziel)} Stunden")
+
+
+def _fasten_beenden(h):
+    _profil_aendern(h, lambda d: FA.beenden(d, _jetzt()), "gesundheit fasten")
+    _melden("Fasten beendet")
+
+
+def _fasten_seite(h, doc):
+    s = st.session_state
+    f = FA.zustand(doc)
+    st_ = FA.status(f["laeuft"], _jetzt())
+    if st_:
+        st.markdown(f'<div class="gs-ziel"><span>Du fastest seit</span><b>{FA.dauer_text(st_["dauer_h"])}</b>'
+                    f'<span>Ziel {_z(st_["ziel_h"])} h · Start {st_["start"].strftime("%d.%m. %H:%M")} Uhr · '
+                    + ("Ziel erreicht – Essensfenster offen" if st_["erreicht"] else
+                       f"Essensfenster ab {st_['ende_geplant'].strftime('%H:%M')} Uhr")
+                    + f' bis {st_["fenster_bis"].strftime("%H:%M")} Uhr</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gs-kacheln">' + _kachel("Fortschritt", st_["dauer_h"], st_["ziel_h"], "h", stellen=1,
+                                                          warnung=False) + "</div>", unsafe_allow_html=True)
+        st.button("⏹ Fasten beenden", key=P + "fa_ende", type="primary", width="stretch", on_click=_fasten_beenden,
+                  args=(h,))
+        with st.expander("Weitere Angaben"):
+            st.caption("Vergessen zu starten? Startzeit nachträglich setzen:")
+            c = st.columns(2)
+            c[0].date_input("Datum", st_["start"].date(), key=P + "fa_d", format="DD.MM.YYYY")
+            c[1].time_input("Uhrzeit", st_["start"].time(), key=P + "fa_z", step=300)
+            st.button("Startzeit übernehmen", key=P + "fa_start_neu", on_click=_fasten_start_setzen,
+                      args=(h, P + "fa_d", P + "fa_z"))
+            st.button("Versehentlich gestartet – verwerfen", key=P + "fa_weg",
+                      on_click=lambda: (_profil_aendern(h, FA.abbrechen, "gesundheit fasten"), _melden("Verworfen")))
+    else:
+        plaene = list(FA.PLAENE) + ["eigene"]
+        s.setdefault(P + "fa_plan", f.get("plan") if f.get("plan") in plaene else "16:8")
+        plan = st.segmented_control("Plan", plaene, key=P + "fa_plan", width="stretch",
+                                    format_func=lambda p: "Eigener" if p == "eigene" else p) or "16:8"
+        eigene_h = None
+        if plan == "eigene":
+            eigene_h = st.number_input("Fastendauer (Stunden)", 1.0, 72.0, float(f.get("eigene_h") or 20), 0.5,
+                                       key=P + "fa_eigen")
+        ziel = FA.ziel_stunden(plan, eigene_h)
+        st.caption(f"{_z(ziel)} Stunden fasten, danach {_z(max(0, 24 - ziel))} Stunden Essensfenster.")
+        st.button("⏱ Fasten starten", key=P + "fa_start", type="primary", width="stretch",
+                  on_click=_fasten_plan_start, args=(h, P + "fa_plan", P + "fa_eigen"))
+    verlauf = list(reversed(f.get("verlauf") or []))[:14]
+    if verlauf:
+        st.markdown("**Letzte Fastenzeiten**")
+        for v in verlauf:
+            try:
+                a, e = datetime.datetime.fromisoformat(v["start"]), datetime.datetime.fromisoformat(v["ende"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            dauer = (e - a).total_seconds() / 3600
+            ok = dauer >= float(v.get("ziel_h") or 0)
+            st.markdown(f'<div class="gs-zeile">{"✓" if ok else "○"} {a.strftime("%d.%m. %H:%M")} – '
+                        f'{e.strftime("%d.%m. %H:%M")} · <b>{FA.dauer_text(dauer)}</b> '
+                        f'<span>(Ziel {_z(v.get("ziel_h"))} h)</span></div>', unsafe_allow_html=True)
+    elif not st_:
+        st.markdown('<div class="gs-leer">Noch keine Fastenzeit – oben einfach starten.</div>', unsafe_allow_html=True)
+
+
+def _fasten_plan_start(h, k_plan, k_eigen):
+    s = st.session_state
+    plan = s.get(k_plan) or "16:8"
+    eigene_h = s.get(k_eigen)
+    ziel = FA.ziel_stunden(plan, eigene_h)
+
+    def f(d):
+        d = dict(d)
+        d["fasten"] = {**FA.zustand(d), "plan": plan, **({"eigene_h": float(eigene_h)} if eigene_h else {})}
+        return FA.starten(d, _jetzt(), ziel)
+    _profil_aendern(h, f, "gesundheit fasten")
+    _melden(f"Fasten gestartet – Ziel {_z(ziel)} Stunden")
+
+
+def _fasten_start_setzen(h, k_d, k_z):
+    s = st.session_state
+    start = datetime.datetime.combine(s.get(k_d), s.get(k_z)).replace(tzinfo=BERLIN)
+    if start > _jetzt():
+        _melden("Der Start kann nicht in der Zukunft liegen.", "fehler")
+        return
+
+    def f(d):
+        d = dict(d)
+        fz = FA.zustand(d)
+        if fz["laeuft"]:
+            fz["laeuft"] = {**fz["laeuft"], "start": start.isoformat(timespec="seconds")}
+        d["fasten"] = fz
+        return d
+    _profil_aendern(h, f, "gesundheit fasten")
+    _melden("Startzeit geändert")
