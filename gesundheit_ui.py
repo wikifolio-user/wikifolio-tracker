@@ -31,9 +31,11 @@ from gesundheit import supplements as SU
 
 BERLIN = ZoneInfo("Europe/Berlin")
 P = "gs_"
-BEREICHE = ["Heute", "Essen", "Trinken", "Sport", "Fasten", "Supplements", "Nährstoffe", "Körper", "Statistik",
-            "Profil"]
-AUSBLENDBAR = {"Supplements": "supplements_zeigen", "Fasten": "fasten_zeigen"}     # Bereich -> Einstellung
+BEREICHE = ["Heute", "Essen", "Trinken", "Sport", "Fasten", "Vitamine", "Körper", "Statistik", "Profil"]
+AUSBLENDBAR = {"Fasten": "fasten_zeigen"}     # Bereich -> Einstellung
+# "Vitamine" fasst Supplements (Einnahme) und Naehrstoffe (Uebersicht) zusammen - so passt die Leiste am Handy in
+# zwei Zeilen. Alte Ziele ("Supplements", "Nährstoffe") werden auf den Bereich + Unterseite umgelenkt.
+UNTERSEITEN = {"Supplements": "Vitamine", "Nährstoffe": "Vitamine"}
 HINWEIS = ("Alle Werte sind rechnerische Schätzungen zur Dokumentation. Sie ersetzen keine medizinische oder "
            "ernährungsmedizinische Beratung.")
 WOCHENTAG = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -216,7 +218,10 @@ def seite(h):
         _meldung_zeigen(h)
         s = st.session_state
         if s.get(P + "bereich_neu"):
-            s[P + "bereich"] = s.pop(P + "bereich_neu")
+            ziel = s.pop(P + "bereich_neu")
+            if ziel in UNTERSEITEN:
+                s[P + "vitamine_teil"] = ziel
+            s[P + "bereich"] = UNTERSEITEN.get(ziel, ziel)
         bereiche = [b for b in BEREICHE if doc["einstellungen"].get(AUSBLENDBAR.get(b, ""), True)]
         if s.get(P + "bereich") not in bereiche:
             s[P + "bereich"] = bereiche[0]
@@ -226,8 +231,8 @@ def seite(h):
         if bereich not in ("Profil", "Statistik"):
             _tag_leiste()
         {"Heute": _heute_seite, "Essen": _essen_seite, "Trinken": _trinken_seite, "Sport": _sport_seite,
-         "Fasten": _fasten_seite, "Supplements": _supplement_seite, "Statistik": _statistik_seite,
-         "Nährstoffe": _naehrstoff_seite, "Körper": _koerper_seite, "Profil": _profil_seite}[bereich](h, doc)
+         "Fasten": _fasten_seite, "Vitamine": _vitamine_seite, "Statistik": _statistik_seite,
+         "Körper": _koerper_seite, "Profil": _profil_seite}[bereich](h, doc)
         st.caption(HINWEIS)
 
 
@@ -964,7 +969,7 @@ def _profil_seite(h, doc):
         _schalter(h, doc, "fasten_zeigen", "Fasten anzeigen",
                   "Aus, wenn du nicht fastest – dann verschwinden Bereich und Knopf.")
         _schalter(h, doc, "supplements_zeigen", "Supplements anzeigen",
-                  "Aus, wenn du keine Nahrungsergänzung nimmst – dann verschwindet der Bereich.")
+                  "Aus, wenn du keine Nahrungsergänzung nimmst – unter „Vitamine“ bleibt dann nur die Übersicht.")
         _schalter(h, doc, "sport_zusaetzlich", "Sportkalorien zusätzlich zum Tagesbedarf rechnen",
                   "Aus lassen, wenn dein Aktivitätslevel deinen Sport schon enthält – sonst würde er doppelt "
                   "gezählt. Sport kommt in einer der nächsten Ausbaustufen.")
@@ -985,6 +990,20 @@ def _schalter(h, doc, name, text, hilfe):
                         "gesundheit einstellungen")
         _melden("Gespeichert")
     st.toggle(text, key=k, help=hilfe, on_change=speichern)
+
+
+# ====================================================================== Vitamine (Supplements + Naehrstoffe)
+def _vitamine_seite(h, doc):
+    s = st.session_state
+    if not doc["einstellungen"].get("supplements_zeigen", True):
+        _naehrstoff_seite(h, doc)                    # ohne Supplements: nur die Uebersicht, kein Umschalter
+        return
+    teile = ["Supplements", "Nährstoffe"]
+    if s.get(P + "vitamine_teil") not in teile:
+        s[P + "vitamine_teil"] = teile[0]
+    teil = st.segmented_control("Ansicht", teile, key=P + "vitamine_teil", label_visibility="collapsed",
+                                width="stretch") or teile[0]
+    (_supplement_seite if teil == "Supplements" else _naehrstoff_seite)(h, doc)
 
 
 # ====================================================================== Supplements
