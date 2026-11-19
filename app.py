@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
+import os
 import requests
 import streamlit as st
 
@@ -2917,9 +2918,15 @@ def render_dashboard():
                                                              GITHUB_TOKEN, message="gesundheitsdaten geloescht")
                     gh_read_cached.clear()
                     return ok, anzahl
+                try:                                   # Foto-Erkennung: derselbe Gemini-Schluessel wie die KI-Auswertung
+                    _gemini_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+                except Exception:
+                    _gemini_key = os.environ.get("GEMINI_API_KEY")
+                import investor_config
                 gesundheit_ui.seite({"lesen": gh_read_cached_status, "aktualisiere": gh_aktualisiere, "upfad": upfad,
-                                     "speichern": GH_STATE_READY, "get": requests.get, "liste": _liste,
-                                     "ordner_loeschen": _ordner_loeschen})
+                                     "speichern": GH_STATE_READY, "get": requests.get, "post": requests.post,
+                                     "liste": _liste, "ordner_loeschen": _ordner_loeschen,
+                                     "ki": {"key": _gemini_key, "modell": investor_config.KI["gemini"]["modell"]}})
             except Exception as e:
                 st.error("⚠️ Im Gesundheitsbereich ist ein Fehler aufgetreten. Bitte lade die Seite neu.")
                 notify_app_error("Tab-Gesundheit", e)

@@ -17,6 +17,7 @@ import streamlit as st
 
 from gesundheit import bericht_pdf as BP
 from gesundheit import fasten as FA
+from gesundheit import foto as FO
 from gesundheit import lebensmittel as L
 from gesundheit import mikro as MI
 from gesundheit import naehrstoffe as N
@@ -423,6 +424,7 @@ def _heute_seite(h, doc):
     st.markdown("**Was möchtest du eintragen?**")
     with st.container(key="gs_reihe_schnell", horizontal=True):
         st.button("＋ Essen", key=P + "q_essen", on_click=_zu, args=("Essen",), type="primary")
+        st.button("📷 Foto", key=P + "q_foto", on_click=_foto_oeffnen, help="Mahlzeit fotografieren")
         for i, (name, ml) in enumerate(_wasser_knoepfe(doc)[:3]):
             st.button(f"💧 {name}", key=P + f"q_wasser_{i}", on_click=_trinken, args=(h, tag, "wasser", ml),
                       help=f"{_z(ml)} ml Wasser hinzufügen")
@@ -480,6 +482,10 @@ def _essen_seite(h, doc):
     nach_id = {**{lm["id"]: lm for lm in alle}, **extra}
     nutzung, fav = doc.get("nutzung") or {}, doc.get("favoriten") or []
 
+    if s.get(P + "foto_an"):
+        _foto_mahlzeit(h, doc, tag, alle)
+        return
+    st.button("📷 Mahlzeit fotografieren", key=P + "foto_start", width="stretch", on_click=_foto_oeffnen)
     vorlagen = doc.get("vorlagen") or []
     if vorlagen:
         st.markdown("**Mahlzeiten-Vorlagen**")
@@ -1039,6 +1045,18 @@ def _supplement_seite(h, doc):
                 _sup_zeile(h, tag, x, genommen.get(x["id"]))
     st.divider()
     with st.expander("＋ Supplement hinzufügen", expanded=not aktive):
+        gelesen = st.session_state.get(P + "etikett")
+        if gelesen:
+            st.info("Vom Etikett gelesen – bitte prüfen und ergänzen. Erst „Hinzufügen“ speichert.")
+            if gelesen["unbekannt"]:
+                st.caption("Nicht zugeordnet (bitte bei Bedarf selbst eintragen): " + ", ".join(gelesen["unbekannt"]))
+            sup = {**SU.neues(None, "sup:" + S.neue_id(), _heute()), **{k: gelesen[k] for k in
+                                                                         ("name", "hersteller", "form", "portion", "inhalt")}}
+            _sup_formular(h, sup, "etikett", neu=True)
+            st.button("Verwerfen", key=P + "etikett_weg", on_click=lambda: st.session_state.pop(P + "etikett", None))
+            return
+        with st.expander("📷 Etikett fotografieren"):
+            _foto_etikett(h)
         namen = ["Eigenes Produkt"] + [v["name"] for v in SU.VORLAGEN]
         wahl = st.selectbox("Vorlage", namen, index=1 if not aktive else 0, key=P + "sup_vorlage",
                             help="Vorlagen sind mit typischen Mengen vorbelegt – bitte mit dem Etikett abgleichen.")
@@ -1134,6 +1152,7 @@ def _sup_formular(h, sup, k, neu):
                         else _heute().isoformat()}}
     _profil_aendern(h, lambda d: S.supplement_speichern(d, neu_sup), "gesundheit supplement")
     _melden(f"{neu_sup['name']} gespeichert")
+    st.session_state.pop(P + "etikett", None)
     _neu_aufbauen()
 
 
@@ -1654,3 +1673,127 @@ def _alles_loeschen(h):
     for k in [k for k in s.keys() if str(k).startswith(P)]:
         del s[k]
     _melden(f"Alle Gesundheitsdaten gelöscht ({anzahl} Dateien).")
+
+
+# ====================================================================== Foto-Erkennung
+FOTO_HINWEIS = ("Das Foto wird nur für die Erkennung an Google Gemini gesendet und nirgends gespeichert. "
+                "Ergebnisse sind Schätzungen – bitte prüfen.")
+SICHERHEIT = {"hoch": "sicher erkannt", "mittel": "geschätzt", "niedrig": "unsicher"}
+
+
+def _foto_oeffnen():
+    st.session_state[P + "foto_an"] = True
+    st.session_state.pop(P + "foto_ergebnis", None)
+    _zu("Essen")
+
+
+def _foto_schliessen():
+    for k in ("foto_an", "foto_ergebnis"):
+        st.session_state.pop(P + k, None)
+
+
+def _bild_eingabe(k):
+    """Foto aufnehmen oder auswaehlen (am Handy bietet die Auswahl direkt die Kamera an); optional Kamera im Browser.
+    -> (bytes, mime) oder None"""
+    datei = st.file_uploader("Foto aufnehmen oder auswählen", type=["jpg", "jpeg", "png", "webp", "heic"],
+                             key=P + k + "_datei", help="Am Handy öffnet sich hier direkt die Kamera.")
+    if st.toggle("Kamera hier im Browser öffnen", key=P + k + "_kamera_an"):
+        bild = st.camera_input("Foto", key=P + k + "_kamera", label_visibility="collapsed")
+        if bild is not None:
+            return bild.getvalue(), bild.type or "image/jpeg"
+    if datei is not None:
+        return datei.getvalue(), datei.type or "image/jpeg"
+    return None
+
+
+def _erkennen(h, prompt, bild):
+    ki = h.get("ki") or {}
+    daten, mime = FO.verkleinern(*bild)
+    return FO.gemini(ki.get("key"), ki.get("modell") or "gemini-2.5-flash", prompt, daten, mime, h["post"])
+
+
+def _foto_mahlzeit(h, doc, tag, alle):
+    s = st.session_state
+    with st.container(border=True, key="gs_foto"):
+        with st.container(key="gs_reihe_fotokopf", horizontal=True, vertical_alignment="center"):
+            st.markdown("**📷 Mahlzeit fotografieren**")
+            st.button("✕ Schließen", key=P + "foto_zu", on_click=_foto_schliessen)
+        if not (h.get("ki") or {}).get("key"):
+            st.warning("Für die Foto-Erkennung fehlt der Gemini-Schlüssel (GEMINI_API_KEY) in den Secrets der App.")
+            return
+        ergebnis = s.get(P + "foto_ergebnis")
+        if ergebnis is None:
+            bild = _bild_eingabe("foto")
+            st.caption(FOTO_HINWEIS)
+            if bild and st.button("Erkennen", key=P + "foto_los", type="primary", width="stretch"):
+                with st.spinner("Erkenne Lebensmittel …"):
+                    try:
+                        s[P + "foto_ergebnis"] = FO.mahlzeit_auswerten(_erkennen(h, FO.PROMPT_MAHLZEIT, bild), alle)
+                    except FO.FotoFehler as e:
+                        st.error(str(e))
+                        return
+                _neu_aufbauen()
+            return
+        posten = ergebnis["posten"]
+        if not posten:
+            st.info(ergebnis.get("hinweis") or "Auf dem Foto wurde kein Essen erkannt.")
+            st.button("Neues Foto", key=P + "foto_neu", on_click=lambda: s.pop(P + "foto_ergebnis", None))
+            return
+        st.markdown("**Schätzung – bitte prüfen und bei Bedarf anpassen:**")
+        nach_id = {lm["id"]: lm for lm in alle}
+        for i, p in enumerate(posten):
+            ids = [lm["id"] for lm in p["vorschlaege"]]
+            with st.container(border=True, key=f"gs_foto_posten_{i}"):
+                st.checkbox(f"{p['name']} · {SICHERHEIT.get(p['sicherheit'], 'geschätzt')}", value=bool(ids),
+                            key=P + f"fp_an_{i}", disabled=not ids)
+                if not ids:
+                    st.caption("Kein passendes Lebensmittel gefunden – bitte über die Suche eintragen.")
+                    continue
+                c = st.columns(2)
+                wahl = c[0].selectbox("Lebensmittel", ids, key=P + f"fp_lm_{i}",
+                                      format_func=lambda x: nach_id[x]["name"] if x in nach_id else x)
+                basis = (nach_id.get(wahl) or {}).get("basis") or "g"
+                c[1].number_input(f"Menge ({basis})", 1, 3000, int(p["gramm"]), 10, key=P + f"fp_g_{i}")
+        mz = _mahlzeiten(doc)
+        vorschlag = R.mahlzeit_vorschlag(_jetzt().time()) if tag == _heute() else mz[0]
+        st.selectbox("Mahlzeit", mz, index=mz.index(vorschlag) if vorschlag in mz else 0, key=P + "fp_mahlzeit")
+        st.button("✓ Übernehmen", key=P + "foto_speichern", type="primary", width="stretch",
+                  on_click=_foto_speichern, args=(h, tag, len(posten), nach_id))
+        st.button("Verwerfen", key=P + "foto_verwerfen", on_click=lambda: s.pop(P + "foto_ergebnis", None))
+
+
+def _foto_speichern(h, tag, anzahl, nach_id):
+    s = st.session_state
+    eintraege = []
+    for i in range(anzahl):
+        lm = nach_id.get(s.get(P + f"fp_lm_{i}"))
+        if not s.get(P + f"fp_an_{i}") or not lm:
+            continue
+        e = S.essen_eintrag(lm, s.get(P + f"fp_g_{i}") or 0, lm.get("basis") or "g", s.get(P + "fp_mahlzeit"),
+                            _jetzt())
+        if e:
+            e["foto"] = True                      # Herkunft: Schaetzung aus einem Foto
+            eintraege.append(e)
+    if not eintraege:
+        _melden("Nichts ausgewählt – es wurde nichts gespeichert.", "fehler")
+        return
+    _tag_aendern(h, tag, lambda m: S.essen_hinzu(m, tag, eintraege), "gesundheit foto")
+    _foto_schliessen()
+    _melden(f"{len(eintraege)} Lebensmittel aus dem Foto gespeichert")
+
+
+def _foto_etikett(h):
+    s = st.session_state
+    if not (h.get("ki") or {}).get("key"):
+        st.caption("Für das Lesen von Etiketten fehlt der Gemini-Schlüssel (GEMINI_API_KEY) in den Secrets der App.")
+        return
+    bild = _bild_eingabe("etikett")
+    st.caption(FOTO_HINWEIS)
+    if bild and st.button("Etikett lesen", key=P + "etikett_los", type="primary", width="stretch"):
+        with st.spinner("Lese das Etikett …"):
+            try:
+                s[P + "etikett"] = FO.etikett_auswerten(_erkennen(h, FO.PROMPT_ETIKETT, bild), SU.FORMEN)
+            except FO.FotoFehler as e:
+                st.error(str(e))
+                return
+        _neu_aufbauen()
