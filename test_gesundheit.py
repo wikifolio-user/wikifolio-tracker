@@ -579,6 +579,71 @@ class Foto(unittest.TestCase):
         self.assertEqual(FO.verkleinern(b"kein bild", "image/png"), (b"kein bild", "image/png"))
 
 
+class Etappe6(unittest.TestCase):
+    def test_vorschlaege_nach_tageszeit(self):
+        d = {}
+        for _ in range(3):
+            d = S.nutzung_merken(d, "haferflocken", 1, "Portion", ZEIT, "Frühstück")
+        for _ in range(5):
+            d = S.nutzung_merken(d, "reis_gekocht", 1, "Portion", ZEIT, "Abendessen")
+        d = S.favorit_umschalten(d, "kiwi")
+        alle = L.MITGELIEFERT
+        morgens = [x["id"] for x in L.vorschlaege(alle, d["nutzung"], d["favoriten"], "Frühstück")]
+        abends = [x["id"] for x in L.vorschlaege(alle, d["nutzung"], d["favoriten"], "Abendessen")]
+        self.assertEqual(morgens[0], "haferflocken")
+        self.assertEqual(abends[0], "reis_gekocht")
+        self.assertEqual(set(morgens), {"haferflocken", "reis_gekocht", "kiwi"})
+        self.assertEqual(L.vorschlaege(alle, {}, (), "Frühstück"), [])
+        self.assertEqual(d["nutzung"]["haferflocken"]["mahlzeiten"], {"Frühstück": 3})
+
+    def test_eigene_getraenke_und_kcal(self):
+        d, art = S.getraenk_speichern({}, "Eistee", 28)
+        self.assertTrue(art.startswith("eigen:"))
+        m = S.trinken_hinzu({}, HEUTE, art, 500, ZEIT, name="Eistee", kcal100=28)
+        m = S.trinken_hinzu(m, HEUTE, "saft", 200, ZEIT)
+        t = S.tag_aus(m, HEUTE)
+        self.assertAlmostEqual(S.tag_summen(t)["kcal"], 140 + 90)
+        self.assertEqual(S.getraenk_name(t["trinken"][0]), "Eistee")
+        self.assertEqual(S.getraenk_name(t["trinken"][1]), "Saft")
+        d, _ = S.getraenk_speichern(d, "Eistee light", 2, art)               # aendern: gleiche art
+        self.assertEqual([(g["name"], g["kcal100"]) for g in d["einstellungen"]["getraenke"]], [("Eistee light", 2.0)])
+        self.assertAlmostEqual(S.tag_summen(t)["kcal"], 230)                  # alte Tage behalten ihre Kopie
+        self.assertEqual(S.getraenk_entfernen(d, art)["einstellungen"]["getraenke"], [])
+
+    def test_haeufigste_menge(self):
+        m = {}
+        for ml in (330, 330, 500, 250, 330):
+            m = S.trinken_hinzu(m, HEUTE, "wasser", ml, ZEIT)
+        self.assertEqual(S.haeufigste_menge([m]), 330)
+        self.assertIsNone(S.haeufigste_menge([S.trinken_hinzu({}, HEUTE, "wasser", 400, ZEIT)]))
+        self.assertIsNone(S.haeufigste_menge([m], art="tee"))
+
+    def test_lebensmittel_verwalten(self):
+        lm = {"id": "eigen:1", "name": "Omas Kuchen", "basis": "g", "pro100": {"kcal": 300}, "einheiten": {"Stück": 90}}
+        d = S.lebensmittel_speichern({}, lm)
+        d = S.favorit_umschalten(S.nutzung_merken(d, "eigen:1", 1, "Stück", ZEIT), "eigen:1")
+        e = S.essen_eintrag(lm, 1, "Stück", "Nachmittag", ZEIT)
+        d = S.lebensmittel_speichern(d, {**lm, "pro100": {"kcal": 350}})
+        self.assertEqual([x["pro100"]["kcal"] for x in d["eigene"]], [350])
+        self.assertAlmostEqual(S.eintrag_naehrwerte(e)["kcal"], 270)          # alter Eintrag unveraendert
+        d = S.lebensmittel_entfernen(d, "eigen:1")
+        self.assertEqual((d["eigene"], d["favoriten"], d["nutzung"]), ([], [], {}))
+
+    def test_tag_kopieren_und_vorlage_umbenennen(self):
+        quelle = datetime.date(2026, 10, 30)
+        mq = S.essen_hinzu({}, quelle, [S.essen_eintrag(L.NACH_ID["ei"], 2, "Stück", "Frühstück", ZEIT)])
+        mz, n = S.tag_kopieren(mq, quelle, {}, HEUTE, ZEIT)
+        self.assertEqual(n, 1)
+        self.assertEqual(S.tag_aus(mz, HEUTE)["essen"][0]["menge"], 2)
+        self.assertEqual(S.tag_kopieren({}, quelle, {}, HEUTE, ZEIT), ({}, 0))
+        d = S.vorlage_speichern({}, "Alt", [], "v1")
+        self.assertEqual(S.vorlage_umbenennen(d, "v1", "Neu")["vorlagen"][0]["name"], "Neu")
+        self.assertEqual(S.vorlage_umbenennen(d, "v1", "  ")["vorlagen"][0]["name"], "Alt")
+        sup = S.supplement_speichern({}, SU.neues(SU.VORLAGEN[0], "d3", HEUTE))
+        S.supplement_entfernen(sup, "d3")
+        self.assertTrue(sup["supplements"][0]["aktiv"])                    # Original bleibt unveraendert
+
+
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
     """Rauchtest der Oberflaeche (AppTest, Speicher im Arbeitsspeicher): Einrichtung, Wasser, Essen."""

@@ -29,7 +29,8 @@ GETRAENK_KCAL = {a: k for a, _, k in GETRAENKE}
 GETRAENK_NAME = {a: n for a, n, _ in GETRAENKE}
 STANDARD_EINSTELLUNGEN = {"glaeser": [{"name": "Mein Glas", "ml": 300}, {"name": "Meine Flasche", "ml": 750}],
                           "sport_zusaetzlich": False, "erweitert": False, "supplements_zeigen": True,
-                          "fasten_zeigen": True, "mahlzeiten": list(MAHLZEITEN)}
+                          "fasten_zeigen": True, "mahlzeiten": list(MAHLZEITEN), "getraenke": [],
+                          "kacheln_aus": []}
 MAX_HISTORIE = 200
 
 
@@ -44,13 +45,14 @@ def leeres_profil():
 
 
 def profil_doc(roh):
-    """Gelesene profil.json -> vollstaendiges Dokument (fehlende Teile mit Standardwerten)."""
+    """Gelesene profil.json -> vollstaendiges Dokument (fehlende Teile mit Standardwerten). Immer eine TIEFE Kopie:
+    Aenderungsfunktionen duerfen das Original (z. B. die Sitzungskopie) nie mitveraendern."""
     d = leeres_profil()
     if isinstance(roh, dict):
         for k in d:
             if isinstance(roh.get(k), type(d[k])):
-                d[k] = roh[k]
-        d["einstellungen"] = {**copy.deepcopy(STANDARD_EINSTELLUNGEN), **(roh.get("einstellungen") or {})}
+                d[k] = copy.deepcopy(roh[k])
+        d["einstellungen"] = {**copy.deepcopy(STANDARD_EINSTELLUNGEN), **copy.deepcopy(roh.get("einstellungen") or {})}
     return d
 
 
@@ -158,7 +160,8 @@ def kopieren(eintraege, zeit):
     return aus
 
 
-def trinken_hinzu(monat_doc, tag, art, ml, zeit):
+def trinken_hinzu(monat_doc, tag, art, ml, zeit, name=None, kcal100=None):
+    """Getraenk eintragen. Eigene Getraenke (art "eigen:…") speichern Name und kcal je 100 ml als Kopie mit."""
     try:
         ml = float(ml)
     except (TypeError, ValueError):
@@ -166,6 +169,10 @@ def trinken_hinzu(monat_doc, tag, art, ml, zeit):
     if ml <= 0:
         return monat_doc
     e = {"id": neue_id(), "art": art, "ml": ml, "zeit": zeit.strftime("%H:%M")}
+    if name:
+        e["name"] = str(name)[:40]
+    if kcal100 is not None:
+        e["kcal100"] = float(kcal100)
     return _tag_aendern(monat_doc, tag, lambda t: t["trinken"].append(e))
 
 
@@ -224,12 +231,100 @@ def mass_verlauf(monate, schluessel):
     return sorted(aus)
 
 
+# ---------------------------------------------------------------- Getraenke
+def getraenk_kcal100(x):
+    """kcal je 100 ml eines Getraenk-Eintrags: gespeicherte Kopie (eigene Getraenke) oder Standardwert der Art."""
+    if x.get("kcal100") is not None:
+        try:
+            return float(x["kcal100"])
+        except (TypeError, ValueError):
+            return 0.0
+    return GETRAENK_KCAL.get(x.get("art"), 0)
+
+
+def getraenk_name(x, eigene=()):
+    if x.get("name"):
+        return x["name"]
+    e = next((g for g in eigene or () if g.get("art") == x.get("art")), None)
+    return (e or {}).get("name") or GETRAENK_NAME.get(x.get("art"), "Getränk")
+
+
+def getraenk_speichern(doc, name, kcal100, art=None):
+    """Eigenes Getraenk anlegen oder aendern (gleiche art ersetzt). -> (doc, art)"""
+    d = profil_doc(doc)
+    art = art or "eigen:" + neue_id()
+    liste = [g for g in d["einstellungen"].get("getraenke") or [] if g.get("art") != art]
+    liste.append({"art": art, "name": str(name).strip()[:30] or "Getränk", "kcal100": max(0.0, float(kcal100 or 0))})
+    d["einstellungen"] = {**d["einstellungen"], "getraenke": liste}
+    return d, art
+
+
+def getraenk_entfernen(doc, art):
+    d = profil_doc(doc)
+    d["einstellungen"] = {**d["einstellungen"], "getraenke": [g for g in d["einstellungen"].get("getraenke") or []
+                                                              if g.get("art") != art]}
+    return d
+
+
+def haeufigste_menge(monate, art=None, mindestens=2):
+    """Haeufigste Trinkmenge (ml) aus den Eintraegen (optional nur einer Getraenkeart) oder None, wenn keine Menge
+    mindestens zweimal vorkommt."""
+    zaehler = {}
+    for m in monate:
+        for t in ((m or {}).get("tage") or {}).values():
+            for x in (t or {}).get("trinken") or []:
+                if art and x.get("art") != art:
+                    continue
+                ml = float(x.get("ml") or 0)
+                if ml > 0:
+                    zaehler[ml] = zaehler.get(ml, 0) + 1
+    if not zaehler:
+        return None
+    ml, n = max(zaehler.items(), key=lambda kv: (kv[1], kv[0]))
+    return ml if n >= mindestens else None
+
+
+# ---------------------------------------------------------------- Eigene Lebensmittel
+def lebensmittel_speichern(doc, lm):
+    """Eigenes Lebensmittel anlegen oder (gleiche id) aendern. Fruehere Tage behalten ihre Kopie der Naehrwerte."""
+    d = profil_doc(doc)
+    d["eigene"] = [x for x in d["eigene"] if x.get("id") != lm["id"]] + [copy.deepcopy(lm)]
+    return d
+
+
+def lebensmittel_entfernen(doc, lm_id):
+    """Eigenes Lebensmittel loeschen (auch aus Favoriten und Nutzung). Fruehere Eintraege bleiben unveraendert."""
+    d = profil_doc(doc)
+    d["eigene"] = [x for x in d["eigene"] if x.get("id") != lm_id]
+    d["favoriten"] = [f for f in d["favoriten"] if f != lm_id]
+    d["nutzung"].pop(lm_id, None)
+    return d
+
+
+def tag_kopieren(monat_doc_quelle, quelle, monat_doc_ziel, ziel, zeit):
+    """Alle Essens-Eintraege eines Tages auf einen anderen Tag uebernehmen (neue IDs). -> (neues Zieldokument, Anzahl)"""
+    eintraege = tag_aus(monat_doc_quelle, quelle)["essen"]
+    if not eintraege:
+        return monat_doc_ziel, 0
+    return essen_hinzu(monat_doc_ziel, ziel, kopieren(eintraege, zeit)), len(eintraege)
+
+
 # ---------------------------------------------------------------- Mahlzeiten-Vorlagen
 def vorlage_speichern(doc, name, eintraege, vid):
     """Eintraege als Vorlage merken (ohne IDs/Uhrzeit; gleicher Name ersetzt die alte Vorlage)."""
     d = profil_doc(doc)
     teile = [{k: v for k, v in e.items() if k not in ("id", "zeit")} for e in eintraege]
     d["vorlagen"] = [v for v in d["vorlagen"] if v.get("name") != name] + [{"id": vid, "name": name, "eintraege": teile}]
+    return d
+
+
+def vorlage_umbenennen(doc, vid, name):
+    d = profil_doc(doc)
+    name = str(name or "").strip()[:40]
+    if name:
+        for v in d["vorlagen"]:
+            if v.get("id") == vid:
+                v["name"] = name
     return d
 
 
@@ -284,7 +379,7 @@ def tag_summen(t):
     essen = t.get("essen") or []
     nw = [eintrag_naehrwerte(e) for e in essen]
     trinken = t.get("trinken") or []
-    trinken_kcal = sum(float(x.get("ml") or 0) * GETRAENK_KCAL.get(x.get("art"), 0) / 100 for x in trinken)
+    trinken_kcal = sum(float(x.get("ml") or 0) * getraenk_kcal100(x) / 100 for x in trinken)
     s = R.summe(nw)
     fl = sum(float(x.get("ml") or 0) for x in trinken) + sum(
         float(e.get("gramm") or 0) for e in essen if e.get("basis") == "ml")
@@ -295,12 +390,16 @@ def tag_summen(t):
             "trinken_kcal": trinken_kcal, "mahlzeiten": mahl}
 
 
-def nutzung_merken(doc, lm_id, menge, einheit, zeit):
-    """Haeufigkeit, letzte Nutzung und letzte Menge eines Lebensmittels (fuer Vorschlaege und Standardmengen)."""
+def nutzung_merken(doc, lm_id, menge, einheit, zeit, mahlzeit=None):
+    """Haeufigkeit, letzte Nutzung, letzte Menge und Haeufigkeit je Mahlzeit eines Lebensmittels (fuer Vorschlaege
+    nach Tageszeit und Standardmengen)."""
     d = profil_doc(doc)
     u = d["nutzung"].get(lm_id) or {}
+    je = dict(u.get("mahlzeiten") or {})
+    if mahlzeit:
+        je[mahlzeit] = int(je.get(mahlzeit) or 0) + 1
     d["nutzung"][lm_id] = {"n": int(u.get("n") or 0) + 1, "zuletzt": zeit.isoformat(timespec="seconds"),
-                           "menge": float(menge), "einheit": einheit}
+                           "menge": float(menge), "einheit": einheit, "mahlzeiten": je}
     return d
 
 

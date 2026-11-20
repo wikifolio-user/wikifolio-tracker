@@ -305,3 +305,20 @@ def suchen(begriff, alle, nutzung=None, favoriten=(), limit=12):
         treffer.append((g + bonus(lm), lm))
     treffer.sort(key=lambda t: (-t[0], t[1]["name"]))
     return [lm for _, lm in treffer[:limit]]
+
+
+def vorschlaege(alle, nutzung=None, favoriten=(), mahlzeit=None, limit=8):
+    """Schnellauswahl: zuerst, was der Benutzer zu DIESER Mahlzeit (Tageszeit) oft isst, dann Favoriten, dann
+    haeufig und zuletzt genutztes. Ohne Vorgeschichte: leer."""
+    nutzung = nutzung or {}
+    fav = set(favoriten or ())
+    kandidaten = [lm for lm in alle if lm["id"] in fav or lm["id"] in nutzung]
+
+    def rang(lm):
+        u = nutzung.get(lm["id"]) or {}
+        zur_mahlzeit = int((u.get("mahlzeiten") or {}).get(mahlzeit) or 0) if mahlzeit else 0
+        return (-min(zur_mahlzeit, 50), -(lm["id"] in fav), -int(u.get("n") or 0), str(u.get("zuletzt") or ""))
+    return sorted(kandidaten, key=rang)[:limit]
+
+
+EINHEITEN_WAHL = ["Stück", "Portion", "Scheibe", "EL", "TL", "Glas", "Tasse", "Becher", "Packung", "Handvoll"]

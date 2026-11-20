@@ -72,6 +72,13 @@ CSS = """<style>
     min-height: 48px; }
 .st-key-gs_seite [class*="st-key-gs_reihe"] { flex-wrap: wrap !important; gap: 8px !important; }
 .st-key-gs_seite [class*="st-key-gs_reihe"] > div { flex: 1 1 140px !important; min-width: 0; }
+/* Listenzeilen mit Loeschknopf: Text nimmt den Platz, der 🗑-Knopf bleibt schmal */
+.st-key-gs_seite :is([class*="st-key-gs_reihe_tr_"], [class*="st-key-gs_reihe_sp_"], [class*="st-key-gs_reihe_gt_"]) {
+    flex-wrap: nowrap !important; }
+.st-key-gs_seite :is([class*="st-key-gs_reihe_tr_"], [class*="st-key-gs_reihe_sp_"], [class*="st-key-gs_reihe_gt_"]) > div:first-child {
+    flex: 1 1 auto !important; }
+.st-key-gs_seite :is([class*="st-key-gs_reihe_tr_"], [class*="st-key-gs_reihe_sp_"], [class*="st-key-gs_reihe_gt_"]) > div:last-child {
+    flex: 0 0 52px !important; }
 .st-key-gs_seite [class*="st-key-gs_eintrag_"] button { justify-content: flex-start !important; text-align: left; }
 .st-key-gs_tagleiste { max-width: 640px; }
 /* Bereichsleiste: am Handy kompakter, damit alle Bereiche in zwei Zeilen passen */
@@ -424,7 +431,10 @@ def _heute_seite(h, doc):
     if b["bilanz"] is not None and su["kcal"] > 0:
         kacheln.append(_kachel("Bilanz bisher", b["bilanz"], None, "kcal",
                                ("Defizit" if b["bilanz"] < 0 else "Überschuss") + f" · Bedarf {_z(z['tdee'])} kcal"))
-    st.markdown('<div class="gs-kacheln">' + "".join(kacheln) + "</div>", unsafe_allow_html=True)
+    aus = set(doc["einstellungen"].get("kacheln_aus") or [])
+    kacheln = [k for k in kacheln if _kachel_name(k) not in aus]
+    if kacheln:
+        st.markdown('<div class="gs-kacheln">' + "".join(kacheln) + "</div>", unsafe_allow_html=True)
 
     st.markdown("**Was möchtest du eintragen?**")
     with st.container(key="gs_reihe_schnell", horizontal=True):
@@ -473,9 +483,12 @@ def _wasser_knoepfe(doc):
     return [("250 ml", 250.0), ("500 ml", 500.0)] + eigene
 
 
-def _trinken(h, tag, art, ml):
-    _tag_aendern(h, tag, lambda m: S.trinken_hinzu(m, tag, art, ml, _jetzt()), "gesundheit trinken")
-    _melden(f"{S.GETRAENK_NAME.get(art, 'Getränk')} {_z(ml)} ml eingetragen")
+def _trinken(h, tag, art, ml, eigen=None):
+    """Getraenk eintragen. eigen: {"name", "kcal100"} eines eigenen Getraenks (wird als Kopie mitgespeichert)."""
+    eigen = eigen or {}
+    _tag_aendern(h, tag, lambda m: S.trinken_hinzu(m, tag, art, ml, _jetzt(), eigen.get("name"), eigen.get("kcal100")),
+                 "gesundheit trinken")
+    _melden(f"{eigen.get('name') or S.GETRAENK_NAME.get(art, 'Getränk')} {_z(ml)} ml eingetragen")
 
 
 # ====================================================================== Essen
@@ -498,9 +511,10 @@ def _essen_seite(h, doc):
             for v in vorlagen:
                 st.button(f"＋ {v['name']}", key=P + f"vl_{v['id']}", on_click=_vorlage_einfuegen, args=(h, tag, v),
                           help=", ".join(e.get("name", "") for e in v.get("eintraege") or []))
-    vorschlaege = L.suchen("", alle, nutzung, fav, limit=8)
+    mahlzeit_jetzt = R.mahlzeit_vorschlag(_jetzt().time()) if tag == _heute() else None
+    vorschlaege = L.vorschlaege(alle, nutzung, fav, mahlzeit_jetzt, limit=8)
     if vorschlaege:
-        st.markdown("**Favoriten & zuletzt**")
+        st.markdown(f"**Vorschläge{' für ' + mahlzeit_jetzt if mahlzeit_jetzt else ''}**")
         with st.container(key="gs_reihe_vorschlag", horizontal=True):
             for lm in vorschlaege:
                 st.button(("★ " if lm["id"] in fav else "") + lm["name"], key=P + f"vor_{lm['id']}",
@@ -508,6 +522,8 @@ def _essen_seite(h, doc):
     # Auswahlliste mit Sofort-Suche beim Tippen: Favoriten und haeufige zuerst
     rang = {lm["id"]: i for i, lm in enumerate(L.suchen("", alle, nutzung, fav, limit=500))}
     optionen = sorted(nach_id, key=lambda i: (rang.get(i, 10_000), nach_id[i]["name"].lower()))
+    if s.get(P + "wahl_neu"):                         # gerade angelegtes Lebensmittel gleich auswaehlen
+        s[P + "wahl"] = s.pop(P + "wahl_neu")
     if s.get(P + "wahl") not in nach_id:
         s[P + "wahl"] = None                          # Startwert ueber den Sitzungszustand (kein index=)
     wahl = st.selectbox("Lebensmittel", optionen, key=P + "wahl", placeholder="🔍 Lebensmittel suchen …",
@@ -528,6 +544,7 @@ def _essen_seite(h, doc):
         st.button(f"⧉ Gestern übernehmen ({len(t_gestern['essen'])} Einträge)", key=P + "gestern", width="stretch",
                   on_click=_gestern_kopieren, args=(h, tag, t_gestern["essen"]),
                   help="Alle Einträge vom Vortag für diesen Tag übernehmen")
+    _essen_werkzeuge(h, doc, tag)
 
 
 def _erfassen(h, doc, lm, tag):
@@ -589,7 +606,7 @@ def _essen_speichern(h, lm, k, tag):
     _tag_aendern(h, tag, lambda m: S.essen_hinzu(m, tag, [e]), "gesundheit essen")
 
     def merken(d):
-        d = S.nutzung_merken(d, lm["id"], menge, einheit, _jetzt())
+        d = S.nutzung_merken(d, lm["id"], menge, einheit, _jetzt(), mahlzeit)
         if lm.get("quelle") == "Open Food Facts" and all(x.get("id") != lm["id"] for x in d["eigene"]):
             d["eigene"] = d["eigene"] + [lm]                 # Online-Produkt fuer die naechste Suche behalten
         return d
@@ -635,31 +652,140 @@ def _online_waehlen(lm):
     s[P + "wahl"] = lm["id"]
 
 
-def _eigenes_formular(h):
-    with st.form(P + "eigenes_form", clear_on_submit=True, border=False):
-        name = st.text_input("Name", placeholder="z. B. Omas Apfelkuchen")
+_EIGENE_WERTE = [("kcal", "Kalorien (kcal)", 1000.0), ("protein", "Protein (g)", 100.0),
+                 ("kh", "Kohlenhydrate (g)", 100.0), ("zucker", "davon Zucker (g)", 100.0), ("fett", "Fett (g)", 100.0),
+                 ("fett_ges", "davon gesättigte (g)", 100.0), ("ballast", "Ballaststoffe (g)", 100.0),
+                 ("salz", "Salz (g)", 100.0)]
+
+
+def _eigenes_formular(h, lm=None):
+    """Eigenes Lebensmittel anlegen (lm=None) oder bearbeiten: Grundwerte, Einheiten, optional Mikronaehrstoffe."""
+    import pandas as pd
+    neu = lm is None
+    lm = lm or {"id": "eigen:" + S.neue_id(), "name": "", "kategorie": "Eigene", "basis": "g", "pro100": {},
+                "einheiten": {}, "quelle": "eigen", "marke": "", "such": ""}
+    p = lm.get("pro100") or {}
+    k = P + "lmf_" + ("neu" if neu else lm["id"].replace(":", "_"))
+    namen = {n: N.NAEHRSTOFFE[n].name for n in N.MIKRO}
+    nach_name = {v: n for n, v in namen.items()}
+    with st.form(k, clear_on_submit=neu, border=False):
+        name = st.text_input("Name", lm.get("name") or "", placeholder="z. B. Omas Apfelkuchen", max_chars=80)
         c = st.columns(2)
-        basis = c[0].selectbox("Angaben je 100", ["g", "ml"])
-        kcal = c[1].number_input("Kalorien (kcal)", 0.0, 1000.0, None, 1.0, placeholder="Pflicht")
-        c = st.columns(2)
-        protein = c[0].number_input("Protein (g)", 0.0, 100.0, None, 0.1)
-        kh = c[1].number_input("Kohlenhydrate (g)", 0.0, 100.0, None, 0.1)
-        c = st.columns(2)
-        fett = c[0].number_input("Fett (g)", 0.0, 100.0, None, 0.1)
-        portion = c[1].number_input("Eine Portion wiegt (g/ml)", 0.0, 2000.0, None, 1.0,
-                                    help="Optional – dann kannst du in Portionen eintragen.")
-        if st.form_submit_button("Lebensmittel speichern", type="primary", width="stretch"):
-            if not name.strip() or kcal is None:
+        marke = c[0].text_input("Hersteller (optional)", lm.get("marke") or "", max_chars=40)
+        basis = c[1].selectbox("Angaben je 100", ["g", "ml"], index=0 if lm.get("basis", "g") == "g" else 1)
+        werte = {}
+        for i in range(0, len(_EIGENE_WERTE), 2):
+            c = st.columns(2)
+            for j, (nid, text, hoch) in enumerate(_EIGENE_WERTE[i:i + 2]):
+                werte[nid] = c[j].number_input(text, 0.0, hoch, p.get(nid), 0.1, format="%g",
+                                               placeholder="Pflicht" if nid == "kcal" else "–",
+                                               help=None if nid == "kcal" else "Leer lassen = unbekannt (zählt nicht als 0)")
+        st.markdown("Einheiten (optional)")
+        einh = st.data_editor(
+            pd.DataFrame([{"Einheit": e, "Gramm": float(g)} for e, g in (lm.get("einheiten") or {}).items()]
+                         or [{"Einheit": "Portion", "Gramm": None}]),
+            num_rows="dynamic", hide_index=True, width="stretch", key=k + "_einh",
+            column_config={"Einheit": st.column_config.SelectboxColumn("Einheit", options=L.EINHEITEN_WAHL,
+                                                                       required=True),
+                           "Gramm": st.column_config.NumberColumn("wiegt (g/ml)", min_value=0.0, format="%g")})
+        with st.expander("Vitamine und Mineralstoffe je 100 (optional)"):
+            mikro = st.data_editor(
+                pd.DataFrame([{"Nährstoff": namen[n], "Menge": float(p[n])} for n in N.MIKRO if p.get(n) is not None]
+                             or [{"Nährstoff": None, "Menge": None}]),
+                num_rows="dynamic", hide_index=True, width="stretch", key=k + "_mikro",
+                column_config={"Nährstoff": st.column_config.SelectboxColumn("Nährstoff", options=list(namen.values())),
+                               "Menge": st.column_config.NumberColumn("Menge (Basiseinheit)", min_value=0.0,
+                                                                      format="%g",
+                                                                      help="mg bzw. µg wie in der Nährstoffübersicht")})
+        if st.form_submit_button("Lebensmittel speichern" if neu else "Änderungen speichern", type="primary",
+                                 width="stretch"):
+            if not name.strip() or werte.get("kcal") is None:
                 st.error("Bitte gib mindestens einen Namen und die Kalorien ein.")
                 return
-            lm = {"id": "eigen:" + S.neue_id(), "name": name.strip()[:80], "kategorie": "Eigene", "basis": basis,
-                  "pro100": {k: v for k, v in {"kcal": kcal, "protein": protein, "kh": kh, "fett": fett}.items()
-                             if v is not None},
-                  "einheiten": {"Portion": portion} if portion else {}, "quelle": "eigen", "marke": "", "such": ""}
-            _profil_aendern(h, lambda d: {**d, "eigene": d["eigene"] + [lm]}, "gesundheit eigenes lebensmittel")
-            st.session_state[P + "wahl"] = lm["id"]
-            _melden(f"{lm['name']} angelegt")
+            pro100 = {n: v for n, v in werte.items() if v is not None}
+            for _, z in mikro.iterrows():
+                n = nach_name.get(z.get("Nährstoff"))
+                if n and z.get("Menge") is not None and not pd.isna(z.get("Menge")):
+                    pro100[n] = float(z["Menge"])
+            einheiten = {str(z["Einheit"]): float(z["Gramm"]) for _, z in einh.iterrows()
+                         if z.get("Einheit") and z.get("Gramm") is not None and not pd.isna(z.get("Gramm"))
+                         and float(z["Gramm"]) > 0}
+            neu_lm = {**lm, "name": name.strip()[:80], "marke": marke.strip()[:40], "basis": basis,
+                      "pro100": L.natrium_aus_salz(pro100), "einheiten": einheiten, "quelle": "eigen"}
+            _profil_aendern(h, lambda d: S.lebensmittel_speichern(d, neu_lm), "gesundheit eigenes lebensmittel")
+            if neu:
+                st.session_state[P + "wahl_neu"] = neu_lm["id"]     # Suchfeld ist schon gezeichnet: vormerken
+            _melden(f"{neu_lm['name']} {'angelegt' if neu else 'gespeichert'}")
             _neu_aufbauen()
+
+
+def _essen_werkzeuge(h, doc, tag):
+    """Verwalten und Rechnen - eingeklappt, damit die Essensseite einfach bleibt."""
+    s = st.session_state
+    st.markdown("**Mehr**")
+    with st.expander("Meine Lebensmittel"):
+        eigene = [lm for lm in doc.get("eigene") or [] if isinstance(lm, dict) and lm.get("id")]
+        if not eigene:
+            st.caption("Noch keine eigenen Lebensmittel. Anlegen geht oben unter „Eigenes Lebensmittel anlegen“; "
+                       "Produkte aus der Online-Suche landen nach dem ersten Speichern ebenfalls hier.")
+        for lm in sorted(eigene, key=lambda x: x["name"].lower()):
+            with st.popover(f"{lm['name']}" + (f" · {lm['marke']}" if lm.get("marke") else "")
+                            + f" · {_z((lm.get('pro100') or {}).get('kcal'))} kcal", width="stretch"):
+                _eigenes_formular(h, lm)
+                st.button("🗑 Lebensmittel löschen", key=P + f"lm_weg_{lm['id']}", width="stretch",
+                          on_click=lambda i=lm["id"], n=lm["name"]: (
+                              _profil_aendern(h, lambda d: S.lebensmittel_entfernen(d, i), "gesundheit lebensmittel geloescht"),
+                              _melden(f"{n} gelöscht – frühere Einträge bleiben erhalten")))
+    with st.expander("Meine Mahlzeiten-Vorlagen"):
+        vorlagen = doc.get("vorlagen") or []
+        if not vorlagen:
+            st.caption("Noch keine Vorlagen. Im Tagebuch bei einer Mahlzeit „☆ Als Vorlage merken“ antippen.")
+        for v in vorlagen:
+            with st.container(border=True, key=f"gs_vl_{v['id'].replace(':', '_')}"):
+                st.markdown(f"**{html.escape(v['name'])}** – " + html.escape(", ".join(
+                    e.get("name", "") for e in v.get("eintraege") or [])))
+                c = st.columns(2)
+                c[0].text_input("Neuer Name", v["name"], key=P + f"vl_neu_{v['id']}", max_chars=40,
+                                label_visibility="collapsed")
+                with c[1].container(key=f"gs_reihe_vlk_{v['id'].replace(':', '_')}", horizontal=True):
+                    st.button("Umbenennen", key=P + f"vl_ren_{v['id']}", on_click=lambda i=v["id"]: (
+                        _profil_aendern(h, lambda d: S.vorlage_umbenennen(d, i, s.get(P + f"vl_neu_{i}")),
+                                        "gesundheit vorlage"), _melden("Umbenannt")))
+                    st.button("🗑", key=P + f"vl_weg_{v['id']}", help="Vorlage löschen", on_click=lambda i=v["id"], n=v["name"]: (
+                        _profil_aendern(h, lambda d: S.vorlage_entfernen(d, i), "gesundheit vorlage geloescht"),
+                        _melden(f"Vorlage „{n}“ gelöscht")))
+    with st.expander("Von einem anderen Tag übernehmen"):
+        quelle = st.date_input("Tag", tag - datetime.timedelta(days=1), key=P + "kopie_tag", format="DD.MM.YYYY",
+                               max_value=_heute())
+        n = len(S.tag_aus(_monat(h, quelle), quelle)["essen"]) if quelle else 0
+        st.button(f"⧉ {n} Einträge vom {quelle.strftime('%d.%m.')} übernehmen" if n else "An diesem Tag gibt es keine Einträge",
+                  key=P + "kopie_los", disabled=not n or quelle == tag, width="stretch",
+                  on_click=_tag_uebernehmen, args=(h, quelle, tag))
+    with st.expander("Umrechner"):
+        st.caption("Nährwerte für eine beliebige Menge – z. B. von einer Verpackung „je 100 g“.")
+        c = st.columns(2)
+        kcal100 = c[0].number_input("kcal je 100 g", 0.0, 1000.0, 350.0, 1.0, key=P + "ur_kcal", format="%g")
+        menge = c[1].number_input("Deine Menge (g)", 0.0, 5000.0, 37.0, 1.0, key=P + "ur_menge", format="%g")
+        c = st.columns(3)
+        p100 = {"kcal": kcal100,
+                "protein": c[0].number_input("Protein je 100 g", 0.0, 100.0, 0.0, 0.1, key=P + "ur_p", format="%g"),
+                "kh": c[1].number_input("KH je 100 g", 0.0, 100.0, 0.0, 0.1, key=P + "ur_kh", format="%g"),
+                "fett": c[2].number_input("Fett je 100 g", 0.0, 100.0, 0.0, 0.1, key=P + "ur_f", format="%g")}
+        nw = R.naehrwerte(p100, menge)
+        st.markdown(f'<div class="gs-vorschau">{_z(menge)} g ≙ <b>{_z(nw["kcal"])} kcal</b> · Protein '
+                    f'{_z(nw["protein"], 1)} g · KH {_z(nw["kh"], 1)} g · Fett {_z(nw["fett"], 1)} g</div>',
+                    unsafe_allow_html=True)
+        ziel = st.number_input("Wie viel Gramm ergeben … kcal?", 0.0, 5000.0, 300.0, 10.0, key=P + "ur_ziel", format="%g")
+        g = R.menge_fuer_kcal(p100, ziel)
+        st.markdown(f'<div class="gs-vorschau">{_z(ziel)} kcal ≙ <b>{_z(g) if g else "–"} g</b></div>',
+                    unsafe_allow_html=True)
+
+
+def _tag_uebernehmen(h, quelle, ziel):
+    eintraege = S.tag_aus(_monat(h, quelle), quelle)["essen"]
+    kopie = S.kopieren(eintraege, _jetzt())
+    _tag_aendern(h, ziel, lambda m: S.essen_hinzu(m, ziel, kopie), "gesundheit tag kopiert")
+    _melden(f"{len(kopie)} Einträge vom {quelle.strftime('%d.%m.')} übernommen")
 
 
 def _mahlzeiten(doc, t=None):
@@ -774,30 +900,63 @@ def _trinken_seite(h, doc):
     ziel = _ziele(doc)["wasser_ml"]
     st.markdown('<div class="gs-kacheln">' + _kachel("Getrunken", su["fluessigkeit_ml"] / 1000, (ziel or 0) / 1000, "L",
                                                       stellen=1) + "</div>", unsafe_allow_html=True)
-    s.setdefault(P + "getraenk", "wasser")
-    art = st.pills("Getränk", [a for a, _, _ in S.GETRAENKE], format_func=S.GETRAENK_NAME.get, key=P + "getraenk",
-                   label_visibility="collapsed") or "wasser"
+    eigene = [g for g in doc["einstellungen"].get("getraenke") or [] if g.get("art")]
+    eigen_nach_art = {g["art"]: g for g in eigene}
+    arten = [a for a, _, _ in S.GETRAENKE] + [g["art"] for g in eigene]
+    if s.get(P + "getraenk") not in arten:
+        s[P + "getraenk"] = "wasser"
+    art = st.pills("Getränk", arten, key=P + "getraenk", label_visibility="collapsed",
+                   format_func=lambda a: eigen_nach_art[a]["name"] if a in eigen_nach_art else S.GETRAENK_NAME.get(a, a)) \
+        or "wasser"
+    eigen = eigen_nach_art.get(art)
+    knoepfe = _wasser_knoepfe(doc)
+    oft = S.haeufigste_menge([_monat(h, tag)], art)          # haeufigste Menge dieses Getraenks (dieser Monat)
+    if oft and all(abs(ml - oft) > 0.5 for _, ml in knoepfe):
+        knoepfe = [(f"{_z(oft)} ml · oft", oft)] + knoepfe
     with st.container(key="gs_reihe_trinken", horizontal=True):
-        for i, (name, ml) in enumerate(_wasser_knoepfe(doc)):
-            st.button(f"＋ {name}" + (f" ({_z(ml)} ml)" if not name.endswith("ml") else ""), key=P + f"tr_{i}",
-                      on_click=_trinken, args=(h, tag, art, ml), type="primary" if i == 0 else "secondary")
+        for i, (name, ml) in enumerate(knoepfe):
+            st.button(f"＋ {name}" + (f" ({_z(ml)} ml)" if "ml" not in name else ""), key=P + f"tr_{i}",
+                      on_click=_trinken, args=(h, tag, art, ml, eigen), type="primary" if i == 0 else "secondary")
     with st.expander("Andere Menge"):
         c = st.columns(2)
         c[0].number_input("Menge (ml)", 0, 3000, 330, 10, key=P + "tr_ml")
         c[1].button("Hinzufügen", key=P + "tr_eigene", width="stretch",
                     on_click=lambda: _trinken(h, tag, st.session_state.get(P + "getraenk") or "wasser",
-                                              st.session_state.get(P + "tr_ml") or 0))
+                                              st.session_state.get(P + "tr_ml") or 0,
+                                              eigen_nach_art.get(st.session_state.get(P + "getraenk"))))
     if t["trinken"]:
         st.markdown(f"**{_tag_name(tag)} getrunken**")
         for x in reversed(t["trinken"]):
+            name = S.getraenk_name(x, eigene)
             with st.container(key=f"gs_reihe_tr_{x['id']}", horizontal=True, vertical_alignment="center"):
-                st.markdown(f'<div class="gs-zeile">{x.get("zeit", "")} · {S.GETRAENK_NAME.get(x.get("art"), "Getränk")} '
+                st.markdown(f'<div class="gs-zeile">{x.get("zeit", "")} · {html.escape(name)} '
                             f'<b>{_z(x["ml"])} ml</b></div>', unsafe_allow_html=True)
                 st.button("🗑", key=P + f"tr_weg_{x['id']}", help="Entfernen", on_click=_entfernen,
-                          args=(h, tag, "trinken", x["id"], f"{S.GETRAENK_NAME.get(x.get('art'), 'Getränk')} {_z(x['ml'])} ml"))
+                          args=(h, tag, "trinken", x["id"], f"{name} {_z(x['ml'])} ml"))
     else:
         st.markdown('<div class="gs-leer">Noch nichts getrunken – ein Tipp auf einen Knopf oben genügt.</div>',
                     unsafe_allow_html=True)
+    with st.expander("Eigene Getränke"):
+        st.caption("z. B. Eistee, Smoothie oder Proteinshake – mit Kalorien je 100 ml.")
+        for g in eigene:
+            with st.container(key=f"gs_reihe_gt_{g['art'].replace(':', '_')}", horizontal=True,
+                              vertical_alignment="center"):
+                st.markdown(f'<div class="gs-zeile">{html.escape(g["name"])} <span>· {_z(g.get("kcal100"))} kcal '
+                            f'je 100 ml</span></div>', unsafe_allow_html=True)
+                st.button("🗑", key=P + f"gt_weg_{g['art']}", help="Getränk löschen – frühere Einträge bleiben",
+                          on_click=lambda a=g["art"]: (_profil_aendern(h, lambda d: S.getraenk_entfernen(d, a),
+                                                                       "gesundheit getraenk"), _melden("Gelöscht")))
+        with st.form(P + "gt_form", clear_on_submit=True, border=False):
+            c = st.columns(2)
+            name = c[0].text_input("Name", max_chars=30, placeholder="z. B. Eistee")
+            kcal = c[1].number_input("kcal je 100 ml", 0.0, 900.0, 0.0, 1.0, format="%g")
+            if st.form_submit_button("Getränk anlegen", width="stretch"):
+                if not name.strip():
+                    st.error("Bitte gib einen Namen ein.")
+                else:
+                    _profil_aendern(h, lambda d: S.getraenk_speichern(d, name, kcal)[0], "gesundheit getraenk")
+                    _melden(f"{name.strip()} angelegt")
+                    _neu_aufbauen()
 
 
 # ====================================================================== Koerper
@@ -961,6 +1120,20 @@ def _profil_seite(h, doc):
                                     "gesundheit einstellungen")
                     _melden("Gespeichert")
                     _neu_aufbauen()
+
+    with st.expander("Kacheln auf „Heute“"):
+        st.caption("Was du nicht brauchst, abwählen – es verschwindet von der Startseite des Gesundheitsbereichs.")
+        aus = set(doc["einstellungen"].get("kacheln_aus") or [])
+        st.session_state.setdefault(P + "kacheln_an", [k for k in KACHELN if k not in aus])
+
+        def kacheln_speichern():
+            an = st.session_state.get(P + "kacheln_an") or []
+            _profil_aendern(h, lambda d: {**d, "einstellungen": {**d["einstellungen"],
+                                                                 "kacheln_aus": [k for k in KACHELN if k not in an]}},
+                            "gesundheit einstellungen")
+            _melden("Gespeichert")
+        st.pills("Kacheln", KACHELN, selection_mode="multi", key=P + "kacheln_an", label_visibility="collapsed",
+                 on_change=kacheln_speichern)
 
     with st.expander("Weitere Einstellungen"):
         _schalter(h, doc, "erweitert", "Erweiterte Ansicht",
@@ -1815,3 +1988,13 @@ def _foto_etikett(h):
                 st.error(str(e))
                 return
         _neu_aufbauen()
+
+
+# ====================================================================== Heute: Kacheln waehlen
+KACHELN = ["Kalorien", "Protein", "Wasser", "Kohlenhydrate", "Fett", "Supplements", "Sport", "Fasten", "Bilanz bisher"]
+
+
+def _kachel_name(kachel_html):
+    import re
+    m = re.search(r'<div class="gs-k-label">([^<]*)</div>', kachel_html)
+    return html.unescape(m.group(1)) if m else ""
