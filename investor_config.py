@@ -69,6 +69,9 @@ LYNCH = {"slow": 5.0, "stalwart": 12.0, "fast": 15.0,     # Kategorie nach Gewin
          "slow_min_div": 3.0, "slow_max_quote": 60.0}
 CANSLIM = {"c_min": 25.0, "a_min": 25.0, "n_max_abstand": 15.0, "l_min_rs": 80.0, "s_tage": 50,
            "m_sma": 200}
+# Eigenes Rating im Stil von IBD (ibd_rating.py, zusaetzliche Bewertung): relative Gewichte. EPS zaehlt doppelt.
+IBD = {"gewichte_eps": {"aktuell": 1.0, "jahre": 1.0},
+       "gewichte_composite": {"eps": 2.0, "rs": 1.0, "branche": 1.0, "smr": 1.0, "ad": 1.0, "hoch": 1.0}}
 MINERVINI = {"min_ueber_tief": 30.0, "max_unter_hoch": 25.0, "min_rs": 70.0, "sma200_steigt_tage": 21}
 LEVY = {"wochen": 27, "min_rsl": 1.0, "min_rang": 70.0}
 
