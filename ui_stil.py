@@ -1329,10 +1329,15 @@ html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_lei
 html body :is(.st-key-nav_menue [data-testid="stButton"] button, .st-key-nav_leiste [data-testid="stButton"] button,
     [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stButtonGroup"] button, [data-testid="stBaseButton-primary"],
-    [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *) :is(p, span, div) {
+    [data-testid="stBaseButton-primaryFormSubmit"]):not(.st-key-logout_ecke *) :is(p, span, div):not([data-testid="stIconMaterial"]) {
     font-family: var(--g-schrift) !important; font-weight: 600 !important; letter-spacing: 0.01em !important;
     color: inherit !important; text-shadow: none !important;
 }
+/* Streamlit-Symbole in Knoepfen (z. B. Upload-Pfeil) behalten ihre Symbolschrift - sonst erscheint der Symbolname
+   als Text ("upload") neben der Beschriftung */
+html body button [data-testid="stIconMaterial"] {
+    font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
+    font-weight: 400 !important; letter-spacing: normal !important; }
 /* Einheitliche Hoehe und Form: Knoepfe 14 px Radius, Pillen als Kapsel, Menuekacheln 20 px */
 html body :is([data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
     [data-testid="stDownloadButton"] button, [data-testid="stBaseButton-primary"],
