@@ -2026,7 +2026,8 @@ def _bild_eingabe(k):
 def _erkennen(h, prompt, bild):
     ki = h.get("ki") or {}
     daten, mime = FO.verkleinern(*bild)
-    return FO.gemini(ki.get("key"), ki.get("modell") or "gemini-2.5-flash", prompt, daten, mime, h["post"])
+    return FO.gemini(ki.get("key"), ki.get("modell") or "gemini-flash-latest", prompt, daten, mime, h["post"],
+                     get=h.get("get"))
 
 
 def _foto_mahlzeit(h, doc, tag, alle):

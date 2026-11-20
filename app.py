@@ -2932,11 +2932,10 @@ def render_dashboard():
                     _gemini_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
                 except Exception:
                     _gemini_key = os.environ.get("GEMINI_API_KEY")
-                import investor_config
                 gesundheit_ui.seite({"lesen": gh_read_cached_status, "aktualisiere": gh_aktualisiere, "upfad": upfad,
                                      "speichern": GH_STATE_READY, "get": requests.get, "post": requests.post,
                                      "liste": _liste, "ordner_loeschen": _ordner_loeschen,
-                                     "ki": {"key": _gemini_key, "modell": investor_config.KI["gemini"]["modell"]}})
+                                     "ki": {"key": _gemini_key, "modell": "gemini-flash-latest"}})   # immer aktuelles Flash-Modell
             except Exception as e:
                 st.error("⚠️ Im Gesundheitsbereich ist ein Fehler aufgetreten. Bitte lade die Seite neu.")
                 notify_app_error("Tab-Gesundheit", e)

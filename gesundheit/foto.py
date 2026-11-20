@@ -72,8 +72,33 @@ def verkleinern(daten, mime="image/jpeg"):
         return daten, mime
 
 
-ERSATZ_MODELL = "gemini-2.5-flash-lite"   # wenn das Hauptmodell ueberlastet oder nicht verfuegbar ist
+# Nacheinander versucht, wenn das eingestellte Modell fehlt (404) oder ueberlastet ist. Die "-latest"-Namen zeigt
+# Google immer auf das aktuelle Flash-Modell - so bleibt die Erkennung auch nach dem Auslaufen alter Modelle nutzbar.
+ERSATZ_MODELLE = ("gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash-lite")
 VORUEBERGEHEND = (500, 502, 503, 504)
+_NICHT_FUER_BILDER = ("image", "tts", "audio", "live", "embedding", "native", "robotics", "computer")
+
+
+def verfuegbare_modelle(key, get, timeout=15):
+    """Modelle, die dieser Schluessel fuer Bild+Text nutzen darf, bestes zuerst: Flash vor Flash-Lite, stabile vor
+    Vorschau, neuere Version vor aelterer. Fehler -> []."""
+    try:
+        r = get("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",
+                headers={"x-goog-api-key": key}, timeout=timeout)
+        liste = r.json().get("models") or [] if r.status_code == 200 else []
+    except Exception:
+        return []
+    namen = []
+    for m in liste:
+        name = str(m.get("name") or "").removeprefix("models/")
+        if ("generateContent" in (m.get("supportedGenerationMethods") or []) and "flash" in name
+                and not any(x in name for x in _NICHT_FUER_BILDER)):
+            namen.append(name)
+
+    def rang(n):
+        v = re.search(r"gemini-(\d+(?:\.\d+)?)", n)
+        return ("lite" in n, "preview" in n or "exp" in n, -(float(v.group(1)) if v else 0), n)
+    return sorted(set(namen), key=rang)
 
 
 def _fehlergrund(r):
@@ -102,29 +127,35 @@ def _fehler_text(code, status, grund):
         return f"Die Foto-Erkennung ist bei Google gerade überlastet (Fehler {code}). Bitte in einer Minute erneut versuchen."
     if code == 400:
         return "Google hat das Foto nicht angenommen (Fehler 400). Bitte ein anderes Foto versuchen."
+    if code == 404:
+        return ("Für deinen Gemini-Schlüssel ist gerade kein passendes Modell verfügbar (Fehler 404). Bitte in Google "
+                "AI Studio prüfen, ob die Gemini-API für das Projekt des Schlüssels freigeschaltet ist.")
     return f"Die Foto-Erkennung hat gerade nicht funktioniert (Fehler {code}). Bitte versuche es erneut."
 
 
-def gemini(key, modell, prompt, bild, mime, post, timeout=45, warten=None):
+def gemini(key, modell, prompt, bild, mime, post, timeout=45, warten=None, get=None):
     """Ein Bild + Anweisung an Gemini -> Antworttext (JSON). Fehler als FotoFehler mit verstaendlichem Text.
-    Voruebergehende Fehler (Ueberlastung): einmal kurz wiederholen, dann das Ersatzmodell. Modell nicht gefunden:
-    gleich das Ersatzmodell."""
+    Ueberlastung (5xx): dasselbe Modell nach 2 s einmal wiederholen, dann das naechste. Modell unbekannt (404): gleich
+    das naechste (ERSATZ_MODELLE); helfen die nicht, wird mit `get` erfragt, welche Modelle der Schluessel nutzen darf."""
     if not key:
         raise FotoFehler("Für die Foto-Erkennung fehlt der Gemini-Schlüssel (GEMINI_API_KEY) in den App-Einstellungen.")
     warten = warten or time.sleep
     body = {"contents": [{"parts": [{"text": prompt},
                                     {"inline_data": {"mime_type": mime, "data": base64.b64encode(bild).decode()}}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1}}
-    versuche = [modell, modell] + ([ERSATZ_MODELL] if modell != ERSATZ_MODELL else [])
-    letzter = None
-    for n, m in enumerate(versuche):
+    schlange = list(dict.fromkeys([modell, *ERSATZ_MODELLE]))
+    versucht, gelistet, netzfehler, letzter = [], False, 0, None
+    while schlange and len(versucht) < 7:
+        m = schlange.pop(0)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+        versucht.append(m)
         try:
             r = post(url, headers={"x-goog-api-key": key, "Content-Type": "application/json"}, timeout=timeout, json=body)
         except Exception as e:
             logging.warning(f"Foto-Erkennung ({m}): {type(e).__name__}")
             letzter = "Die Foto-Erkennung ist gerade nicht erreichbar. Bitte versuche es erneut."
-            if n >= 1:                                          # Netz weg/Zeitueberschreitung: nicht ewig warten
+            netzfehler += 1
+            if netzfehler >= 2:                                 # Netz weg/Zeitueberschreitung: nicht ewig warten
                 break
             continue
         if r.status_code == 200:
@@ -136,15 +167,18 @@ def gemini(key, modell, prompt, bild, mime, post, timeout=45, warten=None):
         logging.warning(f"Foto-Erkennung ({m}): HTTP {r.status_code} {status} {grund[:160]}")
         letzter = _fehler_text(r.status_code, status, grund)
         if r.status_code in VORUEBERGEHEND:
-            if n == 0:
+            if versucht.count(m) == 1:                          # einmal kurz warten und dasselbe Modell erneut
                 warten(2)
+                schlange.insert(0, m)
             continue
-        if r.status_code == 404 and m == modell and n == 0:     # Modell (nicht mehr) verfuegbar -> Ersatzmodell
-            if modell != ERSATZ_MODELL:
-                versuche[1:] = [ERSATZ_MODELL]
-                continue
+        if r.status_code == 404:
+            if not schlange and get and not gelistet:           # Ersatznamen helfen nicht: verfuegbare erfragen
+                gelistet = True
+                schlange = [n for n in verfuegbare_modelle(key, get) if n not in versucht][:3]
+                logging.warning(f"Foto-Erkennung: verfügbare Modelle {schlange}")
+            continue
         break                                                   # Schluessel/Foto/Kontingent: Wiederholen hilft nicht
-    raise FotoFehler(letzter)
+    raise FotoFehler(letzter or "Die Foto-Erkennung hat gerade nicht funktioniert. Bitte versuche es erneut.")
 
 
 def _json(text):
