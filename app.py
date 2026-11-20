@@ -1865,11 +1865,17 @@ def startseite_ticker():
         return
     try:
         eintraege = indizes.ticker_eintraege(kurs_vorrat().indizes())
+        nachrichten = kurs_vorrat().news()
     except Exception as e:
         logging.warning(f"Ticker nicht geladen: {type(e).__name__}")
         return
-    if eintraege:          # Stand der Kurse steht schon im Chip darueber
-        st.markdown(startseite.CSS + startseite.ticker_html(eintraege, "Indizes heute"), unsafe_allow_html=True)
+    teile = []
+    if eintraege:          # Stand der Kurse steht schon in der Kachel darueber
+        teile.append(startseite.ticker_html(eintraege, "Indizes heute"))
+    if nachrichten:        # Finanz-Schlagzeilen (Kurs-Agent, news.py)
+        teile.append(startseite.news_html(nachrichten, datetime.datetime.now(BERLIN_TZ)))
+    if any(teile):
+        st.markdown(startseite.CSS + "".join(teile), unsafe_allow_html=True)
 
 
 def darstellung_modus():
@@ -1960,12 +1966,12 @@ def _zeit_kurz(t, jetzt):
 def kursstand_text(stx, jetzt, agent_stand=None):
     """Kurzer Stand aller Kurse fuer Kopf/Startseite (Kurs-Agent bzw. aeltester Wert im Speicher)."""
     if agent_aktuell(agent_stand, jetzt):
-        return f"Kurse vom <b>{_zeit_kurz(agent_stand, jetzt)}&nbsp;Uhr</b>"
+        return f"Kurse von <b>{_zeit_kurz(agent_stand, jetzt)}&nbsp;Uhr</b>"
     if stx["aeltester"] is None:
-        return ("Kurse vom <b>" + _zeit_kurz(agent_stand, jetzt) + "&nbsp;Uhr</b>" if agent_stand
+        return ("Kurse von <b>" + _zeit_kurz(agent_stand, jetzt) + "&nbsp;Uhr</b>" if agent_stand
                 else "Kurse werden beim ersten Aufruf geladen")
     t = max(stx["aeltester"], agent_stand) if agent_stand else stx["aeltester"]
-    return f"Kurse vom <b>{_zeit_kurz(t, jetzt)}&nbsp;Uhr</b>"
+    return f"Kurse von <b>{_zeit_kurz(t, jetzt)}&nbsp;Uhr</b>"
 
 
 def naechste_aktualisierung(jetzt, agent_stand):
@@ -2091,13 +2097,15 @@ def navigation():
         with st.container(key="nav_menue"):
             st.markdown(
                 '<div class="nav-kopf"><div class="nav-logo"><span class="nav-lauf">FINANZ <span>DASHBOARD</span></span></div>'
-                '<div class="nav-credit">created by MarsTech</div>'
-                f'<div class="nav-chip"><span class="nav-dot"></span><span>{_stand_txt}'
-                f' · nächste {_naechste}&nbsp;Uhr</span></div></div>',
+                '<div class="nav-credit">created by MarsTech</div></div>',
                 unsafe_allow_html=True)
-            st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
-                      width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
-            _kurslauf_fortschritt(stx)
+            # Kursstand und "Kurse aktualisieren" in EINER Kachel; der Live-Balken laeuft ueber die ganze Breite
+            with st.container(key="nav_kurse"):
+                st.markdown(f'<div class="nav-kurse-kopf"><span class="nav-dot"></span><span class="nav-kurse-text">'
+                            f'{_stand_txt} · nächste {_naechste}&nbsp;Uhr</span></div>', unsafe_allow_html=True)
+                st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
+                          width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
+                _kurslauf_fortschritt(stx)
             depot_kurzinfo_karte(jetzt)
             startseite_ticker()
             if _nutzer():

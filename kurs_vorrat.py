@@ -22,6 +22,7 @@ PFAD_HISTORIE = "state/kurse/historie_{:02d}.json"
 PFAD_SUCHE = "state/kurse/suche.json"
 PFAD_TOP50 = "state/kurse/top50_live.json"
 PFAD_INDIZES = "state/kurse/indizes.json"         # siehe indizes.py
+PFAD_NEWS = "state/kurse/news.json"               # siehe news.py
 SUCH_URL = "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main"
 TEILE = 8
 
@@ -175,6 +176,11 @@ class Vorrat:
             return None
         t = zeit(w.get("t"))
         return (w, t) if t else None
+
+    def news(self):
+        """Schlagzeilen fuer den News-Ticker (news.py) -> Liste (oder [])."""
+        e = self._datei(PFAD_NEWS, "live").get("eintraege")
+        return e if isinstance(e, list) else []
 
     def indizes(self):
         """Indexstaende fuer den Ticker (indizes.py) -> dict wie state/kurse/indizes.json (oder {})."""

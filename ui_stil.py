@@ -1616,6 +1616,22 @@ html body .nav-chip .nav-dot { width: 44px; height: 6px; border-radius: 999px; f
 }
 @media (prefers-reduced-motion: reduce) { html body .nav-chip .nav-dot { animation: none !important; } }
 
+/* ---- Kurs-Kachel der Startseite: Stand + Aktualisieren in einer Glas-Kachel, Live-Balken ueber die volle Breite ---- */
+html body .st-key-nav_menue .st-key-nav_kurse {
+    width: 100%; max-width: 520px; margin: 12px auto 6px !important; align-self: center !important;
+    padding: 12px 16px 12px; border-radius: 20px; gap: 8px !important;
+    background: var(--karte, rgba(255,255,255,.05)); border: 1px solid var(--rand, rgba(255,255,255,.12));
+    -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%); }
+html body .nav-kurse-kopf { display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: center;
+    font-size: .8rem; font-weight: 700; color: var(--text, #E8ECF6); }
+html body .nav-kurse-kopf b { font-weight: 700; }
+html body .nav-kurse-kopf .nav-dot { width: 100%; height: 6px; border-radius: 999px;
+    background: linear-gradient(90deg, rgba(52, 211, 153, 0.25), #34D399 50%, rgba(52, 211, 153, 0.25));
+    background-size: 200% 100%; box-shadow: 0 0 10px rgba(52, 211, 153, 0.75), 0 0 22px rgba(52, 211, 153, 0.35);
+    animation: navlive 2.4s ease-in-out infinite !important; }
+html body .st-key-nav_menue .st-key-nav_kurse .st-key-nav_refresh { margin-top: 0 !important; }
+@media (prefers-reduced-motion: reduce) { html body .nav-kurse-kopf .nav-dot { animation: none !important; } }
+
 /* ---- Zahlen: tabellarische Ziffern ueberall, Kennzahlen in Mono ---- */
 .stApp { font-variant-numeric: tabular-nums; }
 html body :is(.kz-w, .kz .w, .gv, .depot-wert, .hero-wert, .pb-kpis .w, .pb-grid .w, .pt td.r, .row-val) {

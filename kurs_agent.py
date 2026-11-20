@@ -25,6 +25,7 @@ import requests
 import config
 import github_store
 import indizes
+import news
 import kurs_vorrat as KV
 import planer_daten
 import portfolio_builder
@@ -324,6 +325,14 @@ def indizes_aktualisieren(stand):
         _schreiben(indizes.PFAD, indizes.neue_datei(alt, geladen, stand), "kurse indizes [skip ci]")
 
 
+def news_aktualisieren(stand):
+    """Schlagzeilen fuer den News-Ticker (news.py). Fehler hier lassen den Lauf nicht scheitern."""
+    eintraege, ok = news.laden(requests.get, datetime.datetime.now(BERLIN))
+    log.info(f"News: {len(eintraege)} Schlagzeilen aus {ok} von {len(news.FEEDS)} Feeds")
+    if eintraege:
+        _schreiben(news.PFAD, {"stand": stand, "eintraege": eintraege}, "kurse news [skip ci]")
+
+
 def main():
     if not (GITHUB_REPO and GITHUB_TOKEN):
         log.error("GITHUB_REPOSITORY / GH_STATE_TOKEN fehlen")
@@ -369,6 +378,10 @@ def main():
         indizes_aktualisieren(stand)
     except Exception as e:
         log.warning(f"Indizes fehlgeschlagen: {type(e).__name__}: {e}")
+    try:
+        news_aktualisieren(stand)
+    except Exception as e:
+        log.warning(f"News fehlgeschlagen: {type(e).__name__}: {e}")
     return 1 if fehler else 0
 
 
