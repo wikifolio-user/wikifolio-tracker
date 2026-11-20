@@ -25,6 +25,7 @@ from gesundheit import quellen as Q
 from gesundheit import rechnen as R
 from gesundheit import referenz as F
 from gesundheit import speicher as S
+from gesundheit import suche as SC
 from gesundheit import sport as SP
 from gesundheit import statistik as ST
 from gesundheit import supplements as SU
@@ -405,6 +406,10 @@ def _heute_seite(h, doc):
     b = R.bilanz(z["kcal"], z["tdee"], su["kcal"], sport_kcal, doc["einstellungen"].get("sport_zusaetzlich"))
     if tag == _heute():
         st.markdown(f'<div class="gs-gruss">{_gruss()}</div>', unsafe_allow_html=True)
+    begriff = st.text_input("Suchen", key=P + "suche", label_visibility="collapsed",
+                            placeholder="🔍 Suchen: Lebensmittel, Nährstoff, Supplement …")
+    if begriff.strip():
+        _suchergebnis(h, doc, tag, t, begriff)
     rest = b["verbleibend"]
     kacheln = [
         _kachel("Kalorien", su["kcal"], z["kcal"], "kcal",
@@ -475,6 +480,70 @@ def _heute_seite(h, doc):
     for dauer, ziel_h, ok in FA.am_tag(FA.zustand(doc)["verlauf"], tag):
         st.markdown(f'<div class="gs-zeile"><b>Fasten</b> · {FA.dauer_text(dauer)} '
                     f'<span>({"Ziel erreicht" if ok else f"Ziel {_z(ziel_h)} h"})</span></div>', unsafe_allow_html=True)
+
+
+def _springen(bereich, **werte):
+    """Aus der Suche in einen Bereich wechseln und dort gleich das Passende auswaehlen (Callback: vor dem Zeichnen)."""
+    s = st.session_state
+    for k, v in werte.items():
+        s[P + k] = v
+    s[P + "suche"] = ""
+    _zu(bereich)
+
+
+def _suchergebnis(h, doc, tag, t, begriff):
+    r = SC.suchen(begriff, _alle_lebensmittel(doc), doc.get("supplements") or [], doc.get("vorlagen") or [])
+    with st.container(border=True, key="gs_suchtreffer"):
+        if not any(r[k] for k in ("naehrstoffe", "lebensmittel", "supplements", "vorlagen", "sport")):
+            st.markdown(f'<div class="gs-leer">Nichts gefunden für „{html.escape(begriff.strip())}“.</div>',
+                        unsafe_allow_html=True)
+            st.button("＋ Als eigenes Lebensmittel anlegen", key=P + "su_eigen", on_click=_springen, args=("Essen",))
+            return
+        p = doc.get("profil") or {}
+        for nid in r["naehrstoffe"]:
+            w = MI.uebersicht(t, p, [nid], R.alter(p.get("geburtsjahr"), _heute()))[0]
+            mikro = nid in N.MIKRO
+            st.markdown('<div class="gs-kacheln">' + (_mikro_kachel(w) if mikro else
+                        _kachel(w["name"], w["wert"], w["ziel"], w["einheit"])) + "</div>", unsafe_allow_html=True)
+            reich = r["reich_an"].get(nid) or []
+            if reich:
+                st.markdown(f"**Reich an {w['name']}** · je 100 g")
+                with st.container(key=f"gs_reihe_su_reich_{nid}", horizontal=True):
+                    for lm in reich:
+                        st.button(f"{lm['name']} · {_z(lm['pro100'][nid], 0 if lm['pro100'][nid] >= 100 else 1)} {w['einheit']}",
+                                  key=P + f"su_r_{nid}_{lm['id']}", on_click=_springen, args=("Essen",),
+                                  kwargs={"wahl": lm["id"]}, help="Im Bereich Essen eintragen")
+            if mikro and doc["einstellungen"].get("supplements_zeigen", True):
+                st.button(f"Details zu {w['name']}", key=P + f"su_det_{nid}", on_click=_springen,
+                          args=("Nährstoffe",), kwargs={"mikro_detail": nid, "mikro_alle": True})
+        if r["lebensmittel"]:
+            st.markdown("**Lebensmittel**")
+            with st.container(key="gs_reihe_su_lm", horizontal=True):
+                for lm in r["lebensmittel"]:
+                    st.button("＋ " + lm["name"], key=P + f"su_lm_{lm['id']}", on_click=_springen, args=("Essen",),
+                              kwargs={"wahl": lm["id"]}, help="Menge wählen und eintragen")
+        if r["supplements"] and doc["einstellungen"].get("supplements_zeigen", True):
+            st.markdown("**Supplements**")
+            genommen = _einnahmen(t)
+            for x in r["supplements"]:
+                ok = (genommen.get(x["id"]) or {}).get("status") == "eingenommen"
+                with st.container(key=f"gs_reihe_su_sup_{x['id']}", horizontal=True, vertical_alignment="center"):
+                    st.markdown(f'<div class="gs-zeile">{html.escape(x["name"])} '
+                                f'<span>· {html.escape(SU.inhalt_text(x, 3) or "")}</span></div>', unsafe_allow_html=True)
+                    st.button("✓ Eingenommen" if ok else "Einnehmen", key=P + f"su_sup_{x['id']}", disabled=ok,
+                              on_click=_einnehmen, args=(h, tag, x, "eingenommen"))
+        if r["vorlagen"]:
+            st.markdown("**Vorlagen**")
+            with st.container(key="gs_reihe_su_vl", horizontal=True):
+                for v in r["vorlagen"]:
+                    st.button("＋ " + v["name"], key=P + f"su_vl_{v['id']}", on_click=_vorlage_einfuegen,
+                              args=(h, tag, v), help=", ".join(e.get("name", "") for e in v.get("eintraege") or []))
+        if r["sport"]:
+            st.markdown("**Sport**")
+            with st.container(key="gs_reihe_su_sp", horizontal=True):
+                for a in r["sport"]:
+                    st.button("🏃 " + SP.AKTIVITAETEN[a]["name"], key=P + f"su_sp_{a}", on_click=_springen,
+                              args=("Sport",), kwargs={"sport_art": a})
 
 
 def _wasser_knoepfe(doc):
@@ -1230,6 +1299,7 @@ def _supplement_seite(h, doc):
     else:
         st.markdown('<div class="gs-leer">Noch keine Supplements angelegt – unten eines aus der Liste wählen.</div>',
                     unsafe_allow_html=True)
+    _routinen(h, doc, tag, aktive, genommen)
     ungeplant = [x for x in aktive if x["id"] not in {y["id"] for l in plan.values() for y in l}]
     if ungeplant:
         with st.expander("Zusätzlich eingenommen?"):
@@ -1260,6 +1330,62 @@ def _supplement_seite(h, doc):
             with st.expander(f"{x['name']} · {SU.plan_text(x)}"):
                 st.caption(SU.inhalt_text(x, 8) or "Kein Inhalt hinterlegt")
                 _sup_formular(h, x, x["id"], neu=False)
+
+
+def _routine_einnehmen(h, tag, r, aktive):
+    _tag_aendern(h, tag, lambda m: S.routine_einnehmen(m, tag, r, aktive, _jetzt())[0], "gesundheit supplement routine")
+    _melden(f"Routine „{r['name']}“ eingenommen")
+
+
+def _routine_speichern(h, rid=None):
+    s = st.session_state
+    k = P + "rt_" + (rid or "neu")
+    name, sups = (s.get(k + "_name") or "").strip(), s.get(k + "_sups") or []
+    if not name or not sups:
+        _melden("Bitte einen Namen und mindestens ein Supplement wählen", "fehler")
+        return
+    _profil_aendern(h, lambda d: S.routine_speichern(d, name, sups, rid)[0], "gesundheit routine")
+    _melden(f"Routine „{name[:30]}“ gespeichert")
+    if not rid:                                       # Callback: Felder fuer die naechste Routine leeren
+        s[k + "_name"], s[k + "_sups"] = "", []
+
+
+def _routine_entfernen(h, r):
+    _profil_aendern(h, lambda d: S.routine_entfernen(d, r["id"]), "gesundheit routine entfernt")
+    _melden(f"Routine „{r['name']}“ entfernt")
+
+
+def _routinen(h, doc, tag, aktive, genommen):
+    """Benannte Routinen (z. B. "Morgens", "Training"): ein Tipp markiert alle enthaltenen Supplements."""
+    if not aktive:
+        return
+    nach_id = {x["id"]: x for x in aktive}
+    routinen = doc.get("routinen") or []
+    if routinen:
+        st.markdown("**Routinen**")
+        with st.container(key="gs_reihe_routinen", horizontal=True):
+            for r in routinen:
+                drin = [i for i in r.get("sups") or [] if i in nach_id]
+                fertig = bool(drin) and all((genommen.get(i) or {}).get("status") == "eingenommen" for i in drin)
+                st.button(("✓ " if fertig else "") + r["name"] + f" ({len(drin)})", key=P + f"rt_go_{r['id']}",
+                          disabled=not drin or fertig, on_click=_routine_einnehmen, args=(h, tag, r, aktive),
+                          type="secondary" if fertig else "primary",
+                          help=", ".join(nach_id[i]["name"] for i in drin) or "Keine aktiven Supplements enthalten")
+    with st.expander("Meine Routinen" if routinen else "＋ Routine anlegen (z. B. „Training“)"):
+        for r in routinen:
+            k = P + "rt_" + r["id"]
+            with st.container(border=True, key=f"gs_rt_{r['id']}"):
+                st.text_input("Name", value=r["name"], key=k + "_name", max_chars=30)
+                st.pills("Supplements", list(nach_id), default=[i for i in r.get("sups") or [] if i in nach_id],
+                         selection_mode="multi", key=k + "_sups", format_func=lambda i: nach_id[i]["name"])
+                with st.container(key=f"gs_reihe_rt_{r['id']}", horizontal=True):
+                    st.button("Speichern", key=k + "_ok", on_click=_routine_speichern, args=(h, r["id"]))
+                    st.button("🗑 Entfernen", key=k + "_weg", on_click=_routine_entfernen, args=(h, r))
+        k = P + "rt_neu"
+        st.text_input("Name der neuen Routine", key=k + "_name", max_chars=30, placeholder="z. B. Training")
+        st.pills("Supplements antippen", list(nach_id), selection_mode="multi", key=k + "_sups",
+                 format_func=lambda i: nach_id[i]["name"])
+        st.button("＋ Routine anlegen", key=k + "_ok", on_click=_routine_speichern, args=(h,), width="stretch")
 
 
 def _sup_zeile(h, tag, x, einnahme):

@@ -41,7 +41,7 @@ def monat_pfad(tag):
 def leeres_profil():
     return {"profil": {}, "historie": [], "einstellungen": copy.deepcopy(STANDARD_EINSTELLUNGEN), "eigene": [],
             "favoriten": [], "nutzung": {}, "supplements": [], "vorlagen": [], "sport_nutzung": {},
-            "fasten": {"plan": "16:8", "laeuft": None, "verlauf": []}}
+            "fasten": {"plan": "16:8", "laeuft": None, "verlauf": []}, "routinen": []}
 
 
 def profil_doc(roh):
@@ -354,6 +354,32 @@ def einnahme_loeschen(monat_doc, tag, sup_id):
     def f(t):
         t["supplements"] = [x for x in t.get("supplements") or [] if x.get("sup") != sup_id]
     return _tag_aendern(monat_doc, tag, f)
+
+
+def routine_speichern(doc, name, sup_ids, rid=None):
+    """Benannte Supplement-Routine (z. B. "Training") anlegen oder aendern. -> (doc, rid)"""
+    d = profil_doc(doc)
+    rid = rid or "rt:" + neue_id()
+    d["routinen"] = [r for r in d["routinen"] if r.get("id") != rid] + [
+        {"id": rid, "name": str(name).strip()[:30] or "Routine", "sups": list(dict.fromkeys(sup_ids or []))}]
+    return d, rid
+
+
+def routine_entfernen(doc, rid):
+    d = profil_doc(doc)
+    d["routinen"] = [r for r in d["routinen"] if r.get("id") != rid]
+    return d
+
+
+def routine_einnehmen(monat_doc, tag, routine, supplements, zeit):
+    """Alle (aktiven) Supplements einer Routine fuer den Tag als eingenommen markieren. -> (doc, anzahl)"""
+    nach_id = {s.get("id"): s for s in supplements or () if s.get("aktiv", True)}
+    n = 0
+    for sid in routine.get("sups") or []:
+        if sid in nach_id:
+            monat_doc = einnahme_setzen(monat_doc, tag, nach_id[sid], "eingenommen", zeit)
+            n += 1
+    return monat_doc, n
 
 
 def supplement_speichern(doc, sup):

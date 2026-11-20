@@ -20,6 +20,7 @@ from gesundheit import quellen as Q
 from gesundheit import rechnen as R
 from gesundheit import bericht_pdf as BP
 from gesundheit import speicher as S
+from gesundheit import suche as SC
 from gesundheit import statistik as ST
 from gesundheit import sport as SP
 
@@ -644,6 +645,41 @@ class Etappe6(unittest.TestCase):
         self.assertTrue(sup["supplements"][0]["aktiv"])                    # Original bleibt unveraendert
 
 
+class SucheUndRoutinen(unittest.TestCase):
+    def test_suche_naehrstoff(self):
+        mg = SU.neues(SU.VORLAGEN[2], "mg", HEUTE)                  # Magnesium-Supplement
+        d3 = SU.neues(SU.VORLAGEN[0], "d3", HEUTE)
+        r = SC.suchen("Magnesium", L.MITGELIEFERT, [mg, d3])
+        self.assertEqual(r["naehrstoffe"][0], "magnesium")
+        self.assertEqual([x["id"] for x in r["supplements"]], ["mg"])
+        reich = [x["id"] for x in r["reich_an"]["magnesium"]]
+        self.assertIn("leinsamen", reich[:2])                       # 392 mg je 100 g
+        self.assertEqual(r["lebensmittel"], [])                     # kein Lebensmittel heisst "Magnesium"
+        self.assertEqual(SC.suchen("folsäure", L.MITGELIEFERT)["naehrstoffe"][0], "vit_b9")
+        self.assertEqual(SC.suchen("Vitamin D", L.MITGELIEFERT, [mg, d3])["supplements"][0]["id"], "d3")
+
+    def test_suche_lebensmittel_vorlage_sport(self):
+        v = [{"id": "v1", "name": "Standard-Frühstück", "eintraege": []}]
+        r = SC.suchen("ban", L.MITGELIEFERT, [], v)
+        self.assertEqual(r["lebensmittel"][0]["id"], "banane")
+        self.assertEqual(SC.suchen("frühst", L.MITGELIEFERT, [], v)["vorlagen"][0]["id"], "v1")
+        self.assertEqual(SC.suchen("lauf", L.MITGELIEFERT)["sport"], ["laufen"])
+        self.assertEqual(SC.suchen("x", L.MITGELIEFERT)["lebensmittel"], [])        # zu kurz
+        inaktiv = {**SU.neues(SU.VORLAGEN[2], "alt", HEUTE), "aktiv": False}
+        self.assertEqual(SC.suchen("magnesium", L.MITGELIEFERT, [inaktiv])["supplements"], [])
+
+    def test_routinen(self):
+        d3, mg = SU.neues(SU.VORLAGEN[0], "d3", HEUTE), SU.neues(SU.VORLAGEN[2], "mg", HEUTE)
+        d, rid = S.routine_speichern({}, "Training", ["d3", "mg", "d3", "weg"])
+        self.assertEqual(d["routinen"][0]["sups"], ["d3", "mg", "weg"])
+        m, n = S.routine_einnehmen({}, HEUTE, d["routinen"][0], [d3, mg], ZEIT)
+        self.assertEqual(n, 2)                                      # unbekanntes Supplement uebersprungen
+        self.assertEqual({x["sup"] for x in S.tag_aus(m, HEUTE)["supplements"]}, {"d3", "mg"})
+        d, _ = S.routine_speichern(d, "Abends", ["mg"], rid)
+        self.assertEqual([(r["name"], r["sups"]) for r in d["routinen"]], [("Abends", ["mg"])])
+        self.assertEqual(S.routine_entfernen(d, rid)["routinen"], [])
+
+
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
     """Rauchtest der Oberflaeche (AppTest, Speicher im Arbeitsspeicher): Einrichtung, Wasser, Essen."""
@@ -705,6 +741,25 @@ class Oberflaeche(unittest.TestCase):
         heute = datetime.datetime.now(R_BERLIN).date()
         t = S.tag_aus(store[S.monat_pfad(heute)], heute)
         self.assertEqual([(x["name"], x["status"]) for x in t["supplements"]], [("Vitamin D3", "eingenommen")])
+        # Routine anlegen und mit einem Tipp einnehmen
+        at.text_input(key="gs_rt_neu_name").input("Training").run()
+        at.button_group(key="gs_rt_neu_sups").set_value([sups[0]["id"]]).run()
+        knopf("＋ Routine anlegen").click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual([r["name"] for r in store[S.PFAD_PROFIL]["routinen"]], ["Training"])
+        # Zentrale Suche: Naehrstoff -> Details, Lebensmittel -> Essen mit Vorauswahl
+        at.session_state["gs_bereich_neu"] = "Heute"
+        at.run()
+        at.text_input(key="gs_suche").input("Magnesium").run()
+        self.assertFalse(at.exception)
+        knopf("Details zu Magnesium").click().run()
+        self.assertEqual((at.session_state["gs_bereich"], at.session_state["gs_mikro_detail"]), ("Vitamine", "magnesium"))
+        at.session_state["gs_bereich_neu"] = "Heute"
+        at.run()
+        at.text_input(key="gs_suche").input("Haferfl").run()
+        knopf("＋ Haferflocken").click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual((at.session_state["gs_bereich"], at.session_state["gs_wahl"]), ("Essen", "haferflocken"))
         # Naehrstoffe: Vitamin D aus dem Supplement, Details ohne Fehler
         at.session_state["gs_bereich_neu"] = "Nährstoffe"
         at.run()
