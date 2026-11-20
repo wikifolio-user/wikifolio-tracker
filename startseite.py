@@ -61,7 +61,7 @@ def _news_zeit(text, jetzt):
 
 def news_html(eintraege, jetzt=None, titel="Finanz-News"):
     """Zweites Laufband mit Schlagzeilen (Uhrzeit, Titel als Link zum Anbieter, Quelle). Langsamer als die Kurse,
-    damit man mitlesen kann; bei Beruehrung oder Mauszeiger haelt es an (dann lassen sich die Links antippen)."""
+    damit man mitlesen kann; mit dem Mauszeiger haelt es an, am Handy laeuft es immer weiter (Links bleiben antippbar)."""
     if not eintraege:
         return ""
     jetzt = jetzt or datetime.datetime.now(BERLIN)
@@ -96,7 +96,9 @@ CSS = """<style>
     -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
             mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%); }
 .tk-band { display: flex; width: max-content; animation: tk-lauf linear infinite; }
-.tk-rahmen:hover .tk-band, .tk-rahmen:active .tk-band { animation-play-state: paused; }
+/* Anhalten nur mit echter Maus (am Handy bliebe der Hover-Zustand nach einem Tipp haengen) und per Tastatur */
+@media (hover: hover) and (pointer: fine) { .tk-rahmen:hover .tk-band { animation-play-state: paused; } }
+.tk-rahmen:has(:focus-visible) .tk-band { animation-play-state: paused; }   /* nur Tastatur, nicht nach Tipp */
 .tk-teil { display: flex; flex-shrink: 0; min-width: calc(100vw + 20rem); }   /* breiter als Bildschirm + ein Wert */
 .tk-wert { white-space: nowrap; padding: 0 18px; font-size: .9rem; color: var(--text, #E8ECF6);
     font-variant-numeric: tabular-nums; border-right: 1px solid var(--rand, rgba(255,255,255,.12)); }

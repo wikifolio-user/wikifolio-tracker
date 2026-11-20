@@ -135,6 +135,14 @@ class News(unittest.TestCase):
         self.assertEqual(S.news_html([]), "")
         self.assertIn("text-align: center", S.CSS)                 # Ueberschrift mittig
 
+    def test_laufband_haelt_am_handy_nicht_an(self):
+        """Am Handy bleibt :hover/:active nach einem Tipp haengen - Anhalten nur mit Maus oder Tastatur."""
+        import re
+        regeln = re.findall(r"([^{}]*)\{[^{}]*animation-play-state: paused", S.CSS)
+        self.assertTrue(regeln)
+        self.assertFalse(any(":active" in r or ":focus-within" in r for r in regeln))
+        self.assertIn("@media (hover: hover) and (pointer: fine) { .tk-rahmen:hover", S.CSS)
+
     def test_vorrat_news(self):
         v = KV.Vorrat(lambda p: {"eintraege": [{"titel": "x"}]} if p == KV.PFAD_NEWS else None)
         self.assertEqual(v.news(), [{"titel": "x"}])
