@@ -507,10 +507,12 @@ class Statistik(unittest.TestCase):
 
 class Foto(unittest.TestCase):
     class _Antwort:
-        def __init__(self, code, text=None):
-            self.status_code, self._text = code, text
+        def __init__(self, code, text=None, fehler=None):
+            self.status_code, self._text, self._fehler = code, text, fehler
 
         def json(self):
+            if self._fehler:
+                return {"error": self._fehler}
             return {"candidates": [{"content": {"parts": [{"text": self._text}]}}]}
 
     def test_gemini_aufruf_und_fehler(self):
@@ -534,7 +536,51 @@ class Foto(unittest.TestCase):
         def kaputt(*a, **k):
             raise OSError("netz")
         with self.assertRaises(FO.FotoFehler):
-            FO.gemini("k", "m", "p", b"x", "image/jpeg", kaputt)
+            FO.gemini("k", "m", "p", b"x", "image/jpeg", kaputt, warten=lambda s: None)
+
+    def _folge(self, *antworten):
+        """post-Attrappe: liefert die Antworten nacheinander und merkt sich die aufgerufenen Modelle."""
+        aufrufe, rest = [], list(antworten)
+
+        def post(url, headers=None, json=None, timeout=None):
+            aufrufe.append(url.split("/models/")[1].split(":")[0])
+            return rest.pop(0)
+        return post, aufrufe
+
+    def test_gemini_ueberlastet_wiederholen_und_ersatzmodell(self):
+        ok = self._Antwort(200, "{}")
+        post, aufrufe = self._folge(self._Antwort(503), ok)
+        pausen = []
+        self.assertEqual(FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, warten=pausen.append), "{}")
+        self.assertEqual((aufrufe, pausen), (["m1", "m1"], [2]))
+        post, aufrufe = self._folge(self._Antwort(503), self._Antwort(503), ok)
+        FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, warten=lambda s: None)
+        self.assertEqual(aufrufe, ["m1", "m1", FO.ERSATZ_MODELL])
+        post, aufrufe = self._folge(self._Antwort(404), ok)             # Modell weg -> gleich Ersatzmodell
+        FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, warten=lambda s: None)
+        self.assertEqual(aufrufe, ["m1", FO.ERSATZ_MODELL])
+        post, _ = self._folge(*[self._Antwort(503)] * 3)
+        with self.assertRaises(FO.FotoFehler) as f:
+            FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, warten=lambda s: None)
+        self.assertIn("überlastet (Fehler 503)", str(f.exception))
+
+    def test_gemini_fehler_verstaendlich(self):
+        ungueltig = {"code": 400, "status": "INVALID_ARGUMENT", "message": "API key not valid. Please pass a valid API key.",
+                     "details": [{"reason": "API_KEY_INVALID"}]}
+        post, aufrufe = self._folge(self._Antwort(400, fehler=ungueltig))
+        with self.assertRaises(FO.FotoFehler) as f:
+            FO.gemini("geheim123", "m1", "p", b"x", "image/jpeg", post, warten=lambda s: None)
+        self.assertIn("akzeptiert den Gemini-Schlüssel nicht", str(f.exception))
+        self.assertNotIn("geheim123", str(f.exception))
+        self.assertEqual(aufrufe, ["m1"])                               # kein sinnloses Wiederholen
+        post, _ = self._folge(self._Antwort(403, fehler={"status": "PERMISSION_DENIED", "message": "denied"}))
+        with self.assertRaises(FO.FotoFehler) as f:
+            FO.gemini("k", "m1", "p", b"x", "image/jpeg", post)
+        self.assertIn("Fehler 403", str(f.exception))
+        post, _ = self._folge(self._Antwort(418))
+        with self.assertRaises(FO.FotoFehler) as f:
+            FO.gemini("k", "m1", "p", b"x", "image/jpeg", post)
+        self.assertIn("Fehler 418", str(f.exception))
 
     def test_mahlzeit_auswerten(self):
         text = ('{"lebensmittel": [{"name": "Hähnchenbrust, gebraten", "menge_g": 180, "sicherheit": "hoch"},'
