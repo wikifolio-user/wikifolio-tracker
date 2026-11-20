@@ -549,20 +549,44 @@ class Foto(unittest.TestCase):
 
     def test_gemini_ueberlastet_wiederholen_und_ersatzmodell(self):
         ok = self._Antwort(200, "{}")
+        e1 = FO.ERSATZ_MODELLE[0]
         post, aufrufe = self._folge(self._Antwort(503), ok)
         pausen = []
         self.assertEqual(FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, warten=pausen.append), "{}")
         self.assertEqual((aufrufe, pausen), (["m1", "m1"], [2]))
         post, aufrufe = self._folge(self._Antwort(503), self._Antwort(503), ok)
         FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, warten=lambda s: None)
-        self.assertEqual(aufrufe, ["m1", "m1", FO.ERSATZ_MODELL])
+        self.assertEqual(aufrufe, ["m1", "m1", e1])
         post, aufrufe = self._folge(self._Antwort(404), ok)             # Modell weg -> gleich Ersatzmodell
         FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, warten=lambda s: None)
-        self.assertEqual(aufrufe, ["m1", FO.ERSATZ_MODELL])
-        post, _ = self._folge(*[self._Antwort(503)] * 3)
+        self.assertEqual(aufrufe, ["m1", e1])
+        post, _ = self._folge(*[self._Antwort(503)] * 7)
         with self.assertRaises(FO.FotoFehler) as f:
             FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, warten=lambda s: None)
         self.assertIn("überlastet (Fehler 503)", str(f.exception))
+
+    def test_gemini_alle_404_dann_verfuegbare_modelle(self):
+        class Liste:
+            status_code = 200
+
+            def json(self):
+                return {"models": [
+                    {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+                    {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]},
+                    {"name": "models/gemini-3.9-flash-preview", "supportedGenerationMethods": ["generateContent"]},
+                    {"name": "models/gemini-3.8-flash-image", "supportedGenerationMethods": ["generateContent"]},
+                    {"name": "models/text-embedding-9", "supportedGenerationMethods": ["embedContent"]}]}
+        self.assertEqual(FO.verfuegbare_modelle("k", lambda *a, **k: Liste()),
+                         ["gemini-3.8-flash", "gemini-3.9-flash-preview", "gemini-3.5-flash-lite"])
+        self.assertEqual(FO.verfuegbare_modelle("k", lambda *a, **k: 1 / 0), [])
+        n = 1 + len(FO.ERSATZ_MODELLE)
+        post, aufrufe = self._folge(*[self._Antwort(404)] * n, self._Antwort(200, "{}"))
+        self.assertEqual(FO.gemini("k", "m1", "p", b"x", "image/jpeg", post, get=lambda *a, **k: Liste()), "{}")
+        self.assertEqual(aufrufe[-1], "gemini-3.8-flash")
+        post, _ = self._folge(*[self._Antwort(404)] * n)                 # ohne Liste: klare Meldung
+        with self.assertRaises(FO.FotoFehler) as f:
+            FO.gemini("k", "m1", "p", b"x", "image/jpeg", post)
+        self.assertIn("Fehler 404", str(f.exception))
 
     def test_gemini_fehler_verstaendlich(self):
         ungueltig = {"code": 400, "status": "INVALID_ARGUMENT", "message": "API key not valid. Please pass a valid API key.",
