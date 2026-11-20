@@ -2100,12 +2100,14 @@ def navigation():
                 '<div class="nav-credit">created by MarsTech</div></div>',
                 unsafe_allow_html=True)
             # Kursstand und "Kurse aktualisieren" in EINER Kachel; der Live-Balken laeuft ueber die ganze Breite
-            with st.container(key="nav_kurse"):
-                st.markdown(f'<div class="nav-kurse-kopf"><span class="nav-dot"></span><span class="nav-kurse-text">'
-                            f'{_stand_txt} · nächste {_naechste}&nbsp;Uhr</span></div>', unsafe_allow_html=True)
-                st.button("⏳ Kurse werden geladen …" if laeuft else "🔄 Kurse aktualisieren", key="nav_refresh",
-                          width="content", help=hilfe, on_click=_nav_aktualisieren, disabled=laeuft)
-                _kurslauf_fortschritt(stx)
+            # Eine schlanke Zeile: blinkendes Live-Licht, Kursstand, runder Aktualisieren-Knopf
+            with st.container(key="nav_kurse", horizontal=True, vertical_alignment="center", gap="small"):
+                st.markdown(f'<div class="nav-kurse-kopf"><span class="nav-dot" aria-hidden="true"></span>'
+                            f'<span class="nav-kurse-text">{_stand_txt} · nächste {_naechste}&nbsp;Uhr</span></div>',
+                            unsafe_allow_html=True)
+                st.button("⏳" if laeuft else "🔄", key="nav_refresh", help=hilfe, on_click=_nav_aktualisieren,
+                          disabled=laeuft)
+            _kurslauf_fortschritt(stx)
             depot_kurzinfo_karte(jetzt)
             startseite_ticker()
             if _nutzer():
