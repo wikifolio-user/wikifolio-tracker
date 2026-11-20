@@ -1616,20 +1616,24 @@ html body .nav-chip .nav-dot { width: 44px; height: 6px; border-radius: 999px; f
 }
 @media (prefers-reduced-motion: reduce) { html body .nav-chip .nav-dot { animation: none !important; } }
 
-/* ---- Kurs-Kachel der Startseite: Stand + Aktualisieren in einer Glas-Kachel, Live-Balken ueber die volle Breite ---- */
+/* ---- Kurs-Zeile der Startseite: kleines Live-Licht, Kursstand, runder Aktualisieren-Knopf - dezent, eine Zeile ---- */
 html body .st-key-nav_menue .st-key-nav_kurse {
-    width: 100%; max-width: 520px; margin: 12px auto 6px !important; align-self: center !important;
-    padding: 12px 16px 12px; border-radius: 20px; gap: 8px !important;
-    background: var(--karte, rgba(255,255,255,.05)); border: 1px solid var(--rand, rgba(255,255,255,.12));
-    -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%); }
-html body .nav-kurse-kopf { display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: center;
-    font-size: .8rem; font-weight: 700; color: var(--text, #E8ECF6); }
-html body .nav-kurse-kopf b { font-weight: 700; }
-html body .nav-kurse-kopf .nav-dot { width: 100%; height: 6px; border-radius: 999px;
-    background: linear-gradient(90deg, rgba(52, 211, 153, 0.25), #34D399 50%, rgba(52, 211, 153, 0.25));
-    background-size: 200% 100%; box-shadow: 0 0 10px rgba(52, 211, 153, 0.75), 0 0 22px rgba(52, 211, 153, 0.35);
-    animation: navlive 2.4s ease-in-out infinite !important; }
-html body .st-key-nav_menue .st-key-nav_kurse .st-key-nav_refresh { margin-top: 0 !important; }
+    width: auto !important; max-width: 520px; margin: 10px auto 4px !important; align-self: center !important;
+    padding: 4px 4px 4px 14px; border-radius: 999px; gap: 6px !important; flex-wrap: nowrap !important;
+    background: var(--karte, rgba(255,255,255,.05)); border: 1px solid var(--rand, rgba(255,255,255,.12)); }
+html body .st-key-nav_kurse > div:first-child { flex: 1 1 auto !important; min-width: 0; width: auto !important; }
+html body .nav-kurse-kopf { display: flex; align-items: center; gap: 8px; font-size: .8rem; font-weight: 600;
+    color: var(--label, #A9B1C4); line-height: 1.3; }
+html body .nav-kurse-kopf b { font-weight: 700; color: var(--text, #E8ECF6); }
+html body .nav-kurse-kopf .nav-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: #34D399;
+    box-shadow: 0 0 6px #34D399, 0 0 12px rgba(52, 211, 153, .45); animation: navpuls 1.6s ease-in-out infinite !important; }
+html body .st-key-nav_menue .st-key-nav_kurse .st-key-nav_refresh,
+html body .st-key-nav_menue .st-key-nav_kurse .st-key-nav_refresh [data-testid="stButton"] {
+    margin: 0 !important; width: 44px !important; flex: 0 0 44px !important; }
+html body .st-key-nav_menue .st-key-nav_kurse .st-key-nav_refresh button {
+    width: 44px !important; height: 44px !important; min-height: 44px !important; min-width: 44px !important;
+    padding: 0 !important; border-radius: 50% !important; }
+html body .st-key-nav_menue .st-key-nav_kurse .st-key-nav_refresh button p { font-size: 1.05rem !important; }
 @media (prefers-reduced-motion: reduce) { html body .nav-kurse-kopf .nav-dot { animation: none !important; } }
 
 /* ---- Zahlen: tabellarische Ziffern ueberall, Kennzahlen in Mono ---- */
