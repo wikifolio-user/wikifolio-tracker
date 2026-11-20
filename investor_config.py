@@ -174,7 +174,8 @@ PROMPT_MAX_WOERTER = 8000      # Claude-Prompt (Option B)
 # Freie Limits aendern sich haeufig und waren bei der Umsetzung nicht offiziell abrufbar - daher vorsichtig:
 # Gemini Flash (frei) ~10 Anfragen/Min., ~250-1.500/Tag; Groq (frei) ~30/Min., aber nur ~6.000 Tokens/Min.
 KI = {
-    "gemini": {"modell": "gemini-2.5-flash", "min_abstand_sek": 7.0, "max_je_lauf": 200, "max_woerter": 6000},
+# "gemini-flash-latest" zeigt immer auf das aktuelle Flash-Modell (gemini-2.5-flash wird am 1.12.2026 abgeschaltet).
+    "gemini": {"modell": "gemini-flash-latest", "min_abstand_sek": 7.0, "max_je_lauf": 200, "max_woerter": 6000},
     "groq": {"modell": "llama-3.3-70b-versatile", "min_abstand_sek": 45.0, "max_je_lauf": 60, "max_woerter": 2500},
     "versuche": 3, "backoff_sek": 10.0, "timeout_sek": 90,
 }
