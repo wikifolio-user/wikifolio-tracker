@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import re
+import time
 
 from . import lebensmittel as L
 from . import naehrstoffe as N
@@ -71,29 +72,79 @@ def verkleinern(daten, mime="image/jpeg"):
         return daten, mime
 
 
-def gemini(key, modell, prompt, bild, mime, post, timeout=60):
-    """Ein Bild + Anweisung an Gemini -> Antworttext (JSON). Fehler als FotoFehler mit verstaendlichem Text."""
+ERSATZ_MODELL = "gemini-2.5-flash-lite"   # wenn das Hauptmodell ueberlastet oder nicht verfuegbar ist
+VORUEBERGEHEND = (500, 502, 503, 504)
+
+
+def _fehlergrund(r):
+    """Status und Grund aus Googles Fehlerantwort (z. B. "INVALID_ARGUMENT", "API_KEY_INVALID") - ohne Schluessel."""
+    try:
+        e = (r.json() or {}).get("error") or {}
+    except Exception:
+        return "", ""
+    gruende = [d.get("reason", "") for d in e.get("details") or [] if isinstance(d, dict)]
+    return str(e.get("status") or ""), " ".join(g for g in gruende if g) + " " + str(e.get("message") or "")
+
+
+def _fehler_text(code, status, grund):
+    g = grund.lower()
+    if code == 429:
+        return "Das kostenlose Kontingent der Foto-Erkennung ist gerade ausgeschöpft. Bitte später erneut versuchen."
+    if "api_key_invalid" in g or "api key not valid" in g or "api key expired" in g:
+        return ("Google akzeptiert den Gemini-Schlüssel nicht (ungültig oder abgelaufen). Bitte in den App-Einstellungen "
+                "(Secrets) GEMINI_API_KEY prüfen bzw. in Google AI Studio einen neuen Schlüssel erstellen.")
+    if "location" in g and "not supported" in g:
+        return "Die Foto-Erkennung ist vom Server-Standort aus gerade nicht verfügbar (Fehler 400)."
+    if code == 403:
+        return ("Der Gemini-Schlüssel hat keinen Zugriff auf die Gemini-API (Fehler 403). Bitte in Google AI Studio "
+                "einen neuen Schlüssel ohne Einschränkungen erstellen und in den App-Einstellungen eintragen.")
+    if code in VORUEBERGEHEND:
+        return f"Die Foto-Erkennung ist bei Google gerade überlastet (Fehler {code}). Bitte in einer Minute erneut versuchen."
+    if code == 400:
+        return "Google hat das Foto nicht angenommen (Fehler 400). Bitte ein anderes Foto versuchen."
+    return f"Die Foto-Erkennung hat gerade nicht funktioniert (Fehler {code}). Bitte versuche es erneut."
+
+
+def gemini(key, modell, prompt, bild, mime, post, timeout=45, warten=None):
+    """Ein Bild + Anweisung an Gemini -> Antworttext (JSON). Fehler als FotoFehler mit verstaendlichem Text.
+    Voruebergehende Fehler (Ueberlastung): einmal kurz wiederholen, dann das Ersatzmodell. Modell nicht gefunden:
+    gleich das Ersatzmodell."""
     if not key:
         raise FotoFehler("Für die Foto-Erkennung fehlt der Gemini-Schlüssel (GEMINI_API_KEY) in den App-Einstellungen.")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modell}:generateContent"
-    try:
-        r = post(url, headers={"x-goog-api-key": key, "Content-Type": "application/json"}, timeout=timeout,
-                 json={"contents": [{"parts": [{"text": prompt},
-                                               {"inline_data": {"mime_type": mime,
-                                                                "data": base64.b64encode(bild).decode()}}]}],
-                       "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1}})
-    except Exception as e:
-        logging.warning(f"Foto-Erkennung: {type(e).__name__}")
-        raise FotoFehler("Die Foto-Erkennung ist gerade nicht erreichbar. Bitte versuche es erneut.") from None
-    if r.status_code == 429:
-        raise FotoFehler("Das kostenlose Kontingent der Foto-Erkennung ist gerade ausgeschöpft. Bitte später erneut versuchen.")
-    if r.status_code != 200:
-        logging.warning(f"Foto-Erkennung: HTTP {r.status_code}")
-        raise FotoFehler("Die Foto-Erkennung hat gerade nicht funktioniert. Bitte versuche es erneut.")
-    try:
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError, TypeError, ValueError):
-        raise FotoFehler("Auf dem Foto wurde nichts erkannt. Bitte ein schärferes Foto versuchen.") from None
+    warten = warten or time.sleep
+    body = {"contents": [{"parts": [{"text": prompt},
+                                    {"inline_data": {"mime_type": mime, "data": base64.b64encode(bild).decode()}}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1}}
+    versuche = [modell, modell] + ([ERSATZ_MODELL] if modell != ERSATZ_MODELL else [])
+    letzter = None
+    for n, m in enumerate(versuche):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+        try:
+            r = post(url, headers={"x-goog-api-key": key, "Content-Type": "application/json"}, timeout=timeout, json=body)
+        except Exception as e:
+            logging.warning(f"Foto-Erkennung ({m}): {type(e).__name__}")
+            letzter = "Die Foto-Erkennung ist gerade nicht erreichbar. Bitte versuche es erneut."
+            if n >= 1:                                          # Netz weg/Zeitueberschreitung: nicht ewig warten
+                break
+            continue
+        if r.status_code == 200:
+            try:
+                return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            except (KeyError, IndexError, TypeError, ValueError):
+                raise FotoFehler("Auf dem Foto wurde nichts erkannt. Bitte ein schärferes Foto versuchen.") from None
+        status, grund = _fehlergrund(r)
+        logging.warning(f"Foto-Erkennung ({m}): HTTP {r.status_code} {status} {grund[:160]}")
+        letzter = _fehler_text(r.status_code, status, grund)
+        if r.status_code in VORUEBERGEHEND:
+            if n == 0:
+                warten(2)
+            continue
+        if r.status_code == 404 and m == modell and n == 0:     # Modell (nicht mehr) verfuegbar -> Ersatzmodell
+            if modell != ERSATZ_MODELL:
+                versuche[1:] = [ERSATZ_MODELL]
+                continue
+        break                                                   # Schluessel/Foto/Kontingent: Wiederholen hilft nicht
+    raise FotoFehler(letzter)
 
 
 def _json(text):
