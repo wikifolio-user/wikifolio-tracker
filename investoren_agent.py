@@ -18,6 +18,7 @@ import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import ibd_rating as IBD
 import scoring as SC
 import top50_agent as T
 import investor_checks as IC
@@ -148,6 +149,12 @@ def bewerte(e, ver, vgl, fx, fue_median, index_cache, heute):
             kf["s2"] = s2
     except Exception as ex:
         log.warning(f"{sym}: Branchenmodell fehlgeschlagen ({type(ex).__name__})")
+    try:                                   # Rohwerte fuer das IBD-aehnliche Rating (zusaetzlich, nur Information)
+        roh = IBD.rohwerte(f)
+        if roh:
+            kf["ibd"] = roh
+    except Exception as ex:
+        log.warning(f"{sym}: IBD-Rohwerte fehlgeschlagen ({type(ex).__name__})")
     return kf
 
 

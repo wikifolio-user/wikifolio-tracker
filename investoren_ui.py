@@ -11,6 +11,7 @@ import logging
 
 import streamlit as st
 
+import ibd_rating as IBD
 import investor_checks as IC
 import investor_config as C
 import ui_stil as UI
@@ -468,6 +469,11 @@ def bereich(h, e, d):
         for i, r in enumerate(sicht):
             with spalten[i % n]:
                 _karte(r, f)
+    try:
+        _ibd_bereich(h, f)
+    except Exception as ex:              # reine Zusatzinformation - darf die Checks nie verhindern
+        logging.exception("IBD-Rating")
+        st.caption(f"IBD-ähnliches Rating gerade nicht verfügbar ({type(ex).__name__}).")
     st.markdown("**Fairer Wert – alle Methoden**")
     _fairer_wert(f, kx)
     try:
@@ -510,6 +516,38 @@ def vorberechnet(h):
     return _vorberechnet(h["gh_read_taeglich"], datetime.date.today().isoformat())
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _ibd(_lesen, tag):
+    """IBD-aehnliche Ratings aller vorberechneten Aktien: ({symbol: rating}, Vergleichsbasis)."""
+    werte, _ = _vorberechnet(_lesen, tag)
+    return IBD.alle_ratings(werte)
+
+
+def ibd_ratings(h):
+    return _ibd(h["gh_read_taeglich"], datetime.date.today().isoformat())
+
+
+def _ibd_bereich(h, f):
+    """Zusaetzliche Bewertung im Stil von IBD fuer die Detailansicht (aktuelle Daten, Vergleich mit allen Aktien)."""
+    _, basis = ibd_ratings(h)
+    r = IBD.rating(IBD.rohwerte(f), f.get("sektor") or "", basis) if basis.get("eps_vert") else None
+    with st.expander("IBD-ähnliches Rating (zusätzliche Bewertung)" + (
+            f" · EPS {r['eps']} · Composite {r['composite']}" if r else "")):
+        if not r:
+            st.caption("Kein Rating: Für diese Aktie fehlt ein auswertbares Gewinnwachstum, oder es liegen noch "
+                       "zu wenige vorberechnete Vergleichswerte vor.")
+            return
+        st.markdown(f'<div class="ic-sw"><div><b>EPS-Rating</b><br><span style="font-size:1.6rem;font-weight:700">'
+                    f'{r["eps"]}</span> / 99</div><div><b>Composite-Rating</b><br><span style="font-size:1.6rem;'
+                    f'font-weight:700">{r["composite"]}</span> / 99</div></div>', unsafe_allow_html=True)
+        for k, titel in IBD.TEILE.items():
+            x = r["teile"].get(k)
+            st.markdown(f"{titel}: **{'–' if x is None else x}**" + ("" if x is None else " von 100"))
+        st.caption("Rang 1–99 im Vergleich mit allen vom Agenten bewerteten Aktien (99 = besser als 99 %). "
+                   "Nachgebildet nach den veröffentlichten Bausteinen von William O'Neil – nicht das offizielle "
+                   "IBD-Rating. Zusätzliche Information, ändert keine andere Note. Keine Anlageberatung.")
+
+
 def _investoren_optionen():
     return {cid: r["investor"] for cid, r in sorted(IC.REGISTRY.items(), key=lambda kv: kv[1]["reihenfolge"])}
 
@@ -534,8 +572,12 @@ def screener(h, d, oeffnen):
     ohne_warn = sp[1].toggle("Nur ohne Warnsignale", value=False, key=P + "sc_warn")
     sektoren = sorted({w.get("sek") for w in werte.values() if w.get("sek")})
     sek = st.multiselect("Sektor (optional)", sektoren, key=P + "sc_sek", placeholder="Alle Sektoren")
-    if not wahl:
-        st.info("Mindestens einen Investor wählen.")
+    ratings, _ = ibd_ratings(h)
+    comp_min = st.slider("Mindest-Composite (IBD-ähnlich, 0 = aus)", 0, 99, 0, 5, key=P + "sc_comp",
+                         help="Zusätzliche Bewertung im Stil von Investor's Business Daily: Rang 1–99 aus "
+                              "Gewinnwachstum, Kursstärke, Branche, Marge/Rendite, Volumen und Nähe zum Hoch.")
+    if not wahl and not comp_min:
+        st.info("Mindestens einen Investor wählen oder einen Mindest-Composite setzen.")
         return
     zeilen = []
     for sym, w in werte.items():
@@ -543,12 +585,16 @@ def screener(h, d, oeffnen):
         sc = [(c.get(i) or [None])[0] for i in wahl]
         if any(x is None or x < minimum for x in sc):
             continue
+        ibd = ratings.get(sym) or {}
+        if comp_min and (ibd.get("composite") or 0) < comp_min:
+            continue
         if ohne_warn and w.get("w"):
             continue
         if sek and w.get("sek") not in sek:
             continue
         z = {"Name": w.get("n") or sym, "Ticker": sym, "Sektor": w.get("sek") or "", "Note": w.get("note"),
-             "Ø Score": round(sum(sc) / len(sc), 1)}
+             "Ø Score": round(sum(sc) / len(sc), 1) if sc else w.get("score"),
+             "EPS-Rating": ibd.get("eps"), "Composite": ibd.get("composite")}
         for i, x in zip(wahl, sc):
             z[opt[i]] = x
         z.update({"Kaufen": f"{w.get('kaufen', 0)}/{w.get('inv', 0)}", "Warnsignale": w.get("w", 0),
@@ -558,8 +604,10 @@ def screener(h, d, oeffnen):
     if not zeilen:
         st.info("Keine Aktie erfüllt alle gewählten Bedingungen – Mindest-Score senken oder weniger Investoren wählen.")
         return
-    df = pd.DataFrame(zeilen).sort_values("Ø Score", ascending=False).reset_index(drop=True)
-    st.markdown(f"**{len(df)} Treffer**, sortiert nach Ø Score der gewählten Investoren")
+    nach = ["Ø Score", "Composite"] if wahl else ["Composite", "EPS-Rating"]
+    df = pd.DataFrame(zeilen).sort_values(nach, ascending=False, na_position="last").reset_index(drop=True)
+    st.markdown(f"**{len(df)} Treffer**, sortiert nach " + ("Ø Score der gewählten Investoren" if wahl else
+                                                          "Composite (IBD-ähnlich)"))
     sichtbar = df.drop(columns=["_id"] + (["Branchen-Score"] if df["Branchen-Score"].isna().all() else []))
     cfg = UI.tabellen_spalten(sichtbar, fortschritt=["Ø Score"] + [opt[i] for i in wahl])
     st.dataframe(sichtbar, hide_index=True, column_config=cfg, use_container_width=True, height=min(560, 38 + 35 * len(df)))
@@ -574,7 +622,9 @@ def screener(h, d, oeffnen):
             st.rerun()
     st.caption("Vorberechnete Ergebnisse (Stand je Aktie in der Tabelle). Die Detailansicht lädt die Daten "
                "aktuell nach. Branchen-Score: eigenes Modell für Banken, Versicherer und REITs (nur Information, "
-               "ändert keinen anderen Score). Keine Anlageberatung.")
+               "ändert keinen anderen Score). EPS-Rating/Composite: zusätzliche Bewertung im Stil von Investor's "
+               "Business Daily, Rang 1–99 unter allen bewerteten Aktien – nachgebildet, nicht das offizielle "
+               "IBD-Rating. Ohne Investorenwahl zeigt Ø Score den Konsens-Score. Keine Anlageberatung.")
 
 
 def vergleich(h, d, suchen):
