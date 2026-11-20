@@ -1712,14 +1712,13 @@ def _foto_schliessen():
 
 
 def _bild_eingabe(k):
-    """Foto aufnehmen oder auswaehlen (am Handy bietet die Auswahl direkt die Kamera an); optional Kamera im Browser.
+    """Foto aufnehmen oder auswaehlen (am Handy bietet die Auswahl direkt die Kamera an).
     -> (bytes, mime) oder None"""
+    # Nur der Upload: am Handy bietet er direkt "Foto aufnehmen" (System-Kamera, ohne Browser-Erlaubnis).
+    # Die Browser-Kamera (st.camera_input) braucht eine eigene Freigabe und verwirrte mehr, als sie half.
     datei = st.file_uploader("Foto aufnehmen oder auswählen", type=["jpg", "jpeg", "png", "webp", "heic"],
-                             key=P + k + "_datei", help="Am Handy öffnet sich hier direkt die Kamera.")
-    if st.toggle("Kamera hier im Browser öffnen", key=P + k + "_kamera_an"):
-        bild = st.camera_input("Foto", key=P + k + "_kamera", label_visibility="collapsed")
-        if bild is not None:
-            return bild.getvalue(), bild.type or "image/jpeg"
+                             key=P + k + "_datei",
+                             help="Am Handy „Upload“ antippen und „Foto aufnehmen“ wählen – die Kamera öffnet sich direkt.")
     if datei is not None:
         return datei.getvalue(), datei.type or "image/jpeg"
     return None
