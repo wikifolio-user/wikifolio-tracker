@@ -39,6 +39,15 @@ def auswerten(antwort):
     return (kurs, vor) if kurs > 0 and vor > 0 else None
 
 
+def markt_zeit(antwort):
+    """Zeitpunkt des Kurses laut Boerse (regularMarketTime) als ISO-Text (UTC) oder None."""
+    try:
+        t = int(antwort["chart"]["result"][0]["meta"]["regularMarketTime"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+    return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).isoformat()
+
+
 def abrufen(symbol, get, zeit):
     """Ein Index -> {"k", "p", "t"} oder None. get(url, params, headers, timeout) wie requests.get."""
     for host in ("query1", "query2"):
@@ -47,9 +56,14 @@ def abrufen(symbol, get, zeit):
                     headers=HEADERS, timeout=15)
             if r.status_code != 200:
                 continue
-            w = auswerten(r.json())
+            antwort = r.json()
+            w = auswerten(antwort)
             if w:
-                return {"k": w[0], "p": w[1], "t": zeit}
+                aus = {"k": w[0], "p": w[1], "t": zeit}
+                m = markt_zeit(antwort)
+                if m:
+                    aus["m"] = m                      # Kurszeit der Boerse (Abrufzeit "t" kann spaeter sein)
+                return aus
         except Exception:
             continue
     return None

@@ -25,6 +25,10 @@ class Indizes(unittest.TestCase):
         w = I.abrufen("^GDAXI", lambda url, **kw: antworten.pop(0), "T")
         self.assertEqual(w, {"k": 2.0, "p": 1.0, "t": "T"})
         self.assertIsNone(I.abrufen("^X", lambda url, **kw: (_ for _ in ()).throw(OSError()), "T"))
+        mit_zeit = {"chart": {"result": [{"meta": {"regularMarketPrice": 2, "chartPreviousClose": 1,
+                                                    "regularMarketTime": 1763668800}}]}}
+        w = I.abrufen("^GDAXI", lambda url, **kw: R(200, mit_zeit), "T")
+        self.assertEqual(w["m"], "2025-11-20T20:00:00+00:00")          # Kurszeit der Boerse zusaetzlich
 
     def test_neue_datei_behaelt_alte_und_wirft_fremde_raus(self):
         alt = {"werte": {"^GDAXI": {"k": 1}, "^ALT": {"k": 2}}}
