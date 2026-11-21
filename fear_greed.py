@@ -1,14 +1,15 @@
 """Fear & Greed Monitor - reine Rechenlogik ohne Streamlit.
 
-Externe Indikatoren (state/markt/sentiment.json, markt_daten.py):
-  US-Aktienmarkt   CNN Business Fear & Greed
-  Kryptowaehrungen Alternative.me Crypto Fear & Greed
-  Bitcoin          kein eigener frei nutzbarer Index -> Crypto Fear & Greed als ausdruecklich gekennzeichneter PROXY
-                   (zaehlt nicht in Gesamtstimmung/Durchschnitt, damit kein Wert doppelt eingeht)
-  Ethereum         keine verlaessliche freie Quelle (CoinMarketCap/CoinGlass nur mit kostenpflichtigem Schluessel)
-                   -> "Nicht verfuegbar"; nie ein Bitcoin- oder Gesamtmarktwert als Ethereum-Wert
-Eigene Scores (state/markt/ohlc.json, Tageskerzen): "Eigener ...-Sentiment-Score" fuer DAX, Nasdaq 100, S&P 500 und
-Dow Jones - KEIN offizieller Fear-&-Greed-Index. Feste Faktoren und Gewichte (FAKTOREN), je 0-100 normiert.
+Sechs Karten:
+  US-Aktienmarkt   CNN Business Fear & Greed (mit seinen sieben Teilindikatoren)
+  Krypto           Alternative.me Crypto Fear & Greed (Bitcoin-lastig); zweite Quelle CoinMarketCap - nur Anzeige,
+                   zaehlt NICHT zusaetzlich in der Gesamtstimmung (sonst ginge Krypto doppelt ein)
+  DAX, Nasdaq 100, S&P 500, Dow Jones  "Eigener ...-Sentiment-Score" aus Tageskerzen - KEIN offizieller
+                   Fear-&-Greed-Index. Feste Faktoren und Gewichte (FAKTOREN), je 0-100 normiert; Volatilitaet ueber
+                   den passenden Volatilitaetsindex (VIX/VXN/VXD), beim DAX die gemessene Schwankung.
+Eichung: Die Rohscores liegen im Mittel deutlich hoeher als CNN. Ueber die gemeinsamen Tage von S&P-500-Rohscore und
+CNN wird eine lineare Abbildung bestimmt (kleinste Quadrate) und fuer alle vier eigenen Scores verwendet - fuer DAX,
+Nasdaq und Dow eine Annahme, weil es dort keinen offiziellen Vergleichswert gibt. Ohne genug CNN-Daten: ungeeicht.
 """
 import datetime
 import math
@@ -24,22 +25,25 @@ FAKTOREN = [
     ("sma50", "Abstand zur 50-Tage-Linie", 20, "−10 % → 0, 0 % → 50, +10 % → 100"),
     ("sma200", "Abstand zur 200-Tage-Linie", 20, "−15 % → 0, 0 % → 50, +15 % → 100"),
     ("mom20", "Momentum 20 Handelstage", 20, "−8 % → 0, 0 % → 50, +8 % → 100"),
-    ("vola", "Volatilität 20 Tage ggü. 1 Jahr", 15, "doppelt so hoch → 0, gleich → 67, halb so hoch → 100"),
+    ("vola", "Volatilität ggü. 1 Jahr", 15, "Volatilitätsindex bzw. 20-Tage-Schwankung ggü. Jahresmittel: "
+                                             "doppelt so hoch → 0, gleich → 67, halb so hoch → 100"),
 ]
+# Volatilitaetsindex je Basiswert (Yahoo); DAX: keiner frei verfuegbar -> gemessene Schwankung
+IMPLIZIT = {"^GSPC": "^VIX", "^NDX": "^VXN", "^DJI": "^VXD"}
+VOLA_INDIZES = [("^VIX", "VIX", "S&P 500"), ("^VXN", "VXN", "Nasdaq 100"), ("^VXD", "VXD", "Dow Jones")]
+EICHUNG_MIN_TAGE = 60
 MIN_KERZEN = 260                 # 200-Tage-Linie + 1 Jahr Volatilitaet brauchen so viele Tageskerzen
 
 MAERKTE = [  # (id, Name, Art, Quelle/Basis)
     ("us", "US-Aktienmarkt", "extern", "cnn"),
-    ("krypto", "Kryptowährungen", "extern", "crypto"),
-    ("btc", "Bitcoin", "proxy", "crypto"),
-    ("eth", "Ethereum", "fehlt", None),
+    ("krypto", "Krypto (inkl. Bitcoin)", "extern", "crypto"),
     ("dax", "DAX 40", "eigen", "^GDAXI"),
     ("ndx", "Nasdaq 100", "eigen", "^NDX"),
     ("spx", "S&P 500", "eigen", "^GSPC"),
     ("dji", "Dow Jones", "eigen", "^DJI"),
 ]
-VERALTET_NACH_H = {"cnn": 36, "crypto": 48}     # Quelle aktualisiert (mind.) taeglich
-QUELLEN_TEXT = {"cnn": "CNN Business", "crypto": "Alternative.me"}
+VERALTET_NACH_H = {"cnn": 36, "crypto": 48, "cmc": 48}     # Quelle aktualisiert (mind.) taeglich
+QUELLEN_TEXT = {"cnn": "CNN Business", "crypto": "Alternative.me", "cmc": "CoinMarketCap"}
 
 
 def kategorie(wert):
@@ -90,42 +94,103 @@ def _vola(renditen):
     return statistics.pstdev(renditen) * math.sqrt(252) if len(renditen) > 1 else None
 
 
-def faktoren(schluss):
-    """Rohwerte und 0-100-Teilwerte der Faktoren aus Schlusskursen (aelteste zuerst) -> dict oder None."""
+def faktoren(schluss, implizit=None):
+    """Rohwerte und 0-100-Teilwerte der Faktoren aus Schlusskursen (aelteste zuerst) -> dict oder None.
+    implizit: Schlusskurse des Volatilitaetsindex an denselben Tagen (None, wo keiner vorliegt). Mit aktuellem Wert und
+    mindestens 120 Tagen Historie zaehlt er statt der gemessenen Schwankung: aktueller Stand / Median des Jahres."""
     if len(schluss) < MIN_KERZEN or any(not x or x <= 0 for x in schluss[-MIN_KERZEN:]):
         return None
     k = schluss[-1]
     sma50 = sum(schluss[-50:]) / 50
     sma200 = sum(schluss[-200:]) / 200
-    ren = [math.log(b / a) for a, b in zip(schluss[-253:-1], schluss[-252:])]
-    v20, v252 = _vola(ren[-20:]), _vola(ren)
+    imp = [x for x in (implizit or [])[-252:] if x]
+    if implizit and implizit[-1] and len(imp) >= 120:
+        vola, quelle = implizit[-1] / statistics.median(imp), "implizit"
+    else:
+        ren = [math.log(b / a) for a, b in zip(schluss[-253:-1], schluss[-252:])]
+        v20, v252 = _vola(ren[-20:]), _vola(ren)
+        vola, quelle = (v20 / v252 if v252 else None), "gemessen"
     roh = {"rsi": rsi(schluss[-120:]), "sma50": (k / sma50 - 1) * 100, "sma200": (k / sma200 - 1) * 100,
-           "mom20": (k / schluss[-21] - 1) * 100, "vola": v20 / v252 if v252 else None}
+           "mom20": (k / schluss[-21] - 1) * 100, "vola": vola}
     teil = {"rsi": roh["rsi"], "sma50": _linear(roh["sma50"], -10, 10), "sma200": _linear(roh["sma200"], -15, 15),
             "mom20": _linear(roh["mom20"], -8, 8),
             "vola": None if roh["vola"] is None else _linear(-roh["vola"], -2.0, -0.5)}
-    return {"roh": roh, "teil": teil}
+    return {"roh": roh, "teil": teil, "vola_quelle": quelle}
 
 
-def score(schluss):
-    """Eigener Sentiment-Score 0-100 (gewichteter Mittelwert; alle Faktoren noetig) oder None."""
-    f = faktoren(schluss)
+def score(schluss, implizit=None):
+    """Eigener Sentiment-Score 0-100 (ROH, gewichteter Mittelwert; alle Faktoren noetig) oder None."""
+    f = faktoren(schluss, implizit)
     if not f or any(f["teil"][k] is None for k, *_ in FAKTOREN):
         return None
     return sum(f["teil"][k] * g for k, _, g, _ in FAKTOREN) / sum(g for _, _, g, _ in FAKTOREN)
 
 
-def score_verlauf(kerzen, tage=None):
-    """Eigener Score fuer jeden Handelstag (bzw. die letzten `tage`) -> [[iso, wert]] - nur echte Kerzen, kein
+def _ausgerichtet(kerzen, impl_kerzen):
+    """Schlusskurse des Volatilitaetsindex an den Tagen der Indexkerzen (None, wo es keinen gibt)."""
+    if not impl_kerzen:
+        return None
+    nach_tag = {k[0]: k[4] for k in impl_kerzen}
+    return [nach_tag.get(k[0]) for k in kerzen]
+
+
+def score_verlauf(kerzen, tage=None, impl_kerzen=None):
+    """Eigener (Roh-)Score fuer jeden Handelstag (bzw. die letzten `tage`) -> [[iso, wert]] - nur echte Kerzen, kein
     Auffuellen. Der Score braucht nur die letzten MIN_KERZEN Schlusskurse, daher ist auch die ganze Historie schnell."""
     schluss = [k[4] for k in kerzen]
+    imp = _ausgerichtet(kerzen, impl_kerzen)
     aus = []
     erster = MIN_KERZEN if tage is None else max(MIN_KERZEN, len(kerzen) - tage)
     for i in range(erster, len(kerzen) + 1):
-        s = score(schluss[i - MIN_KERZEN:i])
+        s = score(schluss[i - MIN_KERZEN:i], imp[max(0, i - 253):i] if imp else None)
         if s is not None:
             aus.append([kerzen[i - 1][0], round(s, 1)])
     return aus
+
+
+def _quantile(werte, n=21):
+    w = sorted(werte)
+    return [w[round(i / (n - 1) * (len(w) - 1))] for i in range(n)]
+
+
+def eichung(roh_verlauf, cnn_verlauf, min_tage=EICHUNG_MIN_TAGE):
+    """Eichung ueber die Verteilung (Quantile): Rohwert -> CNN-Wert mit gleichem Rang ueber die gemeinsamen Tage,
+    zwischen 21 Stuetzpunkten linear, ausserhalb auf den Rand begrenzt. Monoton - die Reihenfolge der Tage bleibt.
+    -> dict oder None (zu wenige gemeinsame Tage)."""
+    cnn = dict(cnn_verlauf or [])
+    paare = [(w, cnn[d]) for d, w in roh_verlauf or [] if d in cnn]
+    if len(paare) < min_tage:
+        return None
+    qx, qy = _quantile([a for a, _ in paare]), _quantile([b for _, b in paare])
+    knoten = []
+    for x, y in zip(qx, qy):                    # gleiche Rohwerte zusammenfassen (streng steigende Stuetzpunkte)
+        if knoten and x <= knoten[-1][0]:
+            knoten[-1] = (knoten[-1][0], (knoten[-1][1] + y) / 2)
+        else:
+            knoten.append((x, y))
+    e = {"knoten": knoten, "n": len(paare), "von": min(d for d, _ in roh_verlauf if d in cnn),
+         "bis": max(d for d, _ in roh_verlauf if d in cnn)}
+    e["abstand_vor"] = statistics.mean(abs(x - y) for x, y in paare)
+    e["abstand_nach"] = statistics.mean(abs(geeicht(x, e) - y) for x, y in paare)
+    e["gleiche_gruppe"] = sum(gruppe(geeicht(x, e)) == gruppe(y) for x, y in paare) / len(paare) * 100
+    return e
+
+
+def geeicht(x, e):
+    """Rohwert -> geeichter Wert (stueckweise linear zwischen den Quantil-Stuetzpunkten)."""
+    kn = e["knoten"]
+    if x <= kn[0][0]:
+        return kn[0][1]
+    if x >= kn[-1][0]:
+        return kn[-1][1]
+    for (x0, y0), (x1, y1) in zip(kn, kn[1:]):
+        if x0 <= x <= x1:
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return kn[-1][1]
+
+
+def anwenden(verlauf, e):
+    return verlauf if not e else [[t, round(geeicht(w, e), 1)] for t, w in verlauf]
 
 
 # ---------------------------------------------------------------------------------------------------- Karten
@@ -150,46 +215,78 @@ def eigene_verlaeufe(ohlc):
     """Score-Verlaeufe aller Indizes (ganze Historie) -> {yahoo_symbol: [[iso, wert]]}. Teuer (einige Sekunden),
     aendert sich aber nur mit neuen Tageskerzen - die App speichert das Ergebnis je Datenstand zwischen."""
     idx = ((ohlc or {}).get("indizes") or {}) if isinstance(ohlc, dict) else {}
-    return {basis: score_verlauf((idx.get(basis) or {}).get("kerzen") or [])
+    return {basis: score_verlauf((idx.get(basis) or {}).get("kerzen") or [],
+                                 impl_kerzen=(idx.get(IMPLIZIT.get(basis)) or {}).get("kerzen"))
             for _, _, art, basis in MAERKTE if art == "eigen"}
 
 
+def _extern(e, basis, jetzt):
+    """Eintrag einer externen Quelle -> Kartenfelder oder {}."""
+    if not e or e.get("wert") is None:
+        return {}
+    ok = _zeit(e.get("ok"))
+    alt = not ok or jetzt - ok > datetime.timedelta(hours=VERALTET_NACH_H[basis])
+    return {"wert": e["wert"], "vortag": e.get("vortag"), "vorwoche": e.get("vorwoche"),
+            "original": original_deutsch(e.get("kategorie")), "zeit": _zeit(e.get("zeit")) or ok,
+            "status": "veraltet" if alt else "aktuell", "verlauf": e.get("verlauf") or [], "quelle": QUELLEN_TEXT[basis]}
+
+
+def volatilitaet(ohlc):
+    """Volatilitaetsindizes ("Angstbarometer") -> [{"name", "basis", "wert", "aenderung_pct", "perzentil", "datum"}].
+    perzentil: Anteil der Tage des letzten Jahres mit niedrigerem Stand (hoch = viel Angst)."""
+    idx = ((ohlc or {}).get("indizes") or {}) if isinstance(ohlc, dict) else {}
+    aus = []
+    for sym, name, basis in VOLA_INDIZES:
+        k = (idx.get(sym) or {}).get("kerzen") or []
+        if len(k) < 2:
+            continue
+        c = [x[4] for x in k[-252:]]
+        aus.append({"name": name, "basis": basis, "wert": c[-1], "aenderung_pct": (c[-1] / c[-2] - 1) * 100,
+                    "perzentil": sum(x < c[-1] for x in c) / len(c) * 100, "datum": k[-1][0],
+                    "verlauf": [[x[0], x[4]] for x in k]})
+    return aus
+
+
 def karten(sentiment, ohlc, jetzt, eigene=None):
-    """eigene: vorberechnete Score-Verlaeufe (eigene_verlaeufe), sonst wird hier gerechnet.
-    Acht Karten -> [{"id", "name", "art", "wert", "kategorie", "farbe", "original", "vortag", "aenderung",
-    "vorwoche", "zeit", "status" (aktuell/veraltet/fehlt), "quelle", "verlauf", "hinweis"}]."""
+    """eigene: vorberechnete ROH-Verlaeufe (eigene_verlaeufe), sonst wird hier gerechnet.
+    Sechs Karten -> [{"id", "name", "art", "wert", "kategorie", "farbe", "original", "vortag", "aenderung",
+    "vorwoche", "zeit", "status" (aktuell/veraltet/fehlt), "quelle", "verlauf", "hinweis", ...}]."""
     q = ((sentiment or {}).get("quellen") or {}) if isinstance(sentiment, dict) else {}
     idx = ((ohlc or {}).get("indizes") or {}) if isinstance(ohlc, dict) else {}
+    if eigene is None:
+        eigene = eigene_verlaeufe(ohlc)
+    eich = eichung(eigene.get("^GSPC"), (q.get("cnn") or {}).get("verlauf"))
     aus = []
     for mid, name, art, basis in MAERKTE:
         k = {"id": mid, "name": name, "art": art, "wert": None, "status": "fehlt", "verlauf": [], "hinweis": "",
              "quelle": "", "zeit": None, "vortag": None, "vorwoche": None, "original": ""}
-        if art in ("extern", "proxy"):
-            e = q.get(basis) or {}
-            if e.get("wert") is not None:
-                ok = _zeit(e.get("ok"))
-                alt = not ok or jetzt - ok > datetime.timedelta(hours=VERALTET_NACH_H[basis])
-                k.update({"wert": e["wert"], "vortag": e.get("vortag"), "vorwoche": e.get("vorwoche"),
-                          "original": original_deutsch(e.get("kategorie")), "zeit": _zeit(e.get("zeit")) or ok,
-                          "status": "veraltet" if alt else "aktuell", "verlauf": e.get("verlauf") or [],
-                          "quelle": QUELLEN_TEXT[basis]})
-            if art == "proxy":
-                k["hinweis"] = ("Proxy: kein eigener frei verfügbarer Bitcoin-Index – angezeigt wird der Crypto "
-                                "Fear & Greed Index (Alternative.me). Zählt nicht in der Gesamtstimmung.")
-        elif art == "fehlt":
-            k["hinweis"] = ("Nicht verfügbar: Für Ethereum gibt es keine verlässliche frei nutzbare Quelle "
-                            "(CoinMarketCap/CoinGlass nur mit kostenpflichtigem API-Schlüssel).")
+        if art == "extern":
+            k.update(_extern(q.get(basis), basis, jetzt))
+            if mid == "us":
+                k["teile"] = (q.get("cnn") or {}).get("teile") or {}
+            if mid == "krypto":
+                zweit = _extern(q.get("cmc"), "cmc", jetzt)
+                if zweit:
+                    zweit["kategorie"], zweit["farbe"] = kategorie(zweit["wert"])
+                k["zweit"] = zweit
+                k["hinweis"] = ("Gesamter Kryptomarkt, stark von Bitcoin geprägt. Zweite Quelle CoinMarketCap nur zur "
+                                "Information – zählt nicht zusätzlich in der Gesamtstimmung.")
         else:
             e = idx.get(basis) or {}
             kerzen = e.get("kerzen") or []
-            verlauf = (eigene or {}).get(basis) if eigene is not None else score_verlauf(kerzen)
+            roh = eigene.get(basis) or []
+            verlauf = anwenden(roh, eich)
             if verlauf:
                 letzte = datetime.date.fromisoformat(verlauf[-1][0])
                 alt = (jetzt.date() - letzte).days > 5            # mehr als ein langes Wochenende ohne neue Kerze
+                impl = (idx.get(IMPLIZIT.get(basis)) or {}).get("kerzen")
+                al = _ausgerichtet(kerzen, impl)
                 k.update({"wert": verlauf[-1][1], "vortag": verlauf[-2][1] if len(verlauf) > 1 else None,
                           "vorwoche": _wert_vor(verlauf, 7), "zeit": letzte, "status": "veraltet" if alt else "aktuell",
-                          "verlauf": verlauf, "quelle": f"Eigener {name}-Sentiment-Score",
-                          "faktoren": faktoren([x[4] for x in kerzen])})
+                          "verlauf": verlauf, "roh_verlauf": roh, "roh": roh[-1][1], "eichung": eich,
+                          "quelle": f"Eigener {name}-Sentiment-Score" + (" (geeicht)" if eich else " (ungeeicht)"),
+                          "faktoren": faktoren([x[4] for x in kerzen], al[-253:] if al else None),
+                          "vola_index": IMPLIZIT.get(basis)})
                 if mid == "spx":
                     k["hinweis"] = "Allgemeiner US-Aktienmarkt: siehe CNN Fear & Greed (Karte US-Aktienmarkt)."
             elif kerzen:
@@ -203,7 +300,7 @@ def karten(sentiment, ohlc, jetzt, eigene=None):
 def gesamt(karten_liste):
     """Gesamtstimmung aus den UNABHAENGIGEN Indikatoren (ohne Proxy, ohne fehlende).
     -> {"angst", "neutral", "gier", "score" (Dashboard-Sentiment-Score), "aenderung", "anzahl", "letzte"}"""
-    unab = [k for k in karten_liste if k["art"] in ("extern", "eigen") and k["wert"] is not None]
+    unab = [k for k in karten_liste if k["art"] in ("extern", "eigen") and k["wert"] is not None]   # ohne Zweitquelle
     zaehl = {"Angst": 0, "Neutral": 0, "Gier": 0}
     for k in unab:
         zaehl[gruppe(k["wert"])] += 1

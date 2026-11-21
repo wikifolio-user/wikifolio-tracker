@@ -139,8 +139,21 @@ class Sentiment(unittest.TestCase):
             return R(200, {"fear_and_greed": {"score": 50, "rating": "neutral"}})
         r = MD.sentiment_abrufen(get, datetime.datetime(2026, 11, 21, tzinfo=datetime.timezone.utc))
         self.assertEqual((r["cnn"]["wert"], r["crypto"]["wert"]), (50, 40))  # Rueckfall auf 400 Tage
-        self.assertEqual(len(aufrufe), 4)
+        self.assertEqual(len(aufrufe), 6)                                    # + CoinMarketCap aktuell und Verlauf
         self.assertIn(MD.CNN_START_LANG, aufrufe[0][0])
+
+    def test_cnn_teile_und_cmc(self):
+        a = {"fear_and_greed": {"score": 30, "rating": "fear"}, "put_call_options": {"score": 12.5, "rating": "extreme fear"},
+             "junk_bond_demand": {"score": 150}, "unbekannt": {"score": 50}}
+        r = MD.cnn_parsen(a)
+        self.assertEqual(r["teile"], {"put_call_options": {"wert": 12.5, "kategorie": "extreme fear"}})   # 150 ungueltig
+        latest = {"data": {"value": 8, "update_time": "2026-11-21T20:08:10.033Z", "value_classification": "Extreme fear"},
+                  "status": {"error_code": "0"}}
+        chart = {"data": {"dataList": [{"score": 20, "timestamp": "1763596800"}, {"score": 140, "timestamp": "1763683200"}]}}
+        c = MD.cmc_parsen(latest, chart)
+        self.assertEqual((c["wert"], c["kategorie"], c["vortag"], c["quelle"]), (8, "Extreme fear", 20, "CoinMarketCap"))
+        self.assertEqual(c["verlauf"][-1], ["2026-11-21", 8])
+        self.assertIsNone(MD.cmc_parsen({"status": {"error_code": "1002"}, "data": {}}))
 
     def test_neue_sentiment_behaelt_alte(self):
         alt = {"quellen": {"cnn": {"wert": 40, "ok": "S0"}, "crypto": {"wert": 20, "ok": "S0"}}}

@@ -342,14 +342,17 @@ def marktdaten_aktualisieren(stand, jetzt):
         e = MD.ohlc_abrufen(symbol, requests.get, jetzt)
         if e:
             geladen[symbol] = e
-    log.info(f"Tageskerzen: {len(geladen)} von {len(MD.INDEX_OHLC)} Indizes")
+    log.info(f"Tageskerzen: {len(geladen)} von {len(MD.INDEX_OHLC)} Indizes ({', '.join(sorted(geladen))})")
     if geladen:
         alt, ok = _lies(MD.PFAD_OHLC)
         neu = MD.neue_ohlc(alt, geladen, stand) if ok else None
         if neu is not None:
             _schreiben(MD.PFAD_OHLC, neu, "kurse tageskerzen [skip ci]")
     s = MD.sentiment_abrufen(requests.get, jetzt)
-    log.info("Fear & Greed: " + ", ".join(f"{k} {'ok' if v else 'fehlgeschlagen'}" for k, v in s.items()))
+    log.info("Fear & Greed: " + ", ".join(f"{k} {'ok' if v else 'fehlgeschlagen'}" for k, v in s.items())
+             + (f" (CNN-Teilindikatoren: {len((s.get('cnn') or {}).get('teile') or {})}, "
+                f"Verlauf CNN {len((s.get('cnn') or {}).get('verlauf') or [])} / Krypto "
+                f"{len((s.get('crypto') or {}).get('verlauf') or [])} / CMC {len((s.get('cmc') or {}).get('verlauf') or [])} Tage)"))
     if any(s.values()):
         alt, ok = _lies(MD.PFAD_SENTIMENT)
         if ok:
