@@ -23,6 +23,8 @@ PFAD_SUCHE = "state/kurse/suche.json"
 PFAD_TOP50 = "state/kurse/top50_live.json"
 PFAD_INDIZES = "state/kurse/indizes.json"         # siehe indizes.py
 PFAD_NEWS = "state/kurse/news.json"               # siehe news.py
+PFAD_OHLC = "state/markt/ohlc.json"               # siehe markt_daten.py
+PFAD_SENTIMENT = "state/markt/sentiment.json"     # siehe markt_daten.py
 SUCH_URL = "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main"
 TEILE = 8
 
@@ -185,6 +187,14 @@ class Vorrat:
     def indizes(self):
         """Indexstaende fuer den Ticker (indizes.py) -> dict wie state/kurse/indizes.json (oder {})."""
         return self._datei(PFAD_INDIZES, "live")
+
+    def ohlc(self):
+        """Tageskerzen der Indizes (markt_daten.py) -> dict wie state/markt/ohlc.json (oder {})."""
+        return self._datei(PFAD_OHLC, "historie")
+
+    def sentiment(self):
+        """Fear-&-Greed-Werte (markt_daten.py) -> dict wie state/markt/sentiment.json (oder {})."""
+        return self._datei(PFAD_SENTIMENT, "live")
 
     def historie(self, instrument_id):
         """-> ([[ts_ms, schluss], ...], abgerufen_um) oder None"""
