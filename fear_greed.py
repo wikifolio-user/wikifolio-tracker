@@ -115,12 +115,14 @@ def score(schluss):
     return sum(f["teil"][k] * g for k, _, g, _ in FAKTOREN) / sum(g for _, _, g, _ in FAKTOREN)
 
 
-def score_verlauf(kerzen, tage=370):
-    """Eigener Score fuer jeden der letzten `tage` Handelstage -> [[iso, wert]] (nur echte Kerzen, kein Auffuellen)."""
+def score_verlauf(kerzen, tage=None):
+    """Eigener Score fuer jeden Handelstag (bzw. die letzten `tage`) -> [[iso, wert]] - nur echte Kerzen, kein
+    Auffuellen. Der Score braucht nur die letzten MIN_KERZEN Schlusskurse, daher ist auch die ganze Historie schnell."""
     schluss = [k[4] for k in kerzen]
     aus = []
-    for i in range(max(MIN_KERZEN, len(kerzen) - tage), len(kerzen) + 1):
-        s = score(schluss[:i])
+    erster = MIN_KERZEN if tage is None else max(MIN_KERZEN, len(kerzen) - tage)
+    for i in range(erster, len(kerzen) + 1):
+        s = score(schluss[i - MIN_KERZEN:i])
         if s is not None:
             aus.append([kerzen[i - 1][0], round(s, 1)])
     return aus
@@ -144,8 +146,17 @@ def _wert_vor(verlauf, tage):
     return vor[-1] if vor else None
 
 
-def karten(sentiment, ohlc, jetzt):
-    """Acht Karten -> [{"id", "name", "art", "wert", "kategorie", "farbe", "original", "vortag", "aenderung",
+def eigene_verlaeufe(ohlc):
+    """Score-Verlaeufe aller Indizes (ganze Historie) -> {yahoo_symbol: [[iso, wert]]}. Teuer (einige Sekunden),
+    aendert sich aber nur mit neuen Tageskerzen - die App speichert das Ergebnis je Datenstand zwischen."""
+    idx = ((ohlc or {}).get("indizes") or {}) if isinstance(ohlc, dict) else {}
+    return {basis: score_verlauf((idx.get(basis) or {}).get("kerzen") or [])
+            for _, _, art, basis in MAERKTE if art == "eigen"}
+
+
+def karten(sentiment, ohlc, jetzt, eigene=None):
+    """eigene: vorberechnete Score-Verlaeufe (eigene_verlaeufe), sonst wird hier gerechnet.
+    Acht Karten -> [{"id", "name", "art", "wert", "kategorie", "farbe", "original", "vortag", "aenderung",
     "vorwoche", "zeit", "status" (aktuell/veraltet/fehlt), "quelle", "verlauf", "hinweis"}]."""
     q = ((sentiment or {}).get("quellen") or {}) if isinstance(sentiment, dict) else {}
     idx = ((ohlc or {}).get("indizes") or {}) if isinstance(ohlc, dict) else {}
@@ -171,7 +182,7 @@ def karten(sentiment, ohlc, jetzt):
         else:
             e = idx.get(basis) or {}
             kerzen = e.get("kerzen") or []
-            verlauf = score_verlauf(kerzen)
+            verlauf = (eigene or {}).get(basis) if eigene is not None else score_verlauf(kerzen)
             if verlauf:
                 letzte = datetime.date.fromisoformat(verlauf[-1][0])
                 alt = (jetzt.date() - letzte).days > 5            # mehr als ein langes Wochenende ohne neue Kerze
