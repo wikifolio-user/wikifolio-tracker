@@ -176,18 +176,26 @@ def crypto_parsen(antwort):
             "verlauf": [[d, punkte[d][0]] for d in tage], "quelle": "Alternative.me"}
 
 
+CNN_START_LANG = "2020-07-15"      # moeglichst lange Historie (Zeitraeume 3/5 Jahre, Max)
+
+
+def _abruf(get, url, params, parser):
+    try:
+        r = get(url, params=params, headers=HEADERS, timeout=25)
+        return parser(r.json()) if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
 def sentiment_abrufen(get, jetzt):
-    """-> {"cnn": eintrag|None, "crypto": eintrag|None}"""
-    aus = {}
-    start = (jetzt.date() - datetime.timedelta(days=400)).isoformat()
-    for name, url, params, parser in (("cnn", CNN_URL.format(start=start), None, cnn_parsen),
-                                      ("crypto", CRYPTO_URL, {"limit": 400, "format": "json"}, crypto_parsen)):
-        try:
-            r = get(url, params=params, headers=HEADERS, timeout=20)
-            aus[name] = parser(r.json()) if r.status_code == 200 else None
-        except Exception:
-            aus[name] = None
-    return aus
+    """-> {"cnn": eintrag|None, "crypto": eintrag|None}. Erst die lange Historie; liefert die Quelle sie nicht,
+    ersatzweise die letzten 400 Tage (dann fehlt nur die lange Historie, der aktuelle Wert bleibt aktuell)."""
+    kurz = (jetzt.date() - datetime.timedelta(days=400)).isoformat()
+    cnn = (_abruf(get, CNN_URL.format(start=CNN_START_LANG), None, cnn_parsen)
+           or _abruf(get, CNN_URL.format(start=kurz), None, cnn_parsen))
+    crypto = (_abruf(get, CRYPTO_URL, {"limit": 0, "format": "json"}, crypto_parsen)        # 0 = alle seit 2018
+              or _abruf(get, CRYPTO_URL, {"limit": 400, "format": "json"}, crypto_parsen))
+    return {"cnn": cnn, "crypto": crypto}
 
 
 def neue_sentiment(alt, geladen, stand):

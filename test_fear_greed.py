@@ -51,6 +51,20 @@ class EigenerScore(unittest.TestCase):
         f = F.faktoren(auf)
         self.assertTrue(all(0 <= v <= 100 for v in f["teil"].values()))
 
+    def test_verlauf_ganze_historie_und_vorberechnet(self):
+        k = _kerzen(700)
+        voll = F.score_verlauf(k)
+        self.assertEqual(len(voll), 700 - F.MIN_KERZEN + 1)
+        self.assertEqual(voll[-len(F.score_verlauf(k, tage=50)):], F.score_verlauf(k, tage=50))
+        ohlc = {"indizes": {"^GDAXI": {"kerzen": k}}}
+        e = F.eigene_verlaeufe(ohlc)
+        self.assertEqual(e["^GDAXI"], voll)
+        a = {x["id"]: x["wert"] for x in F.karten({}, ohlc, JETZT)}
+        b = {x["id"]: x["wert"] for x in F.karten({}, ohlc, JETZT, eigene=e)}
+        self.assertEqual(a, b)
+        z = F.zeitraum(voll, 100 * 365)                                     # "Max"
+        self.assertEqual((z["von"], len(z["punkte"])), (voll[0][0], len(voll)))
+
     def test_verlauf_nur_echte_tage(self):
         k = _kerzen(300)
         v = F.score_verlauf(k)

@@ -120,6 +120,28 @@ class Sentiment(unittest.TestCase):
         self.assertEqual(r["verlauf"][0], ["2026-11-13", 50])
         self.assertIsNone(MD.crypto_parsen({"data": [], "metadata": {"error": "limit"}}))
 
+    def test_lange_historie_mit_rueckfall(self):
+        aufrufe = []
+
+        class R:
+            def __init__(self, code, d=None):
+                self.status_code, self.d = code, d
+
+            def json(self):
+                return self.d
+
+        def get(url, params=None, headers=None, timeout=None):
+            aufrufe.append((url, (params or {}).get("limit")))
+            if MD.CNN_START_LANG in url or (params or {}).get("limit") == 0:
+                return R(400)                                                # lange Historie abgelehnt
+            if "alternative" in url:
+                return R(200, {"data": [{"value": "40", "value_classification": "Fear", "timestamp": "1763600000"}]})
+            return R(200, {"fear_and_greed": {"score": 50, "rating": "neutral"}})
+        r = MD.sentiment_abrufen(get, datetime.datetime(2026, 11, 21, tzinfo=datetime.timezone.utc))
+        self.assertEqual((r["cnn"]["wert"], r["crypto"]["wert"]), (50, 40))  # Rueckfall auf 400 Tage
+        self.assertEqual(len(aufrufe), 4)
+        self.assertIn(MD.CNN_START_LANG, aufrufe[0][0])
+
     def test_neue_sentiment_behaelt_alte(self):
         alt = {"quellen": {"cnn": {"wert": 40, "ok": "S0"}, "crypto": {"wert": 20, "ok": "S0"}}}
         neu = MD.neue_sentiment(alt, {"cnn": {"wert": 45}, "crypto": None}, "S1")

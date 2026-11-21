@@ -18,7 +18,8 @@ import ui_stil as UI
 P = "fg_"
 BERLIN = ZoneInfo("Europe/Berlin")
 NAMEN = {mid: name for mid, name, _, _ in F.MAERKTE}
-ZEITRAEUME = {"7 Tage": 7, "30 Tage": 30, "90 Tage": 90, "1 Jahr": 365}
+ZEITRAEUME = {"7 Tage": 7, "30 Tage": 30, "90 Tage": 90, "1 Jahr": 365, "3 Jahre": 3 * 365, "5 Jahre": 5 * 365,
+              "Max": 100 * 365}
 ART_BADGE = {"extern": ("Extern", "fg-b-ext"), "eigen": ("Eigener Score", "fg-b-eig"), "proxy": ("Proxy", "fg-b-pro"),
              "fehlt": ("n. v.", "fg-b-nv")}
 REFRESH_ABSTAND_SEK = 60
@@ -79,6 +80,13 @@ def _zeit_text(z):
     return "–"
 
 
+def _datum_de(iso):
+    try:
+        return datetime.date.fromisoformat(iso).strftime("%d.%m.%Y")
+    except (TypeError, ValueError):
+        return str(iso)
+
+
 def _jetzt():
     return datetime.datetime.now(BERLIN)
 
@@ -101,10 +109,16 @@ def _daten(h):
     return s, o
 
 
+@st.cache_data(ttl=86400, show_spinner="Berechne die Verläufe der eigenen Scores …", max_entries=3)
+def _eigene(_o, o_key):
+    """Score-Verlaeufe seit 2016 - teuer, aendert sich nur mit neuen Tageskerzen (o_key = Datenstand)."""
+    return F.eigene_verlaeufe(_o)
+
+
 @st.cache_data(ttl=600, show_spinner=False, max_entries=8)
 def _karten(_s, _o, s_key, o_key, zeit_key):
-    """Karten (eigene Scores rechnen den Verlauf aus allen Kerzen - daher je Datenstand zwischengespeichert)."""
-    return F.karten(_s, _o, datetime.datetime.fromisoformat(zeit_key))
+    """Karten fuer den aktuellen Stand (die eigenen Verlaeufe kommen aus dem Zwischenspeicher)."""
+    return F.karten(_s, _o, datetime.datetime.fromisoformat(zeit_key), eigene=_eigene(_o, o_key))
 
 
 def _refresh(h):
@@ -275,7 +289,11 @@ def _detail(kl):
                 f'<td>{_de(z["hoch"])}</td><td>{_de(z["tief"])}</td><td class="{_klasse(z["aenderung"])}">'
                 f'{_aend_text(z["aenderung"])}</td></tr></table>', unsafe_allow_html=True)
     _linien_chart([(k["name"], z["punkte"])], key=P + "detail_chart")
-    st.caption(f"{len(z['punkte'])} Datenpunkte vom {z['von']} bis {z['bis']} · Quelle: {k['quelle']}"
+    luecke = ""
+    if zr != "Max" and k["verlauf"] and z["von"] == k["verlauf"][0][0] and ZEITRAEUME[zr] > 400:
+        luecke = f" · Daten liegen erst ab {_datum_de(z['von'])} vor"
+    st.caption(f"{len(z['punkte'])} Datenpunkte vom {_datum_de(z['von'])} bis {_datum_de(z['bis'])}{luecke} · "
+               f"Quelle: {k['quelle']}"
                + (" · nur Handelstage" if k["art"] == "eigen" else ""))
     if k["art"] == "eigen" and k.get("faktoren"):
         f = k["faktoren"]
@@ -354,7 +372,8 @@ def _warn_banner(kl):
 def _warnungen_einstellen():
     import pandas as pd
     with st.expander("🔔 Warnungen einstellen"):
-        st.toggle("Warnungen anzeigen", value=True, key=P + "aktiv")
+        st.session_state.setdefault(P + "aktiv", True)
+        st.toggle("Warnungen anzeigen", key=P + "aktiv")
         maerkte = ["alle"] + [mid for mid, _, art, _ in F.MAERKTE if art in ("extern", "eigen")]
         df = pd.DataFrame(_regeln())
         for spalte, std in (("markt", "alle"), ("art", "unter"), ("schwelle", 25), ("aktiv", True)):
