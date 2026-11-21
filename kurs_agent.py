@@ -27,6 +27,7 @@ import github_store
 import indizes
 import news
 import kurs_vorrat as KV
+import markt_daten as MD
 import planer_daten
 import portfolio_builder
 
@@ -333,6 +334,28 @@ def news_aktualisieren(stand):
         _schreiben(news.PFAD, {"stand": stand, "eintraege": eintraege}, "kurse news [skip ci]")
 
 
+def marktdaten_aktualisieren(stand, jetzt):
+    """Tageskerzen der Indizes und Fear-&-Greed-Werte (markt_daten.py) fuer Fear & Greed Monitor, ETP-Rechner und
+    Gap Analyzer. Fehler hier lassen den Lauf nicht scheitern; geschrieben wird nur bei Aenderungen."""
+    geladen = {}
+    for symbol in MD.INDEX_OHLC:
+        e = MD.ohlc_abrufen(symbol, requests.get, jetzt)
+        if e:
+            geladen[symbol] = e
+    log.info(f"Tageskerzen: {len(geladen)} von {len(MD.INDEX_OHLC)} Indizes")
+    if geladen:
+        alt, ok = _lies(MD.PFAD_OHLC)
+        neu = MD.neue_ohlc(alt, geladen, stand) if ok else None
+        if neu is not None:
+            _schreiben(MD.PFAD_OHLC, neu, "kurse tageskerzen [skip ci]")
+    s = MD.sentiment_abrufen(requests.get, jetzt)
+    log.info("Fear & Greed: " + ", ".join(f"{k} {'ok' if v else 'fehlgeschlagen'}" for k, v in s.items()))
+    if any(s.values()):
+        alt, ok = _lies(MD.PFAD_SENTIMENT)
+        if ok:
+            _schreiben(MD.PFAD_SENTIMENT, MD.neue_sentiment(alt, s, stand), "kurse sentiment [skip ci]")
+
+
 def main():
     if not (GITHUB_REPO and GITHUB_TOKEN):
         log.error("GITHUB_REPOSITORY / GH_STATE_TOKEN fehlen")
@@ -382,6 +405,10 @@ def main():
         news_aktualisieren(stand)
     except Exception as e:
         log.warning(f"News fehlgeschlagen: {type(e).__name__}: {e}")
+    try:
+        marktdaten_aktualisieren(stand, jetzt)
+    except Exception as e:
+        log.warning(f"Marktdaten fehlgeschlagen: {type(e).__name__}: {e}")
     return 1 if fehler else 0
 
 
