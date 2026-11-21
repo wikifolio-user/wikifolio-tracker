@@ -23,6 +23,10 @@ INDIZES = [
     ("EURUSD=X", "EUR/USD", "fx"),
 ]
 
+# Markt je Symbol (fuer "Boerse offen" im Ticker, boersenkalender.markt_offen)
+MARKT = {"^GDAXI": "XETRA", "^MDAXI": "XETRA", "^STOXX50E": "XETRA", "^GSPC": "NYSE", "^NDX": "NYSE", "^DJI": "NYSE",
+         "^N225": "TSE", "GC=F": "COMEX", "BTC-EUR": "KRYPTO", "EURUSD=X": "FX"}
+
 URL = "https://{host}.finance.yahoo.com/v8/finance/chart/{symbol}"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                          "(KHTML, like Gecko) Chrome/124.0 Safari/537.36", "Accept": "application/json"}
@@ -64,7 +68,9 @@ def neue_datei(alt, geladen, stand):
 
 
 def ticker_eintraege(daten, max_alter_tage=7, jetzt=None):
-    """indizes.json -> [(name, kurs, pct, einheit)] in der Reihenfolge von INDIZES; zu alte Werte entfallen."""
+    """indizes.json -> [(name, kurs, pct, einheit, boerse_offen)] in der Reihenfolge von INDIZES; zu alte Werte
+    entfallen. boerse_offen: True/False laut Handelskalender (None, wenn der Markt unbekannt ist)."""
+    import boersenkalender as BK
     werte = (daten or {}).get("werte") if isinstance(daten, dict) else None
     if not isinstance(werte, dict):
         return []
@@ -79,5 +85,17 @@ def ticker_eintraege(daten, max_alter_tage=7, jetzt=None):
             continue
         if kurs <= 0 or vor <= 0 or (t.tzinfo and jetzt - t > datetime.timedelta(days=max_alter_tage)):
             continue
-        aus.append((name, kurs, (kurs / vor - 1) * 100, einheit))
+        offen = BK.markt_offen(MARKT[symbol], jetzt) if symbol in MARKT else None
+        aus.append((name, kurs, (kurs / vor - 1) * 100, einheit, offen))
     return aus
+
+
+def stand_text(daten, jetzt=None):
+    """"Stand 14:35 Uhr" (heute) bzw. "Stand 20.11. 22:10 Uhr" aus dem Abrufzeitpunkt der Datei, sonst ""."""
+    from zoneinfo import ZoneInfo
+    try:
+        t = datetime.datetime.fromisoformat(str((daten or {}).get("stand"))).astimezone(ZoneInfo("Europe/Berlin"))
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    jetzt = (jetzt or datetime.datetime.now(datetime.timezone.utc)).astimezone(ZoneInfo("Europe/Berlin"))
+    return "Stand " + (t.strftime("%H:%M") if t.date() == jetzt.date() else t.strftime("%d.%m. %H:%M")) + " Uhr"

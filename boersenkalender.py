@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 BOERSEN = {
     "XETRA": {"tz": ZoneInfo("Europe/Berlin"), "auf": (9, 0), "zu": (17, 30), "name": "Xetra"},
     "NYSE": {"tz": ZoneInfo("America/New_York"), "auf": (9, 30), "zu": (16, 0), "name": "NYSE"},
+    # Tokio: Handelszeiten mit Mittagspause; japanische Feiertage sind NICHT hinterlegt (nur Wochenenden)
+    "TSE": {"tz": ZoneInfo("Asia/Tokyo"), "auf": (9, 0), "zu": (15, 30), "pause": ((11, 30), (12, 30)), "name": "Tokio"},
 }
 # Ausserplanmaessige ganztaegige Schliessungen (Staatstrauer, Unwetter)
 SONDERSCHLIESSUNGEN = {
@@ -67,7 +69,36 @@ def feiertage(boerse, jahr):
 
 
 def ist_handelstag(boerse, d):
+    if boerse == "TSE":
+        return d.weekday() < 5
     return d.weekday() < 5 and d not in feiertage(boerse, d.year)
+
+
+def boerse_offen(boerse, jetzt):
+    """Laeuft der regulaere Handel gerade (Handelstag, innerhalb der Zeiten, ausserhalb einer Mittagspause)?"""
+    b = BOERSEN[boerse]
+    t = jetzt.astimezone(b["tz"])
+    if not ist_handelstag(boerse, t.date()) or not datetime.time(*b["auf"]) <= t.time() < datetime.time(*b["zu"]):
+        return False
+    pause = b.get("pause")
+    return not (pause and datetime.time(*pause[0]) <= t.time() < datetime.time(*pause[1]))
+
+
+NY = ZoneInfo("America/New_York")
+
+
+def markt_offen(markt, jetzt):
+    """Wie boerse_offen, zusaetzlich fuer rund um die Uhr gehandelte Maerkte:
+    KRYPTO immer; FX (Devisen) So 17:00 - Fr 17:00 New York; COMEX (Gold-Future) So-Fr 18:00-17:00 New York."""
+    if markt == "KRYPTO":
+        return True
+    if markt in ("FX", "COMEX"):
+        t = jetzt.astimezone(NY)
+        wt, zeit = t.weekday(), t.time()
+        if wt == 5 or (wt == 6 and zeit < datetime.time(18 if markt == "COMEX" else 17)) or (wt == 4 and zeit >= datetime.time(17)):
+            return False
+        return markt == "FX" or not datetime.time(17) <= zeit < datetime.time(18)      # taegliche Pause COMEX
+    return boerse_offen(markt, jetzt)
 
 
 def handelstage_zwischen(boerse, von, bis):

@@ -1864,14 +1864,16 @@ def startseite_ticker():
     if not GH_STATE_READY:
         return
     try:
-        eintraege = indizes.ticker_eintraege(kurs_vorrat().indizes())
+        _idx = kurs_vorrat().indizes()
+        eintraege = indizes.ticker_eintraege(_idx)
         nachrichten = kurs_vorrat().news()
     except Exception as e:
         logging.warning(f"Ticker nicht geladen: {type(e).__name__}")
         return
     teile = []
-    if eintraege:          # Stand der Kurse steht schon in der Kachel darueber
-        teile.append(startseite.ticker_html(eintraege, "Indizes heute"))
+    if eintraege:          # je Wert: gruener Punkt = Boerse offen, "Schluss" = letzter Schlusskurs
+        _stand = indizes.stand_text(_idx)
+        teile.append(startseite.ticker_html(eintraege, "Indizes heute" + (f" · {_stand}" if _stand else "")))
     if nachrichten:        # Finanz-Schlagzeilen (Kurs-Agent, news.py)
         teile.append(startseite.news_html(nachrichten, datetime.datetime.now(BERLIN_TZ)))
     if any(teile):

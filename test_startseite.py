@@ -40,13 +40,44 @@ class Indizes(unittest.TestCase):
                        "^GSPC": {"k": 6000, "p": 5900, "t": "2026-10-01T10:00:00+00:00"}}}
         e = I.ticker_eintraege(d, jetzt=jetzt)
         self.assertEqual([x[0] for x in e], ["DAX", "EUR/USD"])
+        self.assertEqual([x[4] for x in e], [True, True])                   # Mi 13 Uhr Berlin: Xetra + Devisen offen
         self.assertEqual(I.ticker_eintraege(None), [])
+
+    def test_boersenstatus_und_stand(self):
+        import datetime
+        import boersenkalender as BK
+        utc = datetime.timezone.utc
+        sa = datetime.datetime(2026, 11, 21, 12, tzinfo=utc)
+        self.assertFalse(BK.markt_offen("XETRA", sa))
+        self.assertFalse(BK.markt_offen("FX", sa))
+        self.assertTrue(BK.markt_offen("KRYPTO", sa))
+        mo_nacht = datetime.datetime(2026, 11, 23, 2, tzinfo=utc)            # So 21 Uhr New York
+        self.assertTrue(BK.markt_offen("FX", mo_nacht))
+        self.assertTrue(BK.markt_offen("COMEX", mo_nacht))
+        self.assertFalse(BK.markt_offen("COMEX", datetime.datetime(2026, 11, 23, 22, 30, tzinfo=utc)))  # 17:30 NY
+        self.assertFalse(BK.markt_offen("TSE", datetime.datetime(2026, 11, 23, 3, tzinfo=utc)))         # 12 Uhr Tokio
+        self.assertTrue(BK.markt_offen("TSE", datetime.datetime(2026, 11, 23, 1, tzinfo=utc)))          # 10 Uhr Tokio
+        self.assertTrue(BK.markt_offen("NYSE", datetime.datetime(2026, 11, 23, 15, tzinfo=utc)))
+        self.assertTrue(set(I.MARKT) >= {s for s, _, _ in I.INDIZES})        # jeder Tickerwert hat einen Markt
+        jetzt = datetime.datetime(2026, 11, 21, 13, tzinfo=utc)
+        self.assertEqual(I.stand_text({"stand": "2026-11-21T13:35:00+01:00"}, jetzt), "Stand 13:35 Uhr")
+        self.assertEqual(I.stand_text({"stand": "2026-11-20T22:10:00+01:00"}, jetzt), "Stand 20.11. 22:10 Uhr")
+        self.assertEqual(I.stand_text({}), "")
 
     def test_pfad_wie_vorrat(self):
         self.assertEqual(I.PFAD, KV.PFAD_INDIZES)
 
 
 class TickerHtml(unittest.TestCase):
+    def test_boersenstatus_im_band(self):
+        h = S.ticker_html([("DAX", 24000, 0.5, "", True), ("S&P 500", 6000, -1, "", False), ("Gold", 2000, 0, "$")],
+                          "Indizes heute · Stand 13:35 Uhr")
+        self.assertEqual(h.count('class="tk-live"'), 2)                      # je Haelfte des Bands einmal
+        self.assertEqual(h.count('class="tk-schluss">Schluss<'), 2)
+        self.assertIn("Börse geöffnet", h)
+        self.assertIn("Schlusskurs", h)
+        self.assertIn("Stand 13:35 Uhr", h)
+
     def test_band_doppelt_einheiten_und_maskiert(self):
         h = S.ticker_html([("<b>", 1234.5, 1.25, "€"), ("DAX", 24012.5, -2, ""), ("EUR/USD", 1.0812, 0, "fx")], "Stand")
         self.assertEqual(h.count('class="tk-teil"'), 2)
