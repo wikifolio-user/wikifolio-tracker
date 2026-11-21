@@ -1379,6 +1379,7 @@ ANSICHT_EKS = "🎯 EKS-Investmentbewertung"
 ANSICHT_GLOSSAR = "📖 Begriffe"         # Fachbegriffe erklaert (glossar.py) - fuer alle sichtbar
 ANSICHT_GESUNDHEIT = "❤️ Gesundheit"     # gesundheit_ui.py - Gesundheitsdaten, NUR fuer den Admin
 ANSICHT_KO = "🎯 Knock-out-Rechner"      # ko_rechner_ui.py - Index-Knock-out-Gewinnrechner, fuer alle
+ANSICHT_ETP = "📈 ETF-/ETP-Hebelrechner"  # etp_rechner_ui.py - taeglich gehebelte Produkte, fuer alle
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -1412,6 +1413,7 @@ ANSICHTEN = [
     ANSICHT_GLOSSAR,            # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_GESUNDHEIT,         # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_KO,                 # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_ETP,                # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1442,6 +1444,7 @@ ANSICHT_KURZ = {
     ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
     ANSICHT_KO: "🎯 Knock-out",
+    ANSICHT_ETP: "📈 ETP-Hebel",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1472,6 +1475,7 @@ NAV_NAMEN = {
     ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
     ANSICHT_KO: "🎯 Knock-out-Rechner",
+    ANSICHT_ETP: "📈 ETF-/ETP-Hebelrechner",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1500,7 +1504,7 @@ NAV_ZEILEN = [
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Werkzeuge",
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
     ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
-    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO]),
+    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO, ANSICHT_ETP]),
     ("Gesundheit", [ANSICHT_GESUNDHEIT]),
     ("Hilfe", [ANSICHT_GLOSSAR]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
@@ -1509,7 +1513,7 @@ NAV_ZEILEN = [
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
-                     ANSICHT_GESUNDHEIT, ANSICHT_KO}
+                     ANSICHT_GESUNDHEIT, ANSICHT_KO, ANSICHT_ETP}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1518,7 +1522,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
               ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT,
-              ANSICHT_KO}
+              ANSICHT_KO, ANSICHT_ETP}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1663,6 +1667,9 @@ RECHNER_EINGABEN = {
     # Knock-out-Rechner: je Index ko_<INDEX>_...; Spiegel-Widgets (_s/_n/_d), Knoepfe und Sitzungswerte nicht merken
     "ko_rechner": ("ko_", re.compile(r"_[snd]$|_q\d+$|_btn$|_auswahl$|_speichern$|_auto$|^ko_(csv|reset|frisch|meldung"
                                      r"|refresh_zeit|stand_gesehen|fx_ziel)$")),
+    # ETF-/ETP-Hebelrechner: wie der Knock-out-Rechner je Basiswert etp_<CODE>_...
+    "etp_rechner": ("etp_", re.compile(r"_[snd]$|_btn$|_auswahl$|_speichern$|_auto$|_chart$|^etp_(csv|csv_diag|reset"
+                                       r"|meldung|bt_von_d|bt_bis_d)$")),
 }
 
 
@@ -1809,6 +1816,25 @@ def eingaben_offene_speichern():
             logging.warning(f"Offene Eingaben '{bereich}' nicht gespeichert: {type(e).__name__}")
 
 
+def _ko_uebernehmen(w):
+    """ETP-Rechner -> Knock-out-Rechner: Basiswert, Einsatz, Kursziel, Zieltermin, Richtung und Hebel uebernehmen
+    (Schluessel wie ko_rechner_ui; die Spiegel-Widgets werden neu angelegt) und dorthin wechseln."""
+    s = st.session_state
+    c = w["index"]
+    s["ko_index"] = c
+    for feld in ("einsatz", "ziel", "hebel"):
+        s[f"ko_{c}_{feld}"] = float(w[feld])
+        for zusatz in ("_s", "_n"):
+            s.pop(f"ko_{c}_{feld}{zusatz}", None)
+    if w.get("termin"):
+        s[f"ko_{c}_termin"] = w["termin"].isoformat()
+        s.pop(f"ko_{c}_termin_d", None)
+    s[f"ko_{c}_richtung"] = w["richtung"]
+    if w["hebel"] > 10:
+        s[f"ko_{c}_erweitert"] = True
+    _nav_waehle(ANSICHT_KO)
+
+
 def _nav_waehle(ansicht):
     eingaben_offene_speichern()
     st.session_state["ansicht_aktiv"] = ansicht
@@ -1914,7 +1940,7 @@ def _sichtbar(ansicht):
     """Darf der angemeldete Benutzer diese Ansicht sehen? Die Benutzerverwaltung
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
-    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO):    # Erklaerungen bzw. Rechner ohne eigene Daten - fuer alle
+    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP):    # Erklaerungen bzw. Rechner ohne eigene Daten
         return True
     if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT):     # Gesundheitsdaten: nur angemeldeter Admin
         return bool(n) and n.get("rolle") == "admin"
@@ -2916,6 +2942,21 @@ def render_dashboard():
 
     if gewaehlte_ansicht == ANSICHT_GLOSSAR:
         glossar_ui.seite(st)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_ETP:
+        try:
+            import etp_rechner_ui
+            rechner_vorbelegen("etp_rechner")
+            etp_rechner_ui.seite({"indizes": lambda: kurs_vorrat().indizes(), "ohlc": lambda: kurs_vorrat().ohlc(),
+                                  "abrufen": lambda sym: indizes.abrufen(
+                                      sym, requests.get, datetime.datetime.now(datetime.timezone.utc).isoformat()),
+                                  "zum_ko": _ko_uebernehmen})
+            rechner_merken("etp_rechner")
+            rechner_leiste("etp_rechner")
+        except Exception as e:
+            st.error(f"⚠️ Fehler im ETF-/ETP-Hebelrechner: {e}")
+            notify_app_error("Tab-ETP-Rechner", e)
         lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_KO:
