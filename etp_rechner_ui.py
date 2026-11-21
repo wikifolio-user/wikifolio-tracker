@@ -26,7 +26,7 @@ HEBEL_OPTIONEN = [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]
 DIAGRAMM_HEBEL = (2, 3)
 HALTEN = re.compile(r"^etp_(index|modus|verlauf|vgl_a|vgl_b|ko_hebel|ko_fin|bt_von|bt_von_d|bt_bis_d|bt_hebel|"
                     r"[A-Z]{3}_(man_an|man|fx_an|fx_ziel)|p_(kennung|name|emittent|hebel|kurs|waehrung|kosten|"
-                    r"finanzierung|spread|stand|gesichert))$")
+                    r"finanzierung|spread|stand|gesichert|abruf))$")
 POS, NEG = "#34D399", "#F87171"
 
 
@@ -125,16 +125,43 @@ def _produkt_laden():
     s[P + "p_stand"] = p.get("stand") or ""
 
 
-def _produkt_formular(code):
+def _automatisch_laden(get):
+    """WKN/ISIN -> ETP-Daten von onvista in die Felder uebernehmen (Callback); passender Basiswert wird gewaehlt."""
+    import produktdaten as PD
+    s = st.session_state
+    try:
+        p = PD.etp_produkt(s.get(P + "p_kennung"), get)
+    except PD.ProduktFehler as e:
+        s[P + "p_abruf"] = "fehler:" + str(e)
+        return
+    for f in ("name", "emittent", "hebel", "kurs", "waehrung", "kosten", "spread"):
+        if p.get(f) is not None:
+            s[f"{P}p_{f}"] = p[f]
+    s[P + "p_kennung"] = p.get("wkn") or s.get(P + "p_kennung")
+    s[P + "p_stand"] = (p.get("stand") or "").replace("T", " ")[:16] + " UTC" if p.get("stand") else ""
+    if p.get("basiswert") in BASIS:
+        s[P + "index"] = p["basiswert"]
+    s[P + "p_abruf"] = ("ok:" + f"{p['name']} ({p['emittent']}) von {PD.QUELLE} übernommen. Bitte Währungssicherung und "
+                        "Finanzierungskosten aus dem Factsheet/KID prüfen."
+                        + (" Nicht geliefert: " + ", ".join(p["fehlt"]) + "." if p["fehlt"] else "")
+                        + ("" if p.get("basiswert") in BASIS else " Der Basisindex ist keiner der unterstützten Indizes."))
+
+
+def _produkt_formular(code, get=None):
     s = st.session_state
     b = _bibliothek()
     if b:
         st.selectbox("Gespeichertes Produkt laden", [""] + sorted(b), key=P + "p_auswahl", on_change=_produkt_laden,
                      format_func=lambda x: x or "– auswählen –")
     st.text_input("WKN oder ISIN", key=P + "p_kennung", max_chars=12, placeholder="z. B. A3GL7E")
-    st.button("Produktdaten automatisch laden", key=P + "p_auto", disabled=True,
-              help="Automatischer Abruf folgt in einem eigenen Schritt – bis dahin bitte die Daten aus dem "
-                   "Factsheet/KID des Emittenten übernehmen.")
+    st.button("🔎 Produktdaten automatisch laden", key=P + "p_auto", disabled=get is None,
+              on_click=_automatisch_laden, args=(get,),
+              help="Lädt Name, Emittent, Hebelfaktor, Kurs, Währung, laufende Kosten und Spread (Quelle: onvista.de).")
+    meldung = s.get(P + "p_abruf") or ""
+    if meldung.startswith("ok:"):
+        st.success(meldung[3:])
+    elif meldung.startswith("fehler:"):
+        st.warning(meldung[7:] + " Die Felder können von Hand ausgefüllt werden.")
     sp = KU._spalten()
     for i, (f, label, art) in enumerate(FELDER):
         ziel = sp[i % 2]
@@ -239,7 +266,7 @@ def seite(h):
                 "EUR/USD-Effekt berücksichtigen (nicht währungsgesichertes Produkt)", key=_k(code, "fx_an")))
     else:
         with st.container(border=True):
-            produkt = _produkt_formular(code)
+            produkt = _produkt_formular(code, h.get("get"))
         if not produkt.get("hebel"):
             st.info("Bitte mindestens den täglichen Hebelfaktor des Produkts eintragen.")
             return
