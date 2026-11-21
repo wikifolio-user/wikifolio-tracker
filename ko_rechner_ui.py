@@ -103,7 +103,7 @@ def _heute():
 # Index gewaehlt, Ansicht verlassen) - Streamlit loescht solche Werte sonst. Knoepfe sind ausgenommen.
 HALTEN = re.compile(r"^ko_(index|gebuehr|fx_ziel|vergleich|[A-Z]{3}_(richtung|man_an|man|erweitert)|"
                     r"p[AB]_(kennung|basiswert|richtung|stand|emittent|typ|basispreis|ko_schwelle|bezug|geld|brief|"
-                    r"finanzierung_pct|restwert))$")
+                    r"finanzierung_pct|restwert|quanto|abruf))$")
 
 
 def _werte_halten():
@@ -369,7 +369,7 @@ def seite(h):
     _risiko(r, szen, "Theoretische Hebel-Simulation", fx_relevant=K.INDIZES[code]["waehrung"] != "EUR")
 
     # 9. Echtes Zertifikat (optional)
-    produkt_ergebnisse = _zertifikate(code, start, fx, einsatz, ziel, tage, termin)
+    produkt_ergebnisse = _zertifikate(code, start, fx, einsatz, ziel, tage, termin, h.get("get"))
 
     # Zusatz: Vergleich zweier Indizes, Export, Zuruecksetzen
     _index_vergleich(daten, jetzt, code)
@@ -493,7 +493,8 @@ def _produkt_aus(slot):
     k = f"{P}p{slot}_"
     p = {f: s.get(k + f) for f, _, _ in FELDER}
     p.update({"wkn": (s.get(k + "kennung") or "").strip().upper(), "basiswert": s.get(k + "basiswert"),
-              "richtung": (s.get(k + "richtung") or "Long").lower(), "stand": s.get(k + "stand")})
+              "richtung": (s.get(k + "richtung") or "Long").lower(), "stand": s.get(k + "stand"),
+              "quanto": bool(s.get(k + "quanto"))})
     for f in ("finanzierung_pct", "restwert"):
         p[f] = p.get(f) or 0.0
     return p
@@ -522,6 +523,38 @@ def _produkt_laden(slot):
     s[k + "basiswert"] = p.get("basiswert")
     s[k + "richtung"] = (p.get("richtung") or "long").capitalize()
     s[k + "stand"] = p.get("stand") or ""
+    s[k + "quanto"] = bool(p.get("quanto"))
+
+
+def _automatisch_laden(slot, get):
+    """WKN/ISIN -> Produktdaten von onvista in die Felder uebernehmen (Callback). Fehlendes bleibt leer."""
+    import produktdaten as PD
+    s = st.session_state
+    k = f"{P}p{slot}_"
+    try:
+        p = PD.ko_produkt(s.get(k + "kennung"), get)
+    except PD.ProduktFehler as e:
+        s[k + "abruf"] = "fehler:" + str(e)
+        return
+    for f in ("emittent", "typ", "basispreis", "ko_schwelle", "bezug", "geld", "brief", "restwert"):
+        if p.get(f) is not None:
+            s[k + f] = p[f]
+    s[k + "kennung"] = p.get("wkn") or s.get(k + "kennung")
+    if p.get("basiswert"):
+        s[k + "basiswert"] = p["basiswert"]
+    if p.get("richtung"):
+        s[k + "richtung"] = p["richtung"].capitalize()
+    s[k + "quanto"] = bool(p.get("quanto"))
+    s[k + "stand"] = (p.get("stand") or "").replace("T", " ")[:16] + " UTC" if p.get("stand") else ""
+    hinweise = []
+    if p["fehlt"]:
+        hinweise.append("Nicht geliefert: " + ", ".join(p["fehlt"]) + " – bitte ergänzen.")
+    if p.get("ausgeknockt"):
+        hinweise.append("Achtung: Laut Quelle wurde die Knock-out-Schwelle bereits berührt.")
+    if not p.get("basiswert"):
+        hinweise.append("Basiswert ist keiner der vier Indizes.")
+    s[k + "abruf"] = "ok:" + f"{p['name']} ({p['emittent']}) von {PD.QUELLE} übernommen. Finanzierungskosten liefert " \
+                             "die Quelle nicht – bitte aus den Produktbedingungen ergänzen. " + " ".join(hinweise)
 
 
 def _spalten(n=2):
@@ -529,7 +562,7 @@ def _spalten(n=2):
     return [st.container() for _ in range(n)] if UI.ist_smartphone() else st.columns(n)
 
 
-def _produkt_formular(slot, code):
+def _produkt_formular(slot, code, get=None):
     s = st.session_state
     k = f"{P}p{slot}_"
     b = _bibliothek()
@@ -540,9 +573,15 @@ def _produkt_formular(slot, code):
     sp[0].text_input("WKN oder ISIN", key=k + "kennung", max_chars=12, placeholder="z. B. MK487D")
     s.setdefault(k + "basiswert", code)
     sp[1].selectbox("Basiswert", CODES, key=k + "basiswert", format_func=NAMEN.get)
-    st.button("Produktdaten automatisch laden", key=k + "auto", disabled=True,
-              help="Automatischer Abruf folgt in einem eigenen Schritt – bis dahin bitte die Daten vom Emittenten "
-                   "(Produktseite/Factsheet) übernehmen.")
+    st.button("🔎 Produktdaten automatisch laden", key=k + "auto", disabled=get is None,
+              on_click=_automatisch_laden, args=(slot, get),
+              help="Lädt Basispreis, Knock-out-Schwelle, Bezugsverhältnis, Geld-/Briefkurs, Emittent und Typ "
+                   "(Quelle: onvista.de). Bitte danach prüfen.")
+    meldung = s.get(k + "abruf") or ""
+    if meldung.startswith("ok:"):
+        st.success(meldung[3:])
+    elif meldung.startswith("fehler:"):
+        st.warning(meldung[7:] + " Die Felder können von Hand ausgefüllt werden.")
     s.setdefault(k + "richtung", "Long")
     st.segmented_control("Typ", ["Long", "Short"], key=k + "richtung", width="stretch")
     sp = _spalten()
@@ -555,17 +594,19 @@ def _produkt_formular(slot, code):
             ziel.number_input(label, min_value=0.0, step=0.0001 if art == "bezug" else 0.01,
                               format="%.4f" if art == "bezug" else "%.2f", key=k + f)
     st.text_input("Stand der Produktdaten (Datum/Uhrzeit)", key=k + "stand", placeholder="z. B. 21.11.2026 10:15")
+    st.toggle("Quanto (währungsgesichert: 1 Indexpunkt = 1 €-Einheit, kein EUR/USD-Effekt)", key=k + "quanto")
     st.button("💾 Produkt speichern", key=k + "speichern", on_click=_produkt_speichern, args=(slot,))
     return _produkt_aus(slot)
 
 
-def _zertifikate(code, start, fx, einsatz, ziel, tage, termin):
+def _zertifikate(code, start, fx, einsatz, ziel, tage, termin, get=None):
     """Optional: bis zu zwei echte Zertifikate. -> [(name, ergebnis)]"""
     s = st.session_state
     ergebnisse = []
     with st.expander("🔎 Echtes Knock-out-Zertifikat (WKN/ISIN) – optional", expanded=bool(s.get(P + "pA_brief"))):
-        st.caption("Produktdaten bitte vom Emittenten übernehmen (Produktseite oder Factsheet). Der Hebel ergibt sich "
-                   "aus dem Produkt; gerechnet wird mit Einsatz, Kursziel und Zieltermin von oben.")
+        st.caption("WKN/ISIN eingeben und „Produktdaten automatisch laden“ tippen (Quelle: onvista.de) – oder die Daten "
+                   "vom Emittenten übernehmen. Der Hebel ergibt sich aus dem Produkt; gerechnet wird mit Einsatz, "
+                   "Kursziel und Zieltermin von oben.")
         g = _spalten()
         gk = g[0].number_input("Ordergebühr je Kauf/Verkauf (€)", min_value=0.0, step=0.5, format="%.2f",
                                key=P + "gebuehr")
@@ -579,7 +620,7 @@ def _zertifikate(code, start, fx, einsatz, ziel, tage, termin):
         tabs = st.tabs(["Zertifikat A", "Zertifikat B (Vergleich)"])
         for slot, tab in zip("AB", tabs):
             with tab:
-                p = _produkt_formular(slot, code)
+                p = _produkt_formular(slot, code, get)
                 if not p.get("brief"):
                     st.caption("Noch keine vollständigen Produktdaten.")
                     continue

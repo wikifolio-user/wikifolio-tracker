@@ -288,8 +288,8 @@ def produkt_pruefen(p, index_kurs=None):
 
 
 def _fx(produkt, eurusd_kurs):
-    """Faktor Indexwaehrung -> EUR (1 bei DAX, 1/EURUSD bei US-Indizes)."""
-    if INDIZES[produkt["basiswert"]]["waehrung"] == "EUR":
+    """Faktor Indexwaehrung -> EUR (1 bei DAX und Quanto-Produkten, 1/EURUSD bei US-Indizes)."""
+    if INDIZES[produkt["basiswert"]]["waehrung"] == "EUR" or produkt.get("quanto"):
         return 1.0
     if not eurusd_kurs or eurusd_kurs <= 0:
         raise ValueError("Für US-Indizes wird der EUR/USD-Kurs benötigt.")

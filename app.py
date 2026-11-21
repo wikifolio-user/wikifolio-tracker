@@ -1674,10 +1674,10 @@ RECHNER_EINGABEN = {
     "abfindung": ("abf_", re.compile(r"_tab_|^abf_fj|_pdf$|_karte|_form$|^abf_av_betrag$|_btn$|^abf_nav$"
                                      r"|^abf_mo_wahl$|^abf_sp_nav$")),
     # Knock-out-Rechner: je Index ko_<INDEX>_...; Spiegel-Widgets (_s/_n/_d), Knoepfe und Sitzungswerte nicht merken
-    "ko_rechner": ("ko_", re.compile(r"_[snd]$|_q\d+$|_btn$|_auswahl$|_speichern$|_auto$|^ko_(csv|reset|frisch|meldung"
+    "ko_rechner": ("ko_", re.compile(r"_[snd]$|_q\d+$|_btn$|_auswahl$|_speichern$|_auto$|_abruf$|^ko_(csv|reset|frisch|meldung"
                                      r"|refresh_zeit|stand_gesehen|fx_ziel)$")),
     # ETF-/ETP-Hebelrechner: wie der Knock-out-Rechner je Basiswert etp_<CODE>_...
-    "etp_rechner": ("etp_", re.compile(r"_[snd]$|_btn$|_auswahl$|_speichern$|_auto$|_chart$|^etp_(csv|csv_diag|reset"
+    "etp_rechner": ("etp_", re.compile(r"_[snd]$|_btn$|_auswahl$|_speichern$|_auto$|_abruf$|_chart$|^etp_(csv|csv_diag|reset"
                                        r"|meldung|bt_von_d|bt_bis_d)$")),
     # Fear & Greed Monitor: Auswahl, Warnregeln und gesehene Warnungen merken; Knoepfe/Sitzungswerte nicht
     "fear_greed": ("fg_", re.compile(r"_btn$|_editor$|_chart$|^fg_(frisch|meldung|refresh_zeit|stand_gesehen)$")),
@@ -2967,7 +2967,7 @@ def render_dashboard():
             etp_rechner_ui.seite({"indizes": lambda: kurs_vorrat().indizes(), "ohlc": lambda: kurs_vorrat().ohlc(),
                                   "abrufen": lambda sym: indizes.abrufen(
                                       sym, requests.get, datetime.datetime.now(datetime.timezone.utc).isoformat()),
-                                  "zum_ko": _ko_uebernehmen})
+                                  "zum_ko": _ko_uebernehmen, "get": requests.get})
             rechner_merken("etp_rechner")
             rechner_leiste("etp_rechner")
         except Exception as e:
@@ -2979,7 +2979,7 @@ def render_dashboard():
         try:
             import ko_rechner_ui
             rechner_vorbelegen("ko_rechner")
-            ko_rechner_ui.seite({"indizes": lambda: kurs_vorrat().indizes(),
+            ko_rechner_ui.seite({"indizes": lambda: kurs_vorrat().indizes(), "get": requests.get,
                                  "abrufen": lambda sym: indizes.abrufen(
                                      sym, requests.get, datetime.datetime.now(datetime.timezone.utc).isoformat())})
             rechner_merken("ko_rechner")
