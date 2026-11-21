@@ -21,10 +21,24 @@ INDEX_OHLC = {        # Yahoo-Symbol -> (Kurzname, Anzeigename, Boerse)
     "^GDAXI": ("DAX", "DAX 40", "XETRA"),
     "^GSPC": ("SPX", "S&P 500", "NYSE"),
     "^DJI": ("DJI", "Dow Jones", "NYSE"),
+    # Volatilitaetsindizes der CBOE ("Angstbarometer"); fuer den DAX liefert Yahoo keinen VDAX
+    "^VIX": ("VIX", "VIX (S&P 500)", "NYSE"),
+    "^VXN": ("VXN", "VXN (Nasdaq 100)", "NYSE"),
+    "^VXD": ("VXD", "VXD (Dow Jones)", "NYSE"),
 }
 YAHOO_URL = "https://{host}.finance.yahoo.com/v8/finance/chart/{symbol}"
 CNN_URL = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start}"
 CRYPTO_URL = "https://api.alternative.me/fng/"
+CMC_URL = "https://pro-api.coinmarketcap.com/public-api/v3/fear-and-greed/latest"        # oeffentlich, ohne Schluessel
+CMC_VERLAUF_URL = "https://api.coinmarketcap.com/data-api/v3/fear-greed/chart"
+# Teilindikatoren des CNN Fear & Greed Index (Schluessel in der CNN-Antwort -> Anzeigename)
+CNN_TEILE = {"market_momentum_sp500": "Marktmomentum (S&P 500 vs. 125-Tage-Linie)",
+             "stock_price_strength": "Kursstärke (52-Wochen-Hochs vs. -Tiefs)",
+             "stock_price_breadth": "Marktbreite (Volumen steigender vs. fallender Aktien)",
+             "put_call_options": "Put/Call-Verhältnis",
+             "market_volatility_vix": "Volatilität (VIX)",
+             "safe_haven_demand": "Nachfrage nach sicheren Häfen (Aktien vs. Anleihen)",
+             "junk_bond_demand": "Nachfrage nach Hochzinsanleihen"}
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                          "Chrome/124.0 Safari/537.36", "Accept": "application/json"}
 
@@ -141,7 +155,14 @@ def cnn_parsen(antwort):
         v = _wert(p.get("y"))
         if v is not None:
             verlauf[d] = v                             # je Tag der letzte Wert
+    teile = {}
+    for k in CNN_TEILE:
+        t = antwort.get(k) if isinstance(antwort.get(k), dict) else {}
+        w = _wert(t.get("score"))
+        if w is not None:
+            teile[k] = {"wert": w, "kategorie": str(t.get("rating") or "")}
     return {"wert": wert, "kategorie": str(fg.get("rating") or ""), "zeit": str(fg.get("timestamp") or ""),
+            "teile": teile,
             "vortag": _wert(fg.get("previous_close")), "vorwoche": _wert(fg.get("previous_1_week")),
             "vormonat": _wert(fg.get("previous_1_month")), "vorjahr": _wert(fg.get("previous_1_year")),
             "verlauf": [[d, verlauf[d]] for d in sorted(verlauf)], "quelle": "CNN Business"}
@@ -187,6 +208,35 @@ def _abruf(get, url, params, parser):
         return None
 
 
+def cmc_parsen(latest, chart=None):
+    """CoinMarketCap Crypto Fear & Greed (oeffentlicher Endpunkt) + Verlauf -> Eintrag wie crypto_parsen oder None."""
+    try:
+        d = latest["data"]
+        if str((latest.get("status") or {}).get("error_code") or "0") != "0":
+            return None
+    except (KeyError, TypeError, AttributeError):
+        return None
+    wert = _wert(d.get("value"))
+    if wert is None:
+        return None
+    punkte = {}
+    for p in ((((chart or {}).get("data") or {}).get("dataList")) or []) if isinstance(chart, dict) else []:
+        try:
+            t = datetime.datetime.fromtimestamp(int(p["timestamp"]), datetime.timezone.utc).date().isoformat()
+        except (KeyError, TypeError, ValueError, OSError):
+            continue
+        v = _wert(p.get("score"))
+        if v is not None:
+            punkte[t] = v
+    verlauf = [[t, punkte[t]] for t in sorted(punkte)]
+    heute = str(d.get("update_time") or "")[:10]
+    if heute and (not verlauf or verlauf[-1][0] < heute):
+        verlauf.append([heute, wert])
+    vor = [w for t, w in verlauf if t < heute] if heute else []
+    return {"wert": wert, "kategorie": str(d.get("value_classification") or ""), "zeit": str(d.get("update_time") or ""),
+            "vortag": vor[-1] if vor else None, "vorwoche": None, "verlauf": verlauf, "quelle": "CoinMarketCap"}
+
+
 def sentiment_abrufen(get, jetzt):
     """-> {"cnn": eintrag|None, "crypto": eintrag|None}. Erst die lange Historie; liefert die Quelle sie nicht,
     ersatzweise die letzten 400 Tage (dann fehlt nur die lange Historie, der aktuelle Wert bleibt aktuell)."""
@@ -195,7 +245,20 @@ def sentiment_abrufen(get, jetzt):
            or _abruf(get, CNN_URL.format(start=kurz), None, cnn_parsen))
     crypto = (_abruf(get, CRYPTO_URL, {"limit": 0, "format": "json"}, crypto_parsen)        # 0 = alle seit 2018
               or _abruf(get, CRYPTO_URL, {"limit": 400, "format": "json"}, crypto_parsen))
-    return {"cnn": cnn, "crypto": crypto}
+    cmc = None
+    try:
+        r = get(CMC_URL, headers=HEADERS, timeout=20)
+        if r.status_code == 200:
+            chart = None
+            try:
+                c = get(CMC_VERLAUF_URL, params={"start": 1, "end": int(jetzt.timestamp())}, headers=HEADERS, timeout=25)
+                chart = c.json() if c.status_code == 200 else None
+            except Exception:
+                chart = None
+            cmc = cmc_parsen(r.json(), chart)
+    except Exception:
+        cmc = None
+    return {"cnn": cnn, "crypto": crypto, "cmc": cmc}
 
 
 def neue_sentiment(alt, geladen, stand):

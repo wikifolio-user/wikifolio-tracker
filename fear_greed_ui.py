@@ -18,12 +18,16 @@ import ui_stil as UI
 P = "fg_"
 BERLIN = ZoneInfo("Europe/Berlin")
 NAMEN = {mid: name for mid, name, _, _ in F.MAERKTE}
+NAMEN["cmc"] = "Krypto (CoinMarketCap)"
 ZEITRAEUME = {"7 Tage": 7, "30 Tage": 30, "90 Tage": 90, "1 Jahr": 365, "3 Jahre": 3 * 365, "5 Jahre": 5 * 365,
               "Max": 100 * 365}
-ART_BADGE = {"extern": ("Extern", "fg-b-ext"), "eigen": ("Eigener Score", "fg-b-eig"), "proxy": ("Proxy", "fg-b-pro"),
-             "fehlt": ("n. v.", "fg-b-nv")}
+ART_BADGE = {"extern": ("Extern", "fg-b-ext"), "eigen": ("Eigener Score", "fg-b-eig"), "zweit": ("Extern", "fg-b-ext")}
 REFRESH_ABSTAND_SEK = 60
-KURZ = {"fehlt": "Keine verlässliche frei nutzbare Quelle – Details unten."}
+TEILE_NAMEN = {"market_momentum_sp500": "Marktmomentum (S&P 500 vs. 125-Tage-Linie)",
+               "stock_price_strength": "Kursstärke (52-Wochen-Hochs vs. -Tiefs)",
+               "stock_price_breadth": "Marktbreite (Volumen steigender vs. fallender Aktien)",
+               "put_call_options": "Put/Call-Verhältnis", "market_volatility_vix": "Volatilität (VIX)",
+               "safe_haven_demand": "Nachfrage nach sicheren Häfen", "junk_bond_demand": "Nachfrage nach Hochzinsanleihen"}
 
 CSS = """<style>
 .fg-kopf { display:flex; gap:12px; align-items:center; margin:2px 0 8px; }
@@ -36,9 +40,11 @@ CSS = """<style>
 .fg-gesamt .fg-gw { font-size:1.9rem; font-weight:800; line-height:1.1; font-variant-numeric:tabular-nums; }
 .fg-zaehl { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
 .fg-chip { font-size:.8rem; font-weight:700; padding:3px 10px; border-radius:999px; background:#1F2430; color:#E8ECF6; }
-.fg-raster { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:6px 0 8px; }
-@media (max-width: 1100px) { .fg-raster { grid-template-columns:repeat(2, minmax(0,1fr)); } }
-@media (max-width: 640px) { .fg-gesamt { grid-template-columns:1fr; } .fg-raster { gap:8px; } }
+.fg-raster { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin:6px 0 8px; }
+@media (max-width: 640px) { .fg-gesamt { grid-template-columns:1fr; } .fg-raster { grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; } }
+.fg-vola { display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 8px; align-items:center; }
+.fg-vola .fg-l { margin-right:4px; }
+.fg-zweit { font-size:.74rem; color:#C9CED6; margin-top:4px; }
 .fg-karte { border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:10px 12px; background:rgba(255,255,255,.03);
     min-width:0; }
 .fg-karte .fg-name { font-size:.82rem; font-weight:700; color:#E8ECF6; display:flex; justify-content:space-between;
@@ -178,6 +184,7 @@ def seite(h):
         st.warning("Noch keine Stimmungsdaten vorhanden. Der Kurs-Agent legt sie bei seinem nächsten Lauf ab "
                    "(etwa alle 30 Minuten) – oder oben 🔄 tippen.")
     _gesamt(F.gesamt(kl))
+    _vola_zeile(F.volatilitaet(ohlc))
     _warn_banner(kl)
     st.markdown('<div class="fg-raster">' + "".join(_karte(k) for k in kl) + "</div>", unsafe_allow_html=True)
     st.caption("Farben einheitlich: 0–24 Extreme Angst · 25–44 Angst · 45–55 Neutral · 56–75 Gier · 76–100 Extreme "
@@ -186,8 +193,9 @@ def seite(h):
     _detail(kl)
     _vergleich(kl)
     _warnungen_einstellen()
-    st.caption("Quellen: CNN Business (Fear & Greed Index), Alternative.me (Crypto Fear & Greed Index), Yahoo Finance "
-               "(Tageskerzen der Cash-Indizes für die eigenen Scores). Keine Anlageberatung.")
+    st.caption("Quellen: CNN Business (Fear & Greed Index), Alternative.me und CoinMarketCap (Crypto Fear & Greed), "
+               "Yahoo Finance (Tageskerzen der Cash-Indizes und der Volatilitätsindizes VIX/VXN/VXD für die eigenen "
+               "Scores). Keine Anlageberatung.")
 
 
 def _gesamt(g):
@@ -199,7 +207,7 @@ def _gesamt(g):
         f'<div class="fg-gw" style="color:{farbe or "#A9ACB0"}">{_de(sc)}'
         f'<span style="font-size:.95rem;font-weight:700"> {kat or "Nicht verfügbar"}</span></div>'
         + (f'<div class="fg-skala"><span style="left:{sc}%"></span></div>' if sc is not None else "")
-        + f'<div class="fg-meta">Eigener Durchschnitt aus {g["anzahl"]} unabhängigen Indikatoren (ohne Proxy) – '
+        + f'<div class="fg-meta">Eigener Durchschnitt aus {g["anzahl"]} unabhängigen Indikatoren (CoinMarketCap zählt nicht zusätzlich) – '
           'kein offizieller Fear-&amp;-Greed-Index.</div></div>'
         '<div><div class="fg-l">Stimmung der Märkte</div><div class="fg-zaehl">'
         f'<span class="fg-chip" style="color:#F87171">Angst {g["angst"]}</span>'
@@ -207,6 +215,21 @@ def _gesamt(g):
         f'<span class="fg-chip" style="color:#34D399">Gier {g["gier"]}</span></div>'
         f'<div class="fg-meta">Ø Veränderung zum Vortag: <b class="{_klasse(aend)}">{_aend_text(aend)}</b><br>'
         f'Letzte Aktualisierung: {_zeit_text(g["letzte"])}</div></div></div>', unsafe_allow_html=True)
+
+
+def _vola_zeile(liste):
+    """Angstbarometer: Volatilitaetsindizes mit Tagesveraenderung und Jahresrang (hoch = viel Angst)."""
+    if not liste:
+        return
+    teile = []
+    for v in liste:
+        farbe = "#F87171" if v["perzentil"] >= 80 else "#FBBF24" if v["perzentil"] >= 50 else "#34D399"
+        teile.append(f'<span class="fg-chip" title="{v["basis"]}, Stand {_datum_de(v["datum"])}"><b>{v["name"]}</b> '
+                     f'{_de(v["wert"], 1)} <span class="{"fg-neg" if v["aenderung_pct"] > 0 else "fg-pos"}">'
+                     f'{"+" if v["aenderung_pct"] > 0 else ""}{_de(v["aenderung_pct"], 1)} %</span> · '
+                     f'<span style="color:{farbe}">Jahresrang {_de(v["perzentil"], 0)} %</span></span>')
+    st.markdown('<div class="fg-vola"><span class="fg-l">Angstbarometer</span>' + "".join(teile) + "</div>",
+                unsafe_allow_html=True)
 
 
 def _klasse(x):
@@ -239,18 +262,32 @@ def _karte(k):
             f'<span class="fg-badge {cls}">{titel}</span></div>')
     if k["wert"] is None:
         return (f'<div class="fg-karte">{kopf}<div class="fg-leer">Nicht verfügbar</div>'
-                f'<div class="fg-meta">{html.escape(KURZ.get(k["art"]) or k["hinweis"] or "Noch keine Daten.")}'
-                '</div></div>')
+                f'<div class="fg-meta">{html.escape(k["hinweis"] or "Noch keine Daten.")}</div></div>')
     farbe = k["farbe"]
     orig = f' ({html.escape(k["original"])})' if k["original"] and k["original"] != k["kategorie"] else ""
     alt = '<span class="fg-alt">Veraltete Daten · </span>' if k["status"] == "veraltet" else ""
-    hinweis = "<br>Proxy: Crypto Fear &amp; Greed – zählt nicht in der Gesamtstimmung." if k["art"] == "proxy" else ""
+    zweit = ""
+    z = k.get("zweit") or {}
+    if z.get("wert") is not None:
+        zweit = (f'<div class="fg-zweit">CoinMarketCap: <b style="color:{z["farbe"]}">{_de(z["wert"], 0)}</b> '
+                 f'{z["kategorie"]}{" · veraltet" if z["status"] == "veraltet" else ""}</div>')
     return (f'<div class="fg-karte">{kopf}<div class="fg-wert" style="color:{farbe}">{_de(k["wert"], 0)}</div>'
             f'<div class="fg-kat" style="color:{farbe}">{k["kategorie"]}{orig}</div>'
             f'<div class="fg-skala"><span style="left:{k["wert"]}%"></span></div>'
             f'<div class="fg-zeile"><span class="fg-aend {_klasse(k["aenderung"])}">{_aend_text(k["aenderung"])}'
             f' <span class="fg-neu" style="font-weight:400">ggü. Vortag</span></span>{_sparkline(k["verlauf"], farbe)}</div>'
-            f'<div class="fg-meta">{alt}{_zeit_text(k["zeit"])} · {html.escape(k["quelle"])}{hinweis}</div></div>')
+            f'{zweit}<div class="fg-meta">{alt}{_zeit_text(k["zeit"])} · {html.escape(k["quelle"])}</div></div>')
+
+
+def _mit_zweitquelle(kl):
+    """Karten + CoinMarketCap als eigener Eintrag fuer Detailansicht und Vergleich (nicht als Karte)."""
+    aus = list(kl)
+    kr = next((k for k in kl if k["id"] == "krypto"), None)
+    z = (kr or {}).get("zweit") or {}
+    if z.get("wert") is not None:
+        aus.append(dict(z, id="cmc", name=NAMEN["cmc"], art="zweit", hinweis="Zweite Krypto-Quelle – nur zur "
+                        "Information, zählt nicht in der Gesamtstimmung."))
+    return aus
 
 
 # ---------------------------------------------------------------------------------------------------- Detail/Vergleich
@@ -273,10 +310,12 @@ def _linien_chart(serien, hoehe=300, baender=True, key=None):
 def _detail(kl):
     st.markdown("**Detailansicht**")
     s = st.session_state
-    if s.get(P + "detail") not in NAMEN:
+    liste = _mit_zweitquelle(kl)
+    ids = [k["id"] for k in liste]
+    if s.get(P + "detail") not in ids:
         s[P + "detail"] = "us"
-    mid = st.pills("Markt", list(NAMEN), key=P + "detail", format_func=NAMEN.get, label_visibility="collapsed") or "us"
-    k = next(x for x in kl if x["id"] == mid)
+    mid = st.pills("Markt", ids, key=P + "detail", format_func=NAMEN.get, label_visibility="collapsed") or "us"
+    k = next(x for x in liste if x["id"] == mid)
     if s.get(P + "zeitraum") not in ZEITRAEUME:
         s[P + "zeitraum"] = "30 Tage"
     zr = st.segmented_control("Zeitraum", list(ZEITRAEUME), key=P + "zeitraum", label_visibility="collapsed") or "30 Tage"
@@ -305,16 +344,38 @@ def _detail(kl):
         st.markdown('<div style="overflow-x:auto"><table class="fg-tab"><tr><th>Faktor</th><th class="r">Gewicht</th>'
                     '<th class="r">Rohwert</th><th class="r">Teilwert</th><th>Normierung</th></tr>' + zeilen
                     + "</table></div>", unsafe_allow_html=True)
-        st.caption("Eigener Sentiment-Score = gewichteter Mittelwert der Teilwerte (0–100) aus den Tageskerzen des "
-                   "Cash-Index. Berechnet nur, wenn alle Faktoren aus mindestens "
-                   f"{F.MIN_KERZEN} Handelstagen vorliegen. Kein offizieller Fear-&-Greed-Index.")
+        vq = ({"^VIX": "VIX", "^VXN": "VXN", "^VXD": "VXD"}.get(k.get("vola_index"), "")
+              if f.get("vola_quelle") == "implizit" else "gemessene 20-Tage-Schwankung")
+        st.caption("Roh-Score = gewichteter Mittelwert der Teilwerte (0–100) aus den Tageskerzen des Cash-Index; "
+                   f"Volatilität hier: {vq}. Berechnet nur, wenn alle Faktoren aus mindestens {F.MIN_KERZEN} "
+                   "Handelstagen vorliegen. Kein offizieller Fear-&-Greed-Index.")
+        e = k.get("eichung")
+        if e:
+            st.markdown(f"**Eichung an CNN:** Roh-Score {_de(k.get('roh'))} → angezeigt {_de(k['wert'])}")
+            st.caption(f"Abgleich S&P-500-Roh-Score mit CNN Fear & Greed an {e['n']} gemeinsamen Tagen "
+                       f"({_datum_de(e['von'])} – {_datum_de(e['bis'])}): Ø Abstand vorher {_de(e['abstand_vor'])}, "
+                       f"nachher {_de(e['abstand_nach'])} Punkte; gleiche Kategorie an {_de(e['gleiche_gruppe'], 0)} % "
+                       "der Tage. Die Eichung bildet die Verteilung der Roh-Scores auf die von CNN ab (Rang bleibt "
+                       "erhalten)." + ("" if k["id"] == "spx" else " Für diesen Index ist das eine Annahme – es gibt "
+                                       "keinen offiziellen Vergleichswert."))
+        else:
+            st.caption("Noch nicht geeicht: zu wenige gemeinsame Tage mit CNN. Angezeigt wird der Roh-Score.")
+    elif k["id"] == "us" and k.get("teile"):
+        zeilen = "".join(f'<tr><td>{html.escape(TEILE_NAMEN.get(t, t))}</td><td class="r" style="color:'
+                         f'{F.kategorie(w["wert"])[1]}">{_de(w["wert"], 0)}</td><td>{F.kategorie(w["wert"])[0]}'
+                         f'{(" (" + html.escape(F.original_deutsch(w["kategorie"])) + ")") if w.get("kategorie") else ""}'
+                         '</td></tr>' for t, w in k["teile"].items())
+        st.markdown('<b>Die sieben Teilindikatoren von CNN</b><div style="overflow-x:auto"><table class="fg-tab">'
+                    '<tr><th>Teilindikator</th><th class="r">Wert</th><th>Kategorie</th></tr>' + zeilen
+                    + "</table></div>", unsafe_allow_html=True)
+        st.caption("Der CNN-Index ist der Mittelwert dieser Teilindikatoren (Quelle: CNN Business).")
     elif k["hinweis"]:
         st.caption(k["hinweis"])
 
 
 def _vergleich(kl):
     with st.expander("⚖️ Märkte vergleichen"):
-        mit = [k for k in kl if k["verlauf"] and k["art"] != "proxy"]
+        mit = [k for k in _mit_zweitquelle(kl) if k["verlauf"]]
         if len(mit) < 2:
             st.caption("Für einen Vergleich liegen noch zu wenige Verläufe vor.")
             return

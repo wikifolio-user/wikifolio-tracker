@@ -86,20 +86,24 @@ class Karten(unittest.TestCase):
         self.ohlc = {"indizes": {"^GDAXI": {"kerzen": _kerzen()}, "^NDX": {"kerzen": _kerzen(schritt=-0.002)},
                                  "^GSPC": {"kerzen": _kerzen(100)}}}
 
-    def test_acht_karten_proxy_fehlt_eigen(self):
-        k = {x["id"]: x for x in F.karten(_sentiment(), self.ohlc, JETZT)}
-        self.assertEqual(len(k), 8)
+    def test_sechs_karten_krypto_mit_zweitquelle(self):
+        sent = _sentiment()
+        sent["quellen"]["cmc"] = {"wert": 8.0, "kategorie": "Extreme fear", "ok": "2026-11-21T08:00:00+00:00",
+                                  "zeit": "2026-11-21T08:00:00Z", "verlauf": [["2026-11-21", 8.0]]}
+        sent["quellen"]["cnn"]["teile"] = {"put_call_options": {"wert": 20.0, "kategorie": "extreme fear"}}
+        k = {x["id"]: x for x in F.karten(sent, self.ohlc, JETZT)}
+        self.assertEqual(list(k), ["us", "krypto", "dax", "ndx", "spx", "dji"])          # kein Bitcoin/Ethereum mehr
         self.assertEqual((k["us"]["wert"], k["us"]["kategorie"], k["us"]["original"], k["us"]["aenderung"]),
                          (22.0, "Extreme Angst", "Extreme Angst", -18.0))
-        self.assertEqual(k["btc"]["art"], "proxy")
-        self.assertIn("Proxy", k["btc"]["hinweis"])
-        self.assertIsNone(k["eth"]["wert"])                                  # nie ein fremder Wert
-        self.assertIn("Nicht verfügbar", k["eth"]["hinweis"])
+        self.assertEqual(k["us"]["teile"]["put_call_options"]["wert"], 20.0)
+        self.assertEqual((k["krypto"]["zweit"]["wert"], k["krypto"]["zweit"]["kategorie"]), (8.0, "Extreme Angst"))
         self.assertIn("Eigener DAX 40-Sentiment-Score", k["dax"]["quelle"])
         self.assertIsNotNone(k["dax"]["faktoren"])
         self.assertIsNone(k["spx"]["wert"])                                   # 100 Kerzen: zu wenig
         self.assertIn("Zu wenige", k["spx"]["hinweis"])
         self.assertEqual(k["dji"]["status"], "fehlt")
+        g = F.gesamt(list(k.values()))
+        self.assertEqual(g["anzahl"], 4)                                       # CMC zaehlt nicht zusaetzlich
 
     def test_veraltet(self):
         k = {x["id"]: x for x in F.karten(_sentiment(ok="2026-11-18T08:00:00+00:00"), {}, JETZT)}
@@ -111,7 +115,7 @@ class Karten(unittest.TestCase):
         kl = F.karten(_sentiment(), self.ohlc, JETZT)
         g = F.gesamt(kl)
         unab = [x for x in kl if x["art"] in ("extern", "eigen") and x["wert"] is not None]
-        self.assertEqual(g["anzahl"], len(unab))                              # Bitcoin-Proxy zaehlt nicht
+        self.assertEqual(g["anzahl"], len(unab))
         self.assertEqual(g["angst"] + g["neutral"] + g["gier"], g["anzahl"])
         self.assertAlmostEqual(g["score"], round(sum(x["wert"] for x in unab) / len(unab), 1))
         self.assertIsNone(F.gesamt([])["score"])
@@ -124,15 +128,42 @@ class Karten(unittest.TestCase):
         self.assertIsNone(F.zeitraum([], 7))
 
 
+class EichungUndVola(unittest.TestCase):
+    def test_eichung_monoton_und_naeher(self):
+        roh = [[f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}", 40 + i % 50] for i in range(200)]
+        cnn = [[d, max(0, w - 25)] for d, w in roh]                          # CNN systematisch 25 tiefer
+        e = F.eichung(roh, cnn)
+        self.assertEqual(e["n"], 200)
+        self.assertGreater(e["abstand_vor"], 20)
+        self.assertLess(e["abstand_nach"], 2)
+        werte = [F.geeicht(x, e) for x in range(0, 101, 5)]
+        self.assertEqual(werte, sorted(werte))                               # Rangfolge bleibt erhalten
+        self.assertEqual(F.anwenden([["a", 89]], None), [["a", 89]])          # ohne Eichung: Rohwert
+        self.assertIsNone(F.eichung(roh[:10], cnn[:10]))                      # zu wenige gemeinsame Tage
+
+    def test_volaindex_als_faktor_und_angstbarometer(self):
+        k = _kerzen(300)
+        ruhig = [[x[0], 0, 0, 0, 15.0] for x in k]
+        panik = ruhig[:-1] + [[k[-1][0], 0, 0, 0, 40.0]]
+        s_ruhig = F.score([x[4] for x in k][-F.MIN_KERZEN:], [x[4] for x in ruhig][-253:])
+        s_panik = F.score([x[4] for x in k][-F.MIN_KERZEN:], [x[4] for x in panik][-253:])
+        self.assertLess(s_panik, s_ruhig)                                     # hoher VIX = mehr Angst
+        f = F.faktoren([x[4] for x in k], [x[4] for x in panik][-253:])
+        self.assertEqual(f["vola_quelle"], "implizit")
+        self.assertEqual(F.faktoren([x[4] for x in k])["vola_quelle"], "gemessen")   # DAX: ohne Index
+        v = F.volatilitaet({"indizes": {"^VIX": {"kerzen": panik}}})
+        self.assertEqual((v[0]["name"], v[0]["wert"]), ("VIX", 40.0))
+        self.assertGreater(v[0]["perzentil"], 99)
+
+
 class Warnungen(unittest.TestCase):
     def test_regeln_und_keine_doppelten(self):
         kl = F.karten(_sentiment(), {}, JETZT)
         w = F.warnungen(kl, F.STANDARD_REGELN)
         texte = " ".join(x["text"] for x in w)
         self.assertIn("US-Aktienmarkt fällt unter 25", texte)
-        self.assertIn("Kryptowährungen steigt über 75", texte)
+        self.assertIn("Krypto (inkl. Bitcoin) steigt über 75", texte)
         self.assertIn("US-Aktienmarkt ändert sich um mehr als 15: aktuell -18,0 Punkte", texte)
-        self.assertFalse(any(x["markt"] == "btc" for x in w))                 # Proxy loest nichts aus
         self.assertTrue(all(x["neu"] for x in w))
         gesehen = [x["schluessel"] for x in w]
         self.assertFalse(any(x["neu"] for x in F.warnungen(kl, F.STANDARD_REGELN, gesehen)))   # nicht doppelt
