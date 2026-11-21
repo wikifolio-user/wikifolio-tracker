@@ -30,6 +30,8 @@ class Kalender(unittest.TestCase):
         self.assertTrue(BK.ist_handelstag("NYSE", datetime.date(2021, 6, 18)))        # vor 2022 kein Feiertag
         self.assertFalse(BK.ist_handelstag("XETRA", datetime.date(2025, 12, 24)))
         self.assertTrue(BK.ist_handelstag("NYSE", datetime.date(2025, 12, 24)))       # Halbtag = Handelstag
+        self.assertFalse(BK.ist_handelstag("XETRA", datetime.date(2021, 5, 24)))     # Pfingstmontag (frueher frei)
+        self.assertTrue(BK.ist_handelstag("XETRA", datetime.date(2025, 6, 9)))       # heute gehandelt
         self.assertEqual(len(BK.handelstage_zwischen("XETRA", datetime.date(2025, 12, 22),
                                                      datetime.date(2026, 1, 2))), 5)
 

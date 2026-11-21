@@ -16,7 +16,12 @@ BOERSEN = {
 SONDERSCHLIESSUNGEN = {
     "NYSE": {datetime.date(2018, 12, 5), datetime.date(2025, 1, 9), datetime.date(2012, 10, 29),
              datetime.date(2012, 10, 30)},
-    "XETRA": set(),
+    # Frueher an Xetra handelsfrei: Pfingstmontag (bis 2021), Tag der Deutschen Einheit (bis 2019, sofern
+    # Werktag) und der einmalige Reformationstag 2017 - ohne sie meldete die Datenpruefung falsche "Luecken"
+    "XETRA": {datetime.date(2015, 5, 25), datetime.date(2016, 5, 16), datetime.date(2016, 10, 3),
+              datetime.date(2017, 6, 5), datetime.date(2017, 10, 3), datetime.date(2017, 10, 31),
+              datetime.date(2018, 5, 21), datetime.date(2018, 10, 3), datetime.date(2019, 6, 10),
+              datetime.date(2019, 10, 3), datetime.date(2020, 6, 1), datetime.date(2021, 5, 24)},
 }
 
 
