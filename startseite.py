@@ -33,15 +33,21 @@ def ticker_html(eintraege, stand_text=""):
     der Bildschirm - so ist jeder Wert nur einmal zu sehen, auch wenn es wenige sind."""
     if not eintraege:
         return ""
+    eintraege = [tuple(e) + (None,) * (5 - len(e)) for e in eintraege]     # (name, kurs, pct, einheit, offen)
     teile = []
-    for name, kurs, pct, einheit in eintraege:
+    for name, kurs, pct, einheit, offen in eintraege:
         klasse = "auf" if pct > 0.005 else "ab" if pct < -0.005 else "gleich"
         pfeil = "▲" if klasse == "auf" else "▼" if klasse == "ab" else "■"
-        teile.append(f'<span class="tk-wert"><b>{html.escape(name)}</b> {_kurs_text(kurs, einheit)} '
-                     f'<span class="tk-{klasse}">{pfeil}&nbsp;{"+" if pct > 0 else ""}{_zahl(pct)}&nbsp;%</span></span>')
+        punkt = '<span class="tk-live" title="Börse geöffnet"></span>' if offen else ""
+        schluss = '<span class="tk-schluss">Schluss</span>' if offen is False else ""
+        teile.append(f'<span class="tk-wert">{punkt}<b>{html.escape(name)}</b> {_kurs_text(kurs, einheit)} '
+                     f'<span class="tk-{klasse}">{pfeil}&nbsp;{"+" if pct > 0 else ""}{_zahl(pct)}&nbsp;%</span>'
+                     f'{schluss}</span>')
     band = "".join(teile)
     dauer = max(10, 2.5 * len(eintraege))       # 2,5 s je Wert
-    vorlese = "; ".join(f"{n} {_vorlese(k, e)}, {'+' if p > 0 else ''}{_zahl(p)} Prozent" for n, k, p, e in eintraege)
+    vorlese = "; ".join(f"{n} {_vorlese(k, e)}, {'+' if p > 0 else ''}{_zahl(p)} Prozent"
+                        + (", Börse geöffnet" if o else ", Schlusskurs" if o is False else "")
+                        for n, k, p, e, o in eintraege)
     return (f'<div class="tk-rahmen" role="marquee" aria-label="Kurse heute: {html.escape(vorlese)}">'
             + (f'<div class="tk-stand">{html.escape(stand_text)}</div>' if stand_text else "")
             + f'<div class="tk-fenster"><div class="tk-band" style="animation-duration:{dauer}s" aria-hidden="true">'
@@ -106,6 +112,11 @@ CSS = """<style>
 .tk-auf { color: var(--pos, #34D399); font-weight: 650; }
 .tk-ab { color: var(--neg, #F87171); font-weight: 650; }
 .tk-gleich { color: var(--label, #A9B1C4); font-weight: 650; }
+.tk-live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #34D399; margin-right: 6px;
+    vertical-align: middle; box-shadow: 0 0 6px rgba(52,211,153,.8); animation: tk-blink 1.6s ease-in-out infinite; }
+.tk-schluss { font-size: .68rem; font-weight: 650; color: var(--label, #A9B1C4); margin-left: 6px; padding: 1px 6px;
+    border-radius: 999px; border: 1px solid var(--rand, rgba(255,255,255,.18)); vertical-align: middle; }
+@keyframes tk-blink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .tk-news .tk-wert { font-size: .86rem; }
 .tk-news a { color: var(--text, #E8ECF6) !important; text-decoration: none; }
 .tk-news a:hover, .tk-news a:focus-visible { text-decoration: underline; }
@@ -113,7 +124,7 @@ CSS = """<style>
 .tk-news .tk-quelle { color: var(--label, #A9B1C4); margin-left: 6px; font-size: .78rem; }
 @keyframes tk-lauf { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) {
-    .tk-band { animation: none; } .tk-teil + .tk-teil { display: none; }
+    .tk-band { animation: none; } .tk-teil + .tk-teil { display: none; } .tk-live { animation: none; }
     .tk-fenster { overflow-x: auto; -webkit-mask-image: none; mask-image: none; }
 }
 </style>"""

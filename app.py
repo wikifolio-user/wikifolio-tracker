@@ -1378,6 +1378,10 @@ ANSICHT_WIKI = "💹 KI_Invest_System"
 ANSICHT_EKS = "🎯 EKS-Investmentbewertung"
 ANSICHT_GLOSSAR = "📖 Begriffe"         # Fachbegriffe erklaert (glossar.py) - fuer alle sichtbar
 ANSICHT_GESUNDHEIT = "❤️ Gesundheit"     # gesundheit_ui.py - Gesundheitsdaten, NUR fuer den Admin
+ANSICHT_KO = "🎯 Knock-out-Rechner"      # ko_rechner_ui.py - Index-Knock-out-Gewinnrechner, fuer alle
+ANSICHT_ETP = "📈 ETF-/ETP-Hebelrechner"  # etp_rechner_ui.py - taeglich gehebelte Produkte, fuer alle
+ANSICHT_FG = "🌡️ Fear & Greed"           # fear_greed_ui.py - Marktstimmung, fuer alle
+ANSICHT_GAP = "🕳️ Gap Analyzer"          # gap_analyzer_ui.py - Kursluecken der vier Indizes, fuer alle
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -1410,6 +1414,10 @@ ANSICHTEN = [
     ANSICHT_EKS,                # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_GLOSSAR,            # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_GESUNDHEIT,         # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_KO,                 # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_ETP,                # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_FG,                 # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_GAP,                # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1439,6 +1447,10 @@ ANSICHT_KURZ = {
     ANSICHT_EKS: "🎯 EKS-Bewertung",
     ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
+    ANSICHT_KO: "🎯 Knock-out",
+    ANSICHT_ETP: "📈 ETP-Hebel",
+    ANSICHT_FG: "🌡️ Fear & Greed",
+    ANSICHT_GAP: "🕳️ Gaps",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1468,6 +1480,10 @@ NAV_NAMEN = {
     ANSICHT_EKS: "🎯 EKS-Bewertung",
     ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
+    ANSICHT_KO: "🎯 Knock-out-Rechner",
+    ANSICHT_ETP: "📈 ETF-/ETP-Hebelrechner",
+    ANSICHT_FG: "🌡️ Fear & Greed Monitor",
+    ANSICHT_GAP: "🕳️ Gap Analyzer",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1495,8 +1511,9 @@ NAV_ZEILEN = [
                "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Werkzeuge",
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
+    ("Märkte", [ANSICHT_FG, ANSICHT_GAP]),             # Marktstimmung und Index-Werkzeuge
     ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
-    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
+    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO, ANSICHT_ETP]),
     ("Gesundheit", [ANSICHT_GESUNDHEIT]),
     ("Hilfe", [ANSICHT_GLOSSAR]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
@@ -1505,7 +1522,7 @@ NAV_ZEILEN = [
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
-                     ANSICHT_GESUNDHEIT}
+                     ANSICHT_GESUNDHEIT, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1513,7 +1530,8 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
-              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT}
+              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT,
+              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1655,6 +1673,16 @@ RECHNER_EINGABEN = {
                                       r"|_karte|_form$")),
     "abfindung": ("abf_", re.compile(r"_tab_|^abf_fj|_pdf$|_karte|_form$|^abf_av_betrag$|_btn$|^abf_nav$"
                                      r"|^abf_mo_wahl$|^abf_sp_nav$")),
+    # Knock-out-Rechner: je Index ko_<INDEX>_...; Spiegel-Widgets (_s/_n/_d), Knoepfe und Sitzungswerte nicht merken
+    "ko_rechner": ("ko_", re.compile(r"_[snd]$|_q\d+$|_btn$|_auswahl$|_speichern$|_auto$|^ko_(csv|reset|frisch|meldung"
+                                     r"|refresh_zeit|stand_gesehen|fx_ziel)$")),
+    # ETF-/ETP-Hebelrechner: wie der Knock-out-Rechner je Basiswert etp_<CODE>_...
+    "etp_rechner": ("etp_", re.compile(r"_[snd]$|_btn$|_auswahl$|_speichern$|_auto$|_chart$|^etp_(csv|csv_diag|reset"
+                                       r"|meldung|bt_von_d|bt_bis_d)$")),
+    # Fear & Greed Monitor: Auswahl, Warnregeln und gesehene Warnungen merken; Knoepfe/Sitzungswerte nicht
+    "fear_greed": ("fg_", re.compile(r"_btn$|_editor$|_chart$|^fg_(frisch|meldung|refresh_zeit|stand_gesehen)$")),
+    # Gap Analyzer: Definition, Zeitraum, Filter, Alerts und gesehene Meldungen merken
+    "gap_analyzer": ("gap_", re.compile(r"_btn$|^gap_tab_|^gap_csv|^gap_xlsx|^gap_chart$|_weg$|^gap_reihe_")),
 }
 
 
@@ -1801,6 +1829,25 @@ def eingaben_offene_speichern():
             logging.warning(f"Offene Eingaben '{bereich}' nicht gespeichert: {type(e).__name__}")
 
 
+def _ko_uebernehmen(w):
+    """ETP-Rechner -> Knock-out-Rechner: Basiswert, Einsatz, Kursziel, Zieltermin, Richtung und Hebel uebernehmen
+    (Schluessel wie ko_rechner_ui; die Spiegel-Widgets werden neu angelegt) und dorthin wechseln."""
+    s = st.session_state
+    c = w["index"]
+    s["ko_index"] = c
+    for feld in ("einsatz", "ziel", "hebel"):
+        s[f"ko_{c}_{feld}"] = float(w[feld])
+        for zusatz in ("_s", "_n"):
+            s.pop(f"ko_{c}_{feld}{zusatz}", None)
+    if w.get("termin"):
+        s[f"ko_{c}_termin"] = w["termin"].isoformat()
+        s.pop(f"ko_{c}_termin_d", None)
+    s[f"ko_{c}_richtung"] = w["richtung"]
+    if w["hebel"] > 10:
+        s[f"ko_{c}_erweitert"] = True
+    _nav_waehle(ANSICHT_KO)
+
+
 def _nav_waehle(ansicht):
     eingaben_offene_speichern()
     st.session_state["ansicht_aktiv"] = ansicht
@@ -1864,14 +1911,16 @@ def startseite_ticker():
     if not GH_STATE_READY:
         return
     try:
-        eintraege = indizes.ticker_eintraege(kurs_vorrat().indizes())
+        _idx = kurs_vorrat().indizes()
+        eintraege = indizes.ticker_eintraege(_idx)
         nachrichten = kurs_vorrat().news()
     except Exception as e:
         logging.warning(f"Ticker nicht geladen: {type(e).__name__}")
         return
     teile = []
-    if eintraege:          # Stand der Kurse steht schon in der Kachel darueber
-        teile.append(startseite.ticker_html(eintraege, "Indizes heute"))
+    if eintraege:          # je Wert: gruener Punkt = Boerse offen, "Schluss" = letzter Schlusskurs
+        _stand = indizes.stand_text(_idx)
+        teile.append(startseite.ticker_html(eintraege, "Indizes heute" + (f" · {_stand}" if _stand else "")))
     if nachrichten:        # Finanz-Schlagzeilen (Kurs-Agent, news.py)
         teile.append(startseite.news_html(nachrichten, datetime.datetime.now(BERLIN_TZ)))
     if any(teile):
@@ -1906,7 +1955,8 @@ def _sichtbar(ansicht):
     """Darf der angemeldete Benutzer diese Ansicht sehen? Die Benutzerverwaltung
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
-    if ansicht == ANSICHT_GLOSSAR:           # reine Erklaerungen, keine Daten - fuer alle
+    # Erklaerungen, Rechner und Marktdaten ohne eigene Daten - fuer alle
+    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP):
         return True
     if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT):     # Gesundheitsdaten: nur angemeldeter Admin
         return bool(n) and n.get("rolle") == "admin"
@@ -2908,6 +2958,60 @@ def render_dashboard():
 
     if gewaehlte_ansicht == ANSICHT_GLOSSAR:
         glossar_ui.seite(st)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_ETP:
+        try:
+            import etp_rechner_ui
+            rechner_vorbelegen("etp_rechner")
+            etp_rechner_ui.seite({"indizes": lambda: kurs_vorrat().indizes(), "ohlc": lambda: kurs_vorrat().ohlc(),
+                                  "abrufen": lambda sym: indizes.abrufen(
+                                      sym, requests.get, datetime.datetime.now(datetime.timezone.utc).isoformat()),
+                                  "zum_ko": _ko_uebernehmen})
+            rechner_merken("etp_rechner")
+            rechner_leiste("etp_rechner")
+        except Exception as e:
+            st.error(f"⚠️ Fehler im ETF-/ETP-Hebelrechner: {e}")
+            notify_app_error("Tab-ETP-Rechner", e)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_KO:
+        try:
+            import ko_rechner_ui
+            rechner_vorbelegen("ko_rechner")
+            ko_rechner_ui.seite({"indizes": lambda: kurs_vorrat().indizes(),
+                                 "abrufen": lambda sym: indizes.abrufen(
+                                     sym, requests.get, datetime.datetime.now(datetime.timezone.utc).isoformat())})
+            rechner_merken("ko_rechner")
+            rechner_leiste("ko_rechner")
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Knock-out-Rechner: {e}")
+            notify_app_error("Tab-KO-Rechner", e)
+    if gewaehlte_ansicht == ANSICHT_GAP:
+        try:
+            import gap_analyzer_ui
+            rechner_vorbelegen("gap_analyzer")
+            gap_analyzer_ui.seite({"ohlc": lambda: kurs_vorrat().ohlc(), "indizes": lambda: kurs_vorrat().indizes()})
+            rechner_merken("gap_analyzer")
+            rechner_leiste("gap_analyzer")
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Gap Analyzer: {e}")
+            notify_app_error("Tab-GapAnalyzer", e)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_FG:
+        try:
+            import fear_greed_ui
+            import markt_daten
+            rechner_vorbelegen("fear_greed")
+            fear_greed_ui.seite({"sentiment": lambda: kurs_vorrat().sentiment(), "ohlc": lambda: kurs_vorrat().ohlc(),
+                                 "abrufen": lambda: markt_daten.sentiment_abrufen(
+                                     requests.get, datetime.datetime.now(datetime.timezone.utc))})
+            rechner_merken("fear_greed")
+            rechner_leiste("fear_greed")
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Fear & Greed Monitor: {e}")
+            notify_app_error("Tab-FearGreed", e)
         lade_fertig()
 
     # --- GESUNDHEIT (gesundheit/ + gesundheit_ui.py): nur fuer den angemeldeten Admin; Daten im privaten State-Repo
