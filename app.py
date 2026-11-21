@@ -1378,6 +1378,7 @@ ANSICHT_WIKI = "💹 KI_Invest_System"
 ANSICHT_EKS = "🎯 EKS-Investmentbewertung"
 ANSICHT_GLOSSAR = "📖 Begriffe"         # Fachbegriffe erklaert (glossar.py) - fuer alle sichtbar
 ANSICHT_GESUNDHEIT = "❤️ Gesundheit"     # gesundheit_ui.py - Gesundheitsdaten, NUR fuer den Admin
+ANSICHT_KO = "🎯 Knock-out-Rechner"      # ko_rechner_ui.py - Index-Knock-out-Gewinnrechner, fuer alle
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -1410,6 +1411,7 @@ ANSICHTEN = [
     ANSICHT_EKS,                # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_GLOSSAR,            # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_GESUNDHEIT,         # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_KO,                 # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1439,6 +1441,7 @@ ANSICHT_KURZ = {
     ANSICHT_EKS: "🎯 EKS-Bewertung",
     ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
+    ANSICHT_KO: "🎯 Knock-out",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1468,6 +1471,7 @@ NAV_NAMEN = {
     ANSICHT_EKS: "🎯 EKS-Bewertung",
     ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
+    ANSICHT_KO: "🎯 Knock-out-Rechner",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1496,7 +1500,7 @@ NAV_ZEILEN = [
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Werkzeuge",
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
     ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
-    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
+    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO]),
     ("Gesundheit", [ANSICHT_GESUNDHEIT]),
     ("Hilfe", [ANSICHT_GLOSSAR]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
@@ -1505,7 +1509,7 @@ NAV_ZEILEN = [
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
-                     ANSICHT_GESUNDHEIT}
+                     ANSICHT_GESUNDHEIT, ANSICHT_KO}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1513,7 +1517,8 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 # Ansichten ohne Live-Kurse (Ranglisten der Agenten, Rechner, Verwaltung) - dort keine Kursstand-Zeile
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
-              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT}
+              ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT,
+              ANSICHT_KO}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1655,6 +1660,9 @@ RECHNER_EINGABEN = {
                                       r"|_karte|_form$")),
     "abfindung": ("abf_", re.compile(r"_tab_|^abf_fj|_pdf$|_karte|_form$|^abf_av_betrag$|_btn$|^abf_nav$"
                                      r"|^abf_mo_wahl$|^abf_sp_nav$")),
+    # Knock-out-Rechner: je Index ko_<INDEX>_...; Spiegel-Widgets (_s/_n/_d), Knoepfe und Sitzungswerte nicht merken
+    "ko_rechner": ("ko_", re.compile(r"_[snd]$|_q\d+$|_btn$|_auswahl$|_speichern$|_auto$|^ko_(csv|reset|frisch|meldung"
+                                     r"|refresh_zeit|stand_gesehen|fx_ziel)$")),
 }
 
 
@@ -1906,7 +1914,7 @@ def _sichtbar(ansicht):
     """Darf der angemeldete Benutzer diese Ansicht sehen? Die Benutzerverwaltung
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
-    if ansicht == ANSICHT_GLOSSAR:           # reine Erklaerungen, keine Daten - fuer alle
+    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO):    # Erklaerungen bzw. Rechner ohne eigene Daten - fuer alle
         return True
     if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT):     # Gesundheitsdaten: nur angemeldeter Admin
         return bool(n) and n.get("rolle") == "admin"
@@ -2908,6 +2916,20 @@ def render_dashboard():
 
     if gewaehlte_ansicht == ANSICHT_GLOSSAR:
         glossar_ui.seite(st)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_KO:
+        try:
+            import ko_rechner_ui
+            rechner_vorbelegen("ko_rechner")
+            ko_rechner_ui.seite({"indizes": lambda: kurs_vorrat().indizes(),
+                                 "abrufen": lambda sym: indizes.abrufen(
+                                     sym, requests.get, datetime.datetime.now(datetime.timezone.utc).isoformat())})
+            rechner_merken("ko_rechner")
+            rechner_leiste("ko_rechner")
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Knock-out-Rechner: {e}")
+            notify_app_error("Tab-KO-Rechner", e)
         lade_fertig()
 
     # --- GESUNDHEIT (gesundheit/ + gesundheit_ui.py): nur fuer den angemeldeten Admin; Daten im privaten State-Repo
