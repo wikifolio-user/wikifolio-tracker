@@ -1379,6 +1379,7 @@ ANSICHT_EKS = "🎯 EKS-Investmentbewertung"
 ANSICHT_GLOSSAR = "📖 Begriffe"         # Fachbegriffe erklaert (glossar.py) - fuer alle sichtbar
 ANSICHT_GESUNDHEIT = "❤️ Gesundheit"     # gesundheit_ui.py - Gesundheitsdaten, NUR fuer den Admin
 ANSICHT_FG = "🌡️ Fear & Greed"           # fear_greed_ui.py - Marktstimmung, fuer alle
+ANSICHT_GAP = "🕳️ Gap Analyzer"          # gap_analyzer_ui.py - Kursluecken der vier Indizes, fuer alle
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -1412,6 +1413,7 @@ ANSICHTEN = [
     ANSICHT_GLOSSAR,            # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_GESUNDHEIT,         # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_FG,                 # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_GAP,                # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1442,6 +1444,7 @@ ANSICHT_KURZ = {
     ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
     ANSICHT_FG: "🌡️ Fear & Greed",
+    ANSICHT_GAP: "🕳️ Gaps",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1472,6 +1475,7 @@ NAV_NAMEN = {
     ANSICHT_GLOSSAR: "📖 Begriffe",
     ANSICHT_GESUNDHEIT: "❤️ Gesundheit",
     ANSICHT_FG: "🌡️ Fear & Greed Monitor",
+    ANSICHT_GAP: "🕳️ Gap Analyzer",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1499,7 +1503,7 @@ NAV_ZEILEN = [
                "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Werkzeuge",
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
-    ("Märkte", [ANSICHT_FG]),             # Marktstimmung und Index-Werkzeuge
+    ("Märkte", [ANSICHT_FG, ANSICHT_GAP]),             # Marktstimmung und Index-Werkzeuge
     ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ]),
     ("Gesundheit", [ANSICHT_GESUNDHEIT]),
@@ -1510,7 +1514,7 @@ NAV_ZEILEN = [
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
-                     ANSICHT_GESUNDHEIT, ANSICHT_FG}
+                     ANSICHT_GESUNDHEIT, ANSICHT_FG, ANSICHT_GAP}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1519,7 +1523,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
               ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT,
-              ANSICHT_FG}
+              ANSICHT_FG, ANSICHT_GAP}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1663,6 +1667,8 @@ RECHNER_EINGABEN = {
                                      r"|^abf_mo_wahl$|^abf_sp_nav$")),
     # Fear & Greed Monitor: Auswahl, Warnregeln und gesehene Warnungen merken; Knoepfe/Sitzungswerte nicht
     "fear_greed": ("fg_", re.compile(r"_btn$|_editor$|_chart$|^fg_(frisch|meldung|refresh_zeit|stand_gesehen)$")),
+    # Gap Analyzer: Definition, Zeitraum, Filter, Alerts und gesehene Meldungen merken
+    "gap_analyzer": ("gap_", re.compile(r"_btn$|^gap_tab_|^gap_csv|^gap_xlsx|^gap_chart$|_weg$|^gap_reihe_")),
 }
 
 
@@ -1914,7 +1920,7 @@ def _sichtbar(ansicht):
     """Darf der angemeldete Benutzer diese Ansicht sehen? Die Benutzerverwaltung
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
-    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_FG):    # Erklaerungen bzw. Marktdaten ohne eigene Daten - fuer alle
+    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_FG, ANSICHT_GAP):    # Erklaerungen bzw. Marktdaten ohne eigene Daten - fuer alle
         return True
     if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT):     # Gesundheitsdaten: nur angemeldeter Admin
         return bool(n) and n.get("rolle") == "admin"
@@ -2916,6 +2922,18 @@ def render_dashboard():
 
     if gewaehlte_ansicht == ANSICHT_GLOSSAR:
         glossar_ui.seite(st)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_GAP:
+        try:
+            import gap_analyzer_ui
+            rechner_vorbelegen("gap_analyzer")
+            gap_analyzer_ui.seite({"ohlc": lambda: kurs_vorrat().ohlc(), "indizes": lambda: kurs_vorrat().indizes()})
+            rechner_merken("gap_analyzer")
+            rechner_leiste("gap_analyzer")
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Gap Analyzer: {e}")
+            notify_app_error("Tab-GapAnalyzer", e)
         lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_FG:
