@@ -130,8 +130,33 @@ def perioden(*dataframes):
     return aus
 
 
+EINHEIT_SPRUNG = (70.0, 140.0)    # Tagessprung um ca. Faktor 100 = Wechsel Pence <-> Pfund (Cent <-> Rand ...)
+
+
+def einheiten_bereinigen(reihe):
+    """Yahoo liefert bei Londoner Werten (GBp) einzelne Tage oder ganze Abschnitte in Pfund statt Pence
+    (ebenso ZAc/ILA). Ein Tagessprung um ca. Faktor 100 ist kein echter Kurs - solche Kurse werden auf die
+    Einheit des juengsten Kurses umgerechnet (von hinten nach vorn, damit der aktuelle Kurs massgeblich bleibt).
+    reihe: [(datum, schluss, volumen)] -> neue Liste."""
+    if len(reihe) < 2:
+        return list(reihe)
+    lo, hi = EINHEIT_SPRUNG
+    aus = [reihe[-1]]
+    ref = reihe[-1][1]
+    for d, c, v in reversed(reihe[:-1]):
+        if ref and c:
+            r = c / ref
+            if lo <= r <= hi:
+                c /= 100.0
+            elif lo <= 1 / r <= hi:
+                c *= 100.0
+        aus.append((d, c, v))
+        ref = c or ref
+    return aus[::-1]
+
+
 def kursreihe(hist):
-    """yfinance history() -> [(datum, schluss, volumen)]."""
+    """yfinance history() -> [(datum, schluss, volumen)] (Einheitenspruenge Pence/Pfund bereinigt)."""
     if hist is None or getattr(hist, "empty", True):
         return []
     aus = []
@@ -140,7 +165,7 @@ def kursreihe(hist):
         if c is None:
             continue
         aus.append((str(getattr(idx, "date", lambda: idx)())[:10], c, zahl(z.get("Volume")) or 0.0))
-    return aus
+    return einheiten_bereinigen(aus)
 
 
 def dividendenreihe(div):
