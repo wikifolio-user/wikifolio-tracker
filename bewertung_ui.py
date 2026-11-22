@@ -307,8 +307,8 @@ def _kennzahlen(e, b):
                 + "".join(zeilen) + "</tbody></table></div>", unsafe_allow_html=True)
 
 
-def _app_einschaetzung(e):
-    """Vorhandene Einschaetzung des Qualitaets-Agenten (zusaetzlich, fliesst nicht in den Score ein)."""
+def einschaetzung_teile(e):
+    """Einschaetzung des Qualitaets-Agenten als Textteile (Ansicht und PDF)."""
     i = e["info"]
     teile = []
     if i.get("gesamt") is not None:
@@ -319,31 +319,43 @@ def _app_einschaetzung(e):
             teile.append(f"{titel}: {i[key]}")
     if i.get("mcap"):
         teile.append(f"Börsenwert {_zahl_de(float(i['mcap']), 0)} Mrd.")
+    return teile
+
+
+def _app_einschaetzung(e):
+    """Vorhandene Einschaetzung des Qualitaets-Agenten (zusaetzlich, fliesst nicht in den Score ein)."""
+    teile = einschaetzung_teile(e)
     if teile:
         st.caption("Einschätzung des Qualitäts-Agenten (zur Info, nicht im Score): " + " · ".join(teile))
 
 
-def _methodik(e):
+def methodik(e):
+    """Rechenweg als [(Stichwort, Text)] - fuer die Ansicht und den PDF-Bericht."""
     g = SC.GEWICHTE[e["art"]]
+    return [
+        ("Perzentil-Rang", f"Jede Kennzahl wird mit allen {SC.KLASSEN_TEXT[e['art']]} der Top-500-Liste "
+         "verglichen – „besser als 82 %“ heißt: 82 % der Vergleichswerte schneiden bei dieser Kennzahl "
+         "schlechter ab. Die Richtung ist je Kennzahl hinterlegt (z. B. niedriges KGV = gut)."),
+        ("Sektorrelativ", "Bewertungskennzahlen (KGV, EV/EBIT, FCF-Rendite …) werden nur mit Aktien "
+         f"derselben Branche verglichen, sofern es dort mindestens {SC.MIN_SEKTOR} Werte gibt – sonst mit allen."),
+        ("Einordnung", f"gut ab {SC.GUT:.0f} %, schlecht bis {SC.SCHLECHT:.0f} %, dazwischen neutral."),
+        ("Teilscore und Gesamtscore", "Teilscore = gewichteter Mittelwert der vorhandenen Kennzahlen eines "
+         "Bereichs. Gesamtscore = gewichteter Mittelwert der Teilscores ("
+         + ", ".join(f"{SC.KATEGORIEN[k]} {v} %" for k, v in g.items()) + ")."),
+        ("Fehlende Werte", "stehen als „n/a“ da und fallen aus der Gewichtung heraus – sie zählen nie als 0. "
+         f"Unter {SC.MIN_KATEGORIEN[e['art']]} Teilbereichen gibt es keinen Gesamtscore."),
+        ("Ampel", f"grün ab {SC.AMPEL_GRUEN:.0f}, gelb ab {SC.AMPEL_GELB:.0f}, sonst rot. "
+         + (f"Fazit aus dem Bewertungs-Teilscore: unterbewertet ab {SC.FAZIT_GUENSTIG:.0f}, "
+            f"teuer bis {SC.FAZIT_TEUER:.0f}." if e["art"] == "aktie" else
+            "Ein Bewertungs-Fazit (unterbewertet/teuer) gibt es nur für Aktien.")),
+        ("Sonderfälle", "Negative KGV (Verlust) zählen als teuerster Wert, negative EV-Multiplikatoren sind nicht "
+         "aussagekräftig (n/a)."),
+    ]
+
+
+def _methodik(e):
     with st.expander("So wird gerechnet"):
-        st.markdown(
-            f"- **Perzentil-Rang:** Jede Kennzahl wird mit allen {SC.KLASSEN_TEXT[e['art']]} der Top-500-Liste "
-            "verglichen – „besser als 82 %“ heißt: 82 % der Vergleichswerte schneiden bei dieser Kennzahl "
-            "schlechter ab. Die Richtung ist je Kennzahl hinterlegt (z. B. niedriges KGV = gut).\n"
-            f"- **Sektorrelativ:** Bewertungskennzahlen (KGV, EV/EBIT, FCF-Rendite …) werden nur mit Aktien "
-            f"derselben Branche verglichen, sofern es dort mindestens {SC.MIN_SEKTOR} Werte gibt – sonst mit allen.\n"
-            f"- **Einordnung:** gut ab {SC.GUT:.0f} %, schlecht bis {SC.SCHLECHT:.0f} %, dazwischen neutral.\n"
-            "- **Teilscore:** gewichteter Mittelwert der vorhandenen Kennzahlen eines Bereichs. "
-            "**Gesamtscore:** gewichteter Mittelwert der Teilscores ("
-            + ", ".join(f"{SC.KATEGORIEN[k]} {v} %" for k, v in g.items()) + ").\n"
-            "- **Fehlende Werte** stehen als „n/a“ da und fallen aus der Gewichtung heraus – sie zählen nie als 0. "
-            f"Unter {SC.MIN_KATEGORIEN[e['art']]} Teilbereichen gibt es keinen Gesamtscore.\n"
-            f"- **Ampel:** grün ab {SC.AMPEL_GRUEN:.0f}, gelb ab {SC.AMPEL_GELB:.0f}, sonst rot. "
-            + (f"**Fazit** aus dem Bewertungs-Teilscore: unterbewertet ab {SC.FAZIT_GUENSTIG:.0f}, "
-               f"teuer bis {SC.FAZIT_TEUER:.0f}." if e["art"] == "aktie" else
-               "Ein Bewertungs-Fazit (unterbewertet/teuer) gibt es nur für Aktien.")
-            + "\n- Negative KGV (Verlust) zählen als teuerster Wert, negative EV-Multiplikatoren sind nicht "
-            "aussagekräftig (n/a).")
+        st.markdown("\n".join(f"- **{t}:** {x}" for t, x in methodik(e)))
 
 
 # ---------------------------------------------------------------- Seite
@@ -409,16 +421,44 @@ def _seite(h):
     if e["art"] == "aktie":
         _app_einschaetzung(e)
     _methodik(e)
+    investoren = None
     if e["art"] == "aktie":
         schritte.titel(st, "bewertung", 5)
         try:
             import investoren_ui
-            investoren_ui.bereich(h, e, d)
+            investoren = investoren_ui.bereich(h, e, d)
         except Exception as ex:          # die Bewertung oben bleibt sichtbar, auch wenn die Checks scheitern
             logging.exception("Investoren-Checks")
             st.warning(f"Die Investoren-Checks sind gerade nicht verfügbar ({type(ex).__name__}).")
+    _pdf_bereich(e, b, d, investoren)
     st.caption("Keine Anlageberatung. Der Score ist eine regelbasierte Auswertung der vorhandenen Kennzahlen im "
                "Vergleich zur Top-500-Liste; die Daten können verzögert oder unvollständig sein.")
+
+
+def _pdf_bereich(e, b, d, investoren):
+    """Knopf "Auswertung als PDF": erzeugt den Bericht erst auf Klick (die Seite bleibt schnell)."""
+    st.markdown("**Auswertung als Datei**")
+    fertig = st.session_state.get(P + "pdf")
+    if fertig and fertig[0] != e["id"]:
+        fertig = None
+    sp = st.columns(2) if not UI.ist_smartphone() else [st.container(), st.container()]
+    if sp[0].button("📄 Auswertung als PDF erstellen", key=P + "pdf_knopf", width="stretch"):
+        try:
+            import bewertung_pdf
+            with st.spinner("Erstelle PDF …"):
+                fertig = (e["id"], bewertung_pdf.bericht(e, b, _stand_text(d["stand"]), investoren),
+                          bewertung_pdf.dateiname(e))
+            st.session_state[P + "pdf"] = fertig
+        except Exception as ex:          # der Bericht ist Zusatz - die Bewertung bleibt sichtbar
+            logging.exception("Bewertung-PDF")
+            st.warning(f"Das PDF konnte gerade nicht erstellt werden ({type(ex).__name__}).")
+            fertig = None
+    if fertig:
+        sp[1].download_button("⬇ PDF herunterladen", fertig[1], file_name=fertig[2], mime="application/pdf",
+                              key=P + "pdf_laden", width="stretch")
+    st.caption("Enthält Gesamtscore, Teilscores, alle Kennzahlen mit Vergleich"
+               + (", die Investoren-Checks (Zusammenfassung), den fairen Wert und das IBD-ähnliche Rating"
+                  if investoren else "") + ".")
 
 
 def _auswahl_text(e):

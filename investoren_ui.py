@@ -399,7 +399,7 @@ def _fairer_wert(f, kx):
     wae = u["waehrung"]
     if not mit:
         st.caption("Für keine Bewertungsmethode reichen die Daten.")
-        return
+        return u
     namen = [m["methode"] for m in mit][::-1]
     werte = [m["wert"] for m in mit][::-1]
     kurs = u["kurs"]
@@ -428,6 +428,7 @@ def _fairer_wert(f, kx):
     st.caption("Je Aktie in der Berichtswährung (der Kurs ist dafür umgerechnet). Rot = unter dem Kurs. "
                f"Reverse-DCF mit {_de(C.REVERSE_DCF['diskont'])} % Diskont und {_de(C.REVERSE_DCF['ewig'])} % "
                "ewigem Wachstum. Modelle sind Näherungen – die Spanne zeigt die Unsicherheit.")
+    return u
 
 
 def bereich(h, e, d):
@@ -469,13 +470,15 @@ def bereich(h, e, d):
         for i, r in enumerate(sicht):
             with spalten[i % n]:
                 _karte(r, f)
+    zusammenfassung = {"ergebnisse": ergebnisse, "konsens": KO.konsens(ergebnisse), "ibd": None, "fair": None,
+                       "waehrung": f.get("waehrung") or ""}
     try:
-        _ibd_bereich(h, f)
+        zusammenfassung["ibd"] = _ibd_bereich(h, f)
     except Exception as ex:              # reine Zusatzinformation - darf die Checks nie verhindern
         logging.exception("IBD-Rating")
         st.caption(f"IBD-ähnliches Rating gerade nicht verfügbar ({type(ex).__name__}).")
     st.markdown("**Fairer Wert – alle Methoden**")
-    _fairer_wert(f, kx)
+    zusammenfassung["fair"] = _fairer_wert(f, kx)
     try:
         _branchenmodell(f, h)
     except Exception as ex:              # reine Zusatzinformation - darf die Checks nie verhindern
@@ -499,6 +502,8 @@ def bereich(h, e, d):
                f"{_de(C.STAATSANLEIHE_10J)} %) Stand {C.ANNAHMEN_STAND} · geladen in {_de(dauer)} s")
     st.caption("Vereinfachte Annäherungen an die Methoden der genannten Investoren auf Basis öffentlich verfügbarer "
                "Daten – keine Anlageberatung und keine Aussage, was diese Personen tatsächlich kaufen würden.")
+    zusammenfassung["kurs"] = f.get("kurs_in_bericht")
+    return zusammenfassung
 
 
 # ---------------------------------------------------------------- Vorberechnung (Legenden-Screener)
@@ -536,7 +541,7 @@ def _ibd_bereich(h, f):
         if not r:
             st.caption("Kein Rating: Für diese Aktie fehlt ein auswertbares Gewinnwachstum, oder es liegen noch "
                        "zu wenige vorberechnete Vergleichswerte vor.")
-            return
+            return None
         st.markdown(f'<div class="ic-sw"><div><b>EPS-Rating</b><br><span style="font-size:1.6rem;font-weight:700">'
                     f'{r["eps"]}</span> / 99</div><div><b>Composite-Rating</b><br><span style="font-size:1.6rem;'
                     f'font-weight:700">{r["composite"]}</span> / 99</div></div>', unsafe_allow_html=True)
@@ -546,6 +551,7 @@ def _ibd_bereich(h, f):
         st.caption("Rang 1–99 im Vergleich mit allen vom Agenten bewerteten Aktien (99 = besser als 99 %). "
                    "Nachgebildet nach den veröffentlichten Bausteinen von William O'Neil – nicht das offizielle "
                    "IBD-Rating. Zusätzliche Information, ändert keine andere Note. Keine Anlageberatung.")
+    return r
 
 
 def _investoren_optionen():
