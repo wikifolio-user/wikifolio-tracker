@@ -1682,7 +1682,7 @@ RECHNER_EINGABEN = {
     # Fear & Greed Monitor: Auswahl, Warnregeln und gesehene Warnungen merken; Knoepfe/Sitzungswerte nicht
     "fear_greed": ("fg_", re.compile(r"_btn$|_editor$|_chart$|^fg_(frisch|meldung|refresh_zeit|stand_gesehen)$")),
     # Gap Analyzer: Definition, Zeitraum, Filter, Alerts und gesehene Meldungen merken
-    "gap_analyzer": ("gap_", re.compile(r"_btn$|^gap_tab_|^gap_csv|^gap_xlsx|^gap_chart$|_weg$|^gap_reihe_")),
+    "gap_analyzer": ("gap_", re.compile(r"_btn$|^gap_tab_|^gap_csv|^gap_xlsx|^gap_chart$|_weg$|^gap_reihe_|_tab$")),
 }
 
 
@@ -2990,8 +2990,11 @@ def render_dashboard():
     if gewaehlte_ansicht == ANSICHT_GAP:
         try:
             import gap_analyzer_ui
+            import opening_gaps_ui
             rechner_vorbelegen("gap_analyzer")
-            gap_analyzer_ui.seite({"ohlc": lambda: kurs_vorrat().ohlc(), "indizes": lambda: kurs_vorrat().indizes()})
+            gap_analyzer_ui.seite({"ohlc": lambda: kurs_vorrat().ohlc(), "indizes": lambda: kurs_vorrat().indizes(),
+                                   "intraday": lambda: kurs_vorrat().opening_intraday(),
+                                   "live": opening_gaps_ui.live_abruf_yahoo})
             rechner_merken("gap_analyzer")
             rechner_leiste("gap_analyzer")
         except Exception as e:

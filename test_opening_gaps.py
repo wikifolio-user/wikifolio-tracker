@@ -210,3 +210,46 @@ class Alerts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _app():
+    import datetime as dt
+    import gap_analyzer_ui
+    import boersenkalender as BK
+
+    def kerzen(start, boerse):
+        aus, c = [], start
+        for i, d in enumerate(BK.handelstage_zwischen(boerse, dt.date(2025, 1, 2), dt.date(2026, 11, 20))):
+            o = c * (1 + (0.006 if i % 3 == 0 else -0.004 if i % 3 == 1 else 0.0))
+            aus.append([d.isoformat(), o, max(o, c) * 1.003, min(o, c) * 0.997, o * 1.001])
+            c = aus[-1][4]
+        return aus
+    ohlc = {"stand": "T", "indizes": {s: {"kerzen": kerzen(100 + i * 50, "XETRA" if s == "^GDAXI" else "NYSE"),
+                                          "pruefung": {"fehlende": []}}
+                                      for i, s in enumerate(("^NDX", "^GDAXI", "^GSPC", "^DJI"))}}
+    intra = {"indizes": {"NDX": {"tage": {"2026-11-20": {"beruehrt": "09:31", "geschlossen": "10:05", "dauer_min": 35,
+                                                         "intervall": "5m", "datenart": "verzoegert",
+                                                         "verzoegert_min": 0, "vollstaendig": True,
+                                                         "kerze": None}}}}}
+    gap_analyzer_ui.seite({"ohlc": lambda: ohlc, "indizes": lambda: {}, "intraday": lambda: intra,
+                           "live": lambda sym: None})
+
+
+class Oberflaeche(unittest.TestCase):
+    def test_alle_tabs_ohne_fehler(self):
+        from streamlit.testing.v1 import AppTest
+        import gap_analyzer_ui as GU
+        at = AppTest.from_function(_app, default_timeout=120).run()
+        self.assertFalse(at.exception)
+        texte = " ".join(m.value for m in at.markdown)
+        for name in ("Nasdaq 100 (NDX)", "DAX 40 (DAX)", "S&amp;P 500 (SPX)", "Dow Jones (DJI)"):
+            self.assertIn(name, texte)
+        for b in GU.BEREICHE:
+            at.segmented_control(key="gap_bereich").set_value(b).run()
+            self.assertFalse(at.exception, b)
+        at.segmented_control(key="gap_bereich").set_value("Opening-Gap-Historie").run()
+        at.selectbox(key="gap_og_h_jahr").set_value("Alle").run()
+        self.assertTrue(any("Opening-Gaps**" in m.value for m in at.markdown))
+        at.segmented_control(key="gap_bereich").set_value("Offene High-Low-Gaps").run()
+        at.segmented_control(key="gap_hl_sicht").set_value("Alle (Historie)").run()
+        self.assertFalse(at.exception)

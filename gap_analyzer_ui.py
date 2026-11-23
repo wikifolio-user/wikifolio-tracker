@@ -1,9 +1,10 @@
 """Gap Analyzer (Menuepunkt "Gap Analyzer") - Oberflaeche. Rechnungen: gap_analyzer.py.
 
-Bereiche: Uebersicht | Offene Gaps | Gap-Chart | Historie | Statistik | Vergleich | Alerts.
+Bereiche: Opening-Gaps heute | Offene High-Low-Gaps (inkl. Uebersicht und Historie) | Opening-Gap-Historie |
+Gap-Chart | Gap-Statistik (inkl. Vergleich) | Alerts. Opening-Gaps: opening_gaps.py / opening_gaps_ui.py.
 Datengrundlage: echte, abgeschlossene Tageskerzen der Cash-Indizes (state/markt/ohlc.json). Aktueller Stand fuer
 Lage/Entfernung: indizes.json (Kurs-Agent), sonst letzter Schlusskurs (gekennzeichnet).
-h = {"ohlc": () -> ohlc.json, "indizes": () -> indizes.json}
+h = {"ohlc": () -> ohlc.json, "indizes": () -> indizes.json, "intraday": () -> opening_intraday.json (optional)}
 """
 import datetime
 import io
@@ -14,6 +15,8 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 import gap_analyzer as G
+import opening_gaps as OG
+import opening_gaps_ui as OGU
 import ui_stil as UI
 
 P = "gap_"
@@ -21,8 +24,10 @@ BERLIN = ZoneInfo("Europe/Berlin")
 SYMBOL = {kurz: sym for sym, (kurz, _) in G.INDEX.items()}
 NAME = {kurz: name for _, (kurz, name) in G.INDEX.items()}
 CODES = list(SYMBOL)
-BEREICHE = ["Übersicht", "Offene Gaps", "Gap-Chart", "Historie", "Statistik", "Vergleich", "Alerts"]
-HALTEN = re.compile(r"^gap_(bereich|definition|pct_min|von|index|einheit|f_.*|zeige_geschlossen|al_.*|auswahl)$")
+BEREICHE = ["Opening-Gaps heute", "Offene High-Low-Gaps", "Opening-Gap-Historie", "Gap-Chart", "Gap-Statistik",
+            "Alerts"]
+HALTEN = re.compile(r"^gap_(bereich|definition|pct_min|von|index|einheit|f_.*|h_.*|zeige_geschlossen|al_.*|auswahl|"
+                    r"og_.*|hl_sicht|zeige_og|zeige_hl)$")
 GRUEN, ROT = "#22C55E", "#EF4444"
 
 CSS = """<style>
@@ -125,8 +130,12 @@ def seite(h):
                    "kann der Gap Analyzer nichts prüfen (es werden keine Werte geschätzt).")
         return
     with st.expander("⚙️ Definition und Analysezeitraum", expanded=False):
+        s.setdefault(P + "og_min", OG.MIN_PCT)
+        st.number_input("Mindestgröße Opening-Gaps (%)", 0.0, 5.0, step=0.05, format="%.2f", key=P + "og_min",
+                        help="Kleinere Eröffnungslücken gelten als „kein Opening-Gap“ (Tabs Opening-Gaps).")
         s.setdefault(P + "definition", "hl")
-        st.segmented_control("Gap-Definition", list(G.DEFINITIONEN), key=P + "definition",
+        st.segmented_control("Definition der Range-Gaps (Tabs High-Low-Gaps, Chart, Statistik)",
+                             list(G.DEFINITIONEN), key=P + "definition",
                              format_func=G.DEFINITIONEN.get, width="stretch")
         if s.get(P + "definition") == "pct":
             st.number_input("Mindestgröße Opening Gap (%)", 0.05, 10.0, value=None, step=0.05, format="%.2f",
@@ -150,8 +159,25 @@ def seite(h):
         s[P + "bereich"] = BEREICHE[0]
     bereich = st.segmented_control("Bereich", BEREICHE, key=P + "bereich", label_visibility="collapsed",
                                    width="stretch") or BEREICHE[0]
-    {"Übersicht": _uebersicht, "Offene Gaps": _offene, "Gap-Chart": _chart, "Historie": _historie,
-     "Statistik": _statistik, "Vergleich": _vergleich, "Alerts": _alerts}[bereich](daten, gaps, kurse, definition)
+    og_min = float(s.get(P + "og_min") if s.get(P + "og_min") is not None else OG.MIN_PCT)
+    og = {"h": h, "ohlc": ohlc, "min": og_min}
+    if bereich == "Opening-Gaps heute":
+        OGU.tab_heute(h, ohlc, CODES, SYMBOL, NAME, kurse, og_min)
+    elif bereich == "Opening-Gap-Historie":
+        OGU.tab_historie(h, ohlc, CODES, SYMBOL, NAME, og_min, _exporte)
+    elif bereich == "Offene High-Low-Gaps":
+        _hl_bereich(daten, gaps, kurse, definition)
+    elif bereich == "Gap-Chart":
+        _chart(daten, gaps, kurse, definition, og)
+    elif bereich == "Gap-Statistik":
+        _statistik(daten, gaps, kurse, definition)
+        st.markdown("**Index-Vergleich (Range-Gaps)**")
+        _vergleich(daten, gaps, kurse, definition)
+        st.markdown("**Opening-Gap-Statistik**")
+        OGU.statistik(h, ohlc, CODES, SYMBOL, NAME, og_min)
+    else:
+        _alerts(daten, gaps, kurse, definition)
+        OGU.alerts_bereich(h, ohlc, CODES, SYMBOL, og_min, _gesehen(), _als_gesehen)
     st.caption("Quelle: Yahoo Finance (Tageskerzen der Cash-Indizes ^NDX, ^GDAXI, ^GSPC, ^DJI) – keine Futures, CFDs "
                "oder ETFs. Keine geschätzten Werte. Keine Anlageberatung.")
 
@@ -192,7 +218,20 @@ def _uebersicht(daten, gaps, kurse, definition):
             f'<div class="gp-meta">Letzter geprüfter Handelstag: {_datum(letzte)} · Datenabruf: '
             f'{_datum((d["abruf"] or "")[:10])}</div>{warn}</div>')
     st.markdown('<div class="gp-raster">' + "".join(karten) + "</div>", unsafe_allow_html=True)
-    st.caption("Ausführliche Analyse: oben „Offene Gaps“ oder „Gap-Chart“ wählen und dort den Index auswählen.")
+    st.caption("Darunter: nächste Lücken je Index und alle offenen Gaps; „Gap-Chart“ zeigt sie im Kursverlauf.")
+
+
+def _hl_bereich(daten, gaps, kurse, definition):
+    """Tab "Offene High-Low-Gaps": Uebersichtskarten, offene Gaps und (umschaltbar) die ganze Historie."""
+    s = st.session_state
+    s.setdefault(P + "hl_sicht", "Offene")
+    sicht = st.segmented_control("Ansicht", ["Offene", "Alle (Historie)"], key=P + "hl_sicht",
+                                 label_visibility="collapsed") or "Offene"
+    if sicht == "Offene":
+        _uebersicht(daten, gaps, kurse, definition)
+        _offene(daten, gaps, kurse, definition)
+    else:
+        _historie(daten, gaps, kurse, definition)
 
 
 # ---------------------------------------------------------------------------------------------------- Tabellen
@@ -322,7 +361,7 @@ def _exporte(df, name):
 
 
 # ---------------------------------------------------------------------------------------------------- Chart
-def _chart(daten, gaps, kurse, definition):
+def _chart(daten, gaps, kurse, definition, og=None):
     import plotly.graph_objects as go
     s = st.session_state
     index = _index_wahl()
@@ -331,8 +370,13 @@ def _chart(daten, gaps, kurse, definition):
     if not kerzen:
         st.info("Für diesen Index liegen keine Tageskerzen vor.")
         return
-    zeige = st.toggle("Geschlossene Gaps einblenden", key=P + "zeige_geschlossen")
-    liste = [g for g in gaps[index] if zeige or g["status"] != "geschlossen"]
+    s.setdefault(P + "zeige_hl", True)
+    s.setdefault(P + "zeige_og", True)
+    with st.container(horizontal=True, key=P + "reihe_chart_schalter"):
+        zeige_hl = st.toggle(f"Range-Gaps ({G.DEFINITIONEN[definition]})", key=P + "zeige_hl")
+        zeige_og = st.toggle("Opening-Gaps", key=P + "zeige_og")
+        zeige = st.toggle("Geschlossene Range-Gaps einblenden", key=P + "zeige_geschlossen")
+    liste = [g for g in gaps[index] if zeige_hl and (zeige or g["status"] != "geschlossen")]
     auswahl = s.get(P + "auswahl") if str(s.get(P + "auswahl") or "").startswith(index + "|") else None
     fig = go.Figure(go.Candlestick(x=[k[0] for k in kerzen], open=[k[1] for k in kerzen], high=[k[2] for k in kerzen],
                                    low=[k[3] for k in kerzen], close=[k[4] for k in kerzen], name=index,
@@ -357,8 +401,9 @@ def _chart(daten, gaps, kurse, definition):
         mt.append(f"{_typ(g)} {_datum(g['datum'])}<br>Original {_de(g['unten'], 1)}–{_de(g['oben'], 1)} "
                   f"({_de(g['groesse'], 1)} Pkt., {_de(g['groesse_pct'], 2)} %)<br>Offen {_de(g['offen_unten'], 1)}–"
                   f"{_de(g['offen_oben'], 1)} · {G.STATUS[g['status']]} ({_de(g['fuellgrad'], 0)} %)")
-    fig.add_scatter(x=mx, y=my, mode="markers", marker=dict(size=9, color="#FBBF24", symbol="diamond"),
-                    hovertext=mt, hoverinfo="text", customdata=mid, name="Gaps", showlegend=False)
+    if mx:
+        fig.add_scatter(x=mx, y=my, mode="markers", marker=dict(size=9, color="#FBBF24", symbol="diamond"),
+                        hovertext=mt, hoverinfo="text", customdata=mid, name="Gaps", showlegend=False)
     kurs = kurse[index][0]
     if kurs:
         fig.add_hline(y=kurs, line=dict(color="#7c9cff", dash="dash", width=1.5),
@@ -371,6 +416,14 @@ def _chart(daten, gaps, kurse, definition):
         a = datetime.date.fromisoformat(g_aus["datum"])
         x0 = (a - datetime.timedelta(days=45)).isoformat()
         x1 = (datetime.date.fromisoformat(g_aus["geschlossen"] or letzte) + datetime.timedelta(days=30)).isoformat()
+    og_anzahl = None
+    if og and zeige_og:
+        try:
+            intra = og["h"]["intraday"]() if og["h"].get("intraday") else {}
+        except Exception:
+            intra = {}
+        od = OGU.daten(og["ohlc"], intra, [index], SYMBOL, og["min"], datetime.datetime.now(datetime.timezone.utc))
+        og_anzahl = OGU.chart_zonen(fig, od[index], x0, x1, g_aus["datum"] if g_aus else None)
     sicht = [k for k in kerzen if x0 <= k[0] <= x1] or kerzen
     ys = [k[3] for k in sicht] + [k[2] for k in sicht] + ([g_aus["unten"], g_aus["oben"]] if g_aus else [])
     rand = (max(ys) - min(ys)) * 0.06 or max(ys) * 0.01
@@ -395,9 +448,12 @@ def _chart(daten, gaps, kurse, definition):
             st.rerun()
     except Exception:
         pass
-    st.caption("Grün = Gap Up, Rot = Gap Down. Kräftig = noch offener Bereich, blass = ursprünglicher bzw. bereits "
-               "gefüllter Bereich. Zonen reichen bis zur Schließung bzw. zum letzten Handelstag. ◆ antippen = Gap "
-               "auswählen (wird in den Tabellen mit ▶ markiert).")
+    st.caption("Range-Gaps: Grün = Gap Up, Rot = Gap Down. Kräftig = noch offener Bereich, blass = ursprünglicher "
+               "bzw. bereits gefüllter Bereich. Zonen reichen bis zur Schließung bzw. zum letzten Handelstag. ◆ antippen "
+               "= Gap auswählen (wird in den Tabellen mit ▶ markiert)."
+               + (f" Opening-Gaps: schmale Zone am Entstehungstag zwischen Vortagesschluss und Eröffnung (kräftig = "
+                  f"noch offen); gepunktete Linien = Vortagesschluss und Eröffnung des letzten bzw. ausgewählten Tages. "
+                  f"{og_anzahl} Opening-Gaps im Ausschnitt." if og_anzahl is not None else ""))
     if auswahl:
         g = next((x for x in gaps[index] if x["id"] == auswahl), None)
         if g:
