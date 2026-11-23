@@ -6,6 +6,12 @@ from zoneinfo import ZoneInfo
 import markt_daten as MD
 import opening_gaps as OG
 
+try:                                                  # Oberflaechentest nur mit echtem Streamlit (CI: test_ui_rauch)
+    from streamlit.testing.v1 import AppTest
+    OBERFLAECHE = True
+except ImportError:
+    OBERFLAECHE = False
+
 BERLIN = ZoneInfo("Europe/Berlin")
 NY = ZoneInfo("America/New_York")
 UTC = datetime.timezone.utc
@@ -235,9 +241,9 @@ def _app():
                            "live": lambda sym: None})
 
 
+@unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
     def test_alle_tabs_ohne_fehler(self):
-        from streamlit.testing.v1 import AppTest
         import gap_analyzer_ui as GU
         at = AppTest.from_function(_app, default_timeout=120).run()
         self.assertFalse(at.exception)
