@@ -114,6 +114,65 @@ def ohlc_abrufen(symbol, get, jetzt):
     return None
 
 
+# ---------------------------------------------------------------------------------------------------- Intraday
+PFAD_INTRADAY = "state/markt/opening_intraday.json"
+INTRADAY_INDIZES = ("^NDX", "^GDAXI", "^GSPC", "^DJI")
+
+
+def intraday_abrufen(symbol, get, intervall="5m", spanne="5d"):
+    """Intraday-Kerzen des Cash-Index (nur regulaere Handelszeit, Instrumenttyp INDEX) -> intraday_parsen-Ergebnis
+    oder None. Yahoo liefert 1m fuer ca. 7 Tage, 5m fuer ca. 60 Tage."""
+    import opening_gaps as OG
+    boerse = INDEX_OHLC[symbol][2]
+    b = BK.BOERSEN[boerse]
+    for host in ("query1", "query2"):
+        try:
+            r = get(YAHOO_URL.format(host=host, symbol=symbol), headers=HEADERS, timeout=20,
+                    params={"interval": intervall, "range": spanne, "includePrePost": "false"})
+            if r.status_code != 200:
+                continue
+            e = OG.intraday_parsen(r.json(), b["tz"], b["auf"], b["zu"])
+        except Exception:
+            continue
+        if e and e["tage"]:
+            return e
+    return None
+
+
+def intraday_tage(e, kerzen, boerse, jetzt):
+    """Intraday-Abruf eines Index + Tageskerzen -> {datum: opening_gaps.intraday_auswerten(...)} je Handelstag.
+    Vortagesschluss aus den offiziellen Tageskerzen (letzte Kerze VOR dem Tag); ohne ihn keine Auswertung."""
+    import opening_gaps as OG
+    tz = BK.BOERSEN[boerse]["tz"]
+    schluesse = [(k[0], k[4]) for k in (kerzen or [])]
+    aus = {}
+    for d, bars in sorted((e or {}).get("tage", {}).items()):
+        vor = [c for dd, c in schluesse if dd < d]
+        if not vor:
+            continue
+        aus[d] = OG.intraday_auswerten(bars, vor[-1], tz, e.get("intervall") or "", e.get("verzoegert_min"),
+                                       BK.kerze_vollstaendig(boerse, datetime.date.fromisoformat(d), jetzt))
+    return aus
+
+
+def neue_intraday(alt, je_symbol, ohlc, stand, jetzt):
+    """Gespeicherte Opening-Gap-Zeiten fortschreiben. je_symbol: {yahoo_symbol: intraday_abrufen-Ergebnis}.
+    -> neue Datei oder None, wenn sich nichts geaendert hat."""
+    import opening_gaps as OG
+    alt_i = ((alt or {}).get("indizes") or {}) if isinstance(alt, dict) else {}
+    idx = ((ohlc or {}).get("indizes") or {}) if isinstance(ohlc, dict) else {}
+    neu_i = {k: dict(v) for k, v in alt_i.items()}
+    for sym, e in (je_symbol or {}).items():
+        kurz, _, boerse = INDEX_OHLC[sym]
+        tage = intraday_tage(e, (idx.get(sym) or {}).get("kerzen"), boerse, jetzt)
+        bisher = (alt_i.get(kurz) or {}).get("tage") or {}
+        neu_i[kurz] = {"tage": OG.intraday_zusammenfuehren(bisher, tage), "symbol": sym, "boerse": boerse,
+                       "abruf": jetzt.isoformat(timespec="seconds")}
+    if all((neu_i.get(k) or {}).get("tage") == (alt_i.get(k) or {}).get("tage") for k in set(neu_i) | set(alt_i)):
+        return None
+    return {"stand": stand, "indizes": neu_i}
+
+
 def neue_ohlc(alt, geladen, stand):
     """Neue ohlc.json oder None, wenn sich an den Kerzen nichts geaendert hat (spart Schreibvorgaenge).
     Fehlgeschlagene Indizes behalten ihren alten Eintrag. Korrigierte historische Kurse ueberschreiben die alten

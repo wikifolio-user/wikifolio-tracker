@@ -25,6 +25,7 @@ PFAD_INDIZES = "state/kurse/indizes.json"         # siehe indizes.py
 PFAD_NEWS = "state/kurse/news.json"               # siehe news.py
 PFAD_OHLC = "state/markt/ohlc.json"               # siehe markt_daten.py
 PFAD_SENTIMENT = "state/markt/sentiment.json"     # siehe markt_daten.py
+PFAD_INTRADAY = "state/markt/opening_intraday.json"  # siehe markt_daten.py (Opening-Gap-Uhrzeiten)
 SUCH_URL = "https://www.ls-tc.de/_rpc/json/.lstc/instrument/search/main"
 TEILE = 8
 
@@ -191,6 +192,10 @@ class Vorrat:
     def ohlc(self):
         """Tageskerzen der Indizes (markt_daten.py) -> dict wie state/markt/ohlc.json (oder {})."""
         return self._datei(PFAD_OHLC, "historie")
+
+    def opening_intraday(self):
+        """Opening-Gap-Uhrzeiten aus Intraday-Daten (markt_daten.neue_intraday) -> dict (oder {})."""
+        return self._datei(PFAD_INTRADAY, "live")
 
     def sentiment(self):
         """Fear-&-Greed-Werte (markt_daten.py) -> dict wie state/markt/sentiment.json (oder {})."""

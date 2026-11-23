@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+import boersenkalender as BK
 import config
 import github_store
 import indizes
@@ -348,6 +349,10 @@ def marktdaten_aktualisieren(stand, jetzt):
         neu = MD.neue_ohlc(alt, geladen, stand) if ok else None
         if neu is not None:
             _schreiben(MD.PFAD_OHLC, neu, "kurse tageskerzen [skip ci]")
+    try:
+        opening_intraday(stand, jetzt, geladen)
+    except Exception as e:                       # reine Zusatzinformation - darf den Lauf nie stoppen
+        log.warning(f"Opening-Gaps intraday: {type(e).__name__}")
     s = MD.sentiment_abrufen(requests.get, jetzt)
     log.info("Fear & Greed: " + ", ".join(f"{k} {'ok' if v else 'fehlgeschlagen'}" for k, v in s.items())
              + (f" (CNN-Teilindikatoren: {len((s.get('cnn') or {}).get('teile') or {})}, "
@@ -357,6 +362,27 @@ def marktdaten_aktualisieren(stand, jetzt):
         alt, ok = _lies(MD.PFAD_SENTIMENT)
         if ok:
             _schreiben(MD.PFAD_SENTIMENT, MD.neue_sentiment(alt, s, stand), "kurse sentiment [skip ci]")
+
+
+def opening_intraday(stand, jetzt, geladen):
+    """5-Minuten-Kerzen der vier Cash-Indizes -> Uhrzeiten der Opening-Gaps (erste Beruehrung, Schliessung).
+    Nur an Handelstagen; Yahoo liefert 5m ca. 60 Tage zurueck, gespeichert werden nur die Tageszusammenfassungen."""
+    tage = [BK.ist_handelstag(MD.INDEX_OHLC[s][2], jetzt.astimezone(BK.BOERSEN[MD.INDEX_OHLC[s][2]]["tz"]).date())
+            for s in MD.INTRADAY_INDIZES]
+    if not any(tage):
+        return
+    je = {}
+    for sym in MD.INTRADAY_INDIZES:
+        e = MD.intraday_abrufen(sym, requests.get)
+        if e:
+            je[sym] = e
+    alt, ok = _lies(MD.PFAD_INTRADAY)
+    ohlc = {"indizes": geladen} if geladen else (_lies(MD.PFAD_OHLC)[0] or {})
+    neu = MD.neue_intraday(alt, je, ohlc, stand, jetzt) if ok else None
+    log.info(f"Opening-Gaps intraday: {len(je)} von {len(MD.INTRADAY_INDIZES)} Indizes"
+             + (" (geschrieben)" if neu else ""))
+    if neu is not None:
+        _schreiben(MD.PFAD_INTRADAY, neu, "kurse opening-gaps [skip ci]")
 
 
 def main():
