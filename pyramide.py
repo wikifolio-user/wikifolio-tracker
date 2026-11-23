@@ -25,7 +25,8 @@ STANDARD = {
     "risiko_tranche_pct": 1.0,  # max. Risiko bis Stop je neuer Tranche, in % des Pyramidenkapitals
     "risiko_gesamt_pct": 6.0,   # max. Risiko bis Stop aller Tranchen zusammen
     "ko_puffer_atr": 1.0,       # KO-Schwelle mind. so viele ATR UNTER dem Stop (der Stop greift vor dem KO)
-    "hebel_max": 10.0,
+    "hebel": None,              # gewuenschter Hebel je Pyramide (frei waehlbar); None = passender Hebel zum Stop
+    "hebel_max": 20.0,          # Obergrenze fuer den vorgeschlagenen (passenden) Hebel
     "ko_kapital_max_pct": 50.0, # max. Anteil des Pyramidenkapitals, der in KO-Zertifikaten steckt
     "atr_tage": 20,
     "gap_naehe_atr": 2.0,       # nur offene Gaps innerhalb so vieler ATR zaehlen fuer den Gap-Wert
@@ -38,15 +39,40 @@ HINWEIS_STUFEN = ((60, "unterstützt"), (40, "neutral"), (0, "Vorsicht"))
 MIN_KERZEN = 253 + 20            # 12-Monats-Momentum + 20 Tage Steigung der 200-Tage-Linie
 
 
+# erlaubte Bereiche je Einstellung (Werte ausserhalb werden auf die Grenze gesetzt, ungueltige ignoriert)
+GRENZEN = {
+    "einstieg_ab": (0, 100), "ausstieg_unter": (0, 100), "nachkauf_atr": (0.1, 10.0), "max_stufen": (1, 20),
+    "groesse_faktor": (0.1, 1.0), "groesse_min": (0.05, 1.0), "stop_anfang_atr": (0.25, 10.0),
+    "stop_nachzieh_atr": (0.25, 10.0), "risiko_tranche_pct": (0.05, 10.0), "risiko_gesamt_pct": (0.1, 50.0),
+    "ko_puffer_atr": (0.0, 10.0), "hebel": (1.0, 20.0), "hebel_max": (1.0, 20.0), "ko_kapital_max_pct": (0.0, 100.0),
+    "atr_tage": (5, 50), "gap_naehe_atr": (0.25, 10.0), "gap_fenster": (1, 60), "max_alter_handelstage": (0, 20),
+}
+GANZZAHL = {"max_stufen", "atr_tage", "gap_fenster", "max_alter_handelstage"}
+
+
 def einstellungen(aenderungen=None):
-    """Startwerte mit eigenen Aenderungen (flach; "gewichte" als dict)."""
+    """Startwerte mit eigenen Aenderungen (je Pyramide). Zahlen werden auf GRENZEN begrenzt, Unbekanntes und
+    Ungueltiges ignoriert; "hebel": None = automatisch passender Hebel; "gewichte" als dict."""
     cfg = copy.deepcopy(STANDARD)
     for k, v in (aenderungen or {}).items():
         if k == "gewichte" and isinstance(v, dict):
-            cfg["gewichte"].update(v)
-        elif k in cfg:
-            cfg[k] = v
+            cfg["gewichte"].update({g: max(0.0, float(w)) for g, w in v.items()
+                                    if g in cfg["gewichte"] and isinstance(w, (int, float))})
+        elif k == "fg_modus":
+            if v in FG_MODI:
+                cfg[k] = v
+        elif k == "hebel" and v is None:
+            cfg[k] = None
+        elif k in GRENZEN and isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+            lo, hi = GRENZEN[k]
+            v = min(hi, max(lo, v))
+            cfg[k] = int(round(v)) if k in GANZZAHL else float(v)
     return cfg
+
+
+def cfg_fuer(pyr):
+    """Wirksame Einstellungen einer Pyramide (ihre eigenen Aenderungen auf den Startwerten)."""
+    return einstellungen((pyr or {}).get("einstellungen"))
 
 
 def _linear(x, lo, hi):
@@ -225,6 +251,30 @@ def ko_abstand_ok(ko_schwelle, stop, atr_wert, cfg=STANDARD):
     return ko_schwelle <= stop - cfg["ko_puffer_atr"] * atr_wert
 
 
+def ko_fuer_hebel(kurs, hebel):
+    """Ungefaehre KO-Schwelle eines Long-KO mit diesem Hebel (KO = Basispreis): Kurs x (1 - 1/Hebel)."""
+    return kurs * (1 - 1 / hebel) if kurs and hebel and hebel > 1 else None
+
+
+def hebel_bewertung(kurs, stop, atr_wert, cfg=STANDARD, hebel=None):
+    """Frei gewaehlter Hebel gegen den zum Stop passenden Hebel. Ein zu hoher Hebel wird nicht gesperrt, sondern
+    gewarnt. hebel: gewaehlter Hebel (sonst cfg["hebel"]; None = passender Hebel wird vorgeschlagen).
+    -> {"gewaehlt", "passend", "ko_max", "ko_bei_gewaehlt", "warnung"}"""
+    passend, ko_max = max_hebel(kurs, stop, atr_wert, cfg)
+    gewaehlt = hebel if hebel is not None else cfg.get("hebel")
+    aus = {"gewaehlt": gewaehlt, "passend": passend, "ko_max": ko_max, "ko_bei_gewaehlt": None, "warnung": None}
+    if gewaehlt is None:
+        return aus
+    aus["ko_bei_gewaehlt"] = ko_fuer_hebel(kurs, gewaehlt)
+    if passend is None:
+        aus["warnung"] = "Zum aktuellen Stop passt kein Hebel-Produkt (Stop/ATR fehlen oder liegen zu nah am Kurs)."
+    elif gewaehlt > passend + 1e-9:
+        aus["warnung"] = (f"Hebel {KO.de(gewaehlt, 1)} liegt über dem passenden Hebel {KO.de(passend, 1)}: "
+                          f"die KO-Schwelle (ca. {KO.de(aus['ko_bei_gewaehlt'], 0)}) läge über "
+                          f"{KO.de(ko_max, 0)} – das KO könnte vor dem Stop greifen.")
+    return aus
+
+
 # ---------------------------------------------------------------- 4. Gap-Wert (abgeleitet aus dem Gap Analyzer)
 def gap_wert(gap_daten, kurs, atr_wert, cfg=STANDARD):
     """Abgeleiteter Gap-Wert 0-100 aus den Ergebnissen des Gap Analyzers (offene Gaps nahe am Kurs, gewichtet
@@ -332,11 +382,13 @@ def kombiniert(trend, gap, fg, cfg=STANDARD):
 
 # ---------------------------------------------------------------- 7. Pruefung vor einem Nachkauf
 def nachkauf_pruefung(pyr, trend, atr_wert, gap, fg, neue_tranche, index, stop_bisher=None, eurusd=None,
-                      cfg=STANDARD):
+                      cfg=None):
     """Die acht Pruefungen vor einem (geplanten) Nachkauf.
     neue_tranche: geplante Tranche (art, stueck, kaufkurs, index_kauf, produkt) oder None (nur Signal pruefen).
     -> {"erlaubt", "pruefungen": [{"nr", "name", "art": pflicht/hinweis, "ergebnis", "text"}],
-        "risiko_vor", "risiko_nach", "stop", "hebel_max", "ko_max"}"""
+        "risiko_vor", "risiko_nach", "stop", "hebel"}
+    cfg: Einstellungen; ohne Angabe die der Pyramide (cfg_fuer). atr_wert muss mit cfg["atr_tage"] gerechnet sein."""
+    cfg = cfg or cfg_fuer(pyr)
     kap = (pyr or {}).get("kapital") or 0
     p = []
     hoechst = max([k for k in ((pyr or {}).get("hoechst"), index) if k is not None], default=None)
@@ -383,26 +435,33 @@ def nachkauf_pruefung(pyr, trend, atr_wert, gap, fg, neue_tranche, index, stop_b
     p.append({"nr": 6, "name": "Gesamtes Stop-Risiko", "art": "pflicht", "ergebnis": "ok" if ok6 else "nein",
               "text": (f"{KO.de(g_pct or 0, 2)} % des Kapitals bis Stop (Grenze {KO.de(cfg['risiko_gesamt_pct'], 1)} %)."
                        if kap else "Kein Pyramidenkapital hinterlegt.")})
-    # 7 KO-Kapitalrisiko + KO-Abstand
-    hebel, ko_max = max_hebel(index, stop if stop is not None else (anfangsstop(index, atr_wert, cfg) if atr_wert
-                                                                     else None), atr_wert, cfg)
-    ko_texte, ok7 = [], True
-    if nach["ko_kapital_pct"] is not None and nach["ko_kapital_pct"] > cfg["ko_kapital_max_pct"] + 1e-9:
-        ok7 = False
-        ko_texte.append(f"{KO.de(nach['ko_kapital_pct'], 1)} % des Kapitals in KO-Zertifikaten "
-                        f"(Grenze {KO.de(cfg['ko_kapital_max_pct'], 0)} %).")
+    # 7 KO-Kapitalrisiko (Pflicht) + Hebel/KO-Abstand (Warnung, der Hebel ist frei waehlbar)
+    stop_basis = stop if stop is not None else (anfangsstop(index, atr_wert, cfg) if atr_wert else None)
+    hebel_neu = None
+    if neue_tranche and neue_tranche.get("art") == "ko":
+        try:
+            hebel_neu = KO.produkt_hebel(neue_tranche["produkt"], index, eurusd)
+        except (KeyError, ValueError, ZeroDivisionError):
+            hebel_neu = None
+    hb = hebel_bewertung(index, stop_basis, atr_wert, cfg, hebel_neu)
+    ok7 = nach["ko_kapital_pct"] is None or nach["ko_kapital_pct"] <= cfg["ko_kapital_max_pct"] + 1e-9
+    p.append({"nr": 7, "name": "KO-Kapitalrisiko", "art": "pflicht", "ergebnis": "ok" if ok7 else "nein",
+              "text": f"KO-Kapital {KO.de(nach['ko_kapital'], 0)} € ({KO.de(nach['ko_kapital_pct'] or 0, 1)} % des "
+                      f"Kapitals, Grenze {KO.de(cfg['ko_kapital_max_pct'], 0)} %) – bei KO verloren."})
+    warn = []
     if neue_tranche and neue_tranche.get("art") == "ko" and atr_wert:
         ko_neu = nach["tranchen"][-1]["ko_schwelle"]
         if not ko_abstand_ok(ko_neu, nach["tranchen"][-1]["stop"], atr_wert, cfg):
-            ok7 = False
-            ko_texte.append(f"KO-Schwelle {KO.de(ko_neu, 0)} liegt nicht mindestens "
-                            f"{KO.de(cfg['ko_puffer_atr'], 1)} ATR unter dem Stop {KO.de(nach['tranchen'][-1]['stop'], 0)}"
-                            " – das KO könnte vor dem Stop greifen.")
-    if not ko_texte:
-        ko_texte.append(f"KO-Kapital {KO.de(nach['ko_kapital'], 0)} € "
-                        f"({KO.de(nach['ko_kapital_pct'] or 0, 1)} % des Kapitals) – bei KO verloren.")
-    p.append({"nr": 7, "name": "KO-Kapitalrisiko und KO-Abstand", "art": "pflicht", "ergebnis": "ok" if ok7 else "nein",
-              "text": " ".join(ko_texte)})
+            warn.append(f"KO-Schwelle {KO.de(ko_neu, 0)} liegt nicht mindestens {KO.de(cfg['ko_puffer_atr'], 1)} ATR "
+                        f"unter dem Stop {KO.de(nach['tranchen'][-1]['stop'], 0)} – das KO könnte vor dem Stop greifen.")
+    elif hb["warnung"]:
+        warn.append(hb["warnung"])
+    if hb["passend"] is not None:
+        warn_text = f"Zum Stop passender Hebel bis {KO.de(hb['passend'], 1)} (KO höchstens {KO.de(hb['ko_max'], 0)})."
+    else:
+        warn_text = "Kein passender Hebel berechenbar."
+    p.append({"nr": 7.5, "name": "Hebel und KO-Abstand zum Stop", "art": "hinweis",
+              "ergebnis": "Vorsicht" if warn else "neutral", "text": " ".join(warn + [warn_text])})
     # 8 Risikobudget der neuen Tranche
     if neue_tranche:
         grenze = kap * cfg["risiko_tranche_pct"] / 100
@@ -417,4 +476,4 @@ def nachkauf_pruefung(pyr, trend, atr_wert, gap, fg, neue_tranche, index, stop_b
               "text": text})
     erlaubt = all(x["ergebnis"] == "ok" for x in p if x["art"] == "pflicht")
     return {"erlaubt": erlaubt, "pruefungen": p, "risiko_vor": vor, "risiko_nach": nach, "stop": stop,
-            "nachkauf_marke": marke, "hebel_max": hebel, "ko_max": ko_max}
+            "nachkauf_marke": marke, "hebel": hb, "einstellungen": cfg}

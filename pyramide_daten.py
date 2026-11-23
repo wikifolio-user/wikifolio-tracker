@@ -94,16 +94,19 @@ def index_analyse(ohlc, sentiment, jetzt, eigene=None, cfg=None, definition="hl"
 
 
 def bewertung(a, cfg=None):
-    """Bewertung eines Index aus index_analyse() -> Trend, Gap-Wert, F&G-Einstiegswert, kombiniert, Signal.
+    """Bewertung eines Index aus index_analyse() -> Trend, ATR (Laenge aus cfg), Gap-Wert, F&G-Einstiegswert,
+    kombiniert, Signal. cfg: Einstellungen der Pyramide (pyramide.cfg_fuer).
     Der Trend-Score einer veralteten Kerzenreihe zaehlt nicht (status "veraltet")."""
     cfg = cfg or P.STANDARD
     trend = a["trend"] if a["status"] == "aktuell" else None
-    gap = P.gap_wert(a["gap_daten"], a["kurs"], a["atr"], cfg)
+    atr_wert = P.atr(a["kerzen"], cfg["atr_tage"]) if a["kerzen"] else None      # ATR-Laenge je Pyramide
+    gap = P.gap_wert(a["gap_daten"], a["kurs"], atr_wert, cfg)
     fg = P.fg_einstiegswert(a["fg_index"], cfg)
     komb = P.kombiniert(trend, gap, fg, cfg)
     sig, gruende = P.einstiegssignal(trend, cfg)
     if a["status"] != "aktuell":
         gruende = [f"Tageskerzen {a['status']} (letzte Kerze {a['letzte_kerze'] or '–'})."] + gruende
-    return {"trend": a["trend"], "trend_gilt": trend is not None, "gap": gap, "fg": fg, "kombiniert": komb,
+    return {"trend": a["trend"], "trend_gilt": trend is not None, "atr": atr_wert, "atr_tage": cfg["atr_tage"],
+            "gap": gap, "fg": fg, "kombiniert": komb,
             "einstieg": sig, "einstieg_gruende": gruende,
             "us_umfeld": P.fg_einstiegswert(a["us_umfeld"], cfg) if a.get("us_umfeld") else None}

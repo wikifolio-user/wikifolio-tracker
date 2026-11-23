@@ -37,7 +37,18 @@ Der CNN-Wert ist **US-weit**. Er steht nur bei den drei US-Indizes und dort getr
 „us“. Für den DAX wird er nie verwendet. Für die indexspezifische Bewertung zählt immer der eigene Indexwert
 (Bezug „index“).
 
-## Regeln (Startwerte in `pyramide.STANDARD`, alle änderbar)
+## Regeln (Startwerte in `pyramide.STANDARD`, alle je Pyramide änderbar)
+
+Jede Pyramide speichert ihre eigenen Abweichungen unter `einstellungen`. `pyramide.cfg_fuer(pyr)` legt sie auf die
+Startwerte. Die erlaubten Bereiche stehen in `pyramide.GRENZEN`: Werte außerhalb werden auf die Grenze gesetzt,
+ungültige Werte ignoriert. Frei einstellbar sind unter anderem:
+
+- **ATR:** die Länge (`atr_tage`, 5–50 Tage, Start 20) und alle ATR-Faktoren, also Nachkaufmarke, Anfangsstop,
+  Nachzieh-Stop, KO-Puffer und Gap-Nähe.
+- **Hebel:** der gewünschte Hebel (`hebel`, 1–20, Start „automatisch“). Er wird nicht gesperrt. Ist er höher als
+  der zum Stop passende Hebel, erscheint eine Warnung, weil die KO-Schwelle dann über der höchsten KO-Schwelle
+  liegt, die noch zum Stop passt.
+- **Obergrenze für den vorgeschlagenen Hebel:** `hebel_max`, 1–20, Start 20.
 
 - **Trend-Score 0–100:** setzt sich aus fünf Bausteinen zusammen.
 
@@ -61,8 +72,9 @@ Der CNN-Wert ist **US-weit**. Er steht nur bei den drei US-Indizes und dort getr
   - Gemeinsamer Nachzieh-Stop: höchster Schlusskurs minus 3 ATR. Er steigt nur.
   - Ausstiegssignal: Schlusskurs unter dem Stop oder Score unter 40.
 - **Dynamischer Hebel:**
-  - Die KO-Schwelle liegt mindestens 1 ATR unter dem Stop.
-  - Hebel = Kurs ÷ (Kurs − KO), höchstens 10.
+  - Der zum Stop passende Hebel = Kurs ÷ (Kurs − höchste KO-Schwelle). Die höchste KO-Schwelle liegt 1 ATR unter
+    dem Stop.
+  - Der Hebel ist frei wählbar. Liegt er darüber, gibt es eine Warnung und keine Sperre.
 - **Risiko:**
   - Bis zum Stop höchstens 1 % je neuer Tranche und 6 % insgesamt.
   - Höchstens 50 % des Pyramidenkapitals in KO-Zertifikaten.
@@ -95,7 +107,8 @@ Der CNN-Wert ist **US-weit**. Er steht nur bei den drei US-Indizes und dort getr
 | 4 | Fear & Greed | Hinweis |
 | 5 | Bestehende offene Tranchen | Hinweis |
 | 6 | Gesamtes Stop-Risiko | Pflicht |
-| 7 | KO-Kapitalrisiko und KO-Abstand zum Stop | Pflicht |
+| 7 | KO-Kapitalrisiko (Anteil des Kapitals in KO-Zertifikaten) | Pflicht |
+| 7.5 | Hebel und KO-Abstand zum Stop | Hinweis: Warnung, keine Sperre, weil der Hebel frei wählbar ist |
 | 8 | Verfügbares Risikobudget der neuen Tranche | Pflicht |
 
 Erlaubt ist ein Nachkauf nur, wenn **alle Pflichtprüfungen** bestanden sind. Ein guter kombinierter Wert oder

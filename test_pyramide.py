@@ -117,10 +117,40 @@ class WerteRisikoHebel(unittest.TestCase):
         h, ko = P.max_hebel(20000, 17000, 200)
         self.assertEqual(ko, 16800)
         self.assertAlmostEqual(h, 20000 / 3200)
-        self.assertEqual(P.max_hebel(20000, 19990, 5)[0], 10.0)     # gedeckelt
+        self.assertEqual(P.max_hebel(20000, 19990, 5)[0], 20.0)     # gedeckelt (hebel_max)
+        self.assertEqual(P.max_hebel(20000, 19990, 5, P.einstellungen({"hebel_max": 8}))[0], 8.0)
         self.assertEqual(P.max_hebel(20000, None, 5), (None, None))
         self.assertTrue(P.ko_abstand_ok(18800, 19000, 200))
         self.assertFalse(P.ko_abstand_ok(18900, 19000, 200))
+
+
+class Einstellungen(unittest.TestCase):
+    def test_grenzen_und_ungueltiges(self):
+        c = P.einstellungen({"atr_tage": 3, "hebel": 50, "nachkauf_atr": "x", "fg_modus": "quatsch",
+                             "stop_anfang_atr": 1.5, "unbekannt": 1, "gewichte": {"gap": -5, "trend": 50}})
+        self.assertEqual(c["atr_tage"], 5)
+        self.assertEqual(c["hebel"], 20.0)
+        self.assertEqual(c["nachkauf_atr"], P.STANDARD["nachkauf_atr"])
+        self.assertEqual(c["fg_modus"], "kontraer")
+        self.assertEqual(c["stop_anfang_atr"], 1.5)
+        self.assertNotIn("unbekannt", c)
+        self.assertEqual(c["gewichte"], {"trend": 50.0, "gap": 0.0, "fg": 10})
+        self.assertIsNone(P.einstellungen({"hebel": None})["hebel"])
+        self.assertEqual(P.STANDARD["atr_tage"], 20)                     # Startwerte unveraendert
+
+    def test_cfg_fuer_pyramide(self):
+        self.assertEqual(P.cfg_fuer({"einstellungen": {"atr_tage": 14}})["atr_tage"], 14)
+        self.assertEqual(P.cfg_fuer(None)["atr_tage"], 20)
+
+    def test_hebel_frei_mit_warnung(self):
+        hb = P.hebel_bewertung(20000, 19000, 200, P.STANDARD, hebel=5)
+        self.assertAlmostEqual(hb["passend"], 20000 / 1200)
+        self.assertIsNone(hb["warnung"])
+        hb = P.hebel_bewertung(20000, 19000, 200, P.einstellungen({"hebel": 20}))
+        self.assertEqual(hb["gewaehlt"], 20.0)
+        self.assertAlmostEqual(hb["ko_bei_gewaehlt"], 19000)
+        self.assertIn("über dem passenden Hebel", hb["warnung"])
+        self.assertIsNone(P.hebel_bewertung(20000, 19000, 200)["gewaehlt"])   # automatisch: nur Vorschlag
 
 
 class GapWert(unittest.TestCase):
@@ -220,7 +250,7 @@ class Nachkauf(unittest.TestCase):
     def test_alles_ok(self):
         e = P.nachkauf_pruefung(self.pyr, self.t, self.atr, self.gut, self.gut, self.neu, self.kurs)
         self.assertTrue(e["erlaubt"], [x for x in e["pruefungen"] if x["ergebnis"] != "ok"])
-        self.assertEqual(len(e["pruefungen"]), 8)
+        self.assertEqual([x["nr"] for x in e["pruefungen"]], [1, 2, 3, 4, 5, 6, 7, 7.5, 8])
         self.assertGreater(e["risiko_nach"]["gesamt"], e["risiko_vor"]["gesamt"])
 
     def test_guter_score_ueberstimmt_kein_fehlendes_signal(self):
@@ -235,12 +265,28 @@ class Nachkauf(unittest.TestCase):
         self.assertFalse(e["erlaubt"])
         self.assertEqual(self._p(e, 8)["ergebnis"], "nein")
 
-    def test_ko_zu_nah_am_stop(self):
+    def test_ko_zu_nah_am_stop_warnt_sperrt_aber_nicht(self):
         prod = dict(KO_PROD, basiswert="DAX", basispreis=self.kurs - 1.5, ko_schwelle=self.kurs - 1.5)
         neu = {"art": "ko", "stueck": 10, "kaufkurs": 0.02, "index_kauf": self.kurs, "produkt": prod}
         e = P.nachkauf_pruefung(self.pyr, self.t, self.atr, self.gut, self.gut, neu, self.kurs)
+        self.assertEqual(self._p(e, 7.5)["ergebnis"], "Vorsicht")
+        self.assertIn("vor dem Stop", self._p(e, 7.5)["text"])
+        self.assertEqual(self._p(e, 7)["ergebnis"], "ok")
+        self.assertTrue(e["erlaubt"])
+
+    def test_ko_kapital_grenze_bleibt_pflicht(self):
+        prod = dict(KO_PROD, basiswert="DAX", basispreis=self.kurs - 20, ko_schwelle=self.kurs - 20)
+        neu = {"art": "ko", "stueck": 10, "kaufkurs": 0.2, "index_kauf": self.kurs, "produkt": prod}
+        pyr = dict(self.pyr, einstellungen={"ko_kapital_max_pct": 0})
+        e = P.nachkauf_pruefung(pyr, self.t, self.atr, self.gut, self.gut, neu, self.kurs)
         self.assertEqual(self._p(e, 7)["ergebnis"], "nein")
         self.assertFalse(e["erlaubt"])
+
+    def test_einstellungen_der_pyramide_wirken(self):
+        streng = dict(self.pyr, einstellungen={"risiko_tranche_pct": 0.05})
+        e = P.nachkauf_pruefung(streng, self.t, self.atr, self.gut, self.gut, self.neu, self.kurs)
+        self.assertEqual(self._p(e, 8)["ergebnis"], "nein")
+        self.assertEqual(e["einstellungen"]["risiko_tranche_pct"], 0.05)
 
     def test_gap_und_fg_fehlen_nur_hinweis(self):
         e = P.nachkauf_pruefung(self.pyr, self.t, self.atr, None, None, self.neu, self.kurs)
@@ -315,6 +361,13 @@ class Adapter(unittest.TestCase):
         nach = datetime.datetime(2026, 11, 23, 22, 0, tzinfo=UTC)
         self.assertEqual(D.handelstage_alt("XETRA", "2026-11-20", nach), 1)
         self.assertEqual(D.handelstage_alt("NYSE", "2026-11-25", datetime.datetime(2026, 11, 27, 12, tzinfo=UTC)), 0)
+
+    def test_atr_laenge_je_pyramide(self):
+        a = D.index_analyse(ohlc(), SENT, self.JETZT)["DAX"]
+        b20 = D.bewertung(a)
+        b10 = D.bewertung(a, P.einstellungen({"atr_tage": 10}))
+        self.assertEqual((b20["atr_tage"], b10["atr_tage"]), (20, 10))
+        self.assertAlmostEqual(b10["atr"], P.atr(a["kerzen"], 10))
 
     def test_bewertung_mit_aufwaertstrend(self):
         b = D.bewertung(D.index_analyse(ohlc(), SENT, self.JETZT)["NDX"])
