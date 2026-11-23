@@ -5,6 +5,12 @@ import unittest
 import pyramide as P
 import pyramide_daten as D
 
+try:                                                  # Oberflaechentest nur mit echtem Streamlit (CI: test_ui_rauch)
+    from streamlit.testing.v1 import AppTest
+    OBERFLAECHE = True
+except ImportError:
+    OBERFLAECHE = False
+
 UTC = datetime.timezone.utc
 
 
@@ -374,6 +380,133 @@ class Adapter(unittest.TestCase):
         self.assertTrue(b["trend_gilt"])
         self.assertTrue(b["einstieg"])
         self.assertEqual(b["trend"]["score"], 100.0)
+
+
+
+class Datensatz(unittest.TestCase):
+    def test_neue_pyramide_und_tranchen(self):
+        p = P.neue_pyramide("a1", "DAX", "", 10000, "2026-11-02")
+        self.assertEqual((p["name"], p["status"], p["tranchen"]), ("DAX 40", "offen", []))
+        with self.assertRaises(ValueError):
+            P.neue_pyramide("x", "XYZ", "", 1, "2026-11-02")
+        with self.assertRaises(ValueError):
+            P.neue_pyramide("x", "DAX", "", 0, "2026-11-02")
+        t = {"art": "direkt", "stueck": 10, "kaufkurs": 100.0, "index_kauf": 20000.0, "datum": "2026-11-03"}
+        p2 = P.tranche_hinzufuegen(p, t, atr_wert=200)
+        self.assertEqual(p["tranchen"], [])                          # Original unveraendert
+        self.assertEqual(p2["tranchen"][0]["stufe"], 1)
+        self.assertEqual(p2["tranchen"][0]["anfangsstop"], 19600)
+        self.assertEqual(p2["ereignisse"][-1]["art"], "kauf")
+
+    def test_tranche_pruefen(self):
+        self.assertTrue(P.tranche_pruefen({"art": "x"}, "DAX"))
+        ko = {"art": "ko", "stueck": 1, "kaufkurs": 1, "index_kauf": 20000,
+              "produkt": dict(KO_PROD, basiswert="NDX")}
+        self.assertTrue(any("NDX" in f for f in P.tranche_pruefen(ko, "DAX")))
+        ko["produkt"] = dict(KO_PROD, richtung="short", ko_schwelle=19000, basispreis=19000)
+        self.assertTrue(any("Long" in f or "Schwelle" in f for f in P.tranche_pruefen(ko, "DAX")))
+        ko["produkt"] = dict(KO_PROD)
+        self.assertEqual(P.tranche_pruefen(ko, "DAX"), [])
+        p = P.neue_pyramide("a", "DAX", "", 1000, "2026-11-02", {"max_stufen": 1})
+        p = P.tranche_hinzufuegen(p, {"art": "direkt", "stueck": 1, "kaufkurs": 1, "index_kauf": 1})
+        with self.assertRaises(ValueError):
+            P.tranche_hinzufuegen(p, {"art": "direkt", "stueck": 1, "kaufkurs": 1, "index_kauf": 1})
+
+    def test_stop_verlauf_steigt_nur_und_nur_ab_start(self):
+        k = kerzen(320, schritt=0.001)
+        v = P.stop_verlauf(k, k[-60][0])
+        self.assertEqual(v[0][0], k[-60][0])
+        stops = [x[3] for x in v]
+        self.assertTrue(all(b >= a for a, b in zip(stops, stops[1:])))
+
+    def test_status(self):
+        k = kerzen()
+        p = P.neue_pyramide("a", "DAX", "", 100000, k[-30][0])
+        s0 = P.status(p, k)
+        self.assertEqual((s0["stufe"], s0["risiko"], s0["nachkauf_marke"]), (0, None, None))
+        p = P.tranche_hinzufuegen(p, {"art": "direkt", "stueck": 100, "kaufkurs": 100.0, "index_kauf": k[-20][4],
+                                      "datum": k[-20][0]}, P.atr(k))
+        s = P.status(p, k, trend=P.trend_score(k))
+        self.assertEqual(s["stufe"], 1)
+        self.assertAlmostEqual(s["nachkauf_marke"], k[-20][4] + P.atr(k))
+        self.assertFalse(s["ausstieg"])
+        self.assertAlmostEqual(s["naechste_groesse"], 0.8)
+        self.assertGreater(s["risiko"]["gesamt"], 0)
+
+
+class Speicher:
+    """Datenspeicher im Speicher (statt GitHub) fuer den Oberflaechentest."""
+    def __init__(self):
+        self.d = {}
+
+    def lesen(self, pfad, default):
+        return self.d.get(pfad, default), True
+
+    def aktualisiere(self, pfad, aendern, default=None, message=""):
+        self.d[pfad] = aendern(self.d.get(pfad, default))
+        return True, self.d[pfad]
+
+
+def _app():
+    import json as _json
+    import pyramide_ui
+    import streamlit as st
+    import test_pyramide as T
+    if "speicher" not in st.session_state:
+        st.session_state["speicher"] = T.Speicher()
+    sp = st.session_state["speicher"]
+    o = T.ohlc()
+    pyramide_ui.seite({"ohlc": lambda: o, "sentiment": lambda: T.SENT, "indizes": lambda: {}, "lesen": sp.lesen,
+                       "aktualisiere": sp.aktualisiere, "upfad": lambda b: "u/" + b, "speichern": True,
+                       "get": None, "oeffnen": lambda z: None})
+    st.markdown("SPEICHER:" + _json.dumps(sp.d.get("u/state/pyramiden.json") or {}))
+
+
+@unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
+class Oberflaeche(unittest.TestCase):
+    def _gespeichert(self, at):
+        import json
+        m = [x.value for x in at.markdown if x.value.startswith("SPEICHER:")][-1]
+        return json.loads(m[len("SPEICHER:"):])
+
+    def test_anlegen_erfassen_einstellen_zeitleiste_loeschen(self):
+        at = AppTest.from_function(_app, default_timeout=120).run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any("Einstiegssignal" in x.value for x in at.markdown))
+        at.number_input(key="pyr_neu_kapital").set_value(50000.0).run()
+        at.button(key="pyr_neu_btn").click().run()
+        self.assertFalse(at.exception)
+        d = self._gespeichert(at)
+        self.assertEqual(len(d["pyramiden"]), 1)
+        # Nachkauf pruefen & erfassen (direkt)
+        at.segmented_control(key="pyr_bereich").set_value("Nachkauf prüfen & erfassen").run()
+        at.segmented_control(key="pyr_art").set_value("direkt").run()
+        at.number_input(key="pyr_stueck").set_value(10.0).run()
+        at.number_input(key="pyr_kaufkurs_direkt").set_value(100.0).run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any("Prüfung vor dem Nachkauf" in x.value for x in at.markdown))
+        at.button(key="pyr_erfassen_btn").click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(len(self._gespeichert(at)["pyramiden"][0]["tranchen"]), 1)
+        # Ueberblick, Einstellungen (ATR-Laenge + freier Hebel), Zeitleiste
+        at.segmented_control(key="pyr_bereich").set_value("Überblick").run()
+        self.assertFalse(at.exception)
+        at.segmented_control(key="pyr_bereich").set_value("Einstellungen").run()
+        pid = self._gespeichert(at)["pyramiden"][0]["id"]
+        at.number_input(key=f"pyr_e_{pid}_atr_tage").set_value(14).run()
+        at.toggle(key=f"pyr_e_{pid}_auto").set_value(False).run()
+        at.number_input(key=f"pyr_e_{pid}_hebel").set_value(8.0).run()
+        at.button(key="pyr_e_speichern_btn").click().run()
+        self.assertFalse(at.exception)
+        e = self._gespeichert(at)["pyramiden"][0]["einstellungen"]
+        self.assertEqual((e["atr_tage"], e["hebel"]), (14, 8.0))
+        at.segmented_control(key="pyr_bereich").set_value("Zeitleiste").run()
+        self.assertFalse(at.exception)
+        at.segmented_control(key="pyr_bereich").set_value("Überblick").run()
+        at.checkbox(key=f"pyr_loesch_ok_{pid}").check().run()
+        at.button(key="pyr_loeschen_btn").click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(self._gespeichert(at)["pyramiden"], [])
 
 
 if __name__ == "__main__":
