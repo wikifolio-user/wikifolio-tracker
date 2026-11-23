@@ -84,3 +84,39 @@ class Rangliste(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EinheitenSprung(unittest.TestCase):
+    """Pence/Pfund-Wechsel in Yahoo-Kursreihen (GHV2.L, CRWN.L: Kursstaerke +1.940 % / +3.835 %)."""
+
+    def setUp(self):
+        from investor_checks import daten as DT
+        self.DT = DT
+
+    def _reihe(self, werte):
+        return [(f"T{i:03d}", w, 100.0) for i, w in enumerate(werte)]
+
+    def test_einzelner_tag_in_pfund(self):
+        werte = [50.0] * 300
+        werte[47] = 0.5                       # ein Tag in Pfund statt Pence
+        aus = self.DT.einheiten_bereinigen(self._reihe(werte))
+        self.assertEqual([c for _, c, _ in aus], [50.0] * 300)
+        self.assertEqual(I.kursstaerke([c for _, c, _ in aus]), 0.0)
+        self.assertGreater(I.kursstaerke(werte), 1000)   # vorher: absurd hoch
+
+    def test_aelterer_abschnitt_in_anderer_einheit(self):
+        werte = [0.8] * 150 + [80.0 + i * 0.1 for i in range(150)]
+        aus = [c for _, c, _ in self.DT.einheiten_bereinigen(self._reihe(werte))]
+        self.assertAlmostEqual(aus[0], 80.0)
+        self.assertAlmostEqual(aus[-1], werte[-1])      # juengster Kurs bleibt massgeblich
+        self.assertLess(I.abstand_hoch(aus), 1.0)
+
+    def test_echte_kursspruenge_bleiben(self):
+        werte = [10.0, 15.0, 5.0, 30.0, 0.6, 0.9]         # bis Faktor 50 = echte Bewegung
+        aus = [c for _, c, _ in self.DT.einheiten_bereinigen(self._reihe(werte))]
+        self.assertEqual(aus, werte)
+
+    def test_volumen_und_datum_bleiben(self):
+        r = [("2026-01-01", 1.0, 5.0), ("2026-01-02", 100.0, 7.0)]
+        self.assertEqual(self.DT.einheiten_bereinigen(r), [("2026-01-01", 100.0, 5.0), ("2026-01-02", 100.0, 7.0)])
+        self.assertEqual(self.DT.einheiten_bereinigen([]), [])
