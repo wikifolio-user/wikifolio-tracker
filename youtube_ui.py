@@ -27,7 +27,8 @@ RADAR_DATEI = "state/youtube_radar.json"
 BEREICHE = ["Überblick", "Recherche", "Analyse", "Video Factory", "Finanzen", "Einstellungen"]
 MODI = {"free": "Free – lokale/offene Werkzeuge, kostenlose APIs", "balanced": "Balanced – kostenlos + ausgewählte "
         "Premium-Dienste", "premium": "Premium – kommerzielle Dienste (nur mit Budget und Freigabe)"}
-STANDARD_EINST = {"modus": "free", "budget_monat": 0.0, "budget_video": 0.0, "sprache": "de", "markt": "DE"}
+STANDARD_EINST = {"modus": "free", "budget_monat": 0.0, "budget_video": 0.0, "sprache": "de", "markt": "DE",
+                  "api_grenze": 8000}
 ZUGAENGE = [  # (Secret-Name, wofuer, Phase, kostenlos?)
     ("YOUTUBE_API_KEY", "Trend-Radar, Video-Statistiken, Kommentare (YouTube Data API v3)", 2, "kostenlos, Kontingent"),
     ("GEMINI_API_KEY", "Skript, Storyboard, Kommentar-Gruppierung, Better-Video-Konzepte", 3, "kostenlos (Flash)"),
@@ -36,7 +37,8 @@ ZUGAENGE = [  # (Secret-Name, wofuer, Phase, kostenlos?)
 ]
 PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Kanal-Radar (RSS, ohne Schlüssel)", 1, None), ("Viral Outliers & Success-Score (beobachtete Kanäle)", 1, None),
-    ("Weltweite Trends & Suche", 2, "YOUTUBE_API_KEY"), ("Kanalgröße & Kommentare", 2, "YOUTUBE_API_KEY"),
+    ("Weltweite Trends & Suche", 2, "YOUTUBE_API_KEY"),
+    ("Kanal untersuchen (Größe, Rhythmus, Ausreißer)", 2, "YOUTUBE_API_KEY"),
     ("Einnahmepotenzial schätzen", 2, "YOUTUBE_API_KEY"), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
     ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, "GEMINI_API_KEY"),
     ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
@@ -46,6 +48,7 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Einnahmen ins Kassenbuch", 1, None),
 ]
 PHASE_FERTIG = 1
+FERTIG = {"Weltweite Trends & Suche", "Kanal untersuchen (Größe, Rhythmus, Ausreißer)"}   # schon fertig aus Phase 2
 
 CSS = """<style>
 .yt-raster { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:6px 0 10px; }
@@ -132,13 +135,17 @@ def _ueberblick(h, d):
     zug = h.get("zugaenge") or {}
     zeilen = []
     for schritt, phase, braucht in PIPELINE:
-        if phase <= PHASE_FERTIG:
+        fertig = phase <= PHASE_FERTIG or schritt in FERTIG
+        fehlt = braucht and braucht in zug and not zug[braucht]
+        if fertig and not fehlt:
             status, farbe = "verfügbar", "#34D399"
-        elif braucht and braucht in zug and not zug[braucht]:
+        elif fertig:
+            status, farbe = f"gebaut · {braucht} fehlt", "#FBBF24"
+        elif fehlt:
             status, farbe = f"Phase {phase} · {braucht} fehlt", "#FBBF24"
         else:
             status, farbe = f"Phase {phase}", "#A9ACB0"
-        zeilen.append(f'<div>{"✅" if phase <= PHASE_FERTIG else "⏳"}</div><div>{_e(schritt)}</div>'
+        zeilen.append(f'<div>{"✅" if fertig else "⏳"}</div><div>{_e(schritt)}</div>'
                       f'<div class="st" style="color:{farbe}">{_e(status)}</div>')
     st.markdown('<div class="yt-schritt">' + "".join(zeilen) + "</div>", unsafe_allow_html=True)
     st.caption("Jeder Schritt wird einzeln ausführbar. Was noch nicht gebaut oder nicht verbunden ist, steht hier so – "
@@ -146,13 +153,22 @@ def _ueberblick(h, d):
 
 
 # ---------------------------------------------------------------------------------------------------- Recherche
+RECHERCHE = ["Kanal-Radar", "Trends", "Suche", "Kanal untersuchen", "Ideen"]
+
+
 def _recherche(h, d):
-    teil = st.segmented_control("Recherche", ["Kanal-Radar", "Ideen"], default="Kanal-Radar", key=K + "rech_teil",
+    ss = st.session_state
+    if ss.get(K + "rech_teil_neu") in RECHERCHE:              # Wechsel aus einer Tabelle heraus (vor dem Widget)
+        ss[K + "rech_teil"] = ss.pop(K + "rech_teil_neu")
+    teil = st.segmented_control("Recherche", RECHERCHE, default="Kanal-Radar", key=K + "rech_teil",
                                 label_visibility="collapsed") or "Kanal-Radar"
     if teil == "Kanal-Radar":
         _radar(h, d)
-    else:
+    elif teil == "Ideen":
         _ideen(h, d)
+    else:
+        import youtube_recherche_ui as YRU
+        {"Trends": YRU.trends, "Suche": YRU.suche, "Kanal untersuchen": YRU.kanal}[teil](h, d)
 
 
 def _radar_laden(h):
@@ -196,13 +212,24 @@ def _radar(h, d):
     st.markdown("**Kanal-Radar** – beobachtete Kanäle über den öffentlichen YouTube-RSS-Feed (ohne Schlüssel)")
     with st.expander("➕ Kanal beobachten", expanded=not d["radar"]):
         sp = st.columns([3, 1, 2]) if not UI.ist_smartphone() else [st.container() for _ in range(3)]
-        eingabe = sp[0].text_input("Kanal-ID oder Kanal-Adresse mit /channel/UC…", key=K + "r_kanal",
+        eingabe = sp[0].text_input("Kanal-ID, Kanal-Adresse oder @Handle" if h.get("yt_abruf") else
+                                   "Kanal-ID oder Kanal-Adresse mit /channel/UC…", key=K + "r_kanal",
                                    placeholder="UC…  (Kanal → Mehr → Kanal teilen → Kanal-ID kopieren)")
         markt = sp[1].selectbox("Markt", ["US", "DE", "UK", "AT", "CH", "Global"], key=K + "r_markt")
         nische = sp[2].text_input("Nische", key=K + "r_nische", max_chars=60)
         if st.button("Kanal hinzufügen", key=K + "r_add_btn", disabled=not (eingabe or "").strip()):
             try:
                 cid = YR.kanal_id(eingabe)
+            except YR.RadarFehler as ex:
+                if not h.get("yt_abruf"):
+                    st.error(str(ex))
+                    return
+                import youtube_recherche_ui as YRU         # @Handle ueber die API aufloesen (1 Einheit)
+                treffer = YRU.radar_id(h, d, eingabe)
+                if not treffer:
+                    st.rerun()
+                cid = treffer[0]
+            try:
                 feed = YR.abrufen(cid, h["get"]) if h.get("get") else {"name": cid, "videos": []}
             except YR.RadarFehler as ex:
                 st.error(str(ex))
@@ -570,8 +597,13 @@ def _einstellungen(h, d):
     maerkte = ["DE", "AT", "CH", "DACH", "US", "UK", "Global"]
     markt = sp[1].selectbox("Hauptmarkt", maerkte, index=maerkte.index(e["markt"]) if e["markt"] in maerkte else 0,
                             key=K + "e_markt")
+    api_grenze = st.number_input("Eigene Tagesgrenze für die YouTube-API (Einheiten)", 100, 10000,
+                                 value=int(e.get("api_grenze") or 8000), step=500, key=K + "e_api",
+                                 help="YouTube erlaubt 10.000 Einheiten pro Tag. Eine Suche kostet etwa 102, Trends 2, "
+                                      "ein Kanal 3. Darüber wird nicht mehr abgerufen.")
     if st.button("Einstellungen speichern", key=K + "e_btn", type="primary"):
-        neu = {"modus": modus, "budget_monat": b_monat, "budget_video": b_video, "sprache": sprache, "markt": markt}
+        neu = {"modus": modus, "budget_monat": b_monat, "budget_video": b_video, "sprache": sprache, "markt": markt,
+               "api_grenze": int(api_grenze)}
         if _speichern(h, lambda x: dict(x, einstellungen=neu), "Einstellungen"):
             st.rerun()
     st.caption("Kostenpflichtige Aktionen laufen nie ohne Freigabe und nie über die Budgetgrenze. Öffentliche "
@@ -582,6 +614,9 @@ def _einstellungen(h, d):
         ok = zug.get(name)
         st.markdown(f"{'✅' if ok else '⚪'} **{name}** – {'eingerichtet' if ok else 'fehlt'} · {wofuer} · ab Phase "
                     f"{phase} · {kosten}")
+    if zug.get("YOUTUBE_API_KEY"):
+        import youtube_recherche_ui as YRU
+        YRU.kontingent_zeile(h, d)
     with st.expander("So richtest du den YouTube-Schlüssel ein"):
         st.markdown(
             "1. In der Google Cloud Console ein Projekt anlegen.\n"
@@ -589,7 +624,7 @@ def _einstellungen(h, d):
             "3. Unter „Anmeldedaten“ einen **API-Schlüssel** erstellen und ihn auf die YouTube Data API v3 "
             "beschränken.\n"
             "4. Den Schlüssel als `YOUTUBE_API_KEY` eintragen: in den **Streamlit-Secrets** der App (Manage app → "
-            "Settings → Secrets) und als **GitHub-Secret** des Repositories (für den Recherche-Agenten).\n\n"
+            "Settings → Secrets). Als GitHub-Secret wird er erst für einen späteren Recherche-Agenten gebraucht.\n\n"
             "Bitte den Schlüssel nirgends in einen Chat kopieren. Kostenlos mit Tageskontingent (10.000 Einheiten).")
 
 
@@ -599,7 +634,7 @@ def seite(h):
     ss = st.session_state
     st.markdown("### 🎬 Faceless YouTube Automation")
     st.caption("Recherche, Analyse, Videoproduktion und Finanzen für eigene Faceless-YouTube-Kanäle – Schritt für "
-               "Schritt im Aufbau (Phase 1 von 8).")
+               "Schritt im Aufbau (Phase 2 von 8).")
     if ss.get(K + "meldung"):
         art, text = ss.pop(K + "meldung")
         (st.success if art == "ok" else st.warning)(text)
