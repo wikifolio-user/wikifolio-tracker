@@ -6,7 +6,8 @@ Rendern im Hintergrund (GitHub Actions, youtube-render.yml), Vorschau und Downlo
 Kosten ins Kassenbuch. Gerendert wird nie auf dem Geraet; veroeffentlicht wird hier nichts.
 Speicher: state/youtube/projekte/<id>.json, Index in state/youtube.json unter "projekte".
 h zusaetzlich: "ki": () -> KI-Anbieter|None, "render_starten": (pid) -> (ok, text),
-               "release_laden": (asset_id) -> bytes"""
+               "release_laden": (asset_id) -> bytes,
+               "yt_upload": {"zugang": () -> Access-Token, "post", "put"} oder None (OAuth-Secrets fehlen)"""
 import datetime
 import html
 import logging
@@ -218,6 +219,129 @@ def _bericht(p):
     st.markdown("\n".join(f"- {sym[e]} **{_e(n)}:** {_e(t)}" for n, e, t in b["punkte"]))
 
 
+UPLOAD_ANLEITUNG = (
+    "1. In der Google Cloud Console (Projekt „YouTube Analyse“) unter **APIs und Dienste → OAuth-Zustimmungsbildschirm** "
+    "eine externe App anlegen, dich selbst als Testnutzer eintragen und danach **„In Produktion“** veröffentlichen – "
+    "sonst läuft der Token nach 7 Tagen ab (die Warnung „nicht verifiziert“ ist für den eigenen Kanal unkritisch).\n"
+    "2. Unter **Anmeldedaten → Anmeldedaten erstellen → OAuth-Client-ID** den Typ **Webanwendung** wählen und als "
+    "Weiterleitungs-URI `https://developers.google.com/oauthplayground` eintragen.\n"
+    "3. Im **OAuth 2.0 Playground** (developers.google.com/oauthplayground) über das Zahnrad „Use your own OAuth "
+    "credentials“ einschalten, Client-ID und -Secret eintragen, als Scope "
+    "`https://www.googleapis.com/auth/youtube.upload` eingeben, mit dem Google-Konto deines Kanals anmelden und "
+    "„Exchange authorization code for tokens“ klicken.\n"
+    "4. In den **Streamlit-Secrets** eintragen: `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` und den "
+    "`YOUTUBE_REFRESH_TOKEN` aus Schritt 3.\n\n"
+    "Die Werte gehören nur in die Secrets – nie in einen Chat. Hochgeladen wird immer als **privat**; "
+    "veröffentlicht wird von Hand in YouTube Studio.")
+
+
+def _upload(h, d, p):
+    """Freigegebenes Video als privaten Entwurf hochladen (nur nach Bestaetigung)."""
+    import youtube_api as YA
+    import youtube_upload as YU
+    ss = st.session_state
+    st.markdown("**📤 Auf YouTube hochladen – als privater Entwurf**")
+    up = h.get("yt_upload")
+    if not up:
+        st.info("Für den Upload fehlen die OAuth-Zugangsdaten (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, "
+                "YOUTUBE_REFRESH_TOKEN).")
+        with st.expander("So richtest du den Upload ein"):
+            st.markdown(UPLOAD_ANLEITUNG)
+        return
+    yt = p.get("youtube") or {}
+    if yt.get("video_id"):
+        st.success(f"Hochgeladen am {_e(yt.get('zeit', '')[:16].replace('T', ' '))} UTC als **privat** – "
+                   f"[in YouTube Studio öffnen]({YU.studio_link(yt['video_id'])}). Veröffentlichen nur dort.")
+        if not st.checkbox("Erneut hochladen (legt ein zweites, privates Video an)", key=K + f"up_neu_{p['id']}"):
+            return
+    assets = ((p.get("dateien") or {}).get("release") or {}).get("assets") or {}
+    laden = h.get("release_laden")
+    if "video.mp4" not in assets or not laden:
+        st.warning("Die Videodatei ist nicht verfügbar.")
+        return
+    try:
+        text = _datei(laden, assets["beschreibung.txt"]["id"]).decode("utf-8") if "beschreibung.txt" in assets \
+            else ""
+    except Exception:
+        text = ""
+    titel0, beschr0 = YU.titel_und_beschreibung(text, (p.get("skript") or {}).get("titel") or "")
+    titel = st.text_input("Titel", value=titel0, max_chars=100, key=K + f"up_titel_{p['id']}")
+    beschr = st.text_area("Beschreibung", value=beschr0, height=180, max_chars=5000, key=K + f"up_beschr_{p['id']}")
+    sp = st.columns(3) if not UI.ist_smartphone() else [st.container() for _ in range(3)]
+    tags = sp[0].text_input("Tags (mit Komma)", value=", ".join((p.get("dateien") or {}).get("tags") or []),
+                            key=K + f"up_tags_{p['id']}", max_chars=480)
+    kat = sp[1].selectbox("Kategorie", list(YU.KATEGORIEN), format_func=YU.KATEGORIEN.get,
+                          key=K + f"up_kat_{p['id']}")
+    kinder = sp[2].radio("Speziell für Kinder?", ["nein", "ja"], horizontal=True, key=K + f"up_kinder_{p['id']}",
+                         help="Pflichtangabe nach COPPA – bei Finanz-/Wissensvideos für Erwachsene: nein.")
+    thumb = st.selectbox("Thumbnail", [0, 1, 2, 3], key=K + f"up_thumb_{p['id']}",
+                         format_func=lambda i: "keins (YouTube wählt)" if not i else f"Thumbnail {i}",
+                         help="Eigene Thumbnails setzt YouTube nur bei verifizierten Kanälen (50 Einheiten).")
+    synth = st.checkbox("Enthält veränderte oder synthetische Inhalte (KI-Stimme) – kennzeichnen", value=True,
+                        key=K + f"up_synth_{p['id']}")
+    ok = st.checkbox("Ich lade das Video als **privaten** Entwurf hoch und veröffentliche es selbst in YouTube Studio.",
+                     key=K + f"up_ok_{p['id']}")
+    st.caption(f"Kontingent: {YU.KOSTEN_UPLOAD} Einheiten für den Upload" + (
+        f", {YU.KOSTEN_THUMBNAIL} für das Thumbnail" if thumb else "") + ".")
+    if not st.button("📤 Privat hochladen", key=K + f"up_btn_{p['id']}", type="primary", disabled=not ok):
+        return
+    import datetime as _dt
+    jetzt = _dt.datetime.now(_dt.timezone.utc)
+    try:
+        speicher, _ = h["lesen"](h["upfad"]("state/youtube_api.json"), {})
+    except Exception:
+        speicher = {}
+    einheiten = YU.KOSTEN_UPLOAD + (YU.KOSTEN_THUMBNAIL if thumb else 0)
+    try:
+        grenze = int(((d.get("einstellungen") or {}).get("api_grenze")) or YA.STANDARD_GRENZE)
+        YA.pruefen(speicher if isinstance(speicher, dict) else {}, einheiten, grenze, jetzt)
+        meta = YU.metadaten(titel, beschr, [t.strip() for t in (tags or "").split(",")], kat, p.get("sprache", "de"),
+                            kinder == "ja", synth)
+    except (YA.ApiFehler, YU.UploadFehler) as ex:
+        st.warning(str(ex))
+        return
+    balken = st.progress(0.0, text="Lade Video aus der Ablage …")
+    verbraucht = 0
+    try:
+        token = up["zugang"]()
+        daten = _datei(laden, assets["video.mp4"]["id"])
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
+            f.write(daten)
+            f.flush()
+            verbraucht = YU.KOSTEN_UPLOAD
+            vid = YU.hochladen(f.name, meta, token, up["post"], up["put"],
+                               lambda x: balken.progress(x, text=f"Hochladen … {round(x * 100)} %"))
+        hinweis = ""
+        if thumb and f"thumbnail_{thumb}.jpg" in assets:
+            verbraucht += YU.KOSTEN_THUMBNAIL
+            _, hinweis = YU.thumbnail_setzen(vid, _datei(laden, assets[f"thumbnail_{thumb}.jpg"]["id"]), token,
+                                             up["post"])
+    except YU.UploadFehler as ex:
+        balken.empty()
+        st.error(str(ex))
+        vid = None
+    except Exception as ex:
+        balken.empty()
+        st.error(f"Upload fehlgeschlagen ({type(ex).__name__}).")
+        vid = None
+    if verbraucht:
+        try:
+            h["aktualisiere"](h["upfad"]("state/youtube_api.json"),
+                              lambda alt: YA.buchen(alt if isinstance(alt, dict) else {}, verbraucht, jetzt), {},
+                              "youtube: upload kontingent [skip ci]")
+        except Exception:
+            logging.warning("Video Factory: Kontingent nach Upload nicht gebucht")
+    if not vid:
+        return
+    p["youtube"] = {"video_id": vid, "url": f"https://youtu.be/{vid}", "zeit": PL.jetzt(), "sichtbarkeit": "privat",
+                    "synthetisch": bool(synth)}
+    PL._log(p, f"Als privater Entwurf auf YouTube hochgeladen (Video-ID {vid})." + (f" {hinweis}" if hinweis else ""))
+    if _projekt_speichern(h, p, "Auf YouTube hochgeladen (privat)"):
+        ss["yt_meldung"] = ("ok", "Hochgeladen als privates Video – veröffentlichen in YouTube Studio. "
+                                  + (hinweis or ""))
+        st.rerun()
+
+
 def _projekt(h, d, pid):
     ss = st.session_state
     p, ok = _projekt_laden(h, pid)
@@ -260,6 +384,8 @@ def _projekt(h, d, pid):
             PL._log(p, "Freigegeben (manuell geprüft).")
             if _projekt_speichern(h, p, "Freigegeben", status="freigegeben"):
                 st.rerun()
+    if p["status"] == "freigegeben":
+        _upload(h, d, p)
         st.caption("Freigegebene Videos lädst du vorerst selbst bei YouTube hoch (Upload über die App folgt mit "
                    "der YouTube-Verbindung). Bei KI-Stimme und realistisch wirkenden Inhalten im YouTube Studio "
                    "„veränderte oder synthetische Inhalte“ angeben.")

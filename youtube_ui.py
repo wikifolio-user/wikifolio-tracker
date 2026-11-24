@@ -34,6 +34,8 @@ ZUGAENGE = [  # (Secret-Name, wofuer, Phase, kostenlos?)
     ("GEMINI_API_KEY", "Skript, Storyboard, Kommentar-Gruppierung, Better-Video-Konzepte", 3, "kostenlos (Flash)"),
     ("PEXELS_API_KEY", "Stock-Fotos und -Videos (optional; ohne: Wikimedia Commons / Openverse)", 4, "kostenlos"),
     ("PIXABAY_API_KEY", "Stock-Fotos und -Videos (optional)", 4, "kostenlos"),
+    ("YOUTUBE_REFRESH_TOKEN", "Upload als privater Entwurf (OAuth, dazu YOUTUBE_CLIENT_ID und YOUTUBE_CLIENT_SECRET)",
+     7, "kostenlos, Kontingent"),
 ]
 PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Kanal-Radar (RSS, ohne Schlüssel)", 1, None), ("Viral Outliers & Success-Score (beobachtete Kanäle)", 1, None),
@@ -44,11 +46,12 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
     ("Skript (KI oder eigenes) & Storyboard", 1, None), ("Bildmaterial (lizenzfrei oder eigene Grafik)", 1, None),
     ("KI-Stimme (Piper, lokal)", 1, None), ("Schnitt, Untertitel, MP4 (FFmpeg)", 1, None),
-    ("Thumbnails & Qualitätskontrolle", 1, None), ("Freigabe & YouTube-Upload (als Entwurf)", 7, "YouTube-OAuth"),
+    ("Thumbnails & Qualitätskontrolle", 1, None), ("Freigabe & YouTube-Upload (als Entwurf)", 7, "YOUTUBE_REFRESH_TOKEN"),
     ("Einnahmen ins Kassenbuch", 1, None),
 ]
 PHASE_FERTIG = 2
 FERTIG = set()                                  # einzelne schon fertige Schritte spaeterer Phasen
+FERTIG |= {"Freigabe & YouTube-Upload (als Entwurf)"}            # Upload als privater Entwurf
 
 CSS = """<style>
 .yt-raster { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:6px 0 10px; }
