@@ -22,7 +22,7 @@ import youtube_radar as YR
 
 K = "yt_"
 DATEI = "state/youtube.json"
-LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": []}
+LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": [], "analysen": []}
 RADAR_DATEI = "state/youtube_radar.json"
 BEREICHE = ["Überblick", "Recherche", "Analyse", "Video Factory", "Finanzen", "Einstellungen"]
 MODI = {"free": "Free – lokale/offene Werkzeuge, kostenlose APIs", "balanced": "Balanced – kostenlos + ausgewählte "
@@ -40,7 +40,7 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Weltweite Trends & Suche", 2, "YOUTUBE_API_KEY"),
     ("Kanal untersuchen (Größe, Rhythmus, Ausreißer)", 2, "YOUTUBE_API_KEY"),
     ("Einnahmepotenzial schätzen", 2, None), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
-    ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, "GEMINI_API_KEY"),
+    ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, None),
     ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
     ("Skript (KI oder eigenes) & Storyboard", 1, None), ("Bildmaterial (lizenzfrei oder eigene Grafik)", 1, None),
     ("KI-Stimme (Piper, lokal)", 1, None), ("Schnitt, Untertitel, MP4 (FFmpeg)", 1, None),
@@ -48,7 +48,7 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Einnahmen ins Kassenbuch", 1, None),
 ]
 PHASE_FERTIG = 2
-FERTIG = set()                                  # einzelne schon fertige Schritte spaeterer Phasen
+FERTIG = {"Kommentare analysieren", "Transkript auswerten (eigener Text/SRT)"}   # fertige Schritte spaeterer Phasen
 
 CSS = """<style>
 .yt-raster { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:6px 0 10px; }
@@ -408,6 +408,11 @@ def _ausblick(h, titel, punkte, phase, braucht):
 
 
 def _analyse(h, d):
+    import youtube_analyse_ui
+    youtube_analyse_ui.bereich(h, d)
+
+
+def _analyse_ausblick(h, d):                    # Phase 3b ersetzt das durch eigene Teile
     _ausblick(h, "Analyse-Agenten", [
         "**Kommentar-Analyse:** öffentliche Kommentare über die offizielle API, Gruppen (Lob, Kritik, offene Fragen, "
         "Wünsche), Häufigkeit, Beispiele, Spam-Filter",

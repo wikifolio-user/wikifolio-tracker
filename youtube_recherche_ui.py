@@ -54,9 +54,10 @@ def kontingent_zeile(h, d):
                f"{_zahl(YA.TAGESKONTINGENT)}) · Neustart {YA.neustart_text(jetzt)}")
 
 
-def ausfuehren(h, d, art, params, funktion, neu=False):
+def ausfuehren(h, d, art, params, funktion, neu=False, datei_cache=True):
     """funktion(abruf) -> daten. Erst Zwischenspeicher (Sitzung, dann Datei), sonst Kontingent pruefen, abrufen,
-    Kosten buchen und Ergebnis ablegen. -> {"daten", "zeit", "cache", "einheiten"} oder None (Meldung gesetzt)."""
+    Kosten buchen und Ergebnis ablegen. -> {"daten", "zeit", "cache", "einheiten"} oder None (Meldung gesetzt).
+    datei_cache=False: grosse Ergebnisse (z. B. Kommentare) nur in der Sitzung zwischenspeichern."""
     ss = st.session_state
     jetzt = _jetzt()
     schl = YA.cache_schluessel(art, params)
@@ -90,7 +91,7 @@ def ausfuehren(h, d, art, params, funktion, neu=False):
 
         def aendern(alt):
             s = YA.buchen(alt if isinstance(alt, dict) else {}, z.einheiten, jetzt)
-            return YA.cache_ablegen(s, schl, art, daten, jetzt) if daten is not None else s
+            return YA.cache_ablegen(s, schl, art, daten, jetzt) if daten is not None and datei_cache else s
         try:
             h["aktualisiere"](h["upfad"](API_DATEI), aendern, {}, f"youtube: api {art} [skip ci]")
         except Exception as ex:
