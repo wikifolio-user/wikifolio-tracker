@@ -22,7 +22,8 @@ import youtube_radar as YR
 
 K = "yt_"
 DATEI = "state/youtube.json"
-LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": []}
+LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": [], "analysen": [],
+        "affiliate": {}, "affiliate_eigene": [], "beobachtungen": []}
 RADAR_DATEI = "state/youtube_radar.json"
 BEREICHE = ["Überblick", "Recherche", "Analyse", "Video Factory", "Finanzen", "Einstellungen"]
 MODI = {"free": "Free – lokale/offene Werkzeuge, kostenlose APIs", "balanced": "Balanced – kostenlos + ausgewählte "
@@ -42,15 +43,17 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Weltweite Trends & Suche", 2, "YOUTUBE_API_KEY"),
     ("Kanal untersuchen (Größe, Rhythmus, Ausreißer)", 2, "YOUTUBE_API_KEY"),
     ("Einnahmepotenzial schätzen", 2, None), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
-    ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, "GEMINI_API_KEY"),
-    ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
+    ("Recherche-Agent: tägliche Beobachtung", 2, "YOUTUBE_API_KEY"),
+    ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, None),
+    ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, None),
     ("Skript (KI oder eigenes) & Storyboard", 1, None), ("Bildmaterial (lizenzfrei oder eigene Grafik)", 1, None),
     ("KI-Stimme (Piper, lokal)", 1, None), ("Schnitt, Untertitel, MP4 (FFmpeg)", 1, None),
     ("Thumbnails & Qualitätskontrolle", 1, None), ("Freigabe & YouTube-Upload (als Entwurf)", 7, "YOUTUBE_REFRESH_TOKEN"),
     ("Einnahmen ins Kassenbuch", 1, None),
 ]
 PHASE_FERTIG = 2
-FERTIG = set()                                  # einzelne schon fertige Schritte spaeterer Phasen
+FERTIG = {"Kommentare analysieren", "Transkript auswerten (eigener Text/SRT)", "Affiliate-Programme (mit Quelle)",
+          "Eigene Idee / Better Video"}   # fertige Schritte spaeterer Phasen
 FERTIG |= {"Freigabe & YouTube-Upload (als Entwurf)"}            # Upload als privater Entwurf
 
 CSS = """<style>
@@ -156,7 +159,7 @@ def _ueberblick(h, d):
 
 
 # ---------------------------------------------------------------------------------------------------- Recherche
-RECHERCHE = ["Kanal-Radar", "Trends", "Suche", "Nische", "Kanal untersuchen", "Ideen"]
+RECHERCHE = ["Kanal-Radar", "Trends", "Suche", "Nische", "Kanal untersuchen", "Beobachtung", "Ideen"]
 
 
 def _recherche(h, d):
@@ -171,7 +174,8 @@ def _recherche(h, d):
         _ideen(h, d)
     else:
         import youtube_recherche_ui as YRU
-        {"Trends": YRU.trends, "Suche": YRU.suche, "Nische": YRU.nische, "Kanal untersuchen": YRU.kanal}[teil](h, d)
+        {"Trends": YRU.trends, "Suche": YRU.suche, "Nische": YRU.nische, "Kanal untersuchen": YRU.kanal,
+         "Beobachtung": YRU.beobachtung}[teil](h, d)
 
 
 def _radar_laden(h):
@@ -399,26 +403,9 @@ def idee_zur_factory(i):
 
 
 # ---------------------------------------------------------------------------------------------------- Analyse / Factory
-def _ausblick(h, titel, punkte, phase, braucht):
-    zug = h.get("zugaenge") or {}
-    st.markdown(f"**{titel}** – kommt in Phase {phase}")
-    st.markdown("\n".join(f"- {p}" for p in punkte))
-    fehlend = [b for b in braucht if b in zug and not zug[b]]
-    if fehlend:
-        st.warning("Dafür fehlt noch: " + ", ".join(fehlend) + " (siehe „Einstellungen“).")
-    elif braucht:
-        st.caption("Benötigte Zugänge: " + ", ".join(f"{b} ✅" for b in braucht))
-
-
 def _analyse(h, d):
-    _ausblick(h, "Analyse-Agenten", [
-        "**Kommentar-Analyse:** öffentliche Kommentare über die offizielle API, Gruppen (Lob, Kritik, offene Fragen, "
-        "Wünsche), Häufigkeit, Beispiele, Spam-Filter",
-        "**Transkript-Analyse:** eingefügter Text oder SRT/VTT-Datei (fremde Untertitel gibt die API nicht heraus), "
-        "Kernaussagen, Lücken, Kapitel",
-        "**Better Video Generator:** drei eigenständige Konzepte aus Thema, Kommentaren und eigener Recherche – keine "
-        "Übersetzung oder Paraphrase", "**Affiliate-Finder:** nur Programme mit offizieller Quelle und Prüfdatum"],
-        3, ["YOUTUBE_API_KEY", "GEMINI_API_KEY"])
+    import youtube_analyse_ui
+    youtube_analyse_ui.bereich(h, d)
 
 
 def _factory(h, d):
@@ -646,7 +633,8 @@ def _einstellungen(h, d):
             "3. Unter „Anmeldedaten“ einen **API-Schlüssel** erstellen und ihn auf die YouTube Data API v3 "
             "beschränken.\n"
             "4. Den Schlüssel als `YOUTUBE_API_KEY` eintragen: in den **Streamlit-Secrets** der App (Manage app → "
-            "Settings → Secrets). Als GitHub-Secret wird er erst für einen späteren Recherche-Agenten gebraucht.\n\n"
+            "Settings → Secrets) und – für den täglichen Recherche-Agenten – als **GitHub-Secret** im Code-"
+            "Repository (Settings → Secrets and variables → Actions → New repository secret).\n\n"
             "Bitte den Schlüssel nirgends in einen Chat kopieren. Kostenlos mit Tageskontingent (10.000 Einheiten).")
 
 

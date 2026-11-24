@@ -3057,6 +3057,11 @@ def render_dashboard():
                                   "render_starten": lambda pid: github_release.workflow_starten(
                                       _code_repo, "youtube-render.yml", GITHUB_TOKEN, {"projekt": pid}),
                                   "release_laden": lambda aid: github_release.laden(GITHUB_REPO, aid, GITHUB_TOKEN),
+                                  "musik_hochladen": lambda pfad, name, typ: github_release.hochladen(
+                                      GITHUB_REPO, github_release.release_holen(GITHUB_REPO, "musik", GITHUB_TOKEN,
+                                                                                "Eigene Musik (Video Factory)"),
+                                      pfad, GITHUB_TOKEN, name, "audio/" + {"mp3": "mpeg", "m4a": "mp4"}.get(typ, typ))
+                                  ["id"],
                                   "yt_abruf": youtube_api.verbindung(_yt_key, requests.get) if _yt_key else None,
                                   "yt_upload": _yt_upload(),
                                   "zugaenge": {n: _hat(n) for n, *_ in youtube_ui.ZUGAENGE}})
