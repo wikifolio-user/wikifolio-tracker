@@ -183,9 +183,13 @@ def qualitaetsbericht(p):
                f"Video {info.get('video')}, Audio {info.get('audio')}"))
     pk.append(("Auflösung", "ok" if (info.get("breite"), info.get("hoehe")) == (w, h) else "fehler",
                f"{info.get('breite')}×{info.get('hoehe')} (Soll {w}×{h})"))
-    abw = abs((info.get("dauer") or 0) - plan) / plan * 100 if plan else 100
-    pk.append(("Ton synchron / Dauer", "ok" if abw <= 2 else "warn" if abw <= 5 else "fehler",
-               f"{SB.zeit_text(info.get('dauer') or 0)} bei {SB.zeit_text(plan)} geplant (Abweichung {abw:.1f} %)"))
+    diff = abs((info.get("dauer") or 0) - plan)
+    abw = diff / plan * 100 if plan else 100
+    # Toleranz: 2 % oder Rundung auf ganze Bilder/Audio-Bloecke je Szene (ca. 0,1 s), je nachdem was groesser ist
+    erlaubt = max(0.02 * plan, 0.1 * len(p["szenen"]) + 0.2)
+    pk.append(("Ton synchron / Dauer", "ok" if diff <= erlaubt else "warn" if diff <= 2.5 * erlaubt else "fehler",
+               f"{SB.zeit_text(info.get('dauer') or 0)} bei {SB.zeit_text(plan)} geplant (Abweichung {diff:.2f} s, "
+               f"{abw:.1f} %)"))
     ziel = p["dauer_min"] * 60
     pk.append(("Ziellänge", "ok" if abs(plan - ziel) / ziel <= 0.2 else "warn",
                f"{SB.zeit_text(plan)} statt {SB.zeit_text(ziel)}"))
