@@ -1,0 +1,41 @@
+name: YouTube Recherche-Agent (täglich)
+
+# Fuehrt die in der App gespeicherten Beobachtungen aus (Faceless YouTube -> Recherche -> Beobachtung):
+# Stichwortsuche ueber die YouTube Data API, Nischen-Score-Verlauf und neue Ausreisser.
+# Braucht das Repository-Secret YOUTUBE_API_KEY; ohne Secret endet der Lauf ohne Fehler.
+# Veroeffentlicht nichts, sendet keine Nachrichten. Eigene Concurrency-Gruppe, unabhaengig von allen anderen Workflows.
+on:
+  schedule:
+    - cron: "43 6 * * *"
+  # Manuell startbar: Actions -> "YouTube Recherche-Agent (täglich)" -> Run workflow
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube-recherche
+  cancel-in-progress: false
+
+jobs:
+  recherche:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests==2.34.2 tzdata==2026.5   # wie requirements.txt
+
+      - name: Beobachtungen ausführen und speichern
+        env:
+          STATE_REPO: ${{ vars.STATE_REPO }}
+          GH_STATE_TOKEN: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: python youtube_recherche_agent.py

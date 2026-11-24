@@ -54,9 +54,10 @@ def kontingent_zeile(h, d):
                f"{_zahl(YA.TAGESKONTINGENT)}) · Neustart {YA.neustart_text(jetzt)}")
 
 
-def ausfuehren(h, d, art, params, funktion, neu=False):
+def ausfuehren(h, d, art, params, funktion, neu=False, datei_cache=True):
     """funktion(abruf) -> daten. Erst Zwischenspeicher (Sitzung, dann Datei), sonst Kontingent pruefen, abrufen,
-    Kosten buchen und Ergebnis ablegen. -> {"daten", "zeit", "cache", "einheiten"} oder None (Meldung gesetzt)."""
+    Kosten buchen und Ergebnis ablegen. -> {"daten", "zeit", "cache", "einheiten"} oder None (Meldung gesetzt).
+    datei_cache=False: grosse Ergebnisse (z. B. Kommentare) nur in der Sitzung zwischenspeichern."""
     ss = st.session_state
     jetzt = _jetzt()
     schl = YA.cache_schluessel(art, params)
@@ -90,7 +91,7 @@ def ausfuehren(h, d, art, params, funktion, neu=False):
 
         def aendern(alt):
             s = YA.buchen(alt if isinstance(alt, dict) else {}, z.einheiten, jetzt)
-            return YA.cache_ablegen(s, schl, art, daten, jetzt) if daten is not None else s
+            return YA.cache_ablegen(s, schl, art, daten, jetzt) if daten is not None and datei_cache else s
         try:
             h["aktualisiere"](h["upfad"](API_DATEI), aendern, {}, f"youtube: api {art} [skip ci]")
         except Exception as ex:
@@ -467,6 +468,7 @@ def nische(h, d):
             return dict(x, ideen=x["ideen"] + [idee])
         if _speichern(h, neu_idee, "Nische als Idee gespeichert"):
             st.rerun()
+    beobachten_knopf(h, d, p["anzeige"], p["tage"], p["format"], p["region"], p["sprache"], "n_beob")
     if b["chancen"]:
         st.markdown(f"**Chancen: kleine Kanäle mit Treffern ({len(b['chancen'])})**")
         _tabelle(h, b["chancen"], "n_tab", f"Aus der Nische „{p['anzeige']}“", markt=p["region"] or "Global")
@@ -516,3 +518,95 @@ def einnahmen_bereich(h, d):
                                                               if k != "rpm"}), "RPM-Standardwerte"):
                 st.rerun()
         st.caption("Gespeichert werden nur Abweichungen vom Standard. Von ≤ bis, höchstens 200 €.")
+
+
+# ---------------------------------------------------------------------------------------------------- Beobachtung
+def beobachten_knopf(h, d, begriff, tage, fmt, region, sprache, schluessel):
+    """„Täglich beobachten“ fuer die aktuelle Suche/Nische."""
+    import youtube_beobachtung as YB
+    if st.button("🔔 Täglich beobachten", key=K + schluessel, disabled=not (begriff or "").strip(),
+                 help="Der Recherche-Agent führt diese Suche jeden Morgen aus (etwa 102 Einheiten pro Tag) und "
+                      "zeichnet den Nischen-Score und neue Ausreißer auf."):
+        try:
+            neu = YB.neue_beobachtung(begriff, tage, fmt, region, sprache)
+            YB.hinzufuegen(d.get("beobachtungen") or [], neu)
+        except ValueError as ex:
+            st.warning(str(ex))
+            return
+
+        def dazu(x):
+            try:
+                return dict(x, beobachtungen=YB.hinzufuegen(x["beobachtungen"], neu))
+            except ValueError:
+                return x
+        if _speichern(h, dazu, f"Beobachtung „{begriff.strip()}“"):
+            st.rerun()
+
+
+def beobachtung(h, d):
+    import youtube_beobachtung as YB
+    st.markdown("**Beobachtung** – gespeicherte Suchen, die der Recherche-Agent täglich ausführt")
+    liste = d.get("beobachtungen") or []
+    with st.expander("➕ Neue Beobachtung", expanded=not liste):
+        begriff = st.text_input("Suchbegriff / Nische", key=K + "b_begriff", max_chars=120)
+        sp = st.columns(4) if not UI.ist_smartphone() else [st.container() for _ in range(4)]
+        tage = sp[0].selectbox("Zeitraum", list(ZEITRAEUME), index=2, format_func=ZEITRAEUME.get, key=K + "b_tage")
+        fmt = sp[1].selectbox("Format", YA.FORMATE, index=1, key=K + "b_fmt")
+        region = sp[2].selectbox("Land", [""] + list(YA.REGIONEN), index=1,
+                                 format_func=lambda r: YA.REGIONEN.get(r, "alle Länder"), key=K + "b_region")
+        sprache = sp[3].selectbox("Sprache", list(SPRACHEN), index=1, format_func=SPRACHEN.get, key=K + "b_sprache")
+        beobachten_knopf(h, d, begriff, tage, fmt, region, sprache, "b_btn")
+    if not liste:
+        st.caption("Noch keine Beobachtungen. Auch unter „Nische“ lässt sich eine Suche mit „🔔 Täglich beobachten“ "
+                   "speichern.")
+        return
+    try:
+        stand, _ = h["lesen"](h["upfad"](YB.PFAD_RECHERCHE), {})
+    except Exception:
+        stand = {}
+    stand = stand if isinstance(stand, dict) else {}
+    kosten = YB.kosten_pro_tag(liste)
+    letzte = (stand.get("laeufe") or [{}])[-1]
+    st.caption(f"{len(liste)} Beobachtung(en) · etwa {_zahl(kosten)} Einheiten pro Tag (von {_zahl(grenze(d))}) · "
+               f"letzter Lauf: {str(letzte.get('zeit') or '–')[:16].replace('T', ' ')} UTC · Workflow „YouTube "
+               "Recherche-Agent (täglich)“, braucht das GitHub-Secret YOUTUBE_API_KEY")
+    import pandas as pd
+    for b in liste:
+        verlauf = (stand.get("verlauf") or {}).get(b["id"]) or []
+        neu = (stand.get("neu") or {}).get(b["id"]) or []
+        letzter = verlauf[-1] if verlauf else {}
+        with st.container(border=True, key=K + f"b_box_{b['id']}"):
+            c = st.columns([4, 1, 1])
+            c[0].markdown(f"**{_e(b['begriff'])}** · {_e(ZEITRAEUME.get(b['tage'], ''))} · {_e(b['format'])} · "
+                          f"{_e(YA.REGIONEN.get(b['region'], 'alle Länder'))}"
+                          + ("" if b.get("aktiv", True) else " · ⏸ pausiert") + "  \n"
+                          + (f"Nischen-Score **{letzter.get('score') if letzter.get('score') is not None else '–'}**"
+                             f" am {_e(letzter.get('datum'))} · {len(verlauf)} Messungen" if verlauf else
+                             "Noch keine Messung – der Agent läuft täglich gegen 7:45 Uhr.")
+                          + (f" · 🆕 {len(neu)} neue Ausreißer" if neu else ""))
+            if c[1].button("⏸ Pause" if b.get("aktiv", True) else "▶ Weiter", key=K + f"b_pause_{b['id']}"):
+                if _speichern(h, lambda x, i=b["id"]: dict(x, beobachtungen=[dict(y, aktiv=not y.get("aktiv", True))
+                                                                            if y["id"] == i else y
+                                                                            for y in x["beobachtungen"]]),
+                              "Beobachtung geändert"):
+                    st.rerun()
+            if c[2].button("Löschen", key=K + f"b_del_{b['id']}"):
+                if _speichern(h, lambda x, i=b["id"]: dict(x, beobachtungen=[y for y in x["beobachtungen"]
+                                                                             if y["id"] != i]),
+                              "Beobachtung gelöscht"):
+                    st.rerun()
+            punkte = [v for v in verlauf if v.get("score") is not None]
+            if len(punkte) >= 2:
+                df = pd.DataFrame({"Datum": [v["datum"] for v in punkte], "Score": [v["score"] for v in punkte],
+                                   "Median Aufrufe": [v.get("median_views") for v in punkte]}).set_index("Datum")
+                st.line_chart(df[["Score"]], height=160)
+            if neu:
+                st.markdown("**Neue Ausreißer** (kleine Kanäle, Aufrufe ≥ 3× Abonnenten)")
+                st.dataframe(pd.DataFrame([{"Titel": v["titel"], "Kanal": v["kanal"], "Aufrufe": v["views"],
+                                            "Abonnenten": v["abonnenten"],
+                                            "Aufrufe/Abos ×": round(v["faktor_kanal"], 1) if v.get("faktor_kanal")
+                                            else None, "Link": v["url"]} for v in neu[:10]]),
+                             hide_index=True, width="stretch", key=K + f"b_neu_{b['id']}",
+                             column_config={"Link": st.column_config.LinkColumn("Link", display_text="öffnen")})
+    st.caption("„Neu“ heißt: beim vorherigen Lauf noch nicht unter den Treffern. Beim ersten Lauf einer Beobachtung "
+               "gibt es noch keine neuen Ausreißer. Es werden keine Nachrichten verschickt.")

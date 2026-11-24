@@ -3040,12 +3040,30 @@ def render_dashboard():
                     _yt_key = st.secrets.get("YOUTUBE_API_KEY") or os.environ.get("YOUTUBE_API_KEY") or ""
                 except Exception:
                     _yt_key = os.environ.get("YOUTUBE_API_KEY") or ""
+                import youtube_upload
+
+                def _yt_upload():               # OAuth nur aus den Secrets; ohne alle drei Werte kein Upload
+                    try:
+                        w = {n: st.secrets.get(n) or os.environ.get(n) for n in youtube_upload.SECRETS}
+                    except Exception:
+                        w = {n: os.environ.get(n) for n in youtube_upload.SECRETS}
+                    if not all(w.values()):
+                        return None
+                    return {"zugang": lambda: youtube_upload.zugang(*(w[n] for n in youtube_upload.SECRETS),
+                                                                    requests.post),
+                            "post": requests.post, "put": requests.put}
                 youtube_ui.seite({"lesen": gh_read_cached_status, "aktualisiere": gh_aktualisiere, "upfad": upfad,
                                   "speichern": GH_STATE_READY, "get": requests.get, "ki": _ki,
                                   "render_starten": lambda pid: github_release.workflow_starten(
                                       _code_repo, "youtube-render.yml", GITHUB_TOKEN, {"projekt": pid}),
                                   "release_laden": lambda aid: github_release.laden(GITHUB_REPO, aid, GITHUB_TOKEN),
+                                  "musik_hochladen": lambda pfad, name, typ: github_release.hochladen(
+                                      GITHUB_REPO, github_release.release_holen(GITHUB_REPO, "musik", GITHUB_TOKEN,
+                                                                                "Eigene Musik (Video Factory)"),
+                                      pfad, GITHUB_TOKEN, name, "audio/" + {"mp3": "mpeg", "m4a": "mp4"}.get(typ, typ))
+                                  ["id"],
                                   "yt_abruf": youtube_api.verbindung(_yt_key, requests.get) if _yt_key else None,
+                                  "yt_upload": _yt_upload(),
                                   "zugaenge": {n: _hat(n) for n, *_ in youtube_ui.ZUGAENGE}})
             except Exception as e:
                 st.error(f"⚠️ Fehler im Bereich Faceless YouTube: {e}")

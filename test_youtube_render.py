@@ -104,6 +104,13 @@ class Oberflaeche(unittest.TestCase):
         p = sp.d[f"u/state/youtube/projekte/{pid}.json"]
         self.assertEqual((p["schritte"]["skript"]["status"], p["schritte"]["storyboard"]["status"]), ("ok", "ok"))
         self.assertEqual(len(p["szenen"]), 2)
+        self.assertEqual(p["musik"]["modus"], "klang")                 # Standard: eigene Klangflaeche
+        # Musik aendern: ausschalten -> Schnitt und folgende Schritte wieder offen
+        at.selectbox(key=f"yt_vf_p{pid}_musik_modus").set_value("aus").run()
+        at.button(key=f"yt_vf_musik_btn_{pid}").click().run()
+        self.assertFalse(at.exception)
+        p = sp.d[f"u/state/youtube/projekte/{pid}.json"]
+        self.assertEqual((p["musik"]["modus"], p["schritte"]["musik"]["status"]), ("aus", "offen"))
         # Rendern anfordern: Start scheitert im Test -> Warteschlange + verstaendliche Meldung
         at.button(key="yt_vf_render_btn").click().run()
         self.assertFalse(at.exception)

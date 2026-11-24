@@ -31,7 +31,11 @@ from test_pyramide_backtest import BacktestOberflaeche as PyramidenBacktestOberf
 from test_pyramide_aktien import AktienOberflaeche as PyramidenAktienOberflaeche  # noqa: E402,F401
 from test_youtube import Oberflaeche as YoutubeOberflaeche  # noqa: E402,F401
 from test_youtube_render import Oberflaeche as VideoFactoryOberflaeche  # noqa: E402,F401
+from test_youtube_upload import UploadOberflaeche as YoutubeUploadOberflaeche  # noqa: E402,F401
 from test_youtube_api import RechercheOberflaeche as YoutubeRechercheOberflaeche  # noqa: E402,F401
+from test_youtube_beobachtung import BeobachtungOberflaeche as YoutubeBeobachtungOberflaeche  # noqa: E402,F401
+from test_youtube_analyse import AnalyseOberflaeche as YoutubeAnalyseOberflaeche  # noqa: E402,F401
+from test_youtube_konzepte import KonzepteOberflaeche as YoutubeKonzepteOberflaeche  # noqa: E402,F401
 from test_youtube_nische import NischeOberflaeche as YoutubeNischeOberflaeche  # noqa: E402,F401
 
 # Texte, mit denen app.py eine abgefangene Ausnahme einer Ansicht anzeigt (st.error vor notify_app_error)

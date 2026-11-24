@@ -17,7 +17,7 @@ import statistics
 from zoneinfo import ZoneInfo
 
 BASIS = "https://www.googleapis.com/youtube/v3/"
-KOSTEN = {"search": 100, "videos": 1, "channels": 1, "playlistItems": 1}
+KOSTEN = {"search": 100, "videos": 1, "channels": 1, "playlistItems": 1, "commentThreads": 1}
 TAGESKONTINGENT = 10000
 STANDARD_GRENZE = 8000
 PAZIFIK = ZoneInfo("America/Los_Angeles")
@@ -26,7 +26,7 @@ CACHE_STUNDEN = 24
 CACHE_MAX = 20
 SHORT_MAX_S = 180               # YouTube Shorts sind hoechstens 3 Minuten lang
 MIN_VERGLEICH = 3
-SCHAETZUNG = {"trends": 1, "suche": 102, "kanal": 3}
+SCHAETZUNG = {"trends": 1, "suche": 102, "kanal": 3, "kommentare": 4}
 
 REGIONEN = {"DE": "Deutschland", "AT": "Österreich", "CH": "Schweiz", "US": "USA", "GB": "Großbritannien",
             "CA": "Kanada", "AU": "Australien", "FR": "Frankreich", "ES": "Spanien", "IT": "Italien",
@@ -75,6 +75,10 @@ def _fehlertext(status, antwort, key):
         return "Für diese Kategorie gibt es in diesem Land keine Trendliste. Bitte eine andere Kategorie wählen."
     if gruende & {"channelNotFound", "playlistNotFound"}:
         return "Kanal nicht gefunden."
+    if gruende & {"commentsDisabled"}:
+        return "Bei diesem Video sind die Kommentare deaktiviert."
+    if gruende & {"videoNotFound"}:
+        return "Video nicht gefunden (gelöscht, privat oder falsche ID)."
     text = _bereinigen(f.get("message") or "", key)[:200]
     return f"Die YouTube-API meldet Fehler {status}" + (f": {text}" if text else ".")
 
