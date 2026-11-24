@@ -1,0 +1,40 @@
+name: YouTube Kanal-Radar (täglich)
+
+# Laedt die oeffentlichen RSS-Feeds der in der App beobachteten Kanaele (Faceless YouTube -> Recherche ->
+# Kanal-Radar) und speichert je Video eine Momentaufnahme - daraus entsteht gemessenes Wachstum.
+# Kein API-Schluessel noetig. Unabhaengig von allen anderen Workflows (eigene Concurrency-Gruppe).
+on:
+  schedule:
+    - cron: "17 5 * * *"
+    - cron: "17 17 * * *"
+  # Manuell startbar: Actions -> "YouTube Kanal-Radar (täglich)" -> Run workflow
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube-radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests==2.34.2 tzdata==2026.5   # wie requirements.txt
+
+      - name: Feeds abrufen und Momentaufnahme speichern
+        env:
+          STATE_REPO: ${{ vars.STATE_REPO }}
+          GH_STATE_TOKEN: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+        run: python youtube_radar_agent.py

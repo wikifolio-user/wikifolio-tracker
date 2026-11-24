@@ -138,6 +138,11 @@ class Oberflaeche(unittest.TestCase):
         self.assertTrue(any("Schätzung" in x.value for x in at.markdown))
         # Idee speichern
         at.segmented_control(key="yt_bereich").set_value("Recherche").run()
+        self.assertTrue(any("Kanal-Radar" in x.value for x in at.markdown))
+        at.text_input(key="yt_r_kanal").set_value("UCBJycsmduvYEL83R_U4JriQ").run()
+        at.button(key="yt_r_add_btn").click().run()
+        self.assertEqual(self._d(at)["radar"][0]["id"], "UCBJycsmduvYEL83R_U4JriQ")
+        at.segmented_control(key="yt_rech_teil").set_value("Ideen").run()
         at.text_input(key="yt_idee_titel").set_value("5 KI-Tools für kleine Firmen").run()
         at.button(key="yt_idee_btn").click().run()
         self.assertEqual(self._d(at)["ideen"][0]["titel"], "5 KI-Tools für kleine Firmen")
