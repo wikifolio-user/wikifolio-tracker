@@ -77,7 +77,8 @@ def projekt_rendern(pid, ki, get=requests.get):
                                        default={}, message=f"youtube projekt {pid} [skip ci]")
     with tempfile.TemporaryDirectory() as ordner:
         p = PL.ausfuehren(p, {"ordner": ordner, "get": get, "ki": ki,
-                              "stimmen_ordner": os.environ.get("PIPER_STIMMEN", "stimmen")}, speichern=speichern)
+                              "stimmen_ordner": os.environ.get("PIPER_STIMMEN", "stimmen"),
+                              "release_laden": lambda aid: GR.laden(REPO, aid, TOKEN)}, speichern=speichern)
         if p["status"] in ("freigabe_noetig", "blockiert"):
             try:
                 p["dateien"]["release"] = ergebnis_hochladen(p, ordner)
