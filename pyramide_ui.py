@@ -444,6 +444,12 @@ def seite(h):
     if ss.get(K + "meldung"):
         art, text = ss.pop(K + "meldung")
         (st.success if art == "ok" else st.warning)(text)
+    teil = st.segmented_control("Teil", ["Meine Pyramiden", "Backtest A–D"], default="Meine Pyramiden",
+                                key=K + "teil", label_visibility="collapsed") or "Meine Pyramiden"
+    if teil == "Backtest A–D":
+        import pyramide_backtest_ui
+        pyramide_backtest_ui.bereich(ohlc)
+        return
     st.markdown("**Meine Pyramiden**")
     daten, ok = _laden(h)
     if not ok:

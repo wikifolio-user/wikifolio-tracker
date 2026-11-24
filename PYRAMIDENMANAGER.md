@@ -9,8 +9,8 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 | Etappe | Inhalt | Stand |
 |---|---|---|
 | 1 | Rechenkern, Adapter, Nachkaufprüfung, Tests | fertig |
-| 2 | Ansicht, WKN-Erfassung, Tranchenüberwachung, Zeitleiste | dieser Stand |
-| 3 | Backtest A–D | geplant |
+| 2 | Ansicht, WKN-Erfassung, Tranchenüberwachung, Zeitleiste | fertig |
+| 3 | Backtest A–D | dieser Stand |
 | 4 | Aktien-Pyramiden und Aktien-Trendscanner | geplant |
 | 5 | Abschluss der Dokumentation | geplant |
 
@@ -21,6 +21,8 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 | `pyramide.py` | Rechenkern ohne Streamlit und ohne Netz: Trend-Score, Signale, Stufen, Stops, Risiko, dynamischer Hebel, Gap- und Fear-&-Greed-Einstiegswert, kombinierter Wert, Nachkaufprüfung |
 | `pyramide_daten.py` | Adapter zu den vorhandenen Werkzeugen. Er liest nur und rechnet die Gap- und Fear-&-Greed-Werte nicht selbst nach. |
 | `pyramide_ui.py` | Ansicht „Märkte → Pyramiden“: Index-Trendscanner, „Meine Pyramiden“ mit Überblick, Nachkauf prüfen & erfassen (WKN über onvista oder von Hand), Einstellungen je Pyramide, Zeitleiste |
+| `pyramide_backtest.py` | Backtest der Strategien A–D ohne Vorausschau (Etappe 3) |
+| `pyramide_backtest_ui.py` | Ansicht „Pyramiden → Backtest A–D“ |
 | `test_pyramide.py` | Tests für Datenzuordnung, Zeitstempel, fehlende und veraltete Werte sowie Nachkaufentscheidungen |
 
 ## Tatsächlich verwendete Datenquellen
@@ -131,6 +133,45 @@ ungültige Werte ignoriert. Frei einstellbar sind unter anderem:
 
 Erlaubt ist ein Nachkauf nur, wenn **alle Pflichtprüfungen** bestanden sind. Ein guter kombinierter Wert oder
 positive Hinweise können eine nicht bestandene Pflichtprüfung nie überstimmen.
+
+## Backtest A–D (`pyramide_backtest.py`)
+
+| Strategie | Kauf (Stufe 1 und Nachkauf) |
+|---|---|
+| A | nur die technischen Regeln: Einstiegssignal bzw. Nachkauf ab +1 ATR und Trend-Score ≥ Schwelle |
+| B | A und Gap-Wert ≥ 40 |
+| C | A und Fear-&-Greed-Einstiegswert ≥ 40 |
+| D | A und kombinierter Wert (Trend/Gap/F&G, 70/20/10) ≥ Einstiegsschwelle |
+
+Ausstieg für alle gleich: Schluss unter dem Stop der Tranche (Anfangsstop oder gemeinsamer Nachzieh-Stop) oder
+Trend-Score unter der Ausstiegsschwelle.
+
+**Keine Vorausschau:**
+- Entschieden wird am Tagesschluss, ausgeführt zur Eröffnung des nächsten Tages.
+- Trend-Score, ATR, Stops und Gap-Analyse rechnen je Tag nur mit Kerzen bis zu diesem Tag. Die Gap-Analyse nutzt
+  dafür das Werkzeug des Gap Analyzers auf den letzten 500 Handelstagen.
+- Fear & Greed: Der eigene **Rohwert** ohne CNN-Eichung wird als Perzentil gegen die eigenen Rohwerte der drei Jahre
+  davor gerechnet. Ohne Wert lassen C und D keinen Kauf zu.
+- Ein Test sichert das ab: Kerzen nach einem Stichtag ändern das Ergebnis bis zu diesem Tag nicht.
+
+**Größe je Tranche:**
+- Das Risiko bis zum Anfangsstop ist Risiko-% × Stufenanteil des aktuellen Depotwerts.
+- Begrenzt wird die Größe durch das Gesamtrisiko, den KO-Kapitalanteil und das vorhandene Geld.
+
+**Kosten:** Spread je Runde, zur Hälfte bei Kauf und Verkauf, Gebühr je Order, bei KO die Finanzierung.
+
+**Kennzahlen:**
+- Endwert, Rendite und Rendite p. a., maximaler Drawdown, Zeit im Markt
+- Pyramiden, Tranchen, Trefferquote, Ø Gewinn und Verlust, Profit-Faktor
+- Kosten, KO-Ereignisse, gefilterte Signaltage
+- Signalqualität: Indexveränderung 20 Handelstage nach jedem Neueinstieg
+- Vergleich mit Kaufen & Halten
+
+**Vereinfachungen:**
+- KO = Basispreis, kein Restwert nach einem Knock-out
+- keine Währungseffekte
+- Dividenden nur, soweit sie im Index enthalten sind
+- Die Regeln sind die Startwerte des Pyramidenmanagers.
 
 ## Grenzen
 

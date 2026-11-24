@@ -27,6 +27,7 @@ except ImportError:                                   # Rechen-CI ohne Streamlit
 from test_gesundheit import Oberflaeche as GesundheitOberflaeche  # noqa: E402,F401
 from test_opening_gaps import Oberflaeche as OpeningGapsOberflaeche  # noqa: E402,F401
 from test_pyramide import Oberflaeche as PyramidenOberflaeche  # noqa: E402,F401
+from test_pyramide_backtest import BacktestOberflaeche as PyramidenBacktestOberflaeche  # noqa: E402,F401
 from test_youtube import Oberflaeche as YoutubeOberflaeche  # noqa: E402,F401
 from test_youtube_render import Oberflaeche as VideoFactoryOberflaeche  # noqa: E402,F401
 from test_youtube_api import RechercheOberflaeche as YoutubeRechercheOberflaeche  # noqa: E402,F401
