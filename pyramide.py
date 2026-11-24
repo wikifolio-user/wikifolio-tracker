@@ -477,3 +477,102 @@ def nachkauf_pruefung(pyr, trend, atr_wert, gap, fg, neue_tranche, index, stop_b
     erlaubt = all(x["ergebnis"] == "ok" for x in p if x["art"] == "pflicht")
     return {"erlaubt": erlaubt, "pruefungen": p, "risiko_vor": vor, "risiko_nach": nach, "stop": stop,
             "nachkauf_marke": marke, "hebel": hb, "einstellungen": cfg}
+
+
+# ---------------------------------------------------------------- 8. Pyramiden-Datensatz (Speicherformat je Benutzer)
+# {"pyramiden": [{"id", "index", "name", "kapital", "start", "status": "offen"/"geschlossen", "einstellungen": {},
+#                 "tranchen": [tranche], "ereignisse": [{"datum", "art", "text"}], "ende"}]}
+# tranche: {"stufe", "datum", "art": "direkt"/"ko", "stueck", "kaufkurs", "index_kauf", "anfangsstop", "wkn",
+#           "name", "produkt": {basiswert, richtung, basispreis, ko_schwelle, bezug, brief, finanzierung_pct, quanto}}
+# Reine Buchfuehrung: es werden nie Orders ausgeloest.
+PRODUKT_FELDER = ("basiswert", "richtung", "basispreis", "ko_schwelle", "bezug", "brief", "geld",
+                  "finanzierung_pct", "quanto", "isin", "wkn", "name", "emittent")
+
+
+def neue_pyramide(pid, index, name, kapital, datum, einstellungen_=None):
+    if index not in KO.INDIZES:
+        raise ValueError("Unbekannter Index.")
+    if not kapital or kapital <= 0:
+        raise ValueError("Das Pyramidenkapital muss größer als 0 sein.")
+    return {"id": str(pid), "index": index, "name": (name or KO.INDIZES[index]["name"]).strip()[:60],
+            "kapital": float(kapital), "start": str(datum), "status": "offen",
+            "einstellungen": dict(einstellungen_ or {}), "tranchen": [],
+            "ereignisse": [{"datum": str(datum), "art": "start", "text": "Pyramide angelegt."}]}
+
+
+def tranche_pruefen(t, index):
+    """Plausibilitaet einer erfassten Tranche -> Liste von Fehlern (leer = ok)."""
+    f = []
+    if t.get("art") not in ("direkt", "ko"):
+        f.append("Art muss „direkt“ oder „KO-Zertifikat“ sein.")
+    for feld, text in (("stueck", "Stückzahl"), ("kaufkurs", "Kaufkurs"), ("index_kauf", "Indexstand beim Kauf")):
+        if not (isinstance(t.get(feld), (int, float)) and t[feld] > 0):
+            f.append(f"{text} muss größer als 0 sein.")
+    if t.get("art") == "ko":
+        p = t.get("produkt") or {}
+        fehler, _ = KO.produkt_pruefen(p)
+        f += fehler
+        if p.get("basiswert") and p["basiswert"] != index:
+            f.append(f"Das Zertifikat bezieht sich auf {p['basiswert']}, die Pyramide auf {index}.")
+        if p.get("richtung") and p["richtung"] != "long":
+            f.append("Die Pyramide ist eine Long-Pyramide – nur Long-Zertifikate.")
+    return f
+
+
+def tranche_hinzufuegen(pyr, t, atr_wert=None, cfg=None):
+    """Tranche als naechste Stufe anhaengen (Anfangsstop aus der ATR, falls nicht angegeben). -> neue Pyramide"""
+    cfg = cfg or cfg_fuer(pyr)
+    f = tranche_pruefen(t, pyr["index"])
+    if f:
+        raise ValueError(f[0])
+    if len(pyr["tranchen"]) >= cfg["max_stufen"]:
+        raise ValueError(f"Höchstzahl von {cfg['max_stufen']} Stufen erreicht.")
+    neu = copy.deepcopy(pyr)
+    t = {k: v for k, v in t.items() if k != "produkt"} | (
+        {"produkt": {k: t["produkt"].get(k) for k in PRODUKT_FELDER}} if t.get("art") == "ko" else {})
+    t["stufe"] = len(neu["tranchen"]) + 1
+    if t.get("anfangsstop") is None and atr_wert:
+        t["anfangsstop"] = anfangsstop(t["index_kauf"], atr_wert, cfg)
+    neu["tranchen"].append(t)
+    neu["ereignisse"].append({"datum": t.get("datum"), "art": "kauf",
+                              "text": f"Stufe {t['stufe']}: {t['stueck']:g} × {KO.de(t['kaufkurs'], 2)} € "
+                                      f"({'KO ' + (t.get('wkn') or '') if t['art'] == 'ko' else 'direkt'}) bei Index "
+                                      f"{KO.de(t['index_kauf'], 0)}"})
+    return neu
+
+
+def stop_verlauf(kerzen, start, cfg=STANDARD):
+    """Gemeinsamer Nachzieh-Stop je Handelstag ab `start` (nur Daten bis zum jeweiligen Tag).
+    -> [(datum, schluss, hoechster_schluss, stop)]"""
+    aus, stop, hoechst = [], None, None
+    n = cfg["atr_tage"]
+    for i, k in enumerate(kerzen):
+        if k[0] < start:
+            continue
+        hoechst = k[4] if hoechst is None else max(hoechst, k[4])
+        a = atr(kerzen[:i + 1], n)
+        if a:
+            stop = nachzieh_stop(hoechst, a, stop, cfg)
+        aus.append((k[0], k[4], hoechst, stop))
+    return aus
+
+
+def status(pyr, kerzen, kurs=None, eurusd=None, trend=None):
+    """Aktueller Stand einer Pyramide: Stufe, Stop, Hoechststand, Risiko, naechste Nachkaufmarke, Ausstieg.
+    kurs: aktueller Indexstand (sonst letzter Schluss)."""
+    cfg = cfg_fuer(pyr)
+    verlauf = stop_verlauf(kerzen, pyr["start"], cfg)
+    a = atr(kerzen, cfg["atr_tage"])
+    kurs = kurs or (kerzen[-1][4] if kerzen else None)
+    hoechst = max([v[2] for v in verlauf[-1:]] + [kurs or 0]) if verlauf else kurs
+    stop = verlauf[-1][3] if verlauf else None
+    if stop is None and pyr["tranchen"]:
+        stop = max(t.get("anfangsstop") or 0 for t in pyr["tranchen"]) or None
+    stufe = len(pyr["tranchen"])
+    marke = (max(t["index_kauf"] for t in pyr["tranchen"]) + cfg["nachkauf_atr"] * a) if (stufe and a) else None
+    r = risiko(pyr, kurs, stop, eurusd) if stufe and kurs else None
+    raus, gruende = ausstiegssignal(trend, kurs, stop, cfg) if stufe else (False, [])
+    return {"stufe": stufe, "max_stufen": cfg["max_stufen"], "stop": stop, "hoechst": hoechst, "atr": a, "kurs": kurs,
+            "nachkauf_marke": marke, "risiko": r, "ausstieg": raus, "ausstieg_gruende": gruende,
+            "verlauf": verlauf, "einstellungen": cfg,
+            "naechste_groesse": tranchen_anteil(stufe + 1, cfg) if stufe < cfg["max_stufen"] else None}

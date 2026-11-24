@@ -1382,6 +1382,7 @@ ANSICHT_KO = "🎯 Knock-out-Rechner"      # ko_rechner_ui.py - Index-Knock-out-
 ANSICHT_ETP = "📈 ETF-/ETP-Hebelrechner"  # etp_rechner_ui.py - taeglich gehebelte Produkte, fuer alle
 ANSICHT_FG = "🌡️ Fear & Greed"           # fear_greed_ui.py - Marktstimmung, fuer alle
 ANSICHT_GAP = "🕳️ Gap Analyzer"          # gap_analyzer_ui.py - Kursluecken der vier Indizes, fuer alle
+ANSICHT_PYR = "🔺 Pyramiden"             # pyramide_ui.py - Pyramidenmanager, fuer alle (Daten je Benutzer)
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
@@ -1418,6 +1419,7 @@ ANSICHTEN = [
     ANSICHT_ETP,                # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_FG,                 # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_GAP,                # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_PYR,                # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1451,6 +1453,7 @@ ANSICHT_KURZ = {
     ANSICHT_ETP: "📈 ETP-Hebel",
     ANSICHT_FG: "🌡️ Fear & Greed",
     ANSICHT_GAP: "🕳️ Gaps",
+    ANSICHT_PYR: "🔺 Pyramiden",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1484,6 +1487,7 @@ NAV_NAMEN = {
     ANSICHT_ETP: "📈 ETF-/ETP-Hebelrechner",
     ANSICHT_FG: "🌡️ Fear & Greed Monitor",
     ANSICHT_GAP: "🕳️ Gap Analyzer",
+    ANSICHT_PYR: "🔺 Pyramidenmanager",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1511,7 +1515,7 @@ NAV_ZEILEN = [
                "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Werkzeuge",
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
-    ("Märkte", [ANSICHT_FG, ANSICHT_GAP]),             # Marktstimmung und Index-Werkzeuge
+    ("Märkte", [ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR]),             # Marktstimmung und Index-Werkzeuge
     ("Geschäftsideen", [ANSICHT_EKS]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO, ANSICHT_ETP]),
     ("Gesundheit", [ANSICHT_GESUNDHEIT]),
@@ -1522,7 +1526,7 @@ NAV_ZEILEN = [
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
-                     ANSICHT_GESUNDHEIT, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP}
+                     ANSICHT_GESUNDHEIT, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1531,7 +1535,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
               ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT,
-              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP}
+              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1957,6 +1961,8 @@ def _sichtbar(ansicht):
     n = _nutzer()
     # Erklaerungen, Rechner und Marktdaten ohne eigene Daten - fuer alle
     if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP):
+        return True
+    if ansicht == ANSICHT_PYR:           # Pyramiden: jeder Benutzer in seinem eigenen Datenbereich
         return True
     if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT):     # Gesundheitsdaten: nur angemeldeter Admin
         return bool(n) and n.get("rolle") == "admin"
@@ -3000,6 +3006,19 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Gap Analyzer: {e}")
             notify_app_error("Tab-GapAnalyzer", e)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_PYR:
+        try:
+            import pyramide_ui
+            pyramide_ui.seite({"ohlc": lambda: kurs_vorrat().ohlc(), "sentiment": lambda: kurs_vorrat().sentiment(),
+                               "indizes": lambda: kurs_vorrat().indizes(), "lesen": gh_read_cached_status,
+                               "aktualisiere": gh_aktualisiere, "upfad": upfad, "speichern": GH_STATE_READY,
+                               "get": requests.get,
+                               "oeffnen": lambda z: _nav_waehle({"gap": ANSICHT_GAP, "fg": ANSICHT_FG}[z])})
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Pyramidenmanager: {e}")
+            notify_app_error("Tab-Pyramiden", e)
         lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_FG:

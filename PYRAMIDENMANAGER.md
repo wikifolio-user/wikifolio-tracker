@@ -8,8 +8,8 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 
 | Etappe | Inhalt | Stand |
 |---|---|---|
-| 1 | Rechenkern, Adapter, Nachkaufprüfung, Tests | dieser Stand |
-| 2 | Ansicht, WKN-Erfassung, Tranchenüberwachung, Zeitleiste | geplant |
+| 1 | Rechenkern, Adapter, Nachkaufprüfung, Tests | fertig |
+| 2 | Ansicht, WKN-Erfassung, Tranchenüberwachung, Zeitleiste | dieser Stand |
 | 3 | Backtest A–D | geplant |
 | 4 | Aktien-Pyramiden und Aktien-Trendscanner | geplant |
 | 5 | Abschluss der Dokumentation | geplant |
@@ -20,6 +20,7 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 |---|---|
 | `pyramide.py` | Rechenkern ohne Streamlit und ohne Netz: Trend-Score, Signale, Stufen, Stops, Risiko, dynamischer Hebel, Gap- und Fear-&-Greed-Einstiegswert, kombinierter Wert, Nachkaufprüfung |
 | `pyramide_daten.py` | Adapter zu den vorhandenen Werkzeugen. Er liest nur und rechnet die Gap- und Fear-&-Greed-Werte nicht selbst nach. |
+| `pyramide_ui.py` | Ansicht „Märkte → Pyramiden“: Index-Trendscanner, „Meine Pyramiden“ mit Überblick, Nachkauf prüfen & erfassen (WKN über onvista oder von Hand), Einstellungen je Pyramide, Zeitleiste |
 | `test_pyramide.py` | Tests für Datenzuordnung, Zeitstempel, fehlende und veraltete Werte sowie Nachkaufentscheidungen |
 
 ## Tatsächlich verwendete Datenquellen
@@ -36,6 +37,23 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 Der CNN-Wert ist **US-weit**. Er steht nur bei den drei US-Indizes und dort getrennt als `us_umfeld` mit dem Bezug
 „us“. Für den DAX wird er nie verwendet. Für die indexspezifische Bewertung zählt immer der eigene Indexwert
 (Bezug „index“).
+
+## Speicherung
+
+Die Pyramiden liegen je Benutzer in dessen eigenem Datenbereich unter `state/pyramiden.json`. Sie werden über die
+App mit Versionsprüfung geschrieben. Gespeichert werden:
+
+- Index, Name und Kapital
+- Start und Status
+- die eigenen Einstellungen
+- die Tranchen: Datum, Art, WKN, Stückzahl, Kaufkurs, Indexstand, Anfangsstop und Produktdaten
+- die Ereignisse
+
+Das ist reine Buchführung der tatsächlich getätigten Käufe. Es wird keine Order ausgelöst, und das Depot wird nicht
+verändert.
+
+Den gemeinsamen Nachzieh-Stop berechnet die App aus den Tageskerzen seit dem Start neu (`pyramide.stop_verlauf`), mit
+den Daten bis zum jeweiligen Tag. Er wird nicht gespeichert.
 
 ## Regeln (Startwerte in `pyramide.STANDARD`, alle je Pyramide änderbar)
 
