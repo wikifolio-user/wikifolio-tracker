@@ -22,7 +22,8 @@ import youtube_radar as YR
 
 K = "yt_"
 DATEI = "state/youtube.json"
-LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": [], "analysen": []}
+LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": [], "analysen": [],
+        "affiliate": {}, "affiliate_eigene": []}
 RADAR_DATEI = "state/youtube_radar.json"
 BEREICHE = ["Überblick", "Recherche", "Analyse", "Video Factory", "Finanzen", "Einstellungen"]
 MODI = {"free": "Free – lokale/offene Werkzeuge, kostenlose APIs", "balanced": "Balanced – kostenlos + ausgewählte "
@@ -41,14 +42,15 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Kanal untersuchen (Größe, Rhythmus, Ausreißer)", 2, "YOUTUBE_API_KEY"),
     ("Einnahmepotenzial schätzen", 2, None), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
     ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, None),
-    ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
+    ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, None),
     ("Skript (KI oder eigenes) & Storyboard", 1, None), ("Bildmaterial (lizenzfrei oder eigene Grafik)", 1, None),
     ("KI-Stimme (Piper, lokal)", 1, None), ("Schnitt, Untertitel, MP4 (FFmpeg)", 1, None),
     ("Thumbnails & Qualitätskontrolle", 1, None), ("Freigabe & YouTube-Upload (als Entwurf)", 7, "YouTube-OAuth"),
     ("Einnahmen ins Kassenbuch", 1, None),
 ]
 PHASE_FERTIG = 2
-FERTIG = {"Kommentare analysieren", "Transkript auswerten (eigener Text/SRT)"}   # fertige Schritte spaeterer Phasen
+FERTIG = {"Kommentare analysieren", "Transkript auswerten (eigener Text/SRT)", "Affiliate-Programme (mit Quelle)",
+          "Eigene Idee / Better Video"}   # fertige Schritte spaeterer Phasen
 
 CSS = """<style>
 .yt-raster { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:6px 0 10px; }
@@ -396,31 +398,9 @@ def idee_zur_factory(i):
 
 
 # ---------------------------------------------------------------------------------------------------- Analyse / Factory
-def _ausblick(h, titel, punkte, phase, braucht):
-    zug = h.get("zugaenge") or {}
-    st.markdown(f"**{titel}** – kommt in Phase {phase}")
-    st.markdown("\n".join(f"- {p}" for p in punkte))
-    fehlend = [b for b in braucht if b in zug and not zug[b]]
-    if fehlend:
-        st.warning("Dafür fehlt noch: " + ", ".join(fehlend) + " (siehe „Einstellungen“).")
-    elif braucht:
-        st.caption("Benötigte Zugänge: " + ", ".join(f"{b} ✅" for b in braucht))
-
-
 def _analyse(h, d):
     import youtube_analyse_ui
     youtube_analyse_ui.bereich(h, d)
-
-
-def _analyse_ausblick(h, d):                    # Phase 3b ersetzt das durch eigene Teile
-    _ausblick(h, "Analyse-Agenten", [
-        "**Kommentar-Analyse:** öffentliche Kommentare über die offizielle API, Gruppen (Lob, Kritik, offene Fragen, "
-        "Wünsche), Häufigkeit, Beispiele, Spam-Filter",
-        "**Transkript-Analyse:** eingefügter Text oder SRT/VTT-Datei (fremde Untertitel gibt die API nicht heraus), "
-        "Kernaussagen, Lücken, Kapitel",
-        "**Better Video Generator:** drei eigenständige Konzepte aus Thema, Kommentaren und eigener Recherche – keine "
-        "Übersetzung oder Paraphrase", "**Affiliate-Finder:** nur Programme mit offizieller Quelle und Prüfdatum"],
-        3, ["YOUTUBE_API_KEY", "GEMINI_API_KEY"])
 
 
 def _factory(h, d):

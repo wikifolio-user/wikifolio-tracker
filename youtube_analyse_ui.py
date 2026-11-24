@@ -11,7 +11,7 @@ import youtube_analyse as YAN
 import youtube_api as YA
 from youtube_ui import K, _e, _kpis, _speichern
 
-TEILE = ["Kommentare", "Transkript"]
+TEILE = ["Kommentare", "Transkript", "Better Video", "Affiliate"]
 MAX_ANALYSEN = 30
 
 
@@ -226,5 +226,9 @@ def gemerkt(h, d):
 def bereich(h, d):
     teil = st.segmented_control("Analyse", TEILE, default=TEILE[0], key=K + "an_teil",
                                 label_visibility="collapsed") or TEILE[0]
+    if teil in ("Better Video", "Affiliate"):
+        import youtube_konzepte_ui as YKU
+        (YKU.better_video if teil == "Better Video" else YKU.affiliate)(h, d)
+        return
     {"Kommentare": kommentare, "Transkript": transkript}[teil](h, d)
     gemerkt(h, d)
