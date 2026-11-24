@@ -3035,11 +3035,17 @@ def render_dashboard():
                     except Exception:
                         return ki_anbieter.verfuegbar()
                 _code_repo = st.secrets.get("CODE_REPO", "") or "wikifolio-user/wikifolio-tracker"
+                import youtube_api
+                try:                                 # Schluessel nur in der Abruf-Funktion, nie in der Oberflaeche
+                    _yt_key = st.secrets.get("YOUTUBE_API_KEY") or os.environ.get("YOUTUBE_API_KEY") or ""
+                except Exception:
+                    _yt_key = os.environ.get("YOUTUBE_API_KEY") or ""
                 youtube_ui.seite({"lesen": gh_read_cached_status, "aktualisiere": gh_aktualisiere, "upfad": upfad,
                                   "speichern": GH_STATE_READY, "get": requests.get, "ki": _ki,
                                   "render_starten": lambda pid: github_release.workflow_starten(
                                       _code_repo, "youtube-render.yml", GITHUB_TOKEN, {"projekt": pid}),
                                   "release_laden": lambda aid: github_release.laden(GITHUB_REPO, aid, GITHUB_TOKEN),
+                                  "yt_abruf": youtube_api.verbindung(_yt_key, requests.get) if _yt_key else None,
                                   "zugaenge": {n: _hat(n) for n, *_ in youtube_ui.ZUGAENGE}})
             except Exception as e:
                 st.error(f"⚠️ Fehler im Bereich Faceless YouTube: {e}")
