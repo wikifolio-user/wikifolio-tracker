@@ -1,7 +1,8 @@
 # Pyramidenmanager
 
 Zusätzliches Modul des Finanz-Dashboards. Der Pyramidenmanager berechnet Trend, Signale, Stops und Risiko für
-gestaffelte Long-Käufe (Pyramiden) auf die vier Indizes Nasdaq 100, DAX 40, S&P 500 und Dow Jones.
+gestaffelte Long-Käufe (Pyramiden) auf die vier Indizes Nasdaq 100, DAX 40, S&P 500 und Dow Jones sowie auf
+einzelne Aktien.
 
 Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die vorhandenen Analysewerkzeuge
 (Gap Analyzer, Fear & Greed, KO-Rechner) werden nur **gelesen** und nicht verändert.
@@ -10,9 +11,9 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 |---|---|---|
 | 1 | Rechenkern, Adapter, Nachkaufprüfung, Tests | fertig |
 | 2 | Ansicht, WKN-Erfassung, Tranchenüberwachung, Zeitleiste | fertig |
-| 3 | Backtest A–D | dieser Stand |
-| 4 | Aktien-Pyramiden und Aktien-Trendscanner | geplant |
-| 5 | Abschluss der Dokumentation | geplant |
+| 3 | Backtest A–D | fertig |
+| 4 | Aktien-Pyramiden und Aktien-Trendscanner | fertig |
+| 5 | Abschluss der Dokumentation | fertig |
 
 ## Dateien
 
@@ -23,6 +24,8 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 | `pyramide_ui.py` | Ansicht „Märkte → Pyramiden“: Index-Trendscanner, „Meine Pyramiden“ mit Überblick, Nachkauf prüfen & erfassen (WKN über onvista oder von Hand), Einstellungen je Pyramide, Zeitleiste |
 | `pyramide_backtest.py` | Backtest der Strategien A–D ohne Vorausschau (Etappe 3) |
 | `pyramide_backtest_ui.py` | Ansicht „Pyramiden → Backtest A–D“ |
+| `pyramide_aktien.py` | Aktien: Tageskerzen (Yahoo), Analyse wie bei den Indizes, Zeilen des Aktien-Trendscanners (Etappe 4) |
+| `pyramide_aktien_ui.py` | Ansicht „Pyramiden → Aktien-Trendscanner“, eigene Aktienliste, Daten für Aktien-Pyramiden |
 | `test_pyramide.py` | Tests für Datenzuordnung, Zeitstempel, fehlende und veraltete Werte sowie Nachkaufentscheidungen |
 
 ## Tatsächlich verwendete Datenquellen
@@ -173,9 +176,38 @@ Trend-Score unter der Ausstiegsschwelle.
 - Dividenden nur, soweit sie im Index enthalten sind
 - Die Regeln sind die Startwerte des Pyramidenmanagers.
 
+## Aktien-Pyramiden und Aktien-Trendscanner (Etappe 4)
+
+**Aktienliste:**
+- **Depotwerte:** Sie werden über die Top-500-Bewertung per ISIN, WKN oder Symbol einem Yahoo-Kürzel zugeordnet.
+  Fonds, Zertifikate und andere Werte ohne Zuordnung erscheinen als Hinweis.
+- **Eigene Liste:** in `state/pyramiden_aktien.json` je Benutzer. Ein Kürzel wird beim Hinzufügen geprüft, indem
+  seine Kerzen geladen werden.
+
+**Kerzen:**
+- Quelle ist die Yahoo-Finance-Chart-API (Tageskerzen der letzten 3 Jahre), nur Aktien und ETFs.
+- Die Kerze des laufenden Handelstags wird weggelassen.
+- Beim Öffnen geladen und 6 Stunden zwischengespeichert. Nach mehr als 3 Wochentagen ohne neue Kerze gelten sie als
+  „veraltet“ und geben kein Signal.
+
+**Trendscanner:**
+- Derselbe Trend-Score und dasselbe Einstiegssignal wie bei den Indizes.
+- Dazu Abstand zum 52-Wochen-Hoch, 12-Monats-Rendite und ATR in %.
+- Zusatzspalten aus der **vorhandenen Aktienbewertung**: Gesamtscore und Fazit der Top-500-Bewertung, Note und
+  Anteil der Kaufempfehlungen aus dem Legenden-Screener (`investoren_ui.vorberechnet`). Diese Werte werden nur
+  gelesen.
+
+**Aktien-Pyramiden** (`pyramide.neue_pyramide(..., art="aktie")`):
+- Gleiche Regeln für Stufen, Stops und Risiko wie bei den Indizes.
+- Nur direkte Käufe, keine KO-Zertifikate auf Einzelaktien.
+- Für Aktien gibt es weder Fear & Greed noch eine Gap-Analyse. Der kombinierte Wert besteht deshalb nur aus dem
+  Trend (Gewichte 100/0/0, F&G aus). Die Hinweise 3 und 4 der Nachkaufprüfung zeigen „fehlt“ bzw. „aus“.
+
 ## Grenzen
 
 - Nur Long-Pyramiden und nur Tageskerzen.
+- Aktien: keine Währungsumrechnung (Kaufkurs in €, Aktienkurs in Handelswährung), keine Dividenden, Kerzen aus
+  Yahoo ohne eigenen Börsenkalender (Feiertage zählen beim Alter als Handelstage).
 - Der Wert einer ungehebelten Tranche („direkt“) folgt dem Index ohne Währungseffekt.
 - KO-Tranchen werden ohne Spread und ohne Restwert nach einem Knock-out gerechnet.
 - Die eigenen Fear-&-Greed-Werte sind an CNN geeicht. Für den Backtest (Etappe 3) wird diese Eichung nicht

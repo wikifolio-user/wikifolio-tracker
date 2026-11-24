@@ -489,15 +489,33 @@ PRODUKT_FELDER = ("basiswert", "richtung", "basispreis", "ko_schwelle", "bezug",
                   "finanzierung_pct", "quanto", "isin", "wkn", "name", "emittent")
 
 
-def neue_pyramide(pid, index, name, kapital, datum, einstellungen_=None):
-    if index not in KO.INDIZES:
+def neue_pyramide(pid, index, name, kapital, datum, einstellungen_=None, art="index"):
+    """art "index": index ist ein Code aus KO.INDIZES. art "aktie" (Etappe 4): index ist das Yahoo-Kuerzel der
+    Aktie; Tranchen nur direkt (Aktie/ETF), kombinierter Wert nur aus dem Trend (keine Gap-/F&G-Daten)."""
+    if art == "aktie":
+        index = str(index or "").strip().upper()
+        if not index or len(index) > 20:
+            raise ValueError("Ungültiges Börsenkürzel.")
+        einstellungen_ = {**AKTIEN_STANDARD, **(einstellungen_ or {})}
+    elif index not in KO.INDIZES:
         raise ValueError("Unbekannter Index.")
     if not kapital or kapital <= 0:
         raise ValueError("Das Pyramidenkapital muss größer als 0 sein.")
-    return {"id": str(pid), "index": index, "name": (name or KO.INDIZES[index]["name"]).strip()[:60],
-            "kapital": float(kapital), "start": str(datum), "status": "offen",
-            "einstellungen": dict(einstellungen_ or {}), "tranchen": [],
-            "ereignisse": [{"datum": str(datum), "art": "start", "text": "Pyramide angelegt."}]}
+    vorgabe = index if art == "aktie" else KO.INDIZES[index]["name"]
+    p = {"id": str(pid), "index": index, "name": (name or vorgabe).strip()[:60],
+         "kapital": float(kapital), "start": str(datum), "status": "offen",
+         "einstellungen": dict(einstellungen_ or {}), "tranchen": [],
+         "ereignisse": [{"datum": str(datum), "art": "start", "text": "Pyramide angelegt."}]}
+    if art == "aktie":
+        p["art"] = "aktie"
+    return p
+
+
+AKTIEN_STANDARD = {"gewichte": {"trend": 100, "gap": 0, "fg": 0}, "fg_modus": "aus"}
+
+
+def ist_aktie(pyr):
+    return (pyr or {}).get("art") == "aktie"
 
 
 def tranche_pruefen(t, index):
@@ -523,6 +541,8 @@ def tranche_hinzufuegen(pyr, t, atr_wert=None, cfg=None):
     """Tranche als naechste Stufe anhaengen (Anfangsstop aus der ATR, falls nicht angegeben). -> neue Pyramide"""
     cfg = cfg or cfg_fuer(pyr)
     f = tranche_pruefen(t, pyr["index"])
+    if ist_aktie(pyr) and t.get("art") != "direkt":
+        f.insert(0, "Aktien-Pyramiden erfassen nur direkte Käufe (Aktie oder ETF), keine KO-Zertifikate.")
     if f:
         raise ValueError(f[0])
     if len(pyr["tranchen"]) >= cfg["max_stufen"]:

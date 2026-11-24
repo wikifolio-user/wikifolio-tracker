@@ -5,7 +5,10 @@ und "Meine Pyramiden" (Überblick, Nachkauf prüfen & erfassen per WKN, Einstell
 Reine Buchfuehrung und Signale - es werden keine Orders ausgeloest, das Depot wird nicht veraendert.
 h = {"ohlc", "sentiment", "indizes": () -> Datei, "lesen": (pfad, default) -> (daten, ok),
      "aktualisiere": (pfad, aendern, default, msg) -> (ok, neu), "upfad": (basis) -> pfad, "speichern": bool,
-     "get": requests.get (Produktdaten), "oeffnen": (ansicht_id) -> None (optional, Links zu Gap / Fear & Greed)}"""
+     "get": requests.get (Produktdaten, Aktienkerzen), "oeffnen": (ansicht_id) -> None (optional, Links zu Gap /
+     Fear & Greed), Etappe 4 (optional): "aktien_depot": () -> Depotpositionen, "bewertung_daten": () -> Top-500-Daten
+     der Bewertung, "investoren": () -> {ticker: Kurzform des Legenden-Screeners}}
+Teile: Meine Pyramiden (Index- und Aktien-Pyramiden), Aktien-Trendscanner (Etappe 4), Backtest A–D (Etappe 3)."""
 import datetime
 import html
 import logging
@@ -179,15 +182,38 @@ def _scanner(h, analyse, indizes, jetzt):
 
 # ---------------------------------------------------------------------------------------------------- Pyramiden
 def _neu_formular(h, jetzt):
-    with st.expander("➕ Neue Pyramide anlegen", expanded=False):
+    ss = st.session_state
+    vorlage = ss.pop(K + "aktie_vorlage", None)               # aus dem Aktien-Trendscanner (vor den Widgets)
+    if vorlage:
+        ss[K + "neu_basis"] = "Aktie"
+        ss[K + "neu_ticker"] = vorlage["ticker"]
+        ss[K + "neu_name"] = f"{vorlage['name']}-Pyramide"[:60]
+    with st.expander("➕ Neue Pyramide anlegen", expanded=bool(vorlage)):
+        basis = st.segmented_control("Basiswert", ["Index", "Aktie"], default="Index", key=K + "neu_basis") or "Index"
         sp = st.columns(3) if not UI.ist_smartphone() else [st.container() for _ in range(3)]
-        idx = sp[0].selectbox("Index", CODES, key=K + "neu_index", format_func=lambda c: KO.INDIZES[c]["name"])
-        name = sp[1].text_input("Name", key=K + "neu_name", placeholder=KO.INDIZES[idx]["name"] + "-Pyramide")
+        if basis == "Index":
+            idx = sp[0].selectbox("Index", CODES, key=K + "neu_index", format_func=lambda c: KO.INDIZES[c]["name"])
+            vorschlag = KO.INDIZES[idx]["name"] + "-Pyramide"
+        else:
+            idx = (sp[0].text_input("Yahoo-Kürzel der Aktie", key=K + "neu_ticker", max_chars=20,
+                                    placeholder="z. B. AAPL, SAP.DE") or "").strip().upper()
+            vorschlag = (idx or "Aktien") + "-Pyramide"
+        name = sp[1].text_input("Name", key=K + "neu_name", placeholder=vorschlag)
         kap = sp[2].number_input("Pyramidenkapital (€)", 100.0, 10_000_000.0, value=10_000.0, step=500.0,
                                  key=K + "neu_kapital")
-        if st.button("Pyramide anlegen", key=K + "neu_btn"):
+        if basis == "Aktie":
+            st.caption("Aktien-Pyramiden: gleiche Regeln für Trend, Stops und Risiko; nur direkte Käufe. Ohne Fear & "
+                       "Greed und Gap-Analyse – der kombinierte Wert ist hier der Trend-Score.")
+        if st.button("Pyramide anlegen", key=K + "neu_btn", disabled=basis == "Aktie" and not idx):
+            if basis == "Aktie":
+                import pyramide_aktien_ui as PAU
+                _, fehler = PAU.analyse(h, idx, name)
+                if fehler:
+                    st.error(fehler)
+                    return
             try:
-                p = P.neue_pyramide(uuid.uuid4().hex[:8], idx, name, kap, jetzt.date().isoformat())
+                p = P.neue_pyramide(uuid.uuid4().hex[:8], idx, name, kap, jetzt.date().isoformat(),
+                                    art="aktie" if basis == "Aktie" else "index")
             except ValueError as ex:
                 st.error(str(ex))
                 return
@@ -220,7 +246,7 @@ def _ueberblick(h, pyr, s, a):
         ko = z["ko_schwelle"]
         zeilen.append({"Stufe": t["stufe"], "Datum": t.get("datum") or "", "Art": "KO" if t["art"] == "ko" else "direkt",
                        "WKN": t.get("wkn") or "", "Stück": t["stueck"], "Kaufkurs €": round(t["kaufkurs"], 3),
-                       "Index beim Kauf": round(t["index_kauf"], 1), "Stop": round(z["stop"], 1) if z["stop"] else None,
+                       ("Kurs beim Kauf" if P.ist_aktie(pyr) else "Index beim Kauf"): round(t["index_kauf"], 2), "Stop": round(z["stop"], 1) if z["stop"] else None,
                        "KO-Schwelle": round(ko, 1) if ko else None,
                        "Abstand KO %": round((s["kurs"] / ko - 1) * 100, 2) if ko and s["kurs"] else None,
                        "Einsatz €": round(z["einsatz"], 2), "Wert €": round(z["wert"], 2),
@@ -242,8 +268,14 @@ def _produkt_laden(h, kennung):
 def _nachkauf(h, pyr, s, a, b, eurusd, jetzt):
     ss = st.session_state
     cfg = s["einstellungen"]
-    art = st.segmented_control("Art der Tranche", ["ko", "direkt"], key=K + "art", default="ko",
-                               format_func=lambda x: "KO-Zertifikat" if x == "ko" else "direkt (Index-ETF/-Fonds)") or "ko"
+    aktie = P.ist_aktie(pyr)
+    if aktie:
+        art = "direkt"
+        st.caption("Aktien-Pyramide: Tranchen werden als direkter Kauf der Aktie erfasst.")
+    else:
+        art = st.segmented_control("Art der Tranche", ["ko", "direkt"], key=K + "art", default="ko",
+                                   format_func=lambda x: "KO-Zertifikat" if x == "ko" else "direkt (Index-ETF/-Fonds)") \
+            or "ko"
     produkt = None
     if art == "ko":
         sp = st.columns([3, 1]) if not UI.ist_smartphone() else [st.container(), st.container()]
@@ -279,7 +311,7 @@ def _nachkauf(h, pyr, s, a, b, eurusd, jetzt):
     kurs_vorschlag = (produkt or {}).get("brief") if art == "ko" else None
     kaufkurs = sp[1].number_input("Kaufkurs je Stück €", 0.0, value=float(kurs_vorschlag) if kurs_vorschlag else None,
                                   step=0.01, key=K + f"kaufkurs_{art}", placeholder="0,00")
-    idx_kauf = sp[2].number_input("Indexstand beim Kauf", 0.0, value=float(s["kurs"] or 0.0), step=1.0,
+    idx_kauf = sp[2].number_input("Aktienkurs beim Kauf" if aktie else "Indexstand beim Kauf", 0.0, value=float(s["kurs"] or 0.0), step=1.0,
                                   key=K + "index_kauf")
     datum = sp[3].date_input("Kaufdatum", value=jetzt.date(), key=K + "datum", format="DD.MM.YYYY")
     neu = None
@@ -444,11 +476,23 @@ def seite(h):
     if ss.get(K + "meldung"):
         art, text = ss.pop(K + "meldung")
         (st.success if art == "ok" else st.warning)(text)
-    teil = st.segmented_control("Teil", ["Meine Pyramiden", "Backtest A–D"], default="Meine Pyramiden",
-                                key=K + "teil", label_visibility="collapsed") or "Meine Pyramiden"
+    teile = ["Meine Pyramiden", "Aktien-Trendscanner", "Backtest A–D"]
+    if ss.get(K + "teil_neu") in teile:                      # Wechsel aus dem Aktien-Scanner (vor dem Widget)
+        ss[K + "teil"] = ss.pop(K + "teil_neu")
+    teil = st.segmented_control("Teil", teile, default="Meine Pyramiden", key=K + "teil",
+                                label_visibility="collapsed") or "Meine Pyramiden"
     if teil == "Backtest A–D":
         import pyramide_backtest_ui
         pyramide_backtest_ui.bereich(ohlc)
+        return
+    if teil == "Aktien-Trendscanner":
+        import pyramide_aktien_ui
+
+        def aktie_anlegen(ticker, name):
+            ss[K + "aktie_vorlage"] = {"ticker": ticker, "name": name}
+            ss[K + "teil_neu"] = "Meine Pyramiden"
+            st.rerun()
+        pyramide_aktien_ui.scanner(h, aktie_anlegen)
         return
     st.markdown("**Meine Pyramiden**")
     daten, ok = _laden(h)
@@ -468,12 +512,23 @@ def seite(h):
     st.selectbox("Pyramide", ids, key=K + "wahl", format_func=lambda i: f"{je[i]['name']} · {je[i]['index']} · "
                  f"{len(je[i]['tranchen'])} Stufe(n) · {'offen' if je[i]['status'] == 'offen' else 'geschlossen'}")
     pyr = je[ss[K + "wahl"]]
-    a = analyse[pyr["index"]]
     cfg = P.cfg_fuer(pyr)
+    if P.ist_aktie(pyr):
+        import pyramide_aktien_ui
+        a, fehler = pyramide_aktien_ui.analyse(h, pyr["index"], pyr["name"])
+        if fehler:
+            st.warning(f"Kursdaten für {pyr['index']} nicht verfügbar: {fehler}")
+            _verwalten(h, pyr)
+            return
+        eurusd, kurs = None, a["kurs"]
+        st.caption(f"Aktie {_e(pyr['index'])} · letzte Kerze {_datum(a['letzte_kerze'])} ({_e(a['status'])}) · "
+                   f"Kurs {_de(kurs, 2)} {_e(a['waehrung'])} · {_e(a['quelle'])}")
+    else:
+        a = analyse[pyr["index"]]
+        md = KO.marktdaten(indizes, pyr["index"], jetzt)
+        eurusd = KO.eurusd(indizes)
+        kurs = md.get("kurs") if md.get("status") in ("live", "schluss") else a["kurs"]
     b = D.bewertung(a, cfg)
-    md = KO.marktdaten(indizes, pyr["index"], jetzt)
-    eurusd = KO.eurusd(indizes)
-    kurs = md.get("kurs") if md.get("status") in ("live", "schluss") else a["kurs"]
     s = P.status(pyr, a["kerzen"], kurs, eurusd, a["trend"] if a["status"] == "aktuell" else None)
     bereiche = ["Überblick", "Nachkauf prüfen & erfassen", "Einstellungen", "Zeitleiste"]
     if ss.get(K + "bereich") not in bereiche:
