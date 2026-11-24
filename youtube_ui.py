@@ -22,7 +22,8 @@ import youtube_radar as YR
 
 K = "yt_"
 DATEI = "state/youtube.json"
-LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": []}
+LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": [],
+        "beobachtungen": []}
 RADAR_DATEI = "state/youtube_radar.json"
 BEREICHE = ["Überblick", "Recherche", "Analyse", "Video Factory", "Finanzen", "Einstellungen"]
 MODI = {"free": "Free – lokale/offene Werkzeuge, kostenlose APIs", "balanced": "Balanced – kostenlos + ausgewählte "
@@ -40,6 +41,7 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Weltweite Trends & Suche", 2, "YOUTUBE_API_KEY"),
     ("Kanal untersuchen (Größe, Rhythmus, Ausreißer)", 2, "YOUTUBE_API_KEY"),
     ("Einnahmepotenzial schätzen", 2, None), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
+    ("Recherche-Agent: tägliche Beobachtung", 2, "YOUTUBE_API_KEY"),
     ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, "GEMINI_API_KEY"),
     ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
     ("Skript (KI oder eigenes) & Storyboard", 1, None), ("Bildmaterial (lizenzfrei oder eigene Grafik)", 1, None),
@@ -153,7 +155,7 @@ def _ueberblick(h, d):
 
 
 # ---------------------------------------------------------------------------------------------------- Recherche
-RECHERCHE = ["Kanal-Radar", "Trends", "Suche", "Nische", "Kanal untersuchen", "Ideen"]
+RECHERCHE = ["Kanal-Radar", "Trends", "Suche", "Nische", "Kanal untersuchen", "Beobachtung", "Ideen"]
 
 
 def _recherche(h, d):
@@ -168,7 +170,8 @@ def _recherche(h, d):
         _ideen(h, d)
     else:
         import youtube_recherche_ui as YRU
-        {"Trends": YRU.trends, "Suche": YRU.suche, "Nische": YRU.nische, "Kanal untersuchen": YRU.kanal}[teil](h, d)
+        {"Trends": YRU.trends, "Suche": YRU.suche, "Nische": YRU.nische, "Kanal untersuchen": YRU.kanal,
+         "Beobachtung": YRU.beobachtung}[teil](h, d)
 
 
 def _radar_laden(h):
@@ -643,7 +646,8 @@ def _einstellungen(h, d):
             "3. Unter „Anmeldedaten“ einen **API-Schlüssel** erstellen und ihn auf die YouTube Data API v3 "
             "beschränken.\n"
             "4. Den Schlüssel als `YOUTUBE_API_KEY` eintragen: in den **Streamlit-Secrets** der App (Manage app → "
-            "Settings → Secrets). Als GitHub-Secret wird er erst für einen späteren Recherche-Agenten gebraucht.\n\n"
+            "Settings → Secrets) und – für den täglichen Recherche-Agenten – als **GitHub-Secret** im Code-"
+            "Repository (Settings → Secrets and variables → Actions → New repository secret).\n\n"
             "Bitte den Schlüssel nirgends in einen Chat kopieren. Kostenlos mit Tageskontingent (10.000 Einheiten).")
 
 
