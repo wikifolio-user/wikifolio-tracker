@@ -6,7 +6,8 @@ Rendern im Hintergrund (GitHub Actions, youtube-render.yml), Vorschau und Downlo
 Kosten ins Kassenbuch. Gerendert wird nie auf dem Geraet; veroeffentlicht wird hier nichts.
 Speicher: state/youtube/projekte/<id>.json, Index in state/youtube.json unter "projekte".
 h zusaetzlich: "ki": () -> KI-Anbieter|None, "render_starten": (pid) -> (ok, text),
-               "release_laden": (asset_id) -> bytes"""
+               "release_laden": (asset_id) -> bytes,
+               "musik_hochladen": (pfad, name, typ) -> asset_id (eigene Musik als Release-Datei im State-Repo)"""
 import datetime
 import html
 import logging
@@ -17,6 +18,7 @@ import streamlit as st
 import ui_stil as UI
 import youtube_finanzen as YF
 from video_factory import kosten as KO
+from video_factory import musik as MU
 from video_factory import pipeline as PL
 from video_factory import skript as SK
 
@@ -110,6 +112,7 @@ def _neu(h, d):
     qual = sp[2].selectbox("Qualität", ["standard", "hoch", "entwurf"], key=K + "qual",
                            format_func={"standard": "Standard", "hoch": "Hoch (langsamer)", "entwurf": "Entwurf (schnell)"}.get)
     unter = st.toggle("Untertitel einbrennen (SRT/VTT gibt es immer)", value=True, key=K + "unter")
+    musik = _musik_wahl("neu", MU.STANDARD, eigene_erlaubt=False)
     posten, summe, im_budget = KO.voranschlag(einst, dauer, bool(ki))
     st.markdown("**Kostenvoranschlag** – Modus " + _e({"free": "Free", "balanced": "Balanced", "premium": "Premium"}
                                                       .get(einst.get("modus", "free"), "Free")))
@@ -122,7 +125,7 @@ def _neu(h, d):
         try:
             skript = SK.aus_text(titel, text) if quelle == "eigen" else None
             p = PL.neues_projekt(auftrag, dauer if quelle == "ki" else max(0.5, SK.geschaetzte_dauer_s(skript) / 60),
-                                 einst.get("sprache", "de"), fmt, qual, unter, skript=skript)
+                                 einst.get("sprache", "de"), fmt, qual, unter, skript=skript, musik=musik)
         except (ValueError, SK.SkriptFehler) as ex:
             st.error(str(ex))
             return
@@ -144,6 +147,78 @@ def _neu(h, d):
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=6)
 def _datei(_laden, asset_id):
     return _laden(asset_id)
+
+
+def _musik_wahl(praefix, m, eigene_erlaubt=True):
+    """Auswahl der Hintergrundmusik -> Einstellungen (ohne eigene Datei)."""
+    m = MU.einstellungen(m)
+    modi = [x for x in MU.MODI if eigene_erlaubt or x != "eigene"]
+    sp = st.columns(3) if not UI.ist_smartphone() else [st.container() for _ in range(3)]
+    modus = sp[0].selectbox("Hintergrundmusik", modi, index=modi.index(m["modus"]) if m["modus"] in modi else 0,
+                            format_func=MU.MODI.get, key=K + f"{praefix}_musik_modus")
+    stimmung = sp[1].selectbox("Stimmung", list(MU.STIMMUNGEN), index=list(MU.STIMMUNGEN).index(m["stimmung"]),
+                               key=K + f"{praefix}_musik_stimmung", disabled=modus in ("aus", "eigene"))
+    laut = sp[2].slider("Lautstärke unter der Stimme (dB)", MU.LAUTSTAERKE[0], MU.LAUTSTAERKE[1],
+                        int(m["lautstaerke_db"]), key=K + f"{praefix}_musik_laut", disabled=modus == "aus",
+                        help="−20 dB ist leise Hintergrundmusik; während gesprochen wird, sinkt sie automatisch weiter.")
+    suche = m.get("suche") or ""
+    if modus == "openverse":
+        suche = st.text_input("Suchbegriff (englisch, optional)", value=suche, key=K + f"{praefix}_musik_suche",
+                              max_chars=80, placeholder=MU.STIMMUNGEN[stimmung]["suche"])
+        st.caption("Nur CC0, Public Domain oder CC BY – die Namensnennung kommt automatisch in die Beschreibung. "
+                   "Ohne Treffer wird die eigene Klangfläche verwendet.")
+    neu = {**m, "modus": modus, "stimmung": stimmung, "lautstaerke_db": laut, "suche": suche}
+    if neu.get("suche") != m.get("suche") or modus != "openverse":
+        neu.pop("asset", None)                              # neue Suche -> neue Musik
+    return neu
+
+
+def _musik_bereich(h, p, gesperrt):
+    ss = st.session_state
+    m = MU.einstellungen(p.get("musik") or {"modus": "aus"})
+    aktuell = (p.get("dateien") or {}).get("musik")
+    st.caption("Aktuell: " + (MU.namensnennung(aktuell) if aktuell else MU.MODI[m["modus"]]))
+    if gesperrt:
+        return
+    neu = _musik_wahl(f"p{p['id']}", m)
+    if neu["modus"] == "eigene":
+        datei = st.file_uploader("Musikdatei (MP3, M4A, WAV, OGG – höchstens 25 MB)", type=list(MU.DATEITYPEN),
+                                 key=K + f"musik_datei_{p['id']}")
+        rechte = st.checkbox("Ich habe die Rechte, diese Musik in meinen Videos zu verwenden.",
+                             key=K + f"musik_rechte_{p['id']}")
+        if datei is not None and rechte and st.button("Datei hochladen", key=K + f"musik_hoch_{p['id']}"):
+            if datei.size > MU.MAX_BYTES:
+                st.error("Die Datei ist größer als 25 MB.")
+            elif not h.get("musik_hochladen"):
+                st.error("Hochladen ist gerade nicht möglich (kein Datenspeicher).")
+            else:
+                typ = datei.name.rsplit(".", 1)[-1].lower()
+                with tempfile.NamedTemporaryFile(suffix="." + typ) as f:
+                    f.write(datei.getvalue())
+                    f.flush()
+                    try:
+                        aid = h["musik_hochladen"](f.name, f"musik-{p['id']}.{typ}", typ)
+                    except Exception as ex:
+                        st.error(f"Hochladen fehlgeschlagen ({type(ex).__name__}).")
+                        aid = None
+                if aid:
+                    ss[K + f"musik_aid_{p['id']}"] = {"asset_id": aid, "typ": typ, "dateiname": datei.name[:80],
+                                                      "rechte_bestaetigt": True}
+        neu.update(ss.get(K + f"musik_aid_{p['id']}") or {k: m.get(k) for k in ("asset_id", "typ", "dateiname",
+                                                                               "rechte_bestaetigt")})
+        if not neu.get("asset_id"):
+            st.caption("Noch keine Datei hochgeladen.")
+    vergleich = ("modus", "stimmung", "lautstaerke_db", "suche", "asset_id")
+    geaendert = any(neu.get(k) != m.get(k) for k in vergleich)
+    bereit = neu["modus"] != "eigene" or (neu.get("asset_id") and neu.get("rechte_bestaetigt"))
+    if geaendert and st.button("Musik übernehmen", key=K + f"musik_btn_{p['id']}", type="primary", disabled=not bereit):
+        p["musik"] = neu
+        PL.zuruecksetzen(p, "schnitt")                    # neue Datei im naechsten Lauf: Schnitt -> Musik -> ...
+        if p["status"] not in ("entwurf", "fehler"):
+            p["status"] = "entwurf"
+        PL._log(p, f"Musik geändert: {MU.MODI[neu['modus']]}.")
+        if _projekt_speichern(h, p, "Musik geändert"):
+            st.rerun()
 
 
 def _szenen_bearbeiten(h, p, gesperrt):
@@ -230,13 +305,15 @@ def _projekt(h, d, pid):
     st.markdown("**Fortschritt**")
     st.markdown("\n".join(f"- {SYMBOL.get(s['status'], '•')} {PL.SCHRITT_TEXT[n]}"
                           + (f" – {_e(s.get('meldung'))}" if s.get("meldung") else "")
-                          for n, s in ((n, p["schritte"][n]) for n in PL.SCHRITTE)))
+                          for n, s in ((n, p["schritte"].get(n) or {"status": "offen"}) for n in PL.SCHRITTE)))
     laeuft = p["status"] in ("warteschlange", "rendert")
     if p.get("szenen"):
         with st.expander(f"Skript und Szenen ({len(p['szenen'])})", expanded=p["status"] in ("entwurf", "fehler")):
             if (p.get("skript") or {}).get("zu_pruefen"):
                 st.warning("Vor Veröffentlichung prüfen: " + "; ".join(p["skript"]["zu_pruefen"]))
             _szenen_bearbeiten(h, p, laeuft)
+        with st.expander("🎵 Hintergrundmusik"):
+            _musik_bereich(h, p, laeuft or p["status"] == "freigegeben")
     sp = st.columns(2) if not UI.ist_smartphone() else [st.container(), st.container()]
     kann = p["schritte"]["storyboard"]["status"] == "ok" and not laeuft and p["status"] != "freigegeben"
     if sp[0].button("🎬 Rendern starten" if p["status"] != "fehler" else "🔁 Erneut versuchen", key=K + "render_btn",
