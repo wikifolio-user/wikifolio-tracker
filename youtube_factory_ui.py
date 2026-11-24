@@ -81,6 +81,9 @@ def _projekt_speichern(h, p, text, status=None):
 # ---------------------------------------------------------------------------------------------------- Neues Video
 def _neu(h, d):
     ss = st.session_state
+    if K + "vorlage" in ss:                                  # Ideen-Transfer (vor den Widgets setzen)
+        v = ss.pop(K + "vorlage")
+        ss[K + "auftrag"], ss[K + "titel"] = v.get("auftrag", ""), v.get("titel", "")
     einst = d.get("einstellungen") or {}
     ki = None
     try:

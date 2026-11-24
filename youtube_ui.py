@@ -39,7 +39,7 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Kanal-Radar (RSS, ohne Schlüssel)", 1, None), ("Viral Outliers & Success-Score (beobachtete Kanäle)", 1, None),
     ("Weltweite Trends & Suche", 2, "YOUTUBE_API_KEY"),
     ("Kanal untersuchen (Größe, Rhythmus, Ausreißer)", 2, "YOUTUBE_API_KEY"),
-    ("Einnahmepotenzial schätzen", 2, "YOUTUBE_API_KEY"), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
+    ("Einnahmepotenzial schätzen", 2, None), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
     ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, "GEMINI_API_KEY"),
     ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
     ("Skript (KI oder eigenes) & Storyboard", 1, None), ("Bildmaterial (lizenzfrei oder eigene Grafik)", 1, None),
@@ -47,8 +47,8 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Thumbnails & Qualitätskontrolle", 1, None), ("Freigabe & YouTube-Upload (als Entwurf)", 7, "YouTube-OAuth"),
     ("Einnahmen ins Kassenbuch", 1, None),
 ]
-PHASE_FERTIG = 1
-FERTIG = {"Weltweite Trends & Suche", "Kanal untersuchen (Größe, Rhythmus, Ausreißer)"}   # schon fertig aus Phase 2
+PHASE_FERTIG = 2
+FERTIG = set()                                  # einzelne schon fertige Schritte spaeterer Phasen
 
 CSS = """<style>
 .yt-raster { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:6px 0 10px; }
@@ -153,7 +153,7 @@ def _ueberblick(h, d):
 
 
 # ---------------------------------------------------------------------------------------------------- Recherche
-RECHERCHE = ["Kanal-Radar", "Trends", "Suche", "Kanal untersuchen", "Ideen"]
+RECHERCHE = ["Kanal-Radar", "Trends", "Suche", "Nische", "Kanal untersuchen", "Ideen"]
 
 
 def _recherche(h, d):
@@ -168,7 +168,7 @@ def _recherche(h, d):
         _ideen(h, d)
     else:
         import youtube_recherche_ui as YRU
-        {"Trends": YRU.trends, "Suche": YRU.suche, "Kanal untersuchen": YRU.kanal}[teil](h, d)
+        {"Trends": YRU.trends, "Suche": YRU.suche, "Nische": YRU.nische, "Kanal untersuchen": YRU.kanal}[teil](h, d)
 
 
 def _radar_laden(h):
@@ -365,7 +365,7 @@ def _ideen(h, d):
                         f"{_e(i.get('datum'))}" + (f" · [Quelle]({i['quelle']})" if str(i.get('quelle', '')).startswith("http") else ""))
             if i.get("notiz"):
                 st.caption(i["notiz"])
-            sp = st.columns(2)
+            sp = st.columns(3)
             neu = sp[0].selectbox("Status", list(status_txt), index=list(status_txt).index(i.get("status", "neu"))
                                   if i.get("status") in status_txt else 0, format_func=status_txt.get,
                                   key=K + f"idee_st_{i['id']}", label_visibility="collapsed")
@@ -373,10 +373,26 @@ def _ideen(h, d):
                 if _speichern(h, lambda x, iid=i["id"], n=neu: dict(x, ideen=[dict(y, status=n) if y["id"] == iid else y
                                                                              for y in x["ideen"]]), "Status der Idee"):
                     st.rerun()
+            if sp[2].button("🎬 Video daraus", key=K + f"idee_vf_{i['id']}",
+                            help="Öffnet die Video Factory mit einem Auftrag zu dieser Idee."):
+                idee_zur_factory(i)
+                st.rerun()
             if sp[1].button("Löschen", key=K + f"idee_del_{i['id']}"):
                 if _speichern(h, lambda x, iid=i["id"]: dict(x, ideen=[y for y in x["ideen"] if y["id"] != iid]),
                               "Idee gelöscht"):
                     st.rerun()
+
+
+def idee_zur_factory(i):
+    """Ideen-Transfer: Auftrag und Titel fuer „Neues Video“ vorbereiten und dorthin wechseln."""
+    thema = str(i.get("titel") or "").removeprefix("Nische: ").strip()
+    auftrag = (f"Erstelle ein eigenständiges deutsches YouTube-Video zum Thema „{thema}“"
+               + (f" (Nische: {i['nische']})" if i.get("nische") and i["nische"] != thema else "")
+               + ". Eigene Recherche und eigene Struktur, verständlich erklärt, ohne Gesicht. Keine Inhalte anderer "
+               "Videos übernehmen.")
+    st.session_state["yt_vf_vorlage"] = {"titel": thema[:100], "auftrag": auftrag[:2000]}
+    st.session_state["yt_vf_teil_neu"] = "Neues Video"
+    st.session_state[K + "bereich_neu"] = "Video Factory"
 
 
 # ---------------------------------------------------------------------------------------------------- Analyse / Factory
@@ -571,9 +587,12 @@ def _kanaele(h, d):
 
 
 def _finanzen(h, d):
-    teil = st.segmented_control("Finanzen", ["Kassenbuch", "Finanzrechner", "Kanäle"], default="Kassenbuch",
-                                key=K + "fin_teil", label_visibility="collapsed") or "Kassenbuch"
-    if teil == "Kassenbuch":
+    teil = st.segmented_control("Finanzen", ["Kassenbuch", "Finanzrechner", "Einnahmepotenzial", "Kanäle"],
+                                default="Kassenbuch", key=K + "fin_teil", label_visibility="collapsed") or "Kassenbuch"
+    if teil == "Einnahmepotenzial":
+        import youtube_recherche_ui as YRU
+        YRU.einnahmen_bereich(h, d)
+    elif teil == "Kassenbuch":
         _kassenbuch(h, d)
     elif teil == "Finanzrechner":
         _rechner()
@@ -603,8 +622,8 @@ def _einstellungen(h, d):
                                       "ein Kanal 3. Darüber wird nicht mehr abgerufen.")
     if st.button("Einstellungen speichern", key=K + "e_btn", type="primary"):
         neu = {"modus": modus, "budget_monat": b_monat, "budget_video": b_video, "sprache": sprache, "markt": markt,
-               "api_grenze": int(api_grenze)}
-        if _speichern(h, lambda x: dict(x, einstellungen=neu), "Einstellungen"):
+               "api_grenze": int(api_grenze)}           # weitere Werte (z. B. RPM-Spannen) bleiben erhalten
+        if _speichern(h, lambda x: dict(x, einstellungen={**x["einstellungen"], **neu}), "Einstellungen"):
             st.rerun()
     st.caption("Kostenpflichtige Aktionen laufen nie ohne Freigabe und nie über die Budgetgrenze. Öffentliche "
                "Veröffentlichungen nur nach ausdrücklicher Freigabe.")
@@ -642,6 +661,8 @@ def seite(h):
     if not ok:
         st.warning("Die Daten sind gerade nicht lesbar – bitte später erneut versuchen. Es wird nichts überschrieben.")
         return
+    if ss.get(K + "bereich_neu") in BEREICHE:                 # Wechsel aus einem Bereich heraus (vor dem Widget)
+        ss[K + "bereich"] = ss.pop(K + "bereich_neu")
     if ss.get(K + "bereich") not in BEREICHE:
         ss[K + "bereich"] = BEREICHE[0]
     bereich = st.segmented_control("Bereich", BEREICHE, key=K + "bereich", label_visibility="collapsed",

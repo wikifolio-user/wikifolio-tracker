@@ -11,6 +11,7 @@ import streamlit as st
 
 import ui_stil as UI
 import youtube_api as YA
+import youtube_nische as YN
 from youtube_ui import K, _e, _kpis, _speichern
 
 API_DATEI = "state/youtube_api.json"
@@ -234,6 +235,18 @@ def trends(h, d):
 
 
 # ---------------------------------------------------------------------------------------------------- Suche
+def such_params(begriff, tage, fmt, region, sprache, reihe):
+    """Schluessel fuer den Zwischenspeicher - Suche und Nische teilen sich dieselben Ergebnisse."""
+    return {"begriff": (begriff or "").strip().lower(), "tage": tage, "format": fmt, "region": region,
+            "sprache": sprache, "reihe": reihe}
+
+
+def such_lauf(h, d, begriff, params, neu=False):
+    return ausfuehren(h, d, "suche", params, lambda abruf: YA.suche(
+        abruf, begriff, params["tage"], params["format"], params["region"], params["sprache"], params["reihe"]),
+        neu=neu)
+
+
 def suche(h, d):
     st.markdown("**Suche** – die erfolgreichsten Videos zu einem Stichwort, mit Kanalgröße")
     if _ohne_schluessel(h):
@@ -252,11 +265,9 @@ def suche(h, d):
                        help="Kostet etwa 102 Einheiten – rund 75 Suchen pro Tag.")
     neu = sp[1].button("Neu abrufen", key=K + "s_neu", disabled=not (begriff or "").strip(),
                        help="Zwischenspeicher übergehen (etwa 102 Einheiten).")
-    params = {"begriff": (begriff or "").strip().lower(), "tage": tage, "format": fmt, "region": region,
-              "sprache": sprache, "reihe": reihe}
+    params = such_params(begriff, tage, fmt, region, sprache, reihe)
     if los or neu:
-        erg = ausfuehren(h, d, "suche", params, lambda abruf: YA.suche(abruf, begriff, tage, fmt, region, sprache,
-                                                                        reihe), neu=neu)
+        erg = such_lauf(h, d, begriff, params, neu)
         if erg:
             st.session_state[K + "s_erg"] = dict(erg, params=dict(params, anzeige=begriff.strip()))
         st.rerun()
@@ -329,6 +340,15 @@ def kanal(h, d):
             "Aufrufe/Tag gegenüber dem Kanal-Median", ""),
            ("Aufrufe/Abos", _zahl(f["Longform"]["median"] / k["abonnenten"], 2)
             if f["Longform"]["median"] and k.get("abonnenten") else "–", "Median Longform je Abonnent", "")])
+    tab = rpm_tabelle(d)
+    vm = YN.kanal_views_monat(a["videos"])
+    if vm:
+        rn = YN.nische_raten(" ".join(v["titel"] for v in a["videos"][:20]) + " " + k.get("beschreibung", ""),
+                             a["videos"])
+        von, bis = YN.einnahmen(vm, tab[rn])
+        st.caption(f"Werbeeinnahmen grob geschätzt: **{_eur(von)}–{_eur(bis)} pro Monat** – aus ~{_zahl(vm)} "
+                   f"Aufrufen/Monat der Videos der letzten 90 Tagen (ohne älteren Katalog) und der RPM-Nische „{rn}“. "
+                   "Reine Schätzung, YouTube veröffentlicht keine Einnahmen.")
     with st.expander("📡 Ins Kanal-Radar übernehmen", expanded=False):
         schon = any(r.get("id") == k["id"] for r in d["radar"])
         if schon:
@@ -352,3 +372,147 @@ def kanal(h, d):
              markt=k.get("land") or "Global")
     st.caption("Outlier × = Aufrufe pro Tag gegenüber dem Median der anderen Videos desselben Formats (mindestens "
                "3 Vergleichsvideos). Ältere Videos haben naturgemäß weniger Aufrufe pro Tag.")
+
+
+# ---------------------------------------------------------------------------------------------------- Nische
+def rpm_tabelle(d):
+    return YN.rpm_tabelle((d.get("einstellungen") or {}).get("rpm"))
+
+
+def _eur(x):
+    return f"{_zahl(x)} €"
+
+
+def _potenzial_kpis(pot):
+    _kpis([(f"{name.capitalize()}", f"{_eur(w['von'])}–{_eur(w['bis'])}",
+            f"{_zahl(w['views_monat'])} Aufrufe/Monat", "") for name, w in pot.items()]
+          + [("Hinweis", "Schätzung", "erst nach Aufnahme ins Partnerprogramm", "")])
+
+
+def nische(h, d):
+    ss = st.session_state
+    st.markdown("**Nische untersuchen** – Nachfrage, Konkurrenz, Chancen und Einnahmepotenzial zu einem Stichwort")
+    if _ohne_schluessel(h):
+        return
+    begriff = st.text_input("Nische / Stichwort", key=K + "n_begriff", max_chars=120,
+                            placeholder="z. B. Excel Tipps, Börse für Anfänger, Psychologie Fakten")
+    sp = st.columns(4) if not UI.ist_smartphone() else [st.container() for _ in range(4)]
+    tage = sp[0].selectbox("Zeitraum", list(ZEITRAEUME), index=3, format_func=ZEITRAEUME.get, key=K + "n_tage",
+                           help="Bewertet werden die meistgesehenen Videos dieses Zeitraums.")
+    fmt = sp[1].selectbox("Format", YA.FORMATE, index=1, key=K + "n_fmt")
+    region = sp[2].selectbox("Land", [""] + list(YA.REGIONEN), index=1,
+                             format_func=lambda r: YA.REGIONEN.get(r, "alle Länder"), key=K + "n_region")
+    sprache = sp[3].selectbox("Sprache", list(SPRACHEN), index=1, format_func=SPRACHEN.get, key=K + "n_sprache")
+    sp = st.columns(2) if not UI.ist_smartphone() else [st.container(), st.container()]
+    los = sp[0].button("🧭 Nische untersuchen", key=K + "n_btn", type="primary", disabled=not (begriff or "").strip(),
+                       help="Eine Suche nach meisten Aufrufen – etwa 102 Einheiten. Dieselbe Suche aus „Suche“ wird "
+                            "aus dem Zwischenspeicher wiederverwendet.")
+    neu = sp[1].button("Neu abrufen", key=K + "n_neu", disabled=not (begriff or "").strip())
+    params = such_params(begriff, tage, fmt, region, sprache, "viewCount")
+    if los or neu:
+        erg = such_lauf(h, d, begriff, params, neu)
+        if erg:
+            ss[K + "n_erg"] = dict(erg, params=dict(params, anzeige=begriff.strip()))
+        st.rerun()
+    kontingent_zeile(h, d)
+    erg = ss.get(K + "n_erg")
+    if not erg:
+        return
+    p, videos = erg["params"], erg["daten"]["videos"]
+    b = YN.bewerten(videos, p["tage"])
+    st.caption(f"„{p['anzeige']}“ · {ZEITRAEUME.get(p['tage'])} · {p['format']} · "
+               f"{YA.REGIONEN.get(p['region'], 'alle Länder')} · {_herkunft(erg)}")
+    if b["gesamt"] is None:
+        st.info(b["hinweis"] or "Zu wenig Daten für eine Bewertung.")
+    else:
+        farbe = "yt-pos" if b["gesamt"] >= 70 else "" if b["gesamt"] >= 50 else "yt-neg"
+        _kpis([("Nischen-Score", f"{b['gesamt']} / 100", b["einstufung"] + (" · vorläufig" if b["vorlaeufig"] else ""),
+                farbe)] + [(YN.TEIL_TEXT[k], f"{b['teile'][k]}" if k in b["teile"] else "–",
+                            f"Gewicht {YN.GEWICHTE[k]} %", "") for k in ("nachfrage", "konkurrenz", "chance")])
+        st.markdown("\n".join(f"- **{YN.TEIL_TEXT[k]}"
+                              + (f" ({b['teile'][k]})" if k in b["teile"] else "") + f":** {_e(b['texte'][k])}"
+                              for k in YN.GEWICHTE if k in b["texte"]))
+        st.caption("Der Score beschreibt nur die erfolgreichsten Videos der Suche – er sagt nichts über Qualität oder "
+                   "Erfolg eines eigenen Kanals voraus. Teilwerte: Nachfrage log. (1.000 Aufrufe = 0, 1 Mio. = 100), "
+                   "Konkurrenz = 100 − Anteil großer Kanäle, Chance: 25 % kleine Kanäle mit Treffer = 100, "
+                   "Frische: 50 % junge Videos = 100.")
+    # Einnahmepotenzial
+    st.markdown("**Einnahmepotenzial für einen neuen Kanal** <span class='yt-schaetzung'>Schätzung</span>",
+                unsafe_allow_html=True)
+    tab = rpm_tabelle(d)
+    geraten = YN.nische_raten(p["anzeige"], videos)
+    sp = st.columns(2) if not UI.ist_smartphone() else [st.container(), st.container()]
+    namen = list(tab)
+    rpm_n = sp[0].selectbox("RPM-Nische", namen, index=namen.index(geraten) if geraten in namen else 0,
+                            key=K + "n_rpm", format_func=lambda n: f"{n} ({_zahl(tab[n][0], 2)}–{_zahl(tab[n][1], 2)} €)")
+    pro_monat = sp[1].slider("Videos pro Monat", 1, 30, 8, key=K + "n_vpm")
+    shorts = p["format"] == "Shorts"
+    if b["median_views"]:
+        _potenzial_kpis(YN.potenzial(b["median_views"], pro_monat, tab[rpm_n], shorts))
+        st.caption(f"Aufrufe je Video: {', '.join(f'{k} {int(v * 100)} %' for k, v in YN.SZENARIEN.items())} des "
+                   f"Nischen-Medians ({_zahl(b['median_views'])}). RPM = Auszahlung je 1.000 Aufrufe"
+                   + (" – bei Shorts deutlich niedriger" if shorts else "") + ". Werbeeinnahmen gibt es erst im "
+                   "Partnerprogramm (1.000 Abos und 4.000 Wiedergabestunden oder 10 Mio. Shorts-Aufrufe in 90 Tagen). "
+                   "Die RPM-Spannen lassen sich unter Finanzen → Einnahmepotenzial anpassen.")
+    if st.button("💡 Nische als Idee merken", key=K + "n_idee"):
+        notiz = (f"Nischen-Score {b['gesamt'] if b['gesamt'] is not None else '–'} ({b['einstufung']}) · Median "
+                 f"{_zahl(b['median_views'])} Aufrufe · {ZEITRAEUME.get(p['tage'])} · RPM-Nische {rpm_n}")
+        idee = {"id": uuid.uuid4().hex[:8], "titel": f"Nische: {p['anzeige']}"[:120], "nische": p["anzeige"][:60],
+                "markt": p["region"] or "Global", "quelle": "", "notiz": notiz, "status": "neu",
+                "datum": datetime.date.today().isoformat()}
+
+        def neu_idee(x):
+            if any(y["titel"].lower() == idee["titel"].lower() for y in x["ideen"]):
+                return x
+            return dict(x, ideen=x["ideen"] + [idee])
+        if _speichern(h, neu_idee, "Nische als Idee gespeichert"):
+            st.rerun()
+    if b["chancen"]:
+        st.markdown(f"**Chancen: kleine Kanäle mit Treffern ({len(b['chancen'])})**")
+        _tabelle(h, b["chancen"], "n_tab", f"Aus der Nische „{p['anzeige']}“", markt=p["region"] or "Global")
+
+
+# ---------------------------------------------------------------------------------------------------- Einnahmen
+def einnahmen_bereich(h, d):
+    st.markdown("**Einnahmepotenzial** <span class='yt-schaetzung'>Schätzung</span>", unsafe_allow_html=True)
+    tab = rpm_tabelle(d)
+    sp = st.columns(3) if not UI.ist_smartphone() else [st.container() for _ in range(3)]
+    views = sp[0].number_input("Aufrufe pro Monat", 0, 1_000_000_000, 100000, step=10000, key=K + "e_views")
+    rpm_n = sp[1].selectbox("RPM-Nische", list(tab), key=K + "e_rpm_n")
+    fmt = sp[2].segmented_control("Format", ["Longform", "Shorts"], default="Longform", key=K + "e_rpm_fmt") \
+        or "Longform"
+    rpm = YN.SHORTS_RPM if fmt == "Shorts" else tab[rpm_n]
+    von, bis = YN.einnahmen(views, rpm)
+    _kpis([("Werbung pro Monat", f"{_eur(von)}–{_eur(bis)}", f"RPM {_zahl(rpm[0], 2)}–{_zahl(rpm[1], 2)} €", ""),
+           ("Pro Jahr", f"{_eur(von * 12)}–{_eur(bis * 12)}", "bei gleichbleibenden Aufrufen", ""),
+           ("Je Video (bei 8/Monat)", f"{_eur(von / 8)}–{_eur(bis / 8)}", "", ""),
+           ("Hinweis", "Schätzung", "nur Werbung, ohne Affiliate/Sponsoring", "")])
+    st.caption("RPM = Auszahlung an den Kanal je 1.000 Aufrufe (nach dem Anteil von YouTube). Die Werte schwanken "
+               "stark nach Land, Jahreszeit und Publikum – sie sind Annahmen, keine Messwerte. Für eine Planung mit "
+               "Kosten und Wachstum: Finanzen → Finanzrechner.")
+    with st.expander("RPM-Spannen anpassen"):
+        import pandas as pd
+        df = pd.DataFrame([{"Nische": n, "RPM von €": v[0], "RPM bis €": v[1]} for n, v in tab.items()])
+        neu = st.data_editor(df, hide_index=True, num_rows="dynamic", key=K + "e_rpm_tab", width="stretch",
+                             column_config={"RPM von €": st.column_config.NumberColumn(min_value=0.0, max_value=200.0,
+                                                                                         step=0.1, format="%.2f"),
+                                            "RPM bis €": st.column_config.NumberColumn(min_value=0.0, max_value=200.0,
+                                                                                         step=0.1, format="%.2f")})
+        sp = st.columns(2)
+        if sp[0].button("RPM-Spannen speichern", key=K + "e_rpm_btn"):
+            eigene = {}
+            for _, z in neu.iterrows():
+                n = str(z.get("Nische") or "").strip()
+                try:
+                    a, b = float(z["RPM von €"]), float(z["RPM bis €"])
+                except (TypeError, ValueError):
+                    continue
+                if n and 0 <= a <= b <= 200 and (n not in YN.STANDARD_RPM or YN.STANDARD_RPM[n] != (a, b)):
+                    eigene[n] = [a, b]
+            if _speichern(h, lambda x: dict(x, einstellungen=dict(x["einstellungen"], rpm=eigene)), "RPM-Spannen"):
+                st.rerun()
+        if sp[1].button("Standardwerte", key=K + "e_rpm_std"):
+            if _speichern(h, lambda x: dict(x, einstellungen={k: v for k, v in x["einstellungen"].items()
+                                                              if k != "rpm"}), "RPM-Standardwerte"):
+                st.rerun()
+        st.caption("Gespeichert werden nur Abweichungen vom Standard. Von ≤ bis, höchstens 200 €.")
