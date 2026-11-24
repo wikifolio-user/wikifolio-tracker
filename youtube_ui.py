@@ -18,10 +18,12 @@ import streamlit as st
 
 import ui_stil as UI
 import youtube_finanzen as YF
+import youtube_radar as YR
 
 K = "yt_"
 DATEI = "state/youtube.json"
-LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}}
+LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": []}
+RADAR_DATEI = "state/youtube_radar.json"
 BEREICHE = ["Überblick", "Recherche", "Analyse", "Video Factory", "Finanzen", "Einstellungen"]
 MODI = {"free": "Free – lokale/offene Werkzeuge, kostenlose APIs", "balanced": "Balanced – kostenlos + ausgewählte "
         "Premium-Dienste", "premium": "Premium – kommerzielle Dienste (nur mit Budget und Freigabe)"}
@@ -33,7 +35,8 @@ ZUGAENGE = [  # (Secret-Name, wofuer, Phase, kostenlos?)
     ("PIXABAY_API_KEY", "Stock-Fotos und -Videos (optional)", 4, "kostenlos"),
 ]
 PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
-    ("Trend erkennen", 2, "YOUTUBE_API_KEY"), ("Video-Erfolg bewerten", 2, "YOUTUBE_API_KEY"),
+    ("Kanal-Radar (RSS, ohne Schlüssel)", 1, None), ("Viral Outliers & Success-Score (beobachtete Kanäle)", 1, None),
+    ("Weltweite Trends & Suche", 2, "YOUTUBE_API_KEY"), ("Kanalgröße & Kommentare", 2, "YOUTUBE_API_KEY"),
     ("Einnahmepotenzial schätzen", 2, "YOUTUBE_API_KEY"), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
     ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, "GEMINI_API_KEY"),
     ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
@@ -144,13 +147,167 @@ def _ueberblick(h, d):
 
 # ---------------------------------------------------------------------------------------------------- Recherche
 def _recherche(h, d):
-    zug = h.get("zugaenge") or {}
-    if zug.get("YOUTUBE_API_KEY"):
-        st.info("YouTube-Zugang ist eingerichtet. Trend-Radar, Outlier-Erkennung und Rankings folgen in Phase 2.")
+    teil = st.segmented_control("Recherche", ["Kanal-Radar", "Ideen"], default="Kanal-Radar", key=K + "rech_teil",
+                                label_visibility="collapsed") or "Kanal-Radar"
+    if teil == "Kanal-Radar":
+        _radar(h, d)
     else:
-        st.info("Trend-Radar, Nischenfinder, Viral Outliers und Rankings kommen in Phase 2. Dafür wird der "
-                "Schlüssel YOUTUBE_API_KEY benötigt (siehe „Einstellungen“). Bis dahin lassen sich Ideen hier von Hand "
-                "sammeln.")
+        _ideen(h, d)
+
+
+def _radar_laden(h):
+    try:
+        r, ok = h["lesen"](h["upfad"](RADAR_DATEI), {})
+    except Exception:
+        r, ok = {}, False
+    return (r if isinstance(r, dict) else {}), ok
+
+
+def _radar_abrufen(h, d):
+    """Alle beobachteten Kanaele jetzt abrufen und als Momentaufnahme speichern."""
+    jetzt = datetime.datetime.now(datetime.timezone.utc)
+    ergebnis = {}
+
+    def aendern(alt):
+        neu = alt if isinstance(alt, dict) else {}
+        ok, fehler = 0, []
+        for k in d["radar"]:
+            try:
+                neu = YR.einfuegen(neu, YR.abrufen(k["id"], h["get"]), jetzt)
+                ok += 1
+            except YR.RadarFehler as ex:
+                neu = YR.fehler_merken(neu, k["id"], str(ex), jetzt)
+                fehler.append(f"{k.get('name') or k['id']}: {ex}")
+        ergebnis.update(ok=ok, fehler=fehler)
+        return neu
+    try:
+        gespeichert, _ = h["aktualisiere"](h["upfad"](RADAR_DATEI), aendern, {}, "youtube: radar abgerufen [skip ci]")
+    except Exception as ex:
+        logging.warning("Radar: %s", ex)
+        gespeichert = False
+    text = f"{ergebnis.get('ok', 0)} von {len(d['radar'])} Kanälen abgerufen" + (
+        "" if gespeichert else " – Speichern fehlgeschlagen")
+    if ergebnis.get("fehler"):
+        text += ". Fehler: " + "; ".join(ergebnis["fehler"])
+    st.session_state[K + "meldung"] = ("ok" if gespeichert and not ergebnis.get("fehler") else "warn", text)
+
+
+def _radar(h, d):
+    st.markdown("**Kanal-Radar** – beobachtete Kanäle über den öffentlichen YouTube-RSS-Feed (ohne Schlüssel)")
+    with st.expander("➕ Kanal beobachten", expanded=not d["radar"]):
+        sp = st.columns([3, 1, 2]) if not UI.ist_smartphone() else [st.container() for _ in range(3)]
+        eingabe = sp[0].text_input("Kanal-ID oder Kanal-Adresse mit /channel/UC…", key=K + "r_kanal",
+                                   placeholder="UC…  (Kanal → Mehr → Kanal teilen → Kanal-ID kopieren)")
+        markt = sp[1].selectbox("Markt", ["US", "DE", "UK", "AT", "CH", "Global"], key=K + "r_markt")
+        nische = sp[2].text_input("Nische", key=K + "r_nische", max_chars=60)
+        if st.button("Kanal hinzufügen", key=K + "r_add_btn", disabled=not (eingabe or "").strip()):
+            try:
+                cid = YR.kanal_id(eingabe)
+                feed = YR.abrufen(cid, h["get"]) if h.get("get") else {"name": cid, "videos": []}
+            except YR.RadarFehler as ex:
+                st.error(str(ex))
+                return
+            eintrag = {"id": cid, "name": feed["name"] or cid, "markt": markt, "nische": (nische or "").strip()}
+
+            def neu_kanal(x):
+                if any(k["id"] == cid for k in x["radar"]):
+                    return x
+                return dict(x, radar=x["radar"] + [eintrag])
+            if _speichern(h, neu_kanal, f"Kanal {eintrag['name']} im Radar"):
+                st.session_state.pop(K + "r_kanal", None)
+                st.rerun()
+    if not d["radar"]:
+        st.caption("Noch keine Kanäle im Radar. Tipp: erfolgreiche Faceless-Kanäle deiner Nische aus den USA und "
+                   "Deutschland eintragen – der Agent misst dann täglich Aufrufe und Wachstum.")
+        return
+    radar, ok = _radar_laden(h)
+    sp = st.columns(2) if not UI.ist_smartphone() else [st.container(), st.container()]
+    if sp[0].button("🔄 Jetzt abrufen", key=K + "r_abruf_btn", disabled=not h.get("get"),
+                    help="Lädt die Feeds aller Kanäle und speichert eine Momentaufnahme."):
+        with st.spinner("Lade Feeds …"):
+            _radar_abrufen(h, d)
+        st.rerun()
+    kan = (radar.get("kanaele") or {})
+    letzte = max((k.get("abruf") or "" for k in kan.values()), default="")
+    sp[1].caption(f"Letzte Momentaufnahme: {letzte[:16].replace('T', ' ') or '–'} UTC · täglich automatisch "
+                  "(Workflow „YouTube Kanal-Radar“)")
+    with st.expander(f"Beobachtete Kanäle ({len(d['radar'])})"):
+        for k in d["radar"]:
+            info = kan.get(k["id"]) or {}
+            c = st.columns([4, 1])
+            c[0].markdown(f"**{_e(k['name'])}** · {_e(k.get('markt'))} · {_e(k.get('nische') or '–')}"
+                          + (f"  \n⚠️ {_e(info['fehler'])}" if info.get("fehler") else ""))
+            if c[1].button("Entfernen", key=K + f"r_del_{k['id']}"):
+                if _speichern(h, lambda x, cid=k["id"]: dict(x, radar=[y for y in x["radar"] if y["id"] != cid]),
+                              "Kanal aus dem Radar entfernt"):
+                    st.rerun()
+    zeilen = YR.kennzahlen(radar, datetime.datetime.now(datetime.timezone.utc)) if ok else []
+    if not zeilen:
+        st.info("Noch keine Momentaufnahme – „Jetzt abrufen“ drücken oder auf den täglichen Lauf warten.")
+        return
+    namen = {k["id"]: k["name"] for k in d["radar"]}
+    markt_je = {k["id"]: k.get("markt") for k in d["radar"]}
+    sp = st.columns(3) if not UI.ist_smartphone() else [st.container() for _ in range(3)]
+    sicht = sp[0].segmented_control("Ansicht", ["Viral Outliers", "Success-Ranking", "Wachstum"],
+                                    default="Viral Outliers", key=K + "r_sicht") or "Viral Outliers"
+    fmt = sp[1].segmented_control("Format", ["Longform", "Shorts", "Alle"], default="Longform", key=K + "r_fmt") or "Alle"
+    maerkte = sorted({m for m in markt_je.values() if m})
+    m_wahl = sp[2].multiselect("Markt", maerkte, key=K + "r_mf", placeholder="alle Märkte")
+    liste = [z for z in zeilen if z["kanal"] in namen and (fmt == "Alle" or z["shorts"] == (fmt == "Shorts"))
+             and (not m_wahl or markt_je.get(z["kanal"]) in m_wahl)]
+    if sicht == "Viral Outliers":
+        liste = sorted([z for z in liste if z["outlier"] is not None], key=lambda z: -z["outlier"])
+    elif sicht == "Success-Ranking":
+        liste = sorted([z for z in liste if z["score"] is not None], key=lambda z: -z["score"])
+    else:
+        liste = sorted([z for z in liste if z["wachstum_pro_tag"] is not None], key=lambda z: -z["wachstum_pro_tag"])
+    if not liste:
+        st.info({"Viral Outliers": "Für Outlier braucht es je Kanal mindestens 3 Vergleichsvideos desselben Formats.",
+                 "Success-Ranking": "Noch keine bewertbaren Videos.",
+                 "Wachstum": "Gemessenes Wachstum gibt es erst ab der zweiten Momentaufnahme, mindestens 12 Stunden "
+                                        "nach der ersten – eine Momentaufnahme allein ist kein Wachstum."}[sicht])
+        return
+    import pandas as pd
+    df = pd.DataFrame([{"Titel": z["titel"], "Kanal": namen.get(z["kanal"], z["kanal"]),
+                        "Format": "Short" if z["shorts"] else "Longform", "Aufrufe": z["views"],
+                        "Alter (Tage)": round(z["alter_tage"], 1) if z["alter_tage"] else None,
+                        "Aufrufe/Tag": round(z["views_pro_tag"]) if z["views_pro_tag"] else None,
+                        "Outlier ×": round(z["outlier"], 1) if z["outlier"] else None,
+                        "Gemessen/Tag": round(z["wachstum_pro_tag"]) if z["wachstum_pro_tag"] is not None else None,
+                        "Likes %": round(z["engagement_pct"], 2) if z["engagement_pct"] is not None else None,
+                        "Score": z["score"], "vorläufig": "ja" if z["vorlaeufig"] else "",
+                        "Werbung (Schätzung) €": "{:,.0f}–{:,.0f}".format(*YR.werbung_schaetzung(z["views"]))
+                        .replace(",", ".") if z["views"] else "–", "Link": z["url"], "ID": z["id"]}
+                       for z in liste[:200]])
+    for spalte in ("Alter (Tage)", "Aufrufe/Tag", "Outlier ×", "Gemessen/Tag", "Likes %"):   # fehlend = leer
+        df[spalte] = pd.to_numeric(df[spalte], errors="coerce")
+    ev = st.dataframe(df, hide_index=True, width="stretch", key=K + "r_tab", on_select="rerun",
+                      selection_mode="single-row",
+                      column_config={"ID": None, "Link": st.column_config.LinkColumn("Link", display_text="öffnen"),
+                                     "Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100,
+                                                                              format="%.0f")})
+    st.caption("Outlier × = Aufrufe pro Tag gegenüber dem Median der anderen Videos desselben Kanals und Formats "
+               "(nur die letzten 15 Videos aus dem Feed). Score 0–100 je Format: 25 % Aufrufe/Alter, 20 % gemessenes "
+               "Wachstum, 25 % Kanalvergleich, 15 % Engagement, 15 % Kanalgröße – fehlt ein Teil (Kanalgröße liefert der "
+               "Feed nie), ist der Score „vorläufig“. Werbung: Spanne 1–5 € RPM, reine Schätzung.")
+    if ev and ev.selection.rows:
+        z = next(x for x in liste if x["id"] == df.iloc[ev.selection.rows[0]]["ID"])
+        if st.button("💡 Als Idee speichern", key=K + "r_idee_btn"):
+            idee = {"id": uuid.uuid4().hex[:8], "titel": z["titel"][:120], "nische": "", "markt":
+                    markt_je.get(z["kanal"]) or "Global", "quelle": z["url"], "status": "neu",
+                    "notiz": f"Aus dem Kanal-Radar: {namen.get(z['kanal'])} · {z['views']:,} Aufrufe"
+                             .replace(",", ".") + (f" · Outlier ×{z['outlier']:.1f}" if z["outlier"] else "")
+                             + " – nur als Inspiration, eigenes Konzept nötig.", "datum": datetime.date.today().isoformat()}
+
+            def neu_idee(x):
+                if any(y.get("quelle") == idee["quelle"] for y in x["ideen"]):
+                    return x
+                return dict(x, ideen=x["ideen"] + [idee])
+            if _speichern(h, neu_idee, "Idee aus dem Radar gespeichert"):
+                st.rerun()
+
+
+def _ideen(h, d):
     st.markdown("**Gespeicherte Ideen**")
     with st.expander("➕ Idee speichern", expanded=not d["ideen"]):
         titel = st.text_input("Titel / Videoidee", key=K + "idee_titel", max_chars=120)
