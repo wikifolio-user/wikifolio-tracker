@@ -30,6 +30,7 @@ from test_pyramide import Oberflaeche as PyramidenOberflaeche  # noqa: E402,F401
 from test_youtube import Oberflaeche as YoutubeOberflaeche  # noqa: E402,F401
 from test_youtube_render import Oberflaeche as VideoFactoryOberflaeche  # noqa: E402,F401
 from test_youtube_api import RechercheOberflaeche as YoutubeRechercheOberflaeche  # noqa: E402,F401
+from test_youtube_nische import NischeOberflaeche as YoutubeNischeOberflaeche  # noqa: E402,F401
 
 # Texte, mit denen app.py eine abgefangene Ausnahme einer Ansicht anzeigt (st.error vor notify_app_error)
 ABGEFANGEN = re.compile(r"^\W*(Fehler (in|im) |Kurs konnte nicht geladen|Position .{0,80} konnte nicht)")
