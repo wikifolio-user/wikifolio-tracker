@@ -163,7 +163,11 @@ def _recherche(h, d):
             idee = {"id": uuid.uuid4().hex[:8], "titel": titel.strip(), "nische": nische.strip(), "markt": markt,
                     "quelle": quelle.strip(), "notiz": notiz.strip(), "status": "neu",
                     "datum": datetime.date.today().isoformat()}
-            if _speichern(h, lambda x: dict(x, ideen=x["ideen"] + [idee]), "Idee gespeichert"):
+            def neu_idee(x):                         # gleiche Idee nur einmal (auch bei Doppeltippen)
+                if any(y["titel"].lower() == idee["titel"].lower() for y in x["ideen"]):
+                    return x
+                return dict(x, ideen=x["ideen"] + [idee])
+            if _speichern(h, neu_idee, "Idee gespeichert"):
                 for k in ("idee_titel", "idee_nische", "idee_quelle", "idee_notiz"):
                     st.session_state.pop(K + k, None)
                 st.rerun()
@@ -311,8 +315,15 @@ def _kassenbuch(h, d):
             except ValueError as ex:
                 st.error(str(ex))
                 return
-            if _speichern(h, lambda x: dict(x, buchungen=x["buchungen"] + [b]), "Buchung erfasst"):
-                for k in ("b_betrag", "b_notiz"):
+            # feste ID je ausgefuelltem Formular: doppeltes Absenden erzeugt nie zwei Buchungen
+            b["id"] = st.session_state.setdefault(K + "b_formular_id", uuid.uuid4().hex[:10])
+
+            def neu_buchung(x):
+                if any(y.get("id") == b["id"] for y in x["buchungen"]):
+                    return x
+                return dict(x, buchungen=x["buchungen"] + [b])
+            if _speichern(h, neu_buchung, "Buchung erfasst"):
+                for k in ("b_betrag", "b_notiz", "b_formular_id"):
                     st.session_state.pop(K + k, None)
                 st.rerun()
     filt = st.selectbox("Auswertung für", [None] + list(kanal_namen), key=K + "b_filter",
@@ -363,7 +374,11 @@ def _kanaele(h, d):
             except ValueError as ex:
                 st.error(str(ex))
                 return
-            if _speichern(h, lambda x: dict(x, kanaele=x["kanaele"] + [k]), "Kanal angelegt"):
+            def neu_kanal(x):                        # gleicher Name nur einmal (auch bei Doppeltippen)
+                if any(y["name"].lower() == k["name"].lower() for y in x["kanaele"]):
+                    return x
+                return dict(x, kanaele=x["kanaele"] + [k])
+            if _speichern(h, neu_kanal, "Kanal angelegt"):
                 st.rerun()
     for k in d["kanaele"]:
         a = YF.auswertung(d["buchungen"], k["id"])

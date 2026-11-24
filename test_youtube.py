@@ -112,7 +112,10 @@ class Oberflaeche(unittest.TestCase):
 
     def test_rundgang(self):
         import youtube_ui as YU
-        at = AppTest.from_function(_app, default_timeout=120).run()
+        import test_pyramide as T
+        at = AppTest.from_function(_app, default_timeout=120)
+        at.session_state["speicher"] = T.Speicher()             # eigener, leerer Speicher je Lauf
+        at.run()
         self.assertFalse(at.exception)
         for b in YU.BEREICHE:
             at.segmented_control(key="yt_bereich").set_value(b).run()
@@ -122,7 +125,7 @@ class Oberflaeche(unittest.TestCase):
         at.segmented_control(key="yt_fin_teil").set_value("Kanäle").run()
         at.text_input(key="yt_k_name").set_value("KI-Tools DE").run()
         at.button(key="yt_k_btn").click().run()
-        self.assertEqual(len(self._d(at)["kanaele"]), 1)
+        self.assertEqual(len(self._d(at)["kanaele"]), 1, self._d(at)["kanaele"])
         at.segmented_control(key="yt_fin_teil").set_value("Kassenbuch").run()
         at.number_input(key="yt_b_betrag").set_value(12.5).run()
         at.button(key="yt_b_btn").click().run()

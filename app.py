@@ -1968,7 +1968,9 @@ def _sichtbar(ansicht):
         return True
     if ansicht == ANSICHT_PYR:           # Pyramiden: jeder Benutzer in seinem eigenen Datenbereich
         return True
-    if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT, ANSICHT_YT):   # nur angemeldeter Admin
+    if ansicht in (ANSICHT_BENUTZER, ANSICHT_GESUNDHEIT):     # Gesundheitsdaten: nur angemeldeter Admin
+        return bool(n) and n.get("rolle") == "admin"
+    if ansicht == ANSICHT_YT:            # Faceless YouTube: nur angemeldeter Admin
         return bool(n) and n.get("rolle") == "admin"
     if ansicht == ANSICHT_WIKI:          # eigene Handelsidee: Admin, sonst nur bei ausdruecklich vergebenem Recht
         return n is None or n.get("rolle") == "admin" or ansicht in (n.get("ansichten") or [])
