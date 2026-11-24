@@ -3027,7 +3027,7 @@ def render_dashboard():
                     except Exception:
                         return bool(os.environ.get(name))
                 youtube_ui.seite({"lesen": gh_read_cached_status, "aktualisiere": gh_aktualisiere, "upfad": upfad,
-                                  "speichern": GH_STATE_READY,
+                                  "speichern": GH_STATE_READY, "get": requests.get,
                                   "zugaenge": {n: _hat(n) for n, *_ in youtube_ui.ZUGAENGE}})
             except Exception as e:
                 st.error(f"⚠️ Fehler im Bereich Faceless YouTube: {e}")
