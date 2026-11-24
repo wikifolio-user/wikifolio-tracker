@@ -1,7 +1,8 @@
 # Pyramidenmanager
 
 Zusätzliches Modul des Finanz-Dashboards. Der Pyramidenmanager berechnet Trend, Signale, Stops und Risiko für
-gestaffelte Long-Käufe (Pyramiden) auf die vier Indizes Nasdaq 100, DAX 40, S&P 500 und Dow Jones.
+gestaffelte Long-Käufe (Pyramiden) auf die vier Indizes Nasdaq 100, DAX 40, S&P 500 und Dow Jones sowie auf
+einzelne Aktien.
 
 Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die vorhandenen Analysewerkzeuge
 (Gap Analyzer, Fear & Greed, KO-Rechner) werden nur **gelesen** und nicht verändert.
@@ -9,10 +10,10 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 | Etappe | Inhalt | Stand |
 |---|---|---|
 | 1 | Rechenkern, Adapter, Nachkaufprüfung, Tests | fertig |
-| 2 | Ansicht, WKN-Erfassung, Tranchenüberwachung, Zeitleiste | dieser Stand |
-| 3 | Backtest A–D | geplant |
-| 4 | Aktien-Pyramiden und Aktien-Trendscanner | geplant |
-| 5 | Abschluss der Dokumentation | geplant |
+| 2 | Ansicht, WKN-Erfassung, Tranchenüberwachung, Zeitleiste | fertig |
+| 3 | Backtest A–D | fertig |
+| 4 | Aktien-Pyramiden und Aktien-Trendscanner | fertig |
+| 5 | Abschluss der Dokumentation | fertig |
 
 ## Dateien
 
@@ -21,6 +22,10 @@ Er gibt **keine Orders** auf und verändert weder Depot noch Produktivdaten. Die
 | `pyramide.py` | Rechenkern ohne Streamlit und ohne Netz: Trend-Score, Signale, Stufen, Stops, Risiko, dynamischer Hebel, Gap- und Fear-&-Greed-Einstiegswert, kombinierter Wert, Nachkaufprüfung |
 | `pyramide_daten.py` | Adapter zu den vorhandenen Werkzeugen. Er liest nur und rechnet die Gap- und Fear-&-Greed-Werte nicht selbst nach. |
 | `pyramide_ui.py` | Ansicht „Märkte → Pyramiden“: Index-Trendscanner, „Meine Pyramiden“ mit Überblick, Nachkauf prüfen & erfassen (WKN über onvista oder von Hand), Einstellungen je Pyramide, Zeitleiste |
+| `pyramide_backtest.py` | Backtest der Strategien A–D ohne Vorausschau (Etappe 3) |
+| `pyramide_backtest_ui.py` | Ansicht „Pyramiden → Backtest A–D“ |
+| `pyramide_aktien.py` | Aktien: Tageskerzen (Yahoo), Analyse wie bei den Indizes, Zeilen des Aktien-Trendscanners (Etappe 4) |
+| `pyramide_aktien_ui.py` | Ansicht „Pyramiden → Aktien-Trendscanner“, eigene Aktienliste, Daten für Aktien-Pyramiden |
 | `test_pyramide.py` | Tests für Datenzuordnung, Zeitstempel, fehlende und veraltete Werte sowie Nachkaufentscheidungen |
 
 ## Tatsächlich verwendete Datenquellen
@@ -132,9 +137,77 @@ ungültige Werte ignoriert. Frei einstellbar sind unter anderem:
 Erlaubt ist ein Nachkauf nur, wenn **alle Pflichtprüfungen** bestanden sind. Ein guter kombinierter Wert oder
 positive Hinweise können eine nicht bestandene Pflichtprüfung nie überstimmen.
 
+## Backtest A–D (`pyramide_backtest.py`)
+
+| Strategie | Kauf (Stufe 1 und Nachkauf) |
+|---|---|
+| A | nur die technischen Regeln: Einstiegssignal bzw. Nachkauf ab +1 ATR und Trend-Score ≥ Schwelle |
+| B | A und Gap-Wert ≥ 40 |
+| C | A und Fear-&-Greed-Einstiegswert ≥ 40 |
+| D | A und kombinierter Wert (Trend/Gap/F&G, 70/20/10) ≥ Einstiegsschwelle |
+
+Ausstieg für alle gleich: Schluss unter dem Stop der Tranche (Anfangsstop oder gemeinsamer Nachzieh-Stop) oder
+Trend-Score unter der Ausstiegsschwelle.
+
+**Keine Vorausschau:**
+- Entschieden wird am Tagesschluss, ausgeführt zur Eröffnung des nächsten Tages.
+- Trend-Score, ATR, Stops und Gap-Analyse rechnen je Tag nur mit Kerzen bis zu diesem Tag. Die Gap-Analyse nutzt
+  dafür das Werkzeug des Gap Analyzers auf den letzten 500 Handelstagen.
+- Fear & Greed: Der eigene **Rohwert** ohne CNN-Eichung wird als Perzentil gegen die eigenen Rohwerte der drei Jahre
+  davor gerechnet. Ohne Wert lassen C und D keinen Kauf zu.
+- Ein Test sichert das ab: Kerzen nach einem Stichtag ändern das Ergebnis bis zu diesem Tag nicht.
+
+**Größe je Tranche:**
+- Das Risiko bis zum Anfangsstop ist Risiko-% × Stufenanteil des aktuellen Depotwerts.
+- Begrenzt wird die Größe durch das Gesamtrisiko, den KO-Kapitalanteil und das vorhandene Geld.
+
+**Kosten:** Spread je Runde, zur Hälfte bei Kauf und Verkauf, Gebühr je Order, bei KO die Finanzierung.
+
+**Kennzahlen:**
+- Endwert, Rendite und Rendite p. a., maximaler Drawdown, Zeit im Markt
+- Pyramiden, Tranchen, Trefferquote, Ø Gewinn und Verlust, Profit-Faktor
+- Kosten, KO-Ereignisse, gefilterte Signaltage
+- Signalqualität: Indexveränderung 20 Handelstage nach jedem Neueinstieg
+- Vergleich mit Kaufen & Halten
+
+**Vereinfachungen:**
+- KO = Basispreis, kein Restwert nach einem Knock-out
+- keine Währungseffekte
+- Dividenden nur, soweit sie im Index enthalten sind
+- Die Regeln sind die Startwerte des Pyramidenmanagers.
+
+## Aktien-Pyramiden und Aktien-Trendscanner (Etappe 4)
+
+**Aktienliste:**
+- **Depotwerte:** Sie werden über die Top-500-Bewertung per ISIN, WKN oder Symbol einem Yahoo-Kürzel zugeordnet.
+  Fonds, Zertifikate und andere Werte ohne Zuordnung erscheinen als Hinweis.
+- **Eigene Liste:** in `state/pyramiden_aktien.json` je Benutzer. Ein Kürzel wird beim Hinzufügen geprüft, indem
+  seine Kerzen geladen werden.
+
+**Kerzen:**
+- Quelle ist die Yahoo-Finance-Chart-API (Tageskerzen der letzten 3 Jahre), nur Aktien und ETFs.
+- Die Kerze des laufenden Handelstags wird weggelassen.
+- Beim Öffnen geladen und 6 Stunden zwischengespeichert. Nach mehr als 3 Wochentagen ohne neue Kerze gelten sie als
+  „veraltet“ und geben kein Signal.
+
+**Trendscanner:**
+- Derselbe Trend-Score und dasselbe Einstiegssignal wie bei den Indizes.
+- Dazu Abstand zum 52-Wochen-Hoch, 12-Monats-Rendite und ATR in %.
+- Zusatzspalten aus der **vorhandenen Aktienbewertung**: Gesamtscore und Fazit der Top-500-Bewertung, Note und
+  Anteil der Kaufempfehlungen aus dem Legenden-Screener (`investoren_ui.vorberechnet`). Diese Werte werden nur
+  gelesen.
+
+**Aktien-Pyramiden** (`pyramide.neue_pyramide(..., art="aktie")`):
+- Gleiche Regeln für Stufen, Stops und Risiko wie bei den Indizes.
+- Nur direkte Käufe, keine KO-Zertifikate auf Einzelaktien.
+- Für Aktien gibt es weder Fear & Greed noch eine Gap-Analyse. Der kombinierte Wert besteht deshalb nur aus dem
+  Trend (Gewichte 100/0/0, F&G aus). Die Hinweise 3 und 4 der Nachkaufprüfung zeigen „fehlt“ bzw. „aus“.
+
 ## Grenzen
 
 - Nur Long-Pyramiden und nur Tageskerzen.
+- Aktien: keine Währungsumrechnung (Kaufkurs in €, Aktienkurs in Handelswährung), keine Dividenden, Kerzen aus
+  Yahoo ohne eigenen Börsenkalender (Feiertage zählen beim Alter als Handelstage).
 - Der Wert einer ungehebelten Tranche („direkt“) folgt dem Index ohne Währungseffekt.
 - KO-Tranchen werden ohne Spread und ohne Restwert nach einem Knock-out gerechnet.
 - Die eigenen Fear-&-Greed-Werte sind an CNN geeicht. Für den Backtest (Etappe 3) wird diese Eichung nicht

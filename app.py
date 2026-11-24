@@ -3060,6 +3060,11 @@ def render_dashboard():
                                "indizes": lambda: kurs_vorrat().indizes(), "lesen": gh_read_cached_status,
                                "aktualisiere": gh_aktualisiere, "upfad": upfad, "speichern": GH_STATE_READY,
                                "get": requests.get,
+                               "aktien_depot": lade_positionen,
+                               "bewertung_daten": lambda: __import__("bewertung_ui").daten(
+                                   {"gh_read_taeglich": gh_read_taeglich}),
+                               "investoren": lambda: __import__("investoren_ui").vorberechnet(
+                                   {"gh_read_taeglich": gh_read_taeglich})[0],
                                "oeffnen": lambda z: _nav_waehle({"gap": ANSICHT_GAP, "fg": ANSICHT_FG}[z])})
         except Exception as e:
             st.error(f"⚠️ Fehler im Pyramidenmanager: {e}")
