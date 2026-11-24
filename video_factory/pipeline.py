@@ -77,6 +77,13 @@ def s_bilder(p, ctx):
         a = s.get("asset")
         if a and a.get("pfad") and os.path.exists(a["pfad"]):
             continue                                   # schon vorhanden (Wiederholung)
+        if a and a.get("url") and a.get("lizenz") in ("cc0", "pdm", "by") and ctx.get("get") and not s.get("neu_suchen"):
+            try:                                       # neuer Rechner (z. B. GitHub Actions): dasselbe Bild erneut laden
+                a["pfad"] = AS.laden(a, ctx["get"], ordner)
+                frei += 1
+                continue
+            except Exception:
+                pass
         kandidat, fehler = (AS.suchen(s["bild"], ctx["get"], gesehen) if ctx.get("get") and s.get("bild")
                             else (None, ["keine Bildsuche"]))
         if kandidat:

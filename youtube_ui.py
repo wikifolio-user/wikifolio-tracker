@@ -22,7 +22,7 @@ import youtube_radar as YR
 
 K = "yt_"
 DATEI = "state/youtube.json"
-LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": []}
+LEER = {"kanaele": [], "buchungen": [], "ideen": [], "einstellungen": {}, "radar": [], "projekte": []}
 RADAR_DATEI = "state/youtube_radar.json"
 BEREICHE = ["Überblick", "Recherche", "Analyse", "Video Factory", "Finanzen", "Einstellungen"]
 MODI = {"free": "Free – lokale/offene Werkzeuge, kostenlose APIs", "balanced": "Balanced – kostenlos + ausgewählte "
@@ -40,9 +40,9 @@ PIPELINE = [  # (Schritt, Phase, benoetigter Zugang oder None)
     ("Einnahmepotenzial schätzen", 2, "YOUTUBE_API_KEY"), ("Nische untersuchen", 2, "YOUTUBE_API_KEY"),
     ("Kommentare analysieren", 3, "YOUTUBE_API_KEY"), ("Transkript auswerten (eigener Text/SRT)", 3, "GEMINI_API_KEY"),
     ("Affiliate-Programme (mit Quelle)", 3, None), ("Eigene Idee / Better Video", 3, "GEMINI_API_KEY"),
-    ("Skript & Storyboard", 4, "GEMINI_API_KEY"), ("Bildmaterial (lizenzfrei)", 4, None),
-    ("KI-Stimme (Piper, lokal)", 4, None), ("Schnitt, Untertitel, MP4 (FFmpeg)", 4, None),
-    ("Thumbnail & Qualitätskontrolle", 5, None), ("Freigabe & YouTube-Upload (als Entwurf)", 7, "YouTube-OAuth"),
+    ("Skript (KI oder eigenes) & Storyboard", 1, None), ("Bildmaterial (lizenzfrei oder eigene Grafik)", 1, None),
+    ("KI-Stimme (Piper, lokal)", 1, None), ("Schnitt, Untertitel, MP4 (FFmpeg)", 1, None),
+    ("Thumbnails & Qualitätskontrolle", 1, None), ("Freigabe & YouTube-Upload (als Entwurf)", 7, "YouTube-OAuth"),
     ("Einnahmen ins Kassenbuch", 1, None),
 ]
 PHASE_FERTIG = 1
@@ -376,14 +376,8 @@ def _analyse(h, d):
 
 
 def _factory(h, d):
-    _ausblick(h, "AI Video Factory", [
-        "Auftrag → Rechercheplan → Skript → Storyboard (je Szene bearbeitbar)",
-        "Lizenzfreie Bilder (Wikimedia Commons, Openverse; optional Pexels/Pixabay) mit Lizenznachweis",
-        "Deutsche KI-Stimme lokal (Piper), Untertitel (SRT/VTT), Schnitt mit FFmpeg → MP4 (1920×1080 oder 1080×1920)",
-        "Rendern im Hintergrund über einen eigenen GitHub-Workflow – nie auf dem Smartphone",
-        "Kostenvoranschlag vor jeder Produktion, Budgetgrenze, Qualitätsbericht, Vorschau im Dashboard"],
-        4, ["GEMINI_API_KEY"])
-    st.caption("Bis die Video Factory steht, werden hier keine Videos „erzeugt“ – es gibt keine Platzhalter-Ergebnisse.")
+    import youtube_factory_ui
+    youtube_factory_ui.bereich(h, d)
 
 
 # ---------------------------------------------------------------------------------------------------- Finanzen

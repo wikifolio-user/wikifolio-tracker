@@ -1,0 +1,57 @@
+name: YouTube Video rendern
+
+# Video Factory (Faceless YouTube): rendert Projekte in der Warteschlange (Bilder, KI-Stimme, Schnitt, Untertitel,
+# Thumbnails, Qualitaetsbericht) und legt das Ergebnis als Release-Dateien im privaten State-Repo ab.
+# Start aus der App (workflow_dispatch) oder als Ersatzlauf nach Zeitplan. Veroeffentlicht nie etwas auf YouTube.
+# Unabhaengig von allen anderen Workflows (eigene Concurrency-Gruppe).
+on:
+  workflow_dispatch:
+    inputs:
+      projekt:
+        description: "Projekt-ID (leer = alle in der Warteschlange)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "41 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube-render
+  cancel-in-progress: false
+
+jobs:
+  rendern:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: FFmpeg und Schrift installieren
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests==2.34.2 tzdata==2026.5 pillow==12.3.0 piper-tts==1.3.0
+
+      - name: Stimmen zwischenspeichern
+        uses: actions/cache@v4
+        with:
+          path: stimmen
+          key: piper-stimmen-de-thorsten-medium-v1
+
+      - name: Projekte rendern
+        env:
+          STATE_REPO: ${{ vars.STATE_REPO }}
+          GH_STATE_TOKEN: ${{ vars.STATE_REPO && secrets.STATE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PROJEKT_ID: ${{ github.event.inputs.projekt }}
+          PIPER_STIMMEN: stimmen
+        run: python youtube_render_agent.py
