@@ -1696,7 +1696,7 @@ RECHNER_EINGABEN = {
     # Fear & Greed Monitor: Auswahl, Warnregeln und gesehene Warnungen merken; Knoepfe/Sitzungswerte nicht
     "fear_greed": ("fg_", re.compile(r"_btn$|_editor$|_chart$|^fg_(frisch|meldung|refresh_zeit|stand_gesehen)$")),
     # Durchschnittskurs-Rechner: Kaeufe (als JSON-Text), Name, Waehrung, Gebuehren, Nachkauf-Felder; Tabelle/Knoepfe nicht
-    "durchschnittskurs": ("dk_", re.compile(r"^dk_tab_|^dk_ver$|_btn$|^dk_meldung$|^dk_suche_letzter$|^dk_wahl$")),
+    "durchschnittskurs": ("dk_", re.compile(r"^dk_tab_|^dk_ver$|_btn$|^dk_meldung$|^dk_suche_letzter$|^dk_wahl$|^dk_kq$")),
     # Gap Analyzer: Definition, Zeitraum, Filter, Alerts und gesehene Meldungen merken
     "gap_analyzer": ("gap_", re.compile(r"_btn$|^gap_tab_|^gap_csv|^gap_xlsx|^gap_chart$|_weg$|^gap_reihe_|_tab$")),
 }
@@ -2984,7 +2984,8 @@ def render_dashboard():
         try:
             import durchschnittskurs_ui
             rechner_vorbelegen("durchschnittskurs")
-            durchschnittskurs_ui.seite({"suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs})
+            durchschnittskurs_ui.seite({"suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs,
+                                        "get": requests.get})
             rechner_merken("durchschnittskurs")
             rechner_leiste("durchschnittskurs")
         except Exception as e:

@@ -46,9 +46,10 @@ CSS = """<style>
     .dk-raster3 .dk-kachel:first-child { grid-column:1 / -1; } }
 .dk-treffer { background:rgba(124,156,255,.08); border:1px solid rgba(124,156,255,.35); border-radius:12px;
     padding:10px 12px; margin:4px 0 8px; color:#E8ECF6; font-size:.9rem; }
-.dk-treffer .dk-tkurs { font-size:1.35rem; font-weight:800; color:#ffffff; font-variant-numeric:tabular-nums;
+.dk-tkurs { font-size:1.2rem; font-weight:800; color:#ffffff; font-variant-numeric:tabular-nums;
     margin-right:6px; }
-.dk-treffer .dk-tmeta { color:#A9ACB0; font-size:.8rem; }
+.dk-tmeta { color:#A9ACB0; font-size:.8rem; display:block; line-height:1.3; }
+.dk-tkurs { display:block; }
 .dk-fuss { text-align:center; color:#A9ACB0; font-size:.8rem; margin-top:4px; }
 @media (max-width: 640px) { .dk-ergebnis .dk-wert { font-size:2.1rem; } .dk-kachel .w { font-size:1.2rem; } }
 </style>"""
@@ -147,7 +148,7 @@ def _hinzufuegen():
 
 def _zuruecksetzen():
     ss = st.session_state
-    for f in ("aktuell", "suche", "suche_letzter", "treffer", "wahl"):
+    for f in ("aktuell", "suche", "suche_letzter", "treffer", "wahl", "kq"):
         ss.pop(P + f, None)
     for i in _ids(ss):
         for f in ("stueck", "wert", "gebuehr"):
@@ -159,71 +160,138 @@ def _kurs_uebernehmen(text):
     st.session_state[P + "aktuell"] = text
 
 
-def _kurs_holen(h, iid, neu=False):
-    """Live-Kurs (ls-tc.de) je Instrument, in der Sitzung 60 s zwischengespeichert. -> (kurs, vortag, quelle, zeit)"""
+def _vorschlag_nehmen(v):
+    st.session_state[P + "suche"] = v
+
+
+def _suchen(h, pruefung):
+    """Beide Quellen durchsuchen. -> {"kandidaten", "status": [(quelle, ok, text)]}"""
+    import kursquellen as KQ
+    import produktdaten as PD
+    status, ls, ov = [], [], []
+    if h.get("suche_instrument"):
+        try:
+            ls = [t for t in (h["suche_instrument"](pruefung["wert"]) or []) if t.get("instrument_id")]
+            status.append(("Lang & Schwarz", bool(ls), f"{len(ls)} Treffer" if ls else "keine Treffer"))
+        except Exception:
+            status.append(("Lang & Schwarz", False, "nicht erreichbar"))
+    if h.get("get"):
+        try:
+            ov = KQ.onvista_suchen(pruefung["wert"], h["get"])
+            status.append(("onvista", bool(ov), f"{len(ov)} Treffer" if ov else "keine Treffer"))
+        except PD.ProduktFehler as ex:
+            status.append(("onvista", False, "keine Treffer" if "keine" in str(ex).lower() or "kein" in str(ex).lower()
+                           else "nicht erreichbar"))
+        except Exception:
+            status.append(("onvista", False, "nicht erreichbar"))
+    return {"kandidaten": KQ.passend(KQ.kandidaten(ls, ov), pruefung)[:12], "status": status}
+
+
+def _kurse(h, k, neu=False):
+    """Kurse eines Kandidaten aus allen Quellen, je Wert 60 s zwischengespeichert."""
     import datetime
+    import kursquellen as KQ
+    import produktdaten as PD
     ss = st.session_state
     cache = ss.setdefault(P + "kurs_cache", {})
-    jetzt = datetime.datetime.now()
-    alt = cache.get(str(iid))
-    if alt and not neu and (jetzt - alt[3]).total_seconds() < 60:
-        return alt
-    try:
-        akt, vor, quelle = h["get_live_kurs"](iid)
-    except Exception:
-        akt, vor, quelle = None, None, "Fehler – keine Live-Daten"
-    cache[str(iid)] = (akt, vor, quelle, jetzt)
-    return cache[str(iid)]
+    schl = f"{k.get('ls_id')}|{k.get('isin')}"
+    jetzt = datetime.datetime.now(datetime.timezone.utc)
+    alt = cache.get(schl)
+    if alt and not neu and (jetzt - alt[0]).total_seconds() < 60:
+        return alt[1], alt[2]
+    kurse, status = [], []
+    if k.get("ls_id") and h.get("get_live_kurs"):
+        try:
+            akt, vor, quelle = h["get_live_kurs"](k["ls_id"])
+        except Exception:
+            akt, vor, quelle = None, None, ""
+        if akt:
+            kurse.append({"boerse": "Lang & Schwarz (ls-tc.de)", "kurs": float(akt), "waehrung": "EUR", "zeit": jetzt,
+                          "art": "Live", "vortag": float(vor) if vor else None})
+            status.append(("Lang & Schwarz", True, "Live-Kurs"))
+        else:
+            status.append(("Lang & Schwarz", False, "kein Kurs"))
+    if k.get("isin") and h.get("get"):
+        try:
+            ov = KQ.onvista_kurse(k.get("onvista") or {"isin": k["isin"]}, h["get"])
+            kurse += ov
+            status.append(("onvista", True, f"{len(ov)} Kurse"))
+        except PD.ProduktFehler:
+            status.append(("onvista", False, "kein Kurs"))
+        except Exception:
+            status.append(("onvista", False, "nicht erreichbar"))
+    kurse = KQ.sortieren(kurse, jetzt)
+    cache[schl] = (jetzt, kurse, status)
+    return kurse, status
+
+
+def _status_text(status):
+    return " · ".join(f"{'✅' if ok else '❌'} {q}: {t}" for q, ok, t in status)
 
 
 def _wkn_abruf(h):
-    """WKN, ISIN oder Name suchen, Kurs anzeigen und per Klick als aktuellen Kurs uebernehmen."""
+    """WKN, ISIN oder Name pruefen, in mehreren Quellen suchen, Kurse zeigen und per Klick uebernehmen."""
+    import kursquellen as KQ
     ss = st.session_state
-    if not (h and h.get("suche_instrument") and h.get("get_live_kurs")):
+    if not (h and (h.get("suche_instrument") or h.get("get"))):
         return
-    begriff = (st.text_input("Kurs abrufen: WKN, ISIN oder Name", key=P + "suche", max_chars=60,
-                             placeholder="z. B. A0RPWH, IE00B4L5Y983 oder Apple") or "").strip()
-    if not begriff:
+    begriff = st.text_input("Kurs abrufen: WKN, ISIN oder Name", key=P + "suche", max_chars=60,
+                            placeholder="z. B. A0RPWH, DE000MM0SF40 oder Apple")
+    pruefung = KQ.eingabe_pruefen(begriff)
+    for t in pruefung["hinweise"]:
+        st.caption(("⚠️ " if "nicht" in t or "Meintest" in t else "✓ ") + t)
+    if pruefung["vorschlag"]:
+        st.button(f"Stattdessen {pruefung['vorschlag']} suchen", key=P + "vorschlag_btn",
+                  on_click=_vorschlag_nehmen, args=(pruefung["vorschlag"],))
+    if pruefung["art"] == "leer":
         return
-    if ss.get(P + "suche_letzter") != begriff:
-        with st.spinner("Suche …"):
-            try:
-                ss[P + "treffer"] = h["suche_instrument"](begriff) or []
-            except Exception:
-                ss[P + "treffer"] = []
-        ss[P + "suche_letzter"] = begriff
+    if (ss.get(P + "kq") or {}).get("begriff") != pruefung["wert"]:
+        with st.spinner("Suche bei Lang & Schwarz und onvista …"):
+            ss[P + "kq"] = dict(_suchen(h, pruefung), begriff=pruefung["wert"])
         ss.pop(P + "wahl", None)
-    treffer = [t for t in ss.get(P + "treffer") or [] if t.get("instrument_id")]
-    if not treffer:
-        st.caption("⚠️ Keine Treffer – Schreibweise prüfen oder den Kurs unten von Hand eintragen.")
+    kq = ss[P + "kq"]
+    st.caption("Geprüft: " + _status_text(kq["status"]))
+    kand = kq["kandidaten"]
+    if not kand:
+        st.caption("⚠️ In keiner Quelle gefunden. Prüfe die Schreibweise (WKN 6 Zeichen, ISIN 12 Zeichen) oder trage "
+                   "den Kurs unten von Hand ein.")
         return
-    namen = [f"{t.get('name') or '–'} · WKN {t.get('wkn') or '–'}" + (f" · {t['kategorie']}" if t.get("kategorie")
-                                                                      else "") for t in treffer]
-    if len(treffer) > 1:
-        i = st.selectbox("Treffer", range(len(treffer)), format_func=lambda j: namen[j], key=P + "wahl")
-    else:
-        i = 0
-    t = treffer[i or 0]
-    akt, vor, quelle, zeit = _kurs_holen(h, t["instrument_id"])
-    if not akt:
-        st.caption(f"⚠️ {_e(t.get('name'))}: kein Kurs verfügbar ({_e(quelle)}).")
-        return
+    i = 0
+    if len(kand) > 1:
+        i = st.selectbox("Treffer", range(len(kand)), key=P + "wahl", format_func=lambda j: (
+            f"{kand[j]['name'] or '–'} · {kand[j]['wkn'] or kand[j]['isin']}"
+            + (f" · {KQ.typ_text(kand[j]['typ'])}" if kand[j]['typ'] else ""))) or 0
+    k = kand[i]
+    kurse, status = _kurse(h, k)
+    st.markdown(f'<div class="dk-treffer"><b>{_e(k["name"])}</b> · WKN {_e(k["wkn"] or "–")} · ISIN '
+                f'{_e(k["isin"] or "–")}' + (f'<br><span class="dk-tmeta">{_e(KQ.typ_text(k["typ"]))}</span>' if k["typ"] else "")
+                + "</div>", unsafe_allow_html=True)
+    if not kurse:
+        st.caption("⚠️ Kein Kurs gefunden (" + _status_text(status) + "). Bitte unten von Hand eintragen.")
     from decimal import Decimal
-    kurs = Decimal(str(akt))
-    veraend = ""
-    if vor:
-        pct = (kurs / Decimal(str(vor)) - 1) * 100
-        veraend = f" · {'+' if pct > 0 else ''}{DK.de(pct, 2)} % zum Vortag"
-    text = DK.de(kurs, 4, 2)
-    st.markdown(f'<div class="dk-treffer"><b>{_e(t.get("name"))}</b> · WKN {_e(t.get("wkn") or "–")}<br>'
-                f'<span class="dk-tkurs">{_e(text)} €</span><span class="dk-tmeta">{_e(veraend)} · '
-                f'{_e(quelle)}, {zeit:%H:%M} Uhr</span></div>', unsafe_allow_html=True)
-    with st.container(horizontal=True, key=P + "abruf_knoepfe"):
-        st.button("Als aktuellen Kurs übernehmen", icon=":material/download:", key=P + "uebernehmen_btn",
-                  type="primary", on_click=_kurs_uebernehmen, args=(text,))
-        if st.button("Neu abrufen", icon=":material/refresh:", key=P + "neu_btn", type="tertiary"):
-            _kurs_holen(h, t["instrument_id"], neu=True)
-            st.rerun()
+    for n, x in enumerate(kurse[:4]):
+        text = DK.de(Decimal(str(x["kurs"])), 4, 2)
+        veraend = ""
+        if x.get("vortag"):
+            pct = (x["kurs"] / x["vortag"] - 1) * 100
+            veraend = f" · {'+' if pct > 0 else ''}{DK.de(Decimal(str(round(pct, 4))), 2)} % zum Vortag"
+        euro = x["waehrung"] == "EUR"
+        with st.container(horizontal=True, wrap=False, key=P + f"kurs_{n}", vertical_alignment="center",
+                          gap="small"):
+            st.markdown(f'<span class="dk-tkurs">{_e(text)} {_e("€" if euro else x["waehrung"])}</span>'
+                        f'<span class="dk-tmeta">{_e(x["art"])} · {_e(x["boerse"])} · {_e(KQ.alter_text(x["zeit"]))}'
+                        f'{_e(veraend)}</span>', unsafe_allow_html=True, width="stretch")
+            st.button("", icon=":material/download:", key=P + f"uebernehmen_{n}_btn",
+                      type="primary" if n == 0 else "secondary", disabled=not euro,
+                      help="Als aktuellen Kurs übernehmen" if euro else
+                      "Nur Euro-Kurse – bitte eine Börse mit Euro-Kurs wählen.",
+                      on_click=_kurs_uebernehmen, args=(text,))
+    if kurse:
+        st.caption("⬇ übernimmt den Kurs. Zertifikate: „Geld“ ist der Kurs, zu dem der Emittent zurückkauft – der realistische Wert beim "
+                   "Verkauf. Fremdwährungskurse lassen sich nicht übernehmen.")
+    if st.button("Neu abrufen", icon=":material/refresh:", key=P + "neu_btn", type="tertiary"):
+        _kurse(h, k, neu=True)
+        st.rerun()
 
 
 def _gewinn(ss, erg, h=None):
@@ -307,8 +375,9 @@ def _beispiel():
 
 
 def seite(h=None):
-    """h (optional): {"suche_instrument": (begriff) -> Treffer, "get_live_kurs": (instrument_id) -> (kurs, vortag,
-    quelle)} - ohne h gibt es keinen WKN-Abruf, der Rechner funktioniert sonst gleich."""
+    """h (optional): {"suche_instrument": (begriff) -> Treffer (ls-tc.de), "get_live_kurs": (instrument_id) -> (kurs,
+    vortag, quelle), "get": requests.get (onvista)} - ohne h gibt es keinen Kursabruf, der Rechner funktioniert
+    sonst gleich."""
     ss = st.session_state
     st.markdown(CSS, unsafe_allow_html=True)
     ids = _ids(ss)

@@ -107,6 +107,32 @@ class Berechnung(unittest.TestCase):
             with self.assertRaises(DK.EingabeFehler):
                 DK.staffel(*falsch)
 
+    def test_kursquellen(self):
+        import kursquellen as KQ
+        self.assertTrue(KQ.isin_gueltig("DE000MM0SF40"))
+        self.assertTrue(KQ.isin_gueltig("US0378331005"))
+        self.assertFalse(KQ.isin_gueltig("DE000MMOSF40"))
+        p = KQ.eingabe_pruefen("DE000MMOSF40")
+        self.assertEqual(p["vorschlag"], "DE000MM0SF40")
+        self.assertEqual(KQ.eingabe_pruefen(" de000mm0sf40 ")["art"], "isin")
+        self.assertEqual(KQ.eingabe_pruefen("a0r pwh")["wert"], "A0RPWH")
+        self.assertEqual(KQ.eingabe_pruefen("Apple")["art"], "name")
+        self.assertEqual(KQ.eingabe_pruefen("x")["art"], "leer")
+        self.assertEqual(KQ.typ_text("KNOCKOUT_CERTIFICATE"), "Knock-out-Zertifikat")
+        k = KQ.kandidaten([{"instrument_id": 1, "name": "A", "isin": "X1", "wkn": "W1"}],
+                          [{"name": "A", "isin": "X1", "wkn": "W1", "typ": "STOCK", "pfad": "stocks"},
+                           {"name": "B", "isin": "X2", "wkn": "W2", "typ": "FUND", "pfad": "funds"}])
+        self.assertEqual([(x["isin"], x["ls_id"], bool(x["onvista"])) for x in k], [("X1", 1, True), ("X2", None, True)])
+        import datetime as _dt
+        jetzt = _dt.datetime(2026, 11, 25, 17, 0, tzinfo=_dt.timezone.utc)
+        z = jetzt - _dt.timedelta(minutes=5)
+        sortiert = KQ.sortieren([{"waehrung": "USD", "art": "Kurs", "zeit": jetzt, "kurs": 1},
+                                 {"waehrung": "EUR", "art": "Brief", "zeit": jetzt, "kurs": 2},
+                                 {"waehrung": "EUR", "art": "Geld", "zeit": z, "kurs": 3}], jetzt)
+        self.assertEqual([x["kurs"] for x in sortiert], [3, 2, 1])
+        self.assertIn("aktuell", KQ.alter_text(z, jetzt))
+        self.assertIn("Stand", KQ.alter_text(jetzt - _dt.timedelta(hours=3), jetzt))
+
     def test_nachkauf(self):
         e = DK.berechnen([{"stueck": "10", "kurs": "100"}])
         r = DK.nachkauf(e, "10", "80", "2")
@@ -130,24 +156,55 @@ def _app():
     durchschnittskurs_ui.seite()
 
 
+class _Antwort:
+    def __init__(self, status, daten=None):
+        self.status_code, self._d = status, daten
+
+    def json(self):
+        return self._d
+
+
+ZEIT = "2026-11-25T16:50:50.404+00:00"
+ONVISTA = {
+    "DE000MM0SF40": {"isin": "DE000MM0SF40", "wkn": "MM0SF4", "name": "OPEN END TURBO LONG AUF NASDAQ 100",
+                     "entityType": "DERIVATIVE", "entitySubType": "KNOCKOUT_CERTIFICATE"},
+    "US0378331005": {"isin": "US0378331005", "wkn": "865985", "name": "Apple", "entityType": "STOCK"}}
+SNAP = {
+    "derivatives/ISIN:DE000MM0SF40": {
+        "bid": {"last": 43.42, "previousLast": 53.63, "isoCurrency": "EUR", "datetimeLast": ZEIT,
+                "market": {"name": "Morgan Stanley"}},
+        "ask": {"last": 43.43, "isoCurrency": "EUR", "datetimeLast": ZEIT, "market": {"name": "Morgan Stanley"}}},
+    "stocks/ISIN:US0378331005": {"quoteList": {"list": [
+        {"last": 347.78, "isoCurrency": "USD", "datetimeLast": ZEIT, "market": {"name": "Nasdaq"}},
+        {"last": 317.4, "isoCurrency": "EUR", "datetimeLast": ZEIT, "market": {"name": "Tradegate"}}]}}}
+
+
 def _app_mit_abruf():
     import streamlit as st
     import durchschnittskurs_ui
+    import test_durchschnittskurs as T
     ss = st.session_state
-    ss.setdefault("suchen", [])
-    ss.setdefault("kurse", [])
-    treffer = {"A0RPWH": [{"instrument_id": 1, "name": "Erster ETF", "wkn": "A0RPWH", "kategorie": "ETF"},
-                          {"instrument_id": 2, "name": "Zweiter Fonds", "wkn": "A1XXXX", "kategorie": "Fonds"}],
-               "OHNEKURS": [{"instrument_id": 9, "name": "Ohne Kurs", "wkn": "X"}]}
+    ss.setdefault("abrufe", [])
 
     def suche(b):
-        ss["suchen"].append(b)
-        return treffer.get(b, [])
+        ss["abrufe"].append(("ls", b))
+        return [{"instrument_id": 7, "name": "Apple Inc.", "wkn": "865985", "isin": "US0378331005",
+                 "kategorie": "Aktie"}] if b in ("US0378331005", "865985") else []
 
     def kurs(iid):
-        ss["kurse"].append(iid)
-        return (48.9012, 47.895, "ls-tc.de Live (Emittent)") if iid != 9 else (None, None, "Fehler – keine Live-Daten")
-    durchschnittskurs_ui.seite({"suche_instrument": suche, "get_live_kurs": kurs})
+        ss["abrufe"].append(("ls_kurs", iid))
+        return 317.5, 320.0, "ls-tc.de Live (Emittent)"
+
+    def get(url, params=None, headers=None, timeout=None):
+        ss["abrufe"].append(("ov", url))
+        if url.endswith("/instruments/query"):
+            x = T.ONVISTA.get(params["searchValue"])
+            return T._Antwort(200, {"list": [x] if x else []})
+        for pfad, d in T.SNAP.items():
+            if url.endswith(pfad + "/snapshot"):
+                return T._Antwort(200, d)
+        return T._Antwort(404)
+    durchschnittskurs_ui.seite({"suche_instrument": suche, "get_live_kurs": kurs, "get": get})
 
 
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
@@ -218,35 +275,41 @@ class Oberflaeche(unittest.TestCase):
         self.assertFalse(at.text_input(key="dk_aktuell").value)
         self.assertIn("— €", self._texte(at))
 
-    def test_wkn_abruf_und_uebernehmen(self):
+    def test_kursabruf_mehrere_quellen(self):
         at = AppTest.from_function(_app_mit_abruf, default_timeout=60)
         at.run()
         ids = self._ids(at)
         at.text_input(key=f"dk_r{ids[0]}_stueck").set_value("10").run()
         at.text_input(key=f"dk_r{ids[0]}_wert").set_value("40").run()
-        at.text_input(key="dk_suche").set_value("A0RPWH").run()
-        self.assertFalse(at.exception)
-        self.assertEqual(at.session_state["suchen"], ["A0RPWH"])
-        at.selectbox(key="dk_wahl").set_value(1).run()                    # zweiter Treffer
+        # Tippfehler: O statt 0 -> Vorschlag
+        at.text_input(key="dk_suche").set_value("DE000MMOSF40").run()
+        self.assertTrue(any("Meintest du DE000MM0SF40" in x.value for x in at.caption))
+        at.button(key="dk_vorschlag_btn").click().run()
+        self.assertEqual(at.text_input(key="dk_suche").value, "DE000MM0SF40")
         t = self._texte(at)
-        self.assertIn("Zweiter Fonds", t)
-        self.assertIn("48,9012 €", t)
-        self.assertIn("+2,10 % zum Vortag", t)
-        at.button(key="dk_uebernehmen_btn").click().run()
-        self.assertEqual(at.text_input(key="dk_aktuell").value, "48,9012")
+        self.assertIn("Lang & Schwarz: keine Treffer", t)              # beide Quellen geprueft
+        self.assertIn("onvista: 1 Treffer", t)
+        self.assertIn("Knock-out-Zertifikat", t)
+        self.assertIn("43,42 €", t)                                    # Geld zuerst
+        at.button(key="dk_uebernehmen_0_btn").click().run()
+        self.assertEqual(at.text_input(key="dk_aktuell").value, "43,42")
+        self.assertIn("+34,20 €", self._texte(at))                       # 10 x 43,42 - 400
+        # Wert bei L&S und onvista: L&S-Live-Kurs und Boersenkurse, USD nicht uebernehmbar
+        at.text_input(key="dk_suche").set_value("US0378331005").run()
         t = self._texte(at)
-        self.assertIn("+89,01 €", t)                                      # 10 x 48,9012 - 400
-        self.assertIn("+22,25 %", t)
-        n = len(at.session_state["kurse"])
-        at.run()                                                          # kein erneuter Abruf innerhalb 60 s
-        self.assertEqual(len(at.session_state["kurse"]), n)
-        self.assertEqual(at.session_state["suchen"], ["A0RPWH"])          # keine erneute Suche
+        self.assertIn("Lang & Schwarz: 1 Treffer", t)
+        self.assertIn("317,40 €", t)
+        self.assertIn("347,78 USD", t)
+        usd = next(b for b in at.button if b.key and b.key.startswith("dk_uebernehmen_") and b.disabled)
+        self.assertTrue(usd.disabled)
+        n = len(at.session_state["abrufe"])
+        at.run()
+        self.assertEqual(len(at.session_state["abrufe"]), n)              # zwischengespeichert, kein Neuabruf
         at.button(key="dk_neu_btn").click().run()
-        self.assertEqual(len(at.session_state["kurse"]), n + 1)
-        at.text_input(key="dk_suche").set_value("gibtsnicht").run()
-        self.assertTrue(any("Keine Treffer" in x.value for x in at.caption))
-        at.text_input(key="dk_suche").set_value("OHNEKURS").run()
-        self.assertTrue(any("kein Kurs verfügbar" in x.value for x in at.caption))
+        self.assertGreater(len(at.session_state["abrufe"]), n)
+        # nichts gefunden
+        at.text_input(key="dk_suche").set_value("ZZZZZZ1").run()
+        self.assertTrue(any("In keiner Quelle gefunden" in x.value for x in at.caption))
         self.assertFalse(at.exception)
 
     def test_beispiel_nachkaeufe(self):
