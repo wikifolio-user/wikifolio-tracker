@@ -42,6 +42,8 @@ class Zahlen(unittest.TestCase):
         self.assertEqual(DK.geld(Decimal("10"), "USD"), "10,00 $")
         self.assertEqual(DK.kurs_text(Decimal("0.000123456789")), "0,00012346 €")
         self.assertEqual(DK.kurs_text(Decimal("101")), "101,00 €")
+        self.assertEqual(DK.anzeige_kurs(Decimal("45.40830508")), "45,41 €")       # 2 Nachkommastellen
+        self.assertEqual(DK.anzeige_kurs(Decimal("0.000123456789")), "0,00012346 €")  # unter 1: nicht 0,00
         self.assertEqual(DK.stueck_text(Decimal("2.50000000")), "2,5")
         self.assertEqual(DK.stueck_text(Decimal("3")), "3")
         self.assertEqual(DK.de(Decimal("0.125"), 2), "0,13")                 # kaufmaennisch gerundet
@@ -79,6 +81,16 @@ class Berechnung(unittest.TestCase):
                           {"stueck": "0,1", "art": "gesamt", "gesamt": "5000"}])
         self.assertEqual(e["stueck"], Decimal("0.10012345"))
         self.assertEqual(e["kaufwert"], Decimal("0.00012345") * Decimal("60000.12345678") + 5000)
+
+    def test_gewinn(self):
+        e = DK.berechnen([{"stueck": "10", "kurs": "100", "gebuehr": "5"}])
+        g = DK.gewinn(e, "110")
+        self.assertEqual((g["wert"], g["gewinn"]), (Decimal(1100), Decimal(95)))
+        self.assertAlmostEqual(float(g["prozent"]), 95 / 1005 * 100)
+        v = DK.gewinn(e, "90,5")
+        self.assertEqual(v["gewinn"], Decimal("-100"))
+        with self.assertRaises(DK.EingabeFehler):
+            DK.gewinn(e, "abc")
 
     def test_nachkauf(self):
         e = DK.berechnen([{"stueck": "10", "kurs": "100"}])
@@ -123,20 +135,34 @@ class Oberflaeche(unittest.TestCase):
         at.text_input(key=f"dk_r{ids[1]}_stueck").set_value("5").run()
         at.text_input(key=f"dk_r{ids[1]}_wert").set_value("90").run()
         t = self._texte(at)
-        self.assertIn("96,66666667 €", t)
+        self.assertIn("96,67 €", t)
         self.assertIn("1.450,00 €", t)
         self.assertIn("2 Käufe", t)
         # Gesamtwert je Kauf: Werte werden umgerechnet, Ergebnis bleibt gleich
         at.radio(key="dk_modus").set_value("gesamt").run()
         self.assertEqual(at.text_input(key=f"dk_r{ids[0]}_wert").value, "1.000,00")
-        self.assertIn("96,66666667 €", self._texte(at))
+        self.assertIn("96,67 €", self._texte(at))
         at.radio(key="dk_modus").set_value("kurs").run()
         self.assertEqual(at.text_input(key=f"dk_r{ids[1]}_wert").value, "90,00")
+        # aktueller Kurs -> Wert, Gewinn/Verlust in Euro und Prozent
+        at.text_input(key="dk_aktuell").set_value("100").run()
+        t = self._texte(at)
+        self.assertIn("1.500,00 €", t)
+        self.assertIn("+50,00 €", t)
+        self.assertIn("+3,45 %", t)                                    # 50 / 1450
+        at.text_input(key="dk_aktuell").set_value("90").run()
+        t = self._texte(at)
+        self.assertIn("Verlust", t)
+        self.assertIn("-100,00 €", t)
+        self.assertIn("-6,90 %", t)
+        at.text_input(key="dk_aktuell").set_value("x").run()
+        self.assertTrue(any("Aktueller Kurs" in x.value for x in at.caption))
+        at.text_input(key="dk_aktuell").set_value("").run()
         # Gebuehren
         at.toggle(key="dk_gebuehren").set_value(True).run()
         at.text_input(key=f"dk_r{ids[0]}_gebuehr").set_value("1,50").run()
         t = self._texte(at)
-        self.assertIn(DK.kurs_text(Decimal("1451.5") / 15), t)
+        self.assertIn("96,77 €", t)
         self.assertIn("Kaufgebühren 1,50 €", t)
         # ungueltige Eingabe -> Hinweis, zaehlt nicht mit
         at.text_input(key=f"dk_r{ids[2]}_stueck").set_value("5.000").run()
@@ -154,6 +180,7 @@ class Oberflaeche(unittest.TestCase):
         neu = self._ids(at)
         self.assertEqual(len(neu), 3)
         self.assertTrue(all(not at.text_input(key=f"dk_r{i}_stueck").value for i in neu))
+        self.assertFalse(at.text_input(key="dk_aktuell").value)
         self.assertIn("— €", self._texte(at))
 
     def test_uebernahme_der_tabellen_version(self):
@@ -167,7 +194,7 @@ class Oberflaeche(unittest.TestCase):
         self.assertEqual(at.text_input(key=f"dk_r{self._ids(at)[1]}_wert").value, "90,00")
         self.assertTrue(at.toggle(key="dk_gebuehren").value is not None)
         at.toggle(key="dk_gebuehren").set_value(True).run()
-        self.assertIn("97,58064516 €", self._texte(at))                 # gleiches Ergebnis wie vorher
+        self.assertIn("97,58 €", self._texte(at))                 # gleiches Ergebnis wie vorher
         self.assertNotIn("dk_daten", at.session_state)
 
 

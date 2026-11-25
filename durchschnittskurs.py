@@ -158,6 +158,24 @@ def kurs_text(x, waehrung="EUR"):
     return f"{de(x, NACHKOMMA, 2)} {WAEHRUNGEN.get(waehrung, waehrung)}"
 
 
+def anzeige_kurs(x, waehrung="EUR"):
+    """Durchschnittskurs fuer die Anzeige: 2 Nachkommastellen; unter 1 (z. B. kleine Krypto-Kurse) bis zu 8, damit
+    nicht 0,00 dasteht. Gerechnet wird immer mit dem exakten Wert."""
+    if x is None:
+        return "–"
+    return kurs_text(x, waehrung) if x < 1 else geld(x, waehrung)
+
+
+def gewinn(ergebnis, aktueller_kurs):
+    """Gewinn/Verlust zum aktuellen Kurs gegenueber der Gesamtinvestition (inkl. Gebuehren, falls beruecksichtigt).
+    -> {"kurs", "wert", "gewinn", "prozent"}; wirft EingabeFehler bei ungueltigem Kurs."""
+    k = zahl(aktueller_kurs, "Aktueller Kurs")
+    wert = ergebnis["stueck"] * k
+    g = wert - ergebnis["investition"]
+    return {"kurs": k, "wert": wert, "gewinn": g,
+            "prozent": g / ergebnis["investition"] * 100 if ergebnis["investition"] else None}
+
+
 def stueck_text(x):
     return "–" if x is None else de(x, NACHKOMMA, 0)
 
