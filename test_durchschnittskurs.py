@@ -97,80 +97,78 @@ class Berechnung(unittest.TestCase):
         self.assertEqual(DK.laden(json.dumps({"a": 1})), [])
 
 
-class Tabelle(unittest.TestCase):
-    def _df(self, zeilen):
-        import pandas as pd
-        import durchschnittskurs_ui as U
-        return pd.DataFrame([{U.SPALTEN["stueck"]: z[0], U.SPALTEN["art"]: U.ART_TEXT[z[1]], U.SPALTEN["kurs"]: z[2],
-                              U.SPALTEN["gesamt"]: z[3], U.SPALTEN["gebuehr"]: "", U.SPALTEN["notiz"]: None}
-                             for z in zeilen])
-
-    @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert")
-    def test_eingabeart_automatisch(self):
-        import durchschnittskurs_ui as U
-        vorher = [{"stueck": "10", "art": "kurs", "kurs": "100", "gesamt": "1.000,00", "gebuehr": "", "notiz": ""}]
-        neu = U._aus_tabelle(self._df([("10", "kurs", "100", "900")]), vorher)      # nur Gesamtwert geaendert
-        self.assertEqual(neu[0]["art"], "gesamt")
-        self.assertEqual(U._abgeleitet(neu[0])["kurs"], "90,00")
-        neu = U._aus_tabelle(self._df([("10", "kurs", "95", "1.000,00")]), vorher)  # nur Kurs geaendert
-        self.assertEqual(U._abgeleitet(neu[0])["gesamt"], "950,00")
-        neu = U._aus_tabelle(self._df([("10", "kurs", "100", "1.000,00"), ("2", "kurs", "", "50")]), vorher)
-        self.assertEqual(neu[1]["art"], "gesamt")                                     # neue Zeile nur mit Gesamtwert
-        self.assertEqual(neu[0]["notiz"], "")
-
-
 def _app():
     import streamlit as st
     import durchschnittskurs_ui
     durchschnittskurs_ui.seite()
-    st.markdown("DATEN:" + st.session_state.get("dk_daten", ""))
 
 
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
 class Oberflaeche(unittest.TestCase):
-    def test_ergebnis_nachkauf_zuruecksetzen(self):
+    def _texte(self, at):
+        return " ".join(x.value for x in at.markdown) + " ".join(x.value for x in at.caption)
+
+    def _ids(self, at):
+        return json.loads(at.session_state["dk_ids"])
+
+    def test_eingeben_umschalten_hinzufuegen_loeschen_zuruecksetzen(self):
         at = AppTest.from_function(_app, default_timeout=60)
         at.run()
         self.assertFalse(at.exception)
-        self.assertTrue(any("Noch kein gültiger Kauf" in x.value for x in at.markdown))
-        at.session_state["dk_daten"] = DK.speichern(Berechnung.KAEUFE)
-        at.session_state["dk_ver"] = 1
-        at.run()
-        self.assertFalse(at.exception)
-        texte = " ".join(x.value for x in at.markdown)
-        self.assertIn("97,58064516 €", texte)                       # gross hervorgehoben
-        self.assertIn("15,5", texte)
-        self.assertIn("1.512,50 €", texte)
-        self.assertIn("2,50 €", texte)
-        # Gebuehren ausschalten -> Durchschnitt ohne Gebuehren
-        at.toggle(key="dk_gebuehren").set_value(False).run()
-        self.assertIn(DK.kurs_text(Decimal(1510) / Decimal("15.5")), " ".join(x.value for x in at.markdown))
+        ids = self._ids(at)
+        self.assertEqual(len(ids), 3)                                   # drei leere Kaeufe zum Start
+        self.assertIn("— €", self._texte(at))
+        at.text_input(key=f"dk_r{ids[0]}_stueck").set_value("10").run()
+        at.text_input(key=f"dk_r{ids[0]}_wert").set_value("100").run()
+        at.text_input(key=f"dk_r{ids[1]}_stueck").set_value("5").run()
+        at.text_input(key=f"dk_r{ids[1]}_wert").set_value("90").run()
+        t = self._texte(at)
+        self.assertIn("96,66666667 €", t)
+        self.assertIn("1.450,00 €", t)
+        self.assertIn("2 Käufe", t)
+        # Gesamtwert je Kauf: Werte werden umgerechnet, Ergebnis bleibt gleich
+        at.radio(key="dk_modus").set_value("gesamt").run()
+        self.assertEqual(at.text_input(key=f"dk_r{ids[0]}_wert").value, "1.000,00")
+        self.assertIn("96,66666667 €", self._texte(at))
+        at.radio(key="dk_modus").set_value("kurs").run()
+        self.assertEqual(at.text_input(key=f"dk_r{ids[1]}_wert").value, "90,00")
+        # Gebuehren
         at.toggle(key="dk_gebuehren").set_value(True).run()
-        # Waehrung
-        at.selectbox(key="dk_waehrung").set_value("USD").run()
-        self.assertIn("97,58064516 $", " ".join(x.value for x in at.markdown))
-        # Nachkauf simulieren und uebernehmen
-        at.text_input(key="dk_nk_stueck").set_value("4,5").run()
-        at.text_input(key="dk_nk_kurs").set_value("80").run()
-        self.assertTrue(any("Neuer Durchschnittskurs" in x.value for x in at.markdown))
-        at.button(key="dk_nk_btn").click().run()
-        self.assertFalse(at.exception)
-        k = DK.laden(at.session_state["dk_daten"])
-        self.assertEqual((len(k), k[-1]["stueck"], k[-1]["notiz"]), (4, "4,5", "Nachkauf (simuliert)"))
-        self.assertEqual(k[-1]["gesamt"], "360,00")
-        # Zuruecksetzen
+        at.text_input(key=f"dk_r{ids[0]}_gebuehr").set_value("1,50").run()
+        t = self._texte(at)
+        self.assertIn(DK.kurs_text(Decimal("1451.5") / 15), t)
+        self.assertIn("Kaufgebühren 1,50 €", t)
+        # ungueltige Eingabe -> Hinweis, zaehlt nicht mit
+        at.text_input(key=f"dk_r{ids[2]}_stueck").set_value("5.000").run()
+        at.text_input(key=f"dk_r{ids[2]}_wert").set_value("1").run()
+        self.assertTrue(any("Kauf 3" in x.value and "mehrdeutig" in x.value for x in at.caption))
+        # hinzufuegen und loeschen
+        at.button(key="dk_add_btn").click().run()
+        self.assertEqual(len(self._ids(at)), 4)
+        at.button(key=f"dk_del_{ids[0]}_btn").click().run()
+        self.assertNotIn(ids[0], self._ids(at))
+        self.assertIn("1 Kauf", self._texte(at))
+        # zuruecksetzen
         at.button(key="dk_reset_btn").click().run()
         self.assertFalse(at.exception)
-        self.assertEqual(DK.laden(at.session_state["dk_daten"]), [])
-        self.assertTrue(any("zurückgesetzt" in x.value for x in at.success))
+        neu = self._ids(at)
+        self.assertEqual(len(neu), 3)
+        self.assertTrue(all(not at.text_input(key=f"dk_r{i}_stueck").value for i in neu))
+        self.assertIn("— €", self._texte(at))
 
-    def test_ungueltige_eingabe_warnt(self):
+    def test_uebernahme_der_tabellen_version(self):
         at = AppTest.from_function(_app, default_timeout=60)
-        at.session_state["dk_daten"] = DK.speichern([{"stueck": "1,2,3", "kurs": "10"}, {"stueck": "2", "kurs": "5"}])
+        at.session_state["dk_daten"] = DK.speichern(Berechnung.KAEUFE)
         at.run()
         self.assertFalse(at.exception)
-        self.assertTrue(any("Kauf 1" in x.value for x in at.warning))
-        self.assertIn("5,00 €", " ".join(x.value for x in at.markdown))
+        self.assertEqual(len(self._ids(at)), 3)
+        self.assertEqual(at.radio(key="dk_modus").value, "kurs")
+        # gemischte Altdaten: der als Gesamtwert erfasste Kauf wird in den Kurs je Stueck umgerechnet
+        self.assertEqual(at.text_input(key=f"dk_r{self._ids(at)[1]}_wert").value, "90,00")
+        self.assertTrue(at.toggle(key="dk_gebuehren").value is not None)
+        at.toggle(key="dk_gebuehren").set_value(True).run()
+        self.assertIn("97,58064516 €", self._texte(at))                 # gleiches Ergebnis wie vorher
+        self.assertNotIn("dk_daten", at.session_state)
 
 
 if __name__ == "__main__":
