@@ -1788,13 +1788,13 @@ def rechner_rueckgaengig(bereich):
     SL.gespeichert(st.session_state, "rechner_" + bereich, merken=False)
 
 
-def rechner_leiste(bereich):
-    """Statuszeile am Ende des Rechners (automatisches Speichern, Rueckgaengig)."""
+def rechner_leiste(bereich, kompakt=False):
+    """Statuszeile am Ende des Rechners (automatisches Speichern, Rueckgaengig). kompakt: eine schmale Zeile."""
     if GH_STATE_READY:
         SL.leiste(st, "rechner_" + bereich, rueck=lambda: rechner_rueckgaengig(bereich),
-                  hinweis="Eingaben werden automatisch gespeichert")
+                  hinweis=None if kompakt else "Eingaben werden automatisch gespeichert", kompakt=kompakt)
     else:
-        SL.leiste(st, "rechner_" + bereich, modus="sitzung")
+        SL.leiste(st, "rechner_" + bereich, modus="sitzung", kompakt=kompakt)
 
 
 # Eingaben ohne eigene Datei (Zukunfts-Prognose, Simulation): Streamlit loescht Widget-Werte,
@@ -2987,7 +2987,7 @@ def render_dashboard():
             durchschnittskurs_ui.seite({"suche_instrument": suche_instrument, "get_live_kurs": get_live_kurs,
                                         "get": requests.get})
             rechner_merken("durchschnittskurs")
-            rechner_leiste("durchschnittskurs")
+            rechner_leiste("durchschnittskurs", kompakt=True)
         except Exception as e:
             st.error(f"⚠️ Fehler im Durchschnittskurs-Rechner: {e}")
             notify_app_error("Tab-Durchschnittskurs", e)
