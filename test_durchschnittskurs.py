@@ -287,21 +287,20 @@ class Oberflaeche(unittest.TestCase):
         at.button(key="dk_vorschlag_btn").click().run()
         self.assertEqual(at.text_input(key="dk_suche").value, "DE000MM0SF40")
         t = self._texte(at)
-        self.assertIn("Lang & Schwarz: keine Treffer", t)              # beide Quellen geprueft
-        self.assertIn("onvista: 1 Treffer", t)
+        self.assertNotIn("Geprüft", t)                                  # aufgeraeumt: Quellenstatus nur bei Fehlschlag
+        self.assertNotIn("ISIN gültig", t)
         self.assertIn("Knock-out-Zertifikat", t)
-        self.assertIn("43,42 €", t)                                    # Geld zuerst
+        self.assertIn("43,42 €", t)                                    # Geld als Hauptkurs
         at.button(key="dk_uebernehmen_0_btn").click().run()
         self.assertEqual(at.text_input(key="dk_aktuell").value, "43,42")
         self.assertIn("+34,20 €", self._texte(at))                       # 10 x 43,42 - 400
         # Wert bei L&S und onvista: L&S-Live-Kurs und Boersenkurse, USD nicht uebernehmbar
         at.text_input(key="dk_suche").set_value("US0378331005").run()
         t = self._texte(at)
-        self.assertIn("Lang & Schwarz: 1 Treffer", t)
-        self.assertIn("317,40 €", t)
-        self.assertIn("347,78 USD", t)
-        usd = next(b for b in at.button if b.key and b.key.startswith("dk_uebernehmen_") and b.disabled)
-        self.assertTrue(usd.disabled)
+        self.assertIn("317,50 €", t)                                    # L&S-Live-Kurs als Hauptkurs
+        self.assertIn("317,40 €", t)                                    # weitere Kurse (Euro)
+        self.assertNotIn("USD", t)                                      # Fremdwaehrung nicht angeboten
+        self.assertTrue(any(e.label.startswith("Weitere Kurse") for e in at.expander))
         n = len(at.session_state["abrufe"])
         at.run()
         self.assertEqual(len(at.session_state["abrufe"]), n)              # zwischengespeichert, kein Neuabruf
@@ -309,7 +308,7 @@ class Oberflaeche(unittest.TestCase):
         self.assertGreater(len(at.session_state["abrufe"]), n)
         # nichts gefunden
         at.text_input(key="dk_suche").set_value("ZZZZZZ1").run()
-        self.assertTrue(any("In keiner Quelle gefunden" in x.value for x in at.caption))
+        self.assertTrue(any("Nichts gefunden" in x.value and "Lang & Schwarz" in x.value for x in at.caption))
         self.assertFalse(at.exception)
 
     def test_beispiel_nachkaeufe(self):

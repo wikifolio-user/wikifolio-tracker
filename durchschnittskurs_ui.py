@@ -50,6 +50,10 @@ CSS = """<style>
     margin-right:6px; }
 .dk-tmeta { color:#A9ACB0; font-size:.8rem; display:block; line-height:1.3; }
 .dk-tkurs { display:block; }
+.dk-hmeta { padding-bottom:.6rem; }
+.dk-pname { font-weight:700; color:#E8ECF6; font-size:.95rem; line-height:1.3; }
+.dk-hkurs { font-size:2rem; font-weight:800; color:#ffffff; font-variant-numeric:tabular-nums; margin-top:6px;
+    line-height:1.15; }
 .dk-fuss { text-align:center; color:#A9ACB0; font-size:.8rem; margin-top:4px; }
 @media (max-width: 640px) { .dk-ergebnis .dk-wert { font-size:2.1rem; } .dk-kachel .w { font-size:1.2rem; } }
 </style>"""
@@ -229,8 +233,21 @@ def _status_text(status):
     return " · ".join(f"{'✅' if ok else '❌'} {q}: {t}" for q, ok, t in status)
 
 
+def _kurs_zeile(x):
+    """-> (kurs_text fuer das Feld, Anzeige gross, Zeile mit Art/Boerse/Zeit/Veraenderung)"""
+    import kursquellen as KQ
+    from decimal import Decimal
+    text = DK.de(Decimal(str(x["kurs"])), 4, 2)
+    euro = x["waehrung"] == "EUR"
+    teile = [x["art"], x["boerse"], KQ.alter_text(x["zeit"]).replace("aktuell (", "").replace(")", "")]
+    if x.get("vortag"):
+        pct = (x["kurs"] / x["vortag"] - 1) * 100
+        teile.append(f"{'+' if pct > 0 else ''}{DK.de(Decimal(str(round(pct, 4))), 2)} % heute")
+    return text, f"{text} {'€' if euro else x['waehrung']}", " · ".join(t for t in teile if t)
+
+
 def _wkn_abruf(h):
-    """WKN, ISIN oder Name pruefen, in mehreren Quellen suchen, Kurse zeigen und per Klick uebernehmen."""
+    """WKN, ISIN oder Name pruefen, in mehreren Quellen suchen, besten Kurs zeigen und per Klick uebernehmen."""
     import kursquellen as KQ
     ss = st.session_state
     if not (h and (h.get("suche_instrument") or h.get("get"))):
@@ -238,60 +255,63 @@ def _wkn_abruf(h):
     begriff = st.text_input("Kurs abrufen: WKN, ISIN oder Name", key=P + "suche", max_chars=60,
                             placeholder="z. B. A0RPWH, DE000MM0SF40 oder Apple")
     pruefung = KQ.eingabe_pruefen(begriff)
-    for t in pruefung["hinweise"]:
-        st.caption(("⚠️ " if "nicht" in t or "Meintest" in t else "✓ ") + t)
+    if pruefung["vorschlag"] or (pruefung["art"] == "isin" and not KQ.isin_gueltig(pruefung["wert"])):
+        st.caption("⚠️ " + " ".join(pruefung["hinweise"]))
     if pruefung["vorschlag"]:
         st.button(f"Stattdessen {pruefung['vorschlag']} suchen", key=P + "vorschlag_btn",
                   on_click=_vorschlag_nehmen, args=(pruefung["vorschlag"],))
     if pruefung["art"] == "leer":
         return
     if (ss.get(P + "kq") or {}).get("begriff") != pruefung["wert"]:
-        with st.spinner("Suche bei Lang & Schwarz und onvista …"):
+        with st.spinner("Suche Kurs …"):
             ss[P + "kq"] = dict(_suchen(h, pruefung), begriff=pruefung["wert"])
         ss.pop(P + "wahl", None)
     kq = ss[P + "kq"]
-    st.caption("Geprüft: " + _status_text(kq["status"]))
     kand = kq["kandidaten"]
     if not kand:
-        st.caption("⚠️ In keiner Quelle gefunden. Prüfe die Schreibweise (WKN 6 Zeichen, ISIN 12 Zeichen) oder trage "
-                   "den Kurs unten von Hand ein.")
+        st.caption("⚠️ Nichts gefunden (" + _status_text(kq["status"]) + "). Schreibweise prüfen oder den Kurs "
+                   "unten von Hand eintragen.")
         return
     i = 0
     if len(kand) > 1:
-        i = st.selectbox("Treffer", range(len(kand)), key=P + "wahl", format_func=lambda j: (
+        i = st.selectbox("Welches Wertpapier?", range(len(kand)), key=P + "wahl", format_func=lambda j: (
             f"{kand[j]['name'] or '–'} · {kand[j]['wkn'] or kand[j]['isin']}"
             + (f" · {KQ.typ_text(kand[j]['typ'])}" if kand[j]['typ'] else ""))) or 0
     k = kand[i]
     kurse, status = _kurse(h, k)
-    st.markdown(f'<div class="dk-treffer"><b>{_e(k["name"])}</b> · WKN {_e(k["wkn"] or "–")} · ISIN '
-                f'{_e(k["isin"] or "–")}' + (f'<br><span class="dk-tmeta">{_e(KQ.typ_text(k["typ"]))}</span>' if k["typ"] else "")
-                + "</div>", unsafe_allow_html=True)
-    if not kurse:
-        st.caption("⚠️ Kein Kurs gefunden (" + _status_text(status) + "). Bitte unten von Hand eintragen.")
-    from decimal import Decimal
-    for n, x in enumerate(kurse[:4]):
-        text = DK.de(Decimal(str(x["kurs"])), 4, 2)
-        veraend = ""
-        if x.get("vortag"):
-            pct = (x["kurs"] / x["vortag"] - 1) * 100
-            veraend = f" · {'+' if pct > 0 else ''}{DK.de(Decimal(str(round(pct, 4))), 2)} % zum Vortag"
-        euro = x["waehrung"] == "EUR"
-        with st.container(horizontal=True, wrap=False, key=P + f"kurs_{n}", vertical_alignment="center",
-                          gap="small"):
-            st.markdown(f'<span class="dk-tkurs">{_e(text)} {_e("€" if euro else x["waehrung"])}</span>'
-                        f'<span class="dk-tmeta">{_e(x["art"])} · {_e(x["boerse"])} · {_e(KQ.alter_text(x["zeit"]))}'
-                        f'{_e(veraend)}</span>', unsafe_allow_html=True, width="stretch")
-            st.button("", icon=":material/download:", key=P + f"uebernehmen_{n}_btn",
-                      type="primary" if n == 0 else "secondary", disabled=not euro,
-                      help="Als aktuellen Kurs übernehmen" if euro else
-                      "Nur Euro-Kurse – bitte eine Börse mit Euro-Kurs wählen.",
-                      on_click=_kurs_uebernehmen, args=(text,))
-    if kurse:
-        st.caption("⬇ übernimmt den Kurs. Zertifikate: „Geld“ ist der Kurs, zu dem der Emittent zurückkauft – der realistische Wert beim "
-                   "Verkauf. Fremdwährungskurse lassen sich nicht übernehmen.")
-    if st.button("Neu abrufen", icon=":material/refresh:", key=P + "neu_btn", type="tertiary"):
-        _kurse(h, k, neu=True)
-        st.rerun()
+    euro_kurse = [x for x in kurse if x["waehrung"] == "EUR"]
+    with st.container(border=True, key=P + "kursbox"):
+        st.markdown(f'<div class="dk-pname">{_e(k["name"])}</div><div class="dk-tmeta">'
+                    + " · ".join(_e(t) for t in (KQ.typ_text(k["typ"]) if k["typ"] else "",
+                                                  f"WKN {k['wkn']}" if k["wkn"] else "") if t)
+                    + "</div>", unsafe_allow_html=True)
+        if euro_kurse:
+            text, gross, zeile = _kurs_zeile(euro_kurse[0])
+            st.markdown(f'<div class="dk-hkurs">{_e(gross)}</div><div class="dk-tmeta dk-hmeta">{_e(zeile)}</div>',
+                        unsafe_allow_html=True)
+        else:
+            text = None
+            st.caption("⚠️ Kein Euro-Kurs gefunden" + (" (nur Fremdwährung)." if kurse else
+                                                       f" ({_status_text(status)})."))
+        with st.container(horizontal=True, key=P + "kursknoepfe", gap="small"):
+            st.button("Übernehmen", icon=":material/check:", key=P + "uebernehmen_0_btn", type="primary",
+                      width="stretch", disabled=text is None, on_click=_kurs_uebernehmen, args=(text,))
+            if st.button("Kurs aktualisieren", icon=":material/refresh:", key=P + "neu_btn", width="stretch"):
+                _kurse(h, k, neu=True)
+                st.rerun()
+        weitere = [x for x in euro_kurse[1:4]]
+        if weitere:
+            with st.expander(f"Weitere Kurse ({len(weitere)})"):
+                for n, x in enumerate(weitere, 1):
+                    t, g, z = _kurs_zeile(x)
+                    with st.container(horizontal=True, wrap=False, key=P + f"kurs_{n}", vertical_alignment="center",
+                                      gap="small"):
+                        st.markdown(f'<b>{_e(g)}</b><div class="dk-tmeta">{_e(z)}</div>', unsafe_allow_html=True,
+                                    width="stretch")
+                        st.button("Übernehmen", key=P + f"uebernehmen_{n}_btn", type="tertiary",
+                                  on_click=_kurs_uebernehmen, args=(t,))
+                if any(x["art"] in ("Geld", "Brief") for x in euro_kurse):
+                    st.caption("„Geld“ = Rückkaufkurs des Emittenten, der Wert beim Verkauf.")
 
 
 def _gewinn(ss, erg, h=None):
