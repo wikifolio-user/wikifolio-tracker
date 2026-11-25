@@ -1384,9 +1384,11 @@ ANSICHT_FG = "🌡️ Fear & Greed"           # fear_greed_ui.py - Marktstimmung
 ANSICHT_GAP = "🕳️ Gap Analyzer"          # gap_analyzer_ui.py - Kursluecken der vier Indizes, fuer alle
 ANSICHT_PYR = "🔺 Pyramiden"             # pyramide_ui.py - Pyramidenmanager, fuer alle (Daten je Benutzer)
 ANSICHT_YT = "🎬 Faceless YouTube"       # youtube_ui.py - Faceless YouTube Automation, nur Admin
+ANSICHT_DK = "🧮 Durchschnittskurs-Rechner"   # durchschnittskurs_ui.py - gewichteter Einkaufskurs, fuer alle
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
-ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ}
+ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ,
+                 "durchschnittskurs": ANSICHT_DK}
 PFAD_MUSTERDEPOT = "state/musterdepot.json"
 ANSICHTEN = [
     ANSICHT_DEPOT,
@@ -1422,6 +1424,7 @@ ANSICHTEN = [
     ANSICHT_GAP,                # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_PYR,                # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_YT,                 # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_DK,                 # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1457,6 +1460,7 @@ ANSICHT_KURZ = {
     ANSICHT_GAP: "🕳️ Gaps",
     ANSICHT_PYR: "🔺 Pyramiden",
     ANSICHT_YT: "🎬 YouTube",
+    ANSICHT_DK: "🧮 Ø-Kurs",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1492,6 +1496,7 @@ NAV_NAMEN = {
     ANSICHT_GAP: "🕳️ Gap Analyzer",
     ANSICHT_PYR: "🔺 Pyramidenmanager",
     ANSICHT_YT: "🎬 Faceless YouTube Automation",
+    ANSICHT_DK: "🧮 Durchschnittskurs-Rechner",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1521,7 +1526,7 @@ NAV_ZEILEN = [
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
     ("Märkte", [ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR]),             # Marktstimmung und Index-Werkzeuge
     ("Geschäftsideen", [ANSICHT_EKS, ANSICHT_YT]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
-    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO, ANSICHT_ETP]),
+    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO, ANSICHT_ETP, ANSICHT_DK]),
     ("Gesundheit", [ANSICHT_GESUNDHEIT]),
     ("Hilfe", [ANSICHT_GLOSSAR]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
@@ -1530,7 +1535,8 @@ NAV_ZEILEN = [
 LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUILDER, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, "🏆 Watchlist Top 50", ANSICHT_MUSTER, ANSICHT_ABFINDUNG, ANSICHT_ZINS,
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
-                     ANSICHT_GESUNDHEIT, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT}
+                     ANSICHT_GESUNDHEIT, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT,
+                     ANSICHT_DK}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1539,7 +1545,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
               ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT,
-              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT}
+              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT, ANSICHT_DK}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1689,6 +1695,8 @@ RECHNER_EINGABEN = {
                                        r"|meldung|bt_von_d|bt_bis_d)$")),
     # Fear & Greed Monitor: Auswahl, Warnregeln und gesehene Warnungen merken; Knoepfe/Sitzungswerte nicht
     "fear_greed": ("fg_", re.compile(r"_btn$|_editor$|_chart$|^fg_(frisch|meldung|refresh_zeit|stand_gesehen)$")),
+    # Durchschnittskurs-Rechner: Kaeufe (als JSON-Text), Name, Waehrung, Gebuehren, Nachkauf-Felder; Tabelle/Knoepfe nicht
+    "durchschnittskurs": ("dk_", re.compile(r"^dk_tab_|^dk_ver$|_btn$|^dk_meldung$")),
     # Gap Analyzer: Definition, Zeitraum, Filter, Alerts und gesehene Meldungen merken
     "gap_analyzer": ("gap_", re.compile(r"_btn$|^gap_tab_|^gap_csv|^gap_xlsx|^gap_chart$|_weg$|^gap_reihe_|_tab$")),
 }
@@ -1964,7 +1972,7 @@ def _sichtbar(ansicht):
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
     # Erklaerungen, Rechner und Marktdaten ohne eigene Daten - fuer alle
-    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP):
+    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_DK):
         return True
     if ansicht == ANSICHT_PYR:           # Pyramiden: jeder Benutzer in seinem eigenen Datenbereich
         return True
@@ -2970,6 +2978,18 @@ def render_dashboard():
 
     if gewaehlte_ansicht == ANSICHT_GLOSSAR:
         glossar_ui.seite(st)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_DK:
+        try:
+            import durchschnittskurs_ui
+            rechner_vorbelegen("durchschnittskurs")
+            durchschnittskurs_ui.seite()
+            rechner_merken("durchschnittskurs")
+            rechner_leiste("durchschnittskurs")
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Durchschnittskurs-Rechner: {e}")
+            notify_app_error("Tab-Durchschnittskurs", e)
         lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_ETP:
