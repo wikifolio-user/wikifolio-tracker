@@ -40,6 +40,10 @@ CSS = """<style>
 .dk-kachel .t { color:#A9ACB0; font-size:.85rem; }
 .dk-kachel .w { color:#ffffff; font-size:1.45rem; font-weight:700; font-variant-numeric:tabular-nums;
     word-break:break-all; }
+.dk-raster3 { grid-template-columns:repeat(3, minmax(0,1fr)); }
+.dk-kachel .w.dk-pos { color:#4ADE80; } .dk-kachel .w.dk-neg { color:#F87171; }
+@media (max-width: 640px) { .dk-raster3 { grid-template-columns:repeat(2, minmax(0,1fr)); }
+    .dk-raster3 .dk-kachel:first-child { grid-column:1 / -1; } }
 .dk-fuss { text-align:center; color:#A9ACB0; font-size:.8rem; margin-top:4px; }
 @media (max-width: 640px) { .dk-ergebnis .dk-wert { font-size:2.1rem; } .dk-kachel .w { font-size:1.2rem; } }
 </style>"""
@@ -138,10 +142,37 @@ def _hinzufuegen():
 
 def _zuruecksetzen():
     ss = st.session_state
+    ss.pop(P + "aktuell", None)
     for i in _ids(ss):
         for f in ("stueck", "wert", "gebuehr"):
             ss.pop(_k(i, f), None)
     _setze_ids(ss, [_neue_id() for _ in range(START_ZEILEN)])
+
+
+def _gewinn(ss, erg):
+    """Aktueller Kurs -> aktueller Wert, Gewinn/Verlust in Euro und Prozent."""
+    st.divider()
+    kurs = st.text_input("Aktueller Kurs (€)", key=P + "aktuell", placeholder="0,00", max_chars=30,
+                         help="Kurs je Stück heute – daraus ergeben sich Wert und Gewinn bzw. Verlust.")
+    if not (kurs or "").strip():
+        return
+    if not erg["anzahl"]:
+        st.caption("Zuerst mindestens einen Kauf eintragen.")
+        return
+    try:
+        g = DK.gewinn(erg, kurs)
+    except DK.EingabeFehler as ex:
+        st.caption(f"⚠️ {ex}")
+        return
+    css = "dk-pos" if g["gewinn"] > 0 else "dk-neg" if g["gewinn"] < 0 else ""
+    vz = "+" if g["gewinn"] > 0 else ""
+    st.markdown(f'<div class="dk-raster dk-raster3"><div class="dk-kachel"><div class="t">Aktueller Wert</div>'
+                f'<div class="w">{_e(DK.geld(g["wert"]))}</div></div>'
+                f'<div class="dk-kachel"><div class="t">{"Gewinn" if g["gewinn"] >= 0 else "Verlust"}</div>'
+                f'<div class="w {css}">{vz}{_e(DK.geld(g["gewinn"]))}</div></div>'
+                f'<div class="dk-kachel"><div class="t">in Prozent</div>'
+                f'<div class="w {css}">{vz}{_e(DK.de(g["prozent"], 2))} %</div></div></div>',
+                unsafe_allow_html=True)
 
 
 def seite():
@@ -182,7 +213,7 @@ def seite():
         for nr, text in erg["fehler"]:
             st.caption(f"⚠️ Kauf {nr}: {text}")
         st.divider()
-        wert = DK.kurs_text(erg["durchschnitt"]) if erg["durchschnitt"] is not None else "— €"
+        wert = DK.anzeige_kurs(erg["durchschnitt"]) if erg["durchschnitt"] is not None else "— €"
         st.markdown(f'<div class="dk-ergebnis"><div class="dk-label">Dein Durchschnittskurs pro Stück</div>'
                     f'<div class="dk-wert">{_e(wert)}</div></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="dk-raster"><div class="dk-kachel"><div class="t">Gesamtstückzahl</div>'
@@ -191,8 +222,9 @@ def seite():
                     f'<div class="w">{_e(DK.geld(erg["investition"]))}</div></div></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="dk-fuss">{erg["anzahl"]} {"Kauf" if erg["anzahl"] == 1 else "Käufe"}'
                     + (f' · Kaufgebühren {_e(DK.geld(erg["gebuehren"]))}' if gebuehren else "")
-                    + (f' · ohne Gebühren {_e(DK.kurs_text(erg["durchschnitt_ohne"]))}'
+                    + (f' · ohne Gebühren {_e(DK.anzeige_kurs(erg["durchschnitt_ohne"]))}'
                        if gebuehren and erg["gebuehren"] else "") + "</div>", unsafe_allow_html=True)
+        _gewinn(ss, erg)
         with st.container(horizontal=True, horizontal_alignment="center", key=P + "fusszeile"):
             st.button("Zurücksetzen", icon=":material/refresh:", key=P + "reset_btn", type="tertiary",
                       on_click=_zuruecksetzen)
