@@ -1,40 +1,47 @@
-"""Durchschnittskurs-Rechner (Menuepunkt „Durchschnittskurs-Rechner“) - Oberflaeche. Rechnungen: durchschnittskurs.py.
+"""Durchschnittskurs-Rechner (Menuepunkt „Durchschnittskurs-Rechner“) - einfache Eingabemaske. Rechnungen:
+durchschnittskurs.py.
 
-Kaeufe in einer Tabelle hinzufuegen, bearbeiten und loeschen; je Kauf Stueckzahl und entweder Kurs je Stueck oder
-Gesamtwert (der andere Wert wird berechnet), optional Kaufgebuehren. Jede Aenderung rechnet sofort neu.
-Gespeichert wird nur in den Rechner-Eingaben des Benutzers (wie bei den anderen Rechnern) - das Depot wird weder
-gelesen noch veraendert. Alle Werte liegen im Sitzungszustand unter dem Praefix "dk_"."""
+Oben die Wahl „Kurs pro Stück“ oder „Gesamtwert je Kauf“, darunter nummerierte Kaeufe (Stueckzahl + Kurs bzw.
+Gesamtwert, optional Gebuehr) mit Papierkorb und „Weiteren Kauf hinzufügen“. Jede Eingabe rechnet sofort neu.
+Gespeichert wird nur in den Rechner-Eingaben des Benutzers (Praefix "dk_", wie bei den anderen Rechnern) - das
+Depot wird weder gelesen noch veraendert.
+
+Sitzungszustand: dk_ids (JSON-Liste der Zeilen-IDs), dk_modus ("kurs"/"gesamt"), dk_gebuehren (bool),
+je Zeile dk_r<id>_stueck, dk_r<id>_wert, dk_r<id>_gebuehr (Texte)."""
 import html
+import json
+import uuid
 
 import streamlit as st
 
 import durchschnittskurs as DK
-import ui_stil as UI
 
 P = "dk_"
-SPALTEN = {"stueck": "Stückzahl", "art": "Eingabe", "kurs": "Kurs je Stück", "gesamt": "Gesamtwert",
-           "gebuehr": "Gebühr", "notiz": "Notiz"}
-ART_TEXT = {"kurs": "Kurs je Stück", "gesamt": "Gesamtwert"}
-TEXT_ART = {v: k for k, v in ART_TEXT.items()}
+START_ZEILEN = 3
+MAX_ZEILEN = 100
+MODI = {"kurs": "Kurs pro Stück", "gesamt": "Gesamtwert je Kauf"}
 
 CSS = """<style>
-.dk-kopf { display:flex; gap:12px; align-items:center; margin:2px 0 10px; }
-.dk-kopf .dk-sym { font-size:1.35rem; width:38px; height:38px; border-radius:10px; background:#252628;
-    display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
-.dk-kopf b { font-size:1.05rem; color:#ffffff; } .dk-kopf div div { font-size:.8rem; color:#A9ACB0; }
-.dk-karte { border:1px solid rgba(124,156,255,.45); border-radius:16px; padding:14px 16px; margin:8px 0 10px;
-    background:rgba(124,156,255,.06); }
-.dk-karte .dk-titel { font-size:.75rem; letter-spacing:.5px; text-transform:uppercase; color:#A9ACB0; }
-.dk-karte .dk-gross { font-size:2.4rem; font-weight:800; line-height:1.15; color:#ffffff;
+.dk-titel { font-size:1.55rem; font-weight:800; color:#ffffff; margin:0 0 4px; }
+.dk-kopf { display:flex; gap:10px; font-size:.82rem; color:#A9ACB0; padding:0 2px; }
+.dk-nr { color:#A9ACB0; font-size:1.05rem; min-width:1.7rem; }
+.dk-nr-kopf { font-size:.8rem; }
+.dk-spalte { color:#E8ECF6; font-weight:700; font-size:.92rem; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; }
+@media (max-width: 480px) { .dk-spalte { font-size:.78rem; } }
+.st-key-dk_kopfzeile { min-height:1.9rem; margin-bottom:.15rem; overflow:visible; }
+.st-key-dk_kopfzeile .dk-spalte, .st-key-dk_kopfzeile .dk-nr { line-height:1.6rem; }
+.dk-ergebnis { text-align:center; margin:14px 0 6px; }
+.dk-ergebnis .dk-label { color:#A9ACB0; font-size:.95rem; }
+.dk-ergebnis .dk-wert { color:#4ADE80; font-size:2.6rem; font-weight:800; line-height:1.2;
     font-variant-numeric:tabular-nums; word-break:break-all; }
-.dk-karte .dk-unter { font-size:.85rem; color:#C9CED6; margin:2px 0 10px; }
-.dk-raster { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:8px 14px; }
-.dk-raster div { font-size:.75rem; color:#A9ACB0; min-width:0; }
-.dk-raster b { display:block; font-size:1rem; color:#ffffff; font-variant-numeric:tabular-nums; word-break:break-all; }
-@media (max-width: 1000px) { .dk-raster { grid-template-columns:repeat(3, minmax(0,1fr)); } }
-@media (max-width: 640px) { .dk-raster { grid-template-columns:repeat(2, minmax(0,1fr)); }
-    .dk-karte .dk-gross { font-size:1.8rem; } }
-.dk-leer { color:#A9ACB0; font-size:.9rem; }
+.dk-raster { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; margin:10px 0 4px; }
+.dk-kachel { background:rgba(255,255,255,.04); border-radius:14px; padding:12px 14px; min-width:0; }
+.dk-kachel .t { color:#A9ACB0; font-size:.85rem; }
+.dk-kachel .w { color:#ffffff; font-size:1.45rem; font-weight:700; font-variant-numeric:tabular-nums;
+    word-break:break-all; }
+.dk-fuss { text-align:center; color:#A9ACB0; font-size:.8rem; margin-top:4px; }
+@media (max-width: 640px) { .dk-ergebnis .dk-wert { font-size:2.1rem; } .dk-kachel .w { font-size:1.2rem; } }
 </style>"""
 
 
@@ -42,165 +49,153 @@ def _e(t):
     return html.escape(str(t if t is not None else ""))
 
 
-def _zeilen(ss):
-    k = DK.laden(ss.get(P + "daten"))
-    return k or [{"stueck": "", "art": "kurs", "kurs": "", "gesamt": "", "gebuehr": "", "notiz": ""}]
+def _k(i, feld):
+    return f"{P}r{i}_{feld}"
 
 
-def _abgeleitet(k):
-    """Den nicht eingegebenen Wert (Gesamtwert bzw. Kurs) aus den gueltigen Eingaben fuellen."""
-    k = dict(k)
+def _neue_id():
+    return uuid.uuid4().hex[:6]
+
+
+def _ids(ss):
+    """Zeilen-IDs; beim ersten Aufruf aus einer gespeicherten Tabelle der frueheren Version uebernehmen."""
     try:
-        z = DK.kauf_pruefen(k)
-    except DK.EingabeFehler:
-        return k
-    if z["art"] == "kurs":
-        k["gesamt"] = DK.de(z["kaufwert"], DK.NACHKOMMA, 2)
-    else:
-        k["kurs"] = DK.de(z["kurs"], DK.NACHKOMMA, 2)
-    return k
+        ids = json.loads(ss.get(P + "ids") or "null")
+    except (TypeError, ValueError):
+        ids = None
+    if isinstance(ids, list) and all(isinstance(x, str) for x in ids):
+        return ids
+    alt = DK.laden(ss.get(P + "daten"))            # Uebernahme aus der Tabellen-Version
+    ids = []
+    if alt:
+        modus = "gesamt" if all(k.get("art") == "gesamt" for k in alt if not DK.leer(k)) else "kurs"
+        ss[P + "modus"] = modus
+        if any(str(k.get("gebuehr") or "").strip() for k in alt):
+            ss[P + "gebuehren"] = True
+        for k in alt:
+            if DK.leer(k):
+                continue
+            i = _neue_id()
+            ids.append(i)
+            wert = k.get("gesamt") if modus == "gesamt" else k.get("kurs")
+            try:                                     # gemischte Eingabearten: in die gewaehlte umrechnen
+                z = DK.kauf_pruefen(k)
+                wert = DK.de(z["kaufwert"] if modus == "gesamt" else z["kurs"], DK.NACHKOMMA, 2)
+            except DK.EingabeFehler:
+                pass
+            ss[_k(i, "stueck")], ss[_k(i, "wert")], ss[_k(i, "gebuehr")] = k.get("stueck", ""), wert or "", \
+                k.get("gebuehr", "")
+    while len(ids) < START_ZEILEN:
+        ids.append(_neue_id())
+    ss[P + "ids"] = json.dumps(ids)
+    ss.pop(P + "daten", None)
+    return ids
 
 
-def _aus_tabelle(df, vorher):
-    """Bearbeitete Tabelle -> Kaeufe. Welche Groesse eingegeben wurde, ergibt sich aus der Spalte „Eingabe“ -
-    oder automatisch, wenn nur Kurs bzw. nur Gesamtwert geaendert wurde."""
+def _setze_ids(ss, ids):
+    ss[P + "ids"] = json.dumps(ids)
+
+
+def kaeufe(ss, ids=None):
+    """Eingaben -> Kaeufe im Format von durchschnittskurs.berechnen."""
+    modus = ss.get(P + "modus", "kurs")
     aus = []
-    for i, (_, z) in enumerate(df.iterrows()):
-        k = {f: ("" if z.get(SPALTEN[f]) is None or str(z.get(SPALTEN[f])) in ("nan", "None")
-                 else str(z.get(SPALTEN[f])).strip()) for f in SPALTEN if f != "art"}
-        art = TEXT_ART.get(str(z.get(SPALTEN["art"]) or ""), "kurs")
-        alt = vorher[i] if i < len(vorher) else None
-        if alt and art == alt.get("art"):
-            if k["gesamt"] != alt.get("gesamt", "") and k["kurs"] == alt.get("kurs", ""):
-                art = "gesamt"
-            elif k["kurs"] != alt.get("kurs", "") and k["gesamt"] == alt.get("gesamt", ""):
-                art = "kurs"
-        elif not alt and k["gesamt"] and not k["kurs"]:
-            art = "gesamt"
-        k["art"] = art
-        aus.append(k)
+    for i in ids if ids is not None else _ids(ss):
+        wert = str(ss.get(_k(i, "wert")) or "")
+        aus.append({"stueck": str(ss.get(_k(i, "stueck")) or ""), "art": modus,
+                    "kurs": wert if modus == "kurs" else "", "gesamt": wert if modus == "gesamt" else "",
+                    "gebuehr": str(ss.get(_k(i, "gebuehr")) or "")})
     return aus
 
 
-def _tabelle(ss, kaeufe, mit_gebuehren, waehrung):
-    import pandas as pd
-    erg = DK.berechnen(kaeufe, mit_gebuehren)
-    zeilen = []
-    for k, z in zip(kaeufe, erg["zeilen"]):
-        status = "" if z is None else ("⚠️ " + z["fehler"] if "fehler" in z else
-                                       "✅ " + DK.geld(z["summe"], waehrung))
-        zeilen.append({SPALTEN["stueck"]: k["stueck"], SPALTEN["art"]: ART_TEXT[k["art"]], SPALTEN["kurs"]: k["kurs"],
-                       SPALTEN["gesamt"]: k["gesamt"], SPALTEN["gebuehr"]: k["gebuehr"], SPALTEN["notiz"]: k["notiz"],
-                       "Summe inkl. Gebühr": status})
-    df = pd.DataFrame(zeilen, columns=list(SPALTEN.values()) + ["Summe inkl. Gebühr"])
-    z = DK.WAEHRUNGEN.get(waehrung, waehrung)
-    cfg = {SPALTEN["stueck"]: st.column_config.TextColumn("Stückzahl", help="Auch Bruchstücke, z. B. 0,25 oder "
-                                                          "0,00012345 (bis 8 Nachkommastellen)", width="small"),
-           SPALTEN["art"]: st.column_config.SelectboxColumn("Eingabe", options=list(ART_TEXT.values()), required=True,
-                                                             default=ART_TEXT["kurs"],
-                                                             help="Was du eingibst – der andere Wert wird berechnet."),
-           SPALTEN["kurs"]: st.column_config.TextColumn(f"Kurs je Stück ({z})", width="small"),
-           SPALTEN["gesamt"]: st.column_config.TextColumn(f"Gesamtwert ({z})", width="small",
-                                                          help="Kaufwert ohne Gebühr"),
-           SPALTEN["gebuehr"]: st.column_config.TextColumn(f"Gebühr ({z})", width="small") if mit_gebuehren else None,
-           SPALTEN["notiz"]: st.column_config.TextColumn("Notiz", help="z. B. Datum oder Börse (optional)",
-                                                         max_chars=80),
-           "Summe inkl. Gebühr": st.column_config.TextColumn("Summe / Prüfung", disabled=True)}
-    return st.data_editor(df, key=P + f"tab_{ss.get(P + 'ver', 0)}", num_rows="dynamic", hide_index=True,
-                          width="stretch", column_config=cfg)
-
-
-def _karte(erg, waehrung, mit_gebuehren, name):
-    if not erg["anzahl"]:
-        st.markdown('<div class="dk-karte"><div class="dk-titel">Gewichteter Durchschnittskurs</div>'
-                    '<div class="dk-leer">Noch kein gültiger Kauf – Stückzahl und Kurs (oder Gesamtwert) eintragen.'
-                    '</div></div>', unsafe_allow_html=True)
-        return
-    felder = [("Gesamtstückzahl", DK.stueck_text(erg["stueck"])),
-              ("Gesamtinvestition", DK.geld(erg["investition"], waehrung)),
-              ("Kaufgebühren gesamt", DK.geld(erg["gebuehren"], waehrung) if mit_gebuehren else "nicht berücksichtigt"),
-              ("Anzahl der Käufe", str(erg["anzahl"])),
-              ("Ø ohne Gebühren", DK.kurs_text(erg["durchschnitt_ohne"], waehrung))]
-    st.markdown(
-        f'<div class="dk-karte"><div class="dk-titel">Gewichteter Durchschnittskurs'
-        f'{" · " + _e(name) if name else ""}</div>'
-        f'<div class="dk-gross">{_e(DK.kurs_text(erg["durchschnitt"], waehrung))}</div>'
-        f'<div class="dk-unter">je Stück{" inklusive Kaufgebühren" if mit_gebuehren else ""} · Kaufwert ohne Gebühren '
-        f'{_e(DK.geld(erg["kaufwert"], waehrung))}</div><div class="dk-raster">'
-        + "".join(f"<div>{_e(t)}<b>{_e(w)}</b></div>" for t, w in felder) + "</div></div>",
-        unsafe_allow_html=True)
-
-
-def _nachkauf(ss, erg, waehrung, mit_gebuehren):
-    with st.expander("🔮 Nachkauf simulieren (ohne ihn in die Tabelle zu übernehmen)"):
-        sp = st.columns(3) if not UI.ist_smartphone() else [st.container() for _ in range(3)]
-        s = sp[0].text_input("Stückzahl", key=P + "nk_stueck", placeholder="z. B. 10")
-        k = sp[1].text_input("Kurs je Stück", key=P + "nk_kurs", placeholder="z. B. 95,50")
-        g = sp[2].text_input("Gebühr", key=P + "nk_gebuehr", placeholder="0", disabled=not mit_gebuehren)
-        if not (s or "").strip() or not (k or "").strip():
-            st.caption("Stückzahl und Kurs eingeben – der neue Durchschnittskurs erscheint sofort.")
-            return
+def _modus_gewechselt():
+    """Beim Umschalten die zweite Spalte umrechnen (Kurs <-> Gesamtwert), damit die Rechnung gleich bleibt."""
+    ss = st.session_state
+    neu = ss.get(P + "modus", "kurs")
+    for i in _ids(ss):
         try:
-            r = DK.nachkauf(erg, s, k, g if mit_gebuehren else "")
-        except DK.EingabeFehler as ex:
-            st.warning(str(ex))
-            return
-        alt = erg["durchschnitt"]
-        diff = "" if alt is None else f" ({'−' if r['durchschnitt'] < alt else '+'}" \
-            f"{DK.de(abs((r['durchschnitt'] / alt - 1) * 100), 2)} %)"
-        st.markdown(f"Neuer Durchschnittskurs: **{_e(DK.kurs_text(r['durchschnitt'], waehrung))}**{diff} · "
-                    f"Stückzahl {_e(DK.stueck_text(r['stueck']))} · Investition "
-                    f"{_e(DK.geld(r['investition'], waehrung))}")
-        if st.button("In die Tabelle übernehmen", key=P + "nk_btn"):
-            kaeufe = [x for x in _zeilen(ss) if not DK.leer(x)]
-            kaeufe.append({"stueck": s.strip(), "art": "kurs", "kurs": k.strip(), "gesamt": "",
-                           "gebuehr": (g or "").strip() if mit_gebuehren else "", "notiz": "Nachkauf (simuliert)"})
-            ss[P + "daten"] = DK.speichern([_abgeleitet(x) for x in kaeufe])
-            ss[P + "ver"] = ss.get(P + "ver", 0) + 1
-            for f in ("nk_stueck", "nk_kurs", "nk_gebuehr"):
-                ss.pop(P + f, None)
-            st.rerun()
+            s = DK.zahl(ss.get(_k(i, "stueck")), "Stückzahl")
+            w = DK.zahl(ss.get(_k(i, "wert")), "Wert")
+        except DK.EingabeFehler:
+            continue
+        ss[_k(i, "wert")] = DK.de(s * w if neu == "gesamt" else w / s, DK.NACHKOMMA, 2)
+
+
+def _loeschen(i):
+    ss = st.session_state
+    ids = [x for x in _ids(ss) if x != i] or [_neue_id()]
+    for f in ("stueck", "wert", "gebuehr"):
+        ss.pop(_k(i, f), None)
+    _setze_ids(ss, ids)
+
+
+def _hinzufuegen():
+    ss = st.session_state
+    ids = _ids(ss)
+    if len(ids) < MAX_ZEILEN:
+        _setze_ids(ss, ids + [_neue_id()])
+
+
+def _zuruecksetzen():
+    ss = st.session_state
+    for i in _ids(ss):
+        for f in ("stueck", "wert", "gebuehr"):
+            ss.pop(_k(i, f), None)
+    _setze_ids(ss, [_neue_id() for _ in range(START_ZEILEN)])
 
 
 def seite():
     ss = st.session_state
     st.markdown(CSS, unsafe_allow_html=True)
-    st.markdown('<div class="dk-kopf"><span class="dk-sym">🧮</span><div><b>Durchschnittskurs-Rechner</b>'
-                '<div>Gewichteter Einkaufskurs für Aktien, ETFs und Kryptowährungen – unabhängig vom Depot, auch '
-                'für hypothetische Nachkäufe</div></div></div>', unsafe_allow_html=True)
-    if ss.get(P + "meldung"):
-        st.success(ss.pop(P + "meldung"))
-    name = st.text_input("Wertpapier (optional)", key=P + "name", max_chars=60,
-                         placeholder="z. B. MSCI World ETF oder Bitcoin")
-    sp = st.columns([1, 2], vertical_alignment="bottom")
-    waehrung = sp[0].selectbox("Währung", list(DK.WAEHRUNGEN), key=P + "waehrung")
-    mit_gebuehren = sp[1].toggle("Kaufgebühren", value=True, key=P + "gebuehren",
-                                 help="Kaufgebühren im Durchschnittskurs berücksichtigen")
-    vorher = _zeilen(ss)
-    neu = _aus_tabelle(_tabelle(ss, vorher, mit_gebuehren, waehrung), vorher)
-    neu = [_abgeleitet(k) for k in neu]
-    if DK.speichern(neu) != DK.speichern(vorher):            # Aenderung: speichern und Tabelle neu aufbauen
-        ss[P + "daten"] = DK.speichern(neu)
-        ss[P + "ver"] = ss.get(P + "ver", 0) + 1
-        st.rerun()
-    st.caption("Zeile hinzufügen: „+“ unter der Tabelle. Bearbeiten: Zelle antippen. Löschen: Zeile markieren und "
-               "Papierkorb. Dezimalzeichen Komma (0,5); Tausenderpunkte nur zusammen mit Komma (1.234,56). Wer den Gesamtwert "
-               "einträgt, bekommt den Kurs je Stück berechnet – und umgekehrt.")
-    erg = DK.berechnen(neu, mit_gebuehren)
-    for nr, text in erg["fehler"]:
-        st.warning(f"Kauf {nr}: {text} – zählt nicht mit, bis er korrigiert ist.")
-    _karte(erg, waehrung, mit_gebuehren, (name or "").strip())
-    st.caption("Durchschnittskurs = Summe aller Kaufwerte" + (" inklusive Kaufgebühren" if mit_gebuehren else "")
-               + " ÷ Summe aller Stückzahlen. Gerechnet wird exakt (Dezimalarithmetik), angezeigt mit bis zu 8 "
-               "Nachkommastellen.")
-    if erg["anzahl"]:
-        _nachkauf(ss, erg, waehrung, mit_gebuehren)
-    if st.button("↺ Alle Eingaben zurücksetzen", key=P + "reset_btn"):
-        ss[P + "daten"] = DK.speichern([])
-        ss[P + "ver"] = ss.get(P + "ver", 0) + 1
-        for f in ("name", "nk_stueck", "nk_kurs", "nk_gebuehr"):
-            ss.pop(P + f, None)
-        ss[P + "meldung"] = "Alle Eingaben zurückgesetzt."
-        st.rerun()
-    st.caption("Die Eingaben werden automatisch gespeichert und sind beim nächsten Öffnen wieder da. Dein Depot "
-                 "bleibt unverändert.")
+    ids = _ids(ss)
+    with st.container(border=True, key=P + "karte"):
+        st.markdown('<div class="dk-titel">Durchschnittskurs-Rechner</div>', unsafe_allow_html=True)
+        if ss.get(P + "modus") not in MODI:
+            ss[P + "modus"] = "kurs"
+        modus = st.radio("Eingabe", list(MODI), format_func=MODI.get, key=P + "modus", horizontal=True,
+                         label_visibility="collapsed", on_change=_modus_gewechselt)
+        gebuehren = st.toggle("Kaufgebühren berücksichtigen", key=P + "gebuehren")
+        st.divider()
+        wert_titel = "Kurs (€)" if modus == "kurs" else "Gesamtwert (€)"
+        with st.container(horizontal=True, wrap=False, key=P + "kopfzeile", gap="small",
+                          vertical_alignment="center"):
+            st.markdown('<div class="dk-nr dk-nr-kopf">Nr.</div>', unsafe_allow_html=True, width="content")
+            for t in ["Stückzahl", wert_titel] + (["Gebühr (€)"] if gebuehren else []):
+                st.markdown(f'<div class="dk-spalte">{_e(t)}</div>', unsafe_allow_html=True, width="stretch")
+            st.markdown('<div style="width:2.2rem"></div>', unsafe_allow_html=True, width="content")
+        for n, i in enumerate(ids, 1):
+            with st.container(horizontal=True, wrap=False, key=P + f"zeile_{i}", gap="small",
+                              vertical_alignment="center"):
+                st.markdown(f'<div class="dk-nr">{n}.</div>', unsafe_allow_html=True, width="content")
+                st.text_input(f"Stückzahl Kauf {n}", key=_k(i, "stueck"), placeholder="0",
+                              label_visibility="collapsed", max_chars=30)
+                st.text_input(f"{wert_titel} Kauf {n}", key=_k(i, "wert"), placeholder="0,00",
+                              label_visibility="collapsed", max_chars=30)
+                if gebuehren:
+                    st.text_input(f"Gebühr Kauf {n}", key=_k(i, "gebuehr"), placeholder="0,00",
+                                  label_visibility="collapsed", max_chars=20)
+                st.button("", icon=":material/delete:", key=P + f"del_{i}_btn", type="tertiary",
+                          help=f"Kauf {n} löschen", on_click=_loeschen, args=(i,))
+        st.button("Weiteren Kauf hinzufügen", icon=":material/add:", key=P + "add_btn", width="stretch",
+                  on_click=_hinzufuegen, disabled=len(ids) >= MAX_ZEILEN)
+        erg = DK.berechnen(kaeufe(ss, ids), gebuehren)
+        for nr, text in erg["fehler"]:
+            st.caption(f"⚠️ Kauf {nr}: {text}")
+        st.divider()
+        wert = DK.kurs_text(erg["durchschnitt"]) if erg["durchschnitt"] is not None else "— €"
+        st.markdown(f'<div class="dk-ergebnis"><div class="dk-label">Dein Durchschnittskurs pro Stück</div>'
+                    f'<div class="dk-wert">{_e(wert)}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="dk-raster"><div class="dk-kachel"><div class="t">Gesamtstückzahl</div>'
+                    f'<div class="w">{_e(DK.stueck_text(erg["stueck"]))}</div></div>'
+                    f'<div class="dk-kachel"><div class="t">Gesamtinvestition</div>'
+                    f'<div class="w">{_e(DK.geld(erg["investition"]))}</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="dk-fuss">{erg["anzahl"]} {"Kauf" if erg["anzahl"] == 1 else "Käufe"}'
+                    + (f' · Kaufgebühren {_e(DK.geld(erg["gebuehren"]))}' if gebuehren else "")
+                    + (f' · ohne Gebühren {_e(DK.kurs_text(erg["durchschnitt_ohne"]))}'
+                       if gebuehren and erg["gebuehren"] else "") + "</div>", unsafe_allow_html=True)
+        with st.container(horizontal=True, horizontal_alignment="center", key=P + "fusszeile"):
+            st.button("Zurücksetzen", icon=":material/refresh:", key=P + "reset_btn", type="tertiary",
+                      on_click=_zuruecksetzen)
+    st.caption("Durchschnittskurs = Summe aller Kaufwerte (inkl. Gebühren, falls eingeschaltet) ÷ Summe aller "
+               "Stückzahlen. Bruchstücke und bis zu 8 Nachkommastellen, Dezimalkomma (0,5). Eingaben werden "
+               "automatisch gespeichert – dein Depot bleibt unverändert.")
