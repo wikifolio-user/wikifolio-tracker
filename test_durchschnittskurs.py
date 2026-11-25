@@ -92,6 +92,21 @@ class Berechnung(unittest.TestCase):
         with self.assertRaises(DK.EingabeFehler):
             DK.gewinn(e, "abc")
 
+    def test_staffel(self):
+        v = DK.staffel("100", "1", 10, 4, 2)
+        self.assertEqual([x["stueck"] for x in v], [1, 2, 4, 8])
+        self.assertEqual(v[-1]["kurs"], Decimal("72.9"))
+        self.assertEqual(v[-1]["investiert"], Decimal("1187.2"))
+        self.assertEqual(DK.de(v[-1]["durchschnitt"], 2), "79,15")
+        self.assertEqual(DK.de(v[-1]["erholung_pct"], 1), "8,6")
+        g = DK.staffel("100", "1", 10, 4, 1)
+        self.assertEqual(DK.de(g[-1]["durchschnitt"], 2), "85,98")
+        self.assertLess(v[-1]["erholung_pct"], g[-1]["erholung_pct"])       # Verdopplung: weniger Erholung noetig
+        self.assertEqual(v[0]["erholung_pct"], 0)
+        for falsch in (("100", "1", 100, 4, 2), ("100", "1", 10, 0, 2), ("100", "1", 10, 13, 2), ("x", "1", 10, 4, 2)):
+            with self.assertRaises(DK.EingabeFehler):
+                DK.staffel(*falsch)
+
     def test_nachkauf(self):
         e = DK.berechnen([{"stueck": "10", "kurs": "100"}])
         r = DK.nachkauf(e, "10", "80", "2")
@@ -232,6 +247,20 @@ class Oberflaeche(unittest.TestCase):
         self.assertTrue(any("Keine Treffer" in x.value for x in at.caption))
         at.text_input(key="dk_suche").set_value("OHNEKURS").run()
         self.assertTrue(any("kein Kurs verfügbar" in x.value for x in at.caption))
+        self.assertFalse(at.exception)
+
+    def test_beispiel_nachkaeufe(self):
+        at = AppTest.from_function(_app, default_timeout=60)
+        at.run()
+        self.assertFalse(at.exception)
+        t = self._texte(at)
+        self.assertIn("Ø-Kurs **79,15 €**", t)
+        self.assertIn("+8,6 %", t)
+        at.number_input(key="dk_bsp_faktor").set_value(1.0).run()
+        self.assertIn("Ø-Kurs **85,98 €**", self._texte(at))
+        at.text_input(key="dk_bsp_kurs").set_value("abc").run()
+        self.assertTrue(any("Startkurs" in x.value for x in at.caption))
+        self.assertEqual(len(self._ids(at)), 3)                              # eigene Kaeufe unberuehrt
         self.assertFalse(at.exception)
 
     def test_uebernahme_der_tabellen_version(self):

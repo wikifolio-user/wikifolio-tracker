@@ -253,6 +253,59 @@ def _gewinn(ss, erg, h=None):
                 unsafe_allow_html=True)
 
 
+def _beispiel():
+    """Ausklappbares Rechenbeispiel: Nachkaeufe beim Nasdaq mit Stueckzahlverdopplung gegenueber gleich grossen
+    Nachkaeufen - nur zur Veranschaulichung, ueberschreibt keine Eingaben."""
+    with st.expander("📘 Beispiel: Nasdaq-Nachkäufe mit Stückzahlverdopplung"):
+        st.markdown(
+            "Fällt der Kurs, senkt jeder Nachkauf den Durchschnittskurs. **Verdoppelt** man dabei die Stückzahl, "
+            "zählt der günstige Nachkauf stärker – der Durchschnitt rutscht schneller nach unten, und schon eine "
+            "kleine Erholung bringt dich in die Gewinnzone. Der Preis dafür: Der Kapitalbedarf **verdoppelt sich "
+            "mit jeder Stufe**. Spiele es hier mit einem Nasdaq-100-ETF durch:")
+        sp = st.columns(2)
+        start = sp[0].text_input("Startkurs (€)", value="100", key=P + "bsp_kurs", max_chars=12)
+        stueck = sp[1].text_input("Stückzahl beim ersten Kauf", value="1", key=P + "bsp_stueck", max_chars=12)
+        sp = st.columns(3)
+        rueck = sp[0].number_input("Rückgang je Stufe (%)", 1, 50, 10, key=P + "bsp_rueck")
+        stufen = sp[1].number_input("Stufen", 2, 8, 4, key=P + "bsp_stufen")
+        faktor = sp[2].number_input("Faktor je Stufe", 1.0, 3.0, 2.0, step=0.5, key=P + "bsp_faktor",
+                                    help="2 = Stückzahl verdoppeln, 1 = gleich große Nachkäufe")
+        try:
+            plan = DK.staffel(start, stueck, rueck, stufen, faktor)
+            gleich = DK.staffel(start, stueck, rueck, stufen, 1)
+        except DK.EingabeFehler as ex:
+            st.caption(f"⚠️ {ex}")
+            return
+        import pandas as pd
+        f_text = "Verdopplung" if faktor == 2 else f"Faktor {DK.de(faktor, 1, 0)}"
+        df = pd.DataFrame([{
+            "Stufe": a["stufe"], "Kurs": DK.geld(a["kurs"]), "Kauf (Stück)": DK.stueck_text(a["stueck"]),
+            "Betrag": DK.geld(a["betrag"]), "Investiert gesamt": DK.geld(a["investiert"]),
+            f"Ø-Kurs ({f_text})": DK.geld(a["durchschnitt"]), "nötige Erholung": f"+{DK.de(a['erholung_pct'], 1)} %",
+            "Ø gleich große Käufe": DK.geld(b["durchschnitt"]),
+            "Erholung dort": f"+{DK.de(b['erholung_pct'], 1)} %"} for a, b in zip(plan, gleich)])
+        st.dataframe(df, hide_index=True, width="stretch", key=P + "bsp_tab")
+        a, b = plan[-1], gleich[-1]
+        st.markdown(
+            f"**Ergebnis nach {stufen} Stufen** (Kurs {DK.geld(a['kurs'])}, "
+            f"−{DK.de(100 - a['kurs'] / plan[0]['kurs'] * 100, 1)} % vom Start):\n"
+            f"- {f_text}: Ø-Kurs **{DK.geld(a['durchschnitt'])}** – schon **+{DK.de(a['erholung_pct'], 1)} %** "
+            f"Erholung reichen für die Gewinnschwelle; eingesetzt **{DK.geld(a['investiert'])}**.\n"
+            f"- Gleich große Käufe: Ø-Kurs {DK.geld(b['durchschnitt'])}, nötig +{DK.de(b['erholung_pct'], 1)} %; "
+            f"eingesetzt {DK.geld(b['investiert'])}.\n"
+            f"- Der letzte Nachkauf allein kostet {DK.geld(a['betrag'])} – das "
+            f"{DK.de(a['betrag'] / plan[0]['betrag'], 1, 0)}-Fache des ersten Kaufs.")
+        st.warning(
+            "**Risiken:** Die Verdopplung braucht immer mehr Kapital (nach 6 Stufen 63-mal so viele Stück wie beim "
+            "ersten Kauf) und "
+            "verlängert Verluste, wenn der Markt weiter fällt – der Nasdaq 100 verlor 2000–2002 rund 80 %, 2022 "
+            "rund ein Drittel. Darum vorher festlegen: **Gesamtbudget, Abstand der Stufen und Höchstzahl der "
+            "Stufen**, und nur in breite Indizes (nicht in Einzelwerte) staffeln. Rechenbeispiel ohne Kosten und "
+            "Steuern – keine Anlageberatung.")
+        st.caption("Tipp: Mit dem Pyramidenmanager (Märkte → Pyramiden) gibt es das Gegenstück – Nachkäufe im "
+                   "Aufwärtstrend mit Stops.")
+
+
 def seite(h=None):
     """h (optional): {"suche_instrument": (begriff) -> Treffer, "get_live_kurs": (instrument_id) -> (kurs, vortag,
     quelle)} - ohne h gibt es keinen WKN-Abruf, der Rechner funktioniert sonst gleich."""
@@ -308,6 +361,7 @@ def seite(h=None):
         with st.container(horizontal=True, horizontal_alignment="center", key=P + "fusszeile"):
             st.button("Zurücksetzen", icon=":material/refresh:", key=P + "reset_btn", type="tertiary",
                       on_click=_zuruecksetzen)
+    _beispiel()
     st.caption("Durchschnittskurs = Summe aller Kaufwerte (inkl. Gebühren, falls eingeschaltet) ÷ Summe aller "
                "Stückzahlen. Bruchstücke und bis zu 8 Nachkommastellen, Dezimalkomma (0,5). Eingaben werden "
                "automatisch gespeichert – dein Depot bleibt unverändert.")
