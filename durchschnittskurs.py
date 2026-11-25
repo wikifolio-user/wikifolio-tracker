@@ -176,6 +176,33 @@ def gewinn(ergebnis, aktueller_kurs):
             "prozent": g / ergebnis["investition"] * 100 if ergebnis["investition"] else None}
 
 
+def staffel(start_kurs, start_stueck, rueckgang_pct, stufen, faktor=2):
+    """Beispiel fuer gestaffelte Nachkaeufe: der Kurs faellt je Stufe um rueckgang_pct, gekauft wird jeweils
+    die vorherige Stueckzahl x faktor (2 = Verdopplung, 1 = gleich grosse Nachkaeufe).
+    -> [{"stufe", "kurs", "stueck", "betrag", "stueck_gesamt", "investiert", "durchschnitt", "erholung_pct"}]
+    erholung_pct: wie viel der Kurs von dieser Stufe aus steigen muss, bis der Durchschnittskurs erreicht ist."""
+    k0 = zahl(start_kurs, "Startkurs")
+    s0 = zahl(start_stueck, "Startstückzahl")
+    r = zahl(rueckgang_pct, "Rückgang je Stufe", null_erlaubt=True)
+    f = zahl(faktor, "Faktor")
+    n = int(stufen)
+    if not 1 <= n <= 12:
+        raise EingabeFehler("Bitte 1 bis 12 Stufen.")
+    if r >= 100:
+        raise EingabeFehler("Der Rückgang je Stufe muss unter 100 % liegen.")
+    aus, stueck_ges, invest = [], Decimal(0), Decimal(0)
+    for i in range(n):
+        kurs = k0 * (1 - r / 100) ** i
+        stueck = s0 * f ** i
+        stueck_ges += stueck
+        invest += stueck * kurs
+        avg = invest / stueck_ges
+        aus.append({"stufe": i + 1, "kurs": kurs, "stueck": stueck, "betrag": stueck * kurs,
+                    "stueck_gesamt": stueck_ges, "investiert": invest, "durchschnitt": avg,
+                    "erholung_pct": (avg / kurs - 1) * 100})
+    return aus
+
+
 def stueck_text(x):
     return "–" if x is None else de(x, NACHKOMMA, 0)
 

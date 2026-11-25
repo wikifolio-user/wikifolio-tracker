@@ -92,6 +92,21 @@ class Berechnung(unittest.TestCase):
         with self.assertRaises(DK.EingabeFehler):
             DK.gewinn(e, "abc")
 
+    def test_staffel(self):
+        v = DK.staffel("100", "1", 10, 4, 2)
+        self.assertEqual([x["stueck"] for x in v], [1, 2, 4, 8])
+        self.assertEqual(v[-1]["kurs"], Decimal("72.9"))
+        self.assertEqual(v[-1]["investiert"], Decimal("1187.2"))
+        self.assertEqual(DK.de(v[-1]["durchschnitt"], 2), "79,15")
+        self.assertEqual(DK.de(v[-1]["erholung_pct"], 1), "8,6")
+        g = DK.staffel("100", "1", 10, 4, 1)
+        self.assertEqual(DK.de(g[-1]["durchschnitt"], 2), "85,98")
+        self.assertLess(v[-1]["erholung_pct"], g[-1]["erholung_pct"])       # Verdopplung: weniger Erholung noetig
+        self.assertEqual(v[0]["erholung_pct"], 0)
+        for falsch in (("100", "1", 100, 4, 2), ("100", "1", 10, 0, 2), ("100", "1", 10, 13, 2), ("x", "1", 10, 4, 2)):
+            with self.assertRaises(DK.EingabeFehler):
+                DK.staffel(*falsch)
+
     def test_nachkauf(self):
         e = DK.berechnen([{"stueck": "10", "kurs": "100"}])
         r = DK.nachkauf(e, "10", "80", "2")
@@ -113,6 +128,26 @@ def _app():
     import streamlit as st
     import durchschnittskurs_ui
     durchschnittskurs_ui.seite()
+
+
+def _app_mit_abruf():
+    import streamlit as st
+    import durchschnittskurs_ui
+    ss = st.session_state
+    ss.setdefault("suchen", [])
+    ss.setdefault("kurse", [])
+    treffer = {"A0RPWH": [{"instrument_id": 1, "name": "Erster ETF", "wkn": "A0RPWH", "kategorie": "ETF"},
+                          {"instrument_id": 2, "name": "Zweiter Fonds", "wkn": "A1XXXX", "kategorie": "Fonds"}],
+               "OHNEKURS": [{"instrument_id": 9, "name": "Ohne Kurs", "wkn": "X"}]}
+
+    def suche(b):
+        ss["suchen"].append(b)
+        return treffer.get(b, [])
+
+    def kurs(iid):
+        ss["kurse"].append(iid)
+        return (48.9012, 47.895, "ls-tc.de Live (Emittent)") if iid != 9 else (None, None, "Fehler – keine Live-Daten")
+    durchschnittskurs_ui.seite({"suche_instrument": suche, "get_live_kurs": kurs})
 
 
 @unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
@@ -182,6 +217,51 @@ class Oberflaeche(unittest.TestCase):
         self.assertTrue(all(not at.text_input(key=f"dk_r{i}_stueck").value for i in neu))
         self.assertFalse(at.text_input(key="dk_aktuell").value)
         self.assertIn("— €", self._texte(at))
+
+    def test_wkn_abruf_und_uebernehmen(self):
+        at = AppTest.from_function(_app_mit_abruf, default_timeout=60)
+        at.run()
+        ids = self._ids(at)
+        at.text_input(key=f"dk_r{ids[0]}_stueck").set_value("10").run()
+        at.text_input(key=f"dk_r{ids[0]}_wert").set_value("40").run()
+        at.text_input(key="dk_suche").set_value("A0RPWH").run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state["suchen"], ["A0RPWH"])
+        at.selectbox(key="dk_wahl").set_value(1).run()                    # zweiter Treffer
+        t = self._texte(at)
+        self.assertIn("Zweiter Fonds", t)
+        self.assertIn("48,9012 €", t)
+        self.assertIn("+2,10 % zum Vortag", t)
+        at.button(key="dk_uebernehmen_btn").click().run()
+        self.assertEqual(at.text_input(key="dk_aktuell").value, "48,9012")
+        t = self._texte(at)
+        self.assertIn("+89,01 €", t)                                      # 10 x 48,9012 - 400
+        self.assertIn("+22,25 %", t)
+        n = len(at.session_state["kurse"])
+        at.run()                                                          # kein erneuter Abruf innerhalb 60 s
+        self.assertEqual(len(at.session_state["kurse"]), n)
+        self.assertEqual(at.session_state["suchen"], ["A0RPWH"])          # keine erneute Suche
+        at.button(key="dk_neu_btn").click().run()
+        self.assertEqual(len(at.session_state["kurse"]), n + 1)
+        at.text_input(key="dk_suche").set_value("gibtsnicht").run()
+        self.assertTrue(any("Keine Treffer" in x.value for x in at.caption))
+        at.text_input(key="dk_suche").set_value("OHNEKURS").run()
+        self.assertTrue(any("kein Kurs verfügbar" in x.value for x in at.caption))
+        self.assertFalse(at.exception)
+
+    def test_beispiel_nachkaeufe(self):
+        at = AppTest.from_function(_app, default_timeout=60)
+        at.run()
+        self.assertFalse(at.exception)
+        t = self._texte(at)
+        self.assertIn("Ø-Kurs **79,15 €**", t)
+        self.assertIn("+8,6 %", t)
+        at.number_input(key="dk_bsp_faktor").set_value(1.0).run()
+        self.assertIn("Ø-Kurs **85,98 €**", self._texte(at))
+        at.text_input(key="dk_bsp_kurs").set_value("abc").run()
+        self.assertTrue(any("Startkurs" in x.value for x in at.caption))
+        self.assertEqual(len(self._ids(at)), 3)                              # eigene Kaeufe unberuehrt
+        self.assertFalse(at.exception)
 
     def test_uebernahme_der_tabellen_version(self):
         at = AppTest.from_function(_app, default_timeout=60)

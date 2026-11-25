@@ -44,6 +44,11 @@ CSS = """<style>
 .dk-kachel .w.dk-pos { color:#4ADE80; } .dk-kachel .w.dk-neg { color:#F87171; }
 @media (max-width: 640px) { .dk-raster3 { grid-template-columns:repeat(2, minmax(0,1fr)); }
     .dk-raster3 .dk-kachel:first-child { grid-column:1 / -1; } }
+.dk-treffer { background:rgba(124,156,255,.08); border:1px solid rgba(124,156,255,.35); border-radius:12px;
+    padding:10px 12px; margin:4px 0 8px; color:#E8ECF6; font-size:.9rem; }
+.dk-treffer .dk-tkurs { font-size:1.35rem; font-weight:800; color:#ffffff; font-variant-numeric:tabular-nums;
+    margin-right:6px; }
+.dk-treffer .dk-tmeta { color:#A9ACB0; font-size:.8rem; }
 .dk-fuss { text-align:center; color:#A9ACB0; font-size:.8rem; margin-top:4px; }
 @media (max-width: 640px) { .dk-ergebnis .dk-wert { font-size:2.1rem; } .dk-kachel .w { font-size:1.2rem; } }
 </style>"""
@@ -142,16 +147,89 @@ def _hinzufuegen():
 
 def _zuruecksetzen():
     ss = st.session_state
-    ss.pop(P + "aktuell", None)
+    for f in ("aktuell", "suche", "suche_letzter", "treffer", "wahl"):
+        ss.pop(P + f, None)
     for i in _ids(ss):
         for f in ("stueck", "wert", "gebuehr"):
             ss.pop(_k(i, f), None)
     _setze_ids(ss, [_neue_id() for _ in range(START_ZEILEN)])
 
 
-def _gewinn(ss, erg):
+def _kurs_uebernehmen(text):
+    st.session_state[P + "aktuell"] = text
+
+
+def _kurs_holen(h, iid, neu=False):
+    """Live-Kurs (ls-tc.de) je Instrument, in der Sitzung 60 s zwischengespeichert. -> (kurs, vortag, quelle, zeit)"""
+    import datetime
+    ss = st.session_state
+    cache = ss.setdefault(P + "kurs_cache", {})
+    jetzt = datetime.datetime.now()
+    alt = cache.get(str(iid))
+    if alt and not neu and (jetzt - alt[3]).total_seconds() < 60:
+        return alt
+    try:
+        akt, vor, quelle = h["get_live_kurs"](iid)
+    except Exception:
+        akt, vor, quelle = None, None, "Fehler – keine Live-Daten"
+    cache[str(iid)] = (akt, vor, quelle, jetzt)
+    return cache[str(iid)]
+
+
+def _wkn_abruf(h):
+    """WKN, ISIN oder Name suchen, Kurs anzeigen und per Klick als aktuellen Kurs uebernehmen."""
+    ss = st.session_state
+    if not (h and h.get("suche_instrument") and h.get("get_live_kurs")):
+        return
+    begriff = (st.text_input("Kurs abrufen: WKN, ISIN oder Name", key=P + "suche", max_chars=60,
+                             placeholder="z. B. A0RPWH, IE00B4L5Y983 oder Apple") or "").strip()
+    if not begriff:
+        return
+    if ss.get(P + "suche_letzter") != begriff:
+        with st.spinner("Suche …"):
+            try:
+                ss[P + "treffer"] = h["suche_instrument"](begriff) or []
+            except Exception:
+                ss[P + "treffer"] = []
+        ss[P + "suche_letzter"] = begriff
+        ss.pop(P + "wahl", None)
+    treffer = [t for t in ss.get(P + "treffer") or [] if t.get("instrument_id")]
+    if not treffer:
+        st.caption("⚠️ Keine Treffer – Schreibweise prüfen oder den Kurs unten von Hand eintragen.")
+        return
+    namen = [f"{t.get('name') or '–'} · WKN {t.get('wkn') or '–'}" + (f" · {t['kategorie']}" if t.get("kategorie")
+                                                                      else "") for t in treffer]
+    if len(treffer) > 1:
+        i = st.selectbox("Treffer", range(len(treffer)), format_func=lambda j: namen[j], key=P + "wahl")
+    else:
+        i = 0
+    t = treffer[i or 0]
+    akt, vor, quelle, zeit = _kurs_holen(h, t["instrument_id"])
+    if not akt:
+        st.caption(f"⚠️ {_e(t.get('name'))}: kein Kurs verfügbar ({_e(quelle)}).")
+        return
+    from decimal import Decimal
+    kurs = Decimal(str(akt))
+    veraend = ""
+    if vor:
+        pct = (kurs / Decimal(str(vor)) - 1) * 100
+        veraend = f" · {'+' if pct > 0 else ''}{DK.de(pct, 2)} % zum Vortag"
+    text = DK.de(kurs, 4, 2)
+    st.markdown(f'<div class="dk-treffer"><b>{_e(t.get("name"))}</b> · WKN {_e(t.get("wkn") or "–")}<br>'
+                f'<span class="dk-tkurs">{_e(text)} €</span><span class="dk-tmeta">{_e(veraend)} · '
+                f'{_e(quelle)}, {zeit:%H:%M} Uhr</span></div>', unsafe_allow_html=True)
+    with st.container(horizontal=True, key=P + "abruf_knoepfe"):
+        st.button("Als aktuellen Kurs übernehmen", icon=":material/download:", key=P + "uebernehmen_btn",
+                  type="primary", on_click=_kurs_uebernehmen, args=(text,))
+        if st.button("Neu abrufen", icon=":material/refresh:", key=P + "neu_btn", type="tertiary"):
+            _kurs_holen(h, t["instrument_id"], neu=True)
+            st.rerun()
+
+
+def _gewinn(ss, erg, h=None):
     """Aktueller Kurs -> aktueller Wert, Gewinn/Verlust in Euro und Prozent."""
     st.divider()
+    _wkn_abruf(h)
     kurs = st.text_input("Aktueller Kurs (€)", key=P + "aktuell", placeholder="0,00", max_chars=30,
                          help="Kurs je Stück heute – daraus ergeben sich Wert und Gewinn bzw. Verlust.")
     if not (kurs or "").strip():
@@ -175,7 +253,62 @@ def _gewinn(ss, erg):
                 unsafe_allow_html=True)
 
 
-def seite():
+def _beispiel():
+    """Ausklappbares Rechenbeispiel: Nachkaeufe beim Nasdaq mit Stueckzahlverdopplung gegenueber gleich grossen
+    Nachkaeufen - nur zur Veranschaulichung, ueberschreibt keine Eingaben."""
+    with st.expander("📘 Beispiel: Nasdaq-Nachkäufe mit Stückzahlverdopplung"):
+        st.markdown(
+            "Fällt der Kurs, senkt jeder Nachkauf den Durchschnittskurs. **Verdoppelt** man dabei die Stückzahl, "
+            "zählt der günstige Nachkauf stärker – der Durchschnitt rutscht schneller nach unten, und schon eine "
+            "kleine Erholung bringt dich in die Gewinnzone. Der Preis dafür: Der Kapitalbedarf **verdoppelt sich "
+            "mit jeder Stufe**. Spiele es hier mit einem Nasdaq-100-ETF durch:")
+        sp = st.columns(2)
+        start = sp[0].text_input("Startkurs (€)", value="100", key=P + "bsp_kurs", max_chars=12)
+        stueck = sp[1].text_input("Stückzahl beim ersten Kauf", value="1", key=P + "bsp_stueck", max_chars=12)
+        sp = st.columns(3)
+        rueck = sp[0].number_input("Rückgang je Stufe (%)", 1, 50, 10, key=P + "bsp_rueck")
+        stufen = sp[1].number_input("Stufen", 2, 8, 4, key=P + "bsp_stufen")
+        faktor = sp[2].number_input("Faktor je Stufe", 1.0, 3.0, 2.0, step=0.5, key=P + "bsp_faktor",
+                                    help="2 = Stückzahl verdoppeln, 1 = gleich große Nachkäufe")
+        try:
+            plan = DK.staffel(start, stueck, rueck, stufen, faktor)
+            gleich = DK.staffel(start, stueck, rueck, stufen, 1)
+        except DK.EingabeFehler as ex:
+            st.caption(f"⚠️ {ex}")
+            return
+        import pandas as pd
+        f_text = "Verdopplung" if faktor == 2 else f"Faktor {DK.de(faktor, 1, 0)}"
+        df = pd.DataFrame([{
+            "Stufe": a["stufe"], "Kurs": DK.geld(a["kurs"]), "Kauf (Stück)": DK.stueck_text(a["stueck"]),
+            "Betrag": DK.geld(a["betrag"]), "Investiert gesamt": DK.geld(a["investiert"]),
+            f"Ø-Kurs ({f_text})": DK.geld(a["durchschnitt"]), "nötige Erholung": f"+{DK.de(a['erholung_pct'], 1)} %",
+            "Ø gleich große Käufe": DK.geld(b["durchschnitt"]),
+            "Erholung dort": f"+{DK.de(b['erholung_pct'], 1)} %"} for a, b in zip(plan, gleich)])
+        st.dataframe(df, hide_index=True, width="stretch", key=P + "bsp_tab")
+        a, b = plan[-1], gleich[-1]
+        st.markdown(
+            f"**Ergebnis nach {stufen} Stufen** (Kurs {DK.geld(a['kurs'])}, "
+            f"−{DK.de(100 - a['kurs'] / plan[0]['kurs'] * 100, 1)} % vom Start):\n"
+            f"- {f_text}: Ø-Kurs **{DK.geld(a['durchschnitt'])}** – schon **+{DK.de(a['erholung_pct'], 1)} %** "
+            f"Erholung reichen für die Gewinnschwelle; eingesetzt **{DK.geld(a['investiert'])}**.\n"
+            f"- Gleich große Käufe: Ø-Kurs {DK.geld(b['durchschnitt'])}, nötig +{DK.de(b['erholung_pct'], 1)} %; "
+            f"eingesetzt {DK.geld(b['investiert'])}.\n"
+            f"- Der letzte Nachkauf allein kostet {DK.geld(a['betrag'])} – das "
+            f"{DK.de(a['betrag'] / plan[0]['betrag'], 1, 0)}-Fache des ersten Kaufs.")
+        st.warning(
+            "**Risiken:** Die Verdopplung braucht immer mehr Kapital (nach 6 Stufen 63-mal so viele Stück wie beim "
+            "ersten Kauf) und "
+            "verlängert Verluste, wenn der Markt weiter fällt – der Nasdaq 100 verlor 2000–2002 rund 80 %, 2022 "
+            "rund ein Drittel. Darum vorher festlegen: **Gesamtbudget, Abstand der Stufen und Höchstzahl der "
+            "Stufen**, und nur in breite Indizes (nicht in Einzelwerte) staffeln. Rechenbeispiel ohne Kosten und "
+            "Steuern – keine Anlageberatung.")
+        st.caption("Tipp: Mit dem Pyramidenmanager (Märkte → Pyramiden) gibt es das Gegenstück – Nachkäufe im "
+                   "Aufwärtstrend mit Stops.")
+
+
+def seite(h=None):
+    """h (optional): {"suche_instrument": (begriff) -> Treffer, "get_live_kurs": (instrument_id) -> (kurs, vortag,
+    quelle)} - ohne h gibt es keinen WKN-Abruf, der Rechner funktioniert sonst gleich."""
     ss = st.session_state
     st.markdown(CSS, unsafe_allow_html=True)
     ids = _ids(ss)
@@ -224,10 +357,11 @@ def seite():
                     + (f' · Kaufgebühren {_e(DK.geld(erg["gebuehren"]))}' if gebuehren else "")
                     + (f' · ohne Gebühren {_e(DK.anzeige_kurs(erg["durchschnitt_ohne"]))}'
                        if gebuehren and erg["gebuehren"] else "") + "</div>", unsafe_allow_html=True)
-        _gewinn(ss, erg)
+        _gewinn(ss, erg, h)
         with st.container(horizontal=True, horizontal_alignment="center", key=P + "fusszeile"):
             st.button("Zurücksetzen", icon=":material/refresh:", key=P + "reset_btn", type="tertiary",
                       on_click=_zuruecksetzen)
+    _beispiel()
     st.caption("Durchschnittskurs = Summe aller Kaufwerte (inkl. Gebühren, falls eingeschaltet) ÷ Summe aller "
                "Stückzahlen. Bruchstücke und bis zu 8 Nachkommastellen, Dezimalkomma (0,5). Eingaben werden "
                "automatisch gespeichert – dein Depot bleibt unverändert.")
