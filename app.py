@@ -1385,10 +1385,11 @@ ANSICHT_GAP = "🕳️ Gap Analyzer"          # gap_analyzer_ui.py - Kursluecken
 ANSICHT_PYR = "🔺 Pyramiden"             # pyramide_ui.py - Pyramidenmanager, fuer alle (Daten je Benutzer)
 ANSICHT_YT = "🎬 Faceless YouTube"       # youtube_ui.py - Faceless YouTube Automation, nur Admin
 ANSICHT_DK = "🧮 Durchschnittskurs-Rechner"   # durchschnittskurs_ui.py - gewichteter Einkaufskurs, fuer alle
+ANSICHT_PRR = "🔢 Pyramidenrechner"   # pyramidenrechner_ui.py - Stueckzahl-Pyramide planen, fuer alle (Szenarien je Benutzer)
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ,
-                 "durchschnittskurs": ANSICHT_DK}
+                 "durchschnittskurs": ANSICHT_DK, "pyramidenrechner": ANSICHT_PRR}
 PFAD_MUSTERDEPOT = "state/musterdepot.json"
 ANSICHTEN = [
     ANSICHT_DEPOT,
@@ -1425,6 +1426,7 @@ ANSICHTEN = [
     ANSICHT_PYR,                # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_YT,                 # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_DK,                 # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_PRR,                # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1461,6 +1463,7 @@ ANSICHT_KURZ = {
     ANSICHT_PYR: "🔺 Pyramiden",
     ANSICHT_YT: "🎬 YouTube",
     ANSICHT_DK: "🧮 Ø-Kurs",
+    ANSICHT_PRR: "🔢 Pyramide",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1497,6 +1500,7 @@ NAV_NAMEN = {
     ANSICHT_PYR: "🔺 Pyramidenmanager",
     ANSICHT_YT: "🎬 Faceless YouTube Automation",
     ANSICHT_DK: "🧮 Durchschnittskurs-Rechner",
+    ANSICHT_PRR: "🔢 Pyramidenrechner",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1526,7 +1530,7 @@ NAV_ZEILEN = [
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
     ("Märkte", [ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR]),             # Marktstimmung und Index-Werkzeuge
     ("Geschäftsideen", [ANSICHT_EKS, ANSICHT_YT]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
-    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO, ANSICHT_ETP, ANSICHT_DK]),
+    ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO, ANSICHT_ETP, ANSICHT_DK, ANSICHT_PRR]),
     ("Gesundheit", [ANSICHT_GESUNDHEIT]),
     ("Hilfe", [ANSICHT_GLOSSAR]),
     ("Verwaltung", [ANSICHT_BENUTZER]),
@@ -1536,7 +1540,7 @@ LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUI
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
                      ANSICHT_GESUNDHEIT, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT,
-                     ANSICHT_DK}
+                     ANSICHT_DK, ANSICHT_PRR}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1545,7 +1549,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
               ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT,
-              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT, ANSICHT_DK}
+              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT, ANSICHT_DK, ANSICHT_PRR}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1697,6 +1701,8 @@ RECHNER_EINGABEN = {
     "fear_greed": ("fg_", re.compile(r"_btn$|_editor$|_chart$|^fg_(frisch|meldung|refresh_zeit|stand_gesehen)$")),
     # Durchschnittskurs-Rechner: Kaeufe (als JSON-Text), Name, Waehrung, Gebuehren, Nachkauf-Felder; Tabelle/Knoepfe nicht
     "durchschnittskurs": ("dk_", re.compile(r"^dk_tab_|^dk_ver$|_btn$|^dk_meldung$|^dk_suche_letzter$|^dk_wahl$|^dk_kq$")),
+    # Pyramidenrechner: Eingaben und eigene Stufenpreise merken; Szenarien liegen in state/pyramidenrechner.json
+    "pyramidenrechner": ("prr_", re.compile(r"_btn$|^prr_meldung$|^prr_sz_|^prr_vgl|^prr_tab$|^prr_chart$|^prr_aktiv$")),
     # Gap Analyzer: Definition, Zeitraum, Filter, Alerts und gesehene Meldungen merken
     "gap_analyzer": ("gap_", re.compile(r"_btn$|^gap_tab_|^gap_csv|^gap_xlsx|^gap_chart$|_weg$|^gap_reihe_|_tab$")),
 }
@@ -1972,7 +1978,7 @@ def _sichtbar(ansicht):
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
     # Erklaerungen, Rechner und Marktdaten ohne eigene Daten - fuer alle
-    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_DK):
+    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_DK, ANSICHT_PRR):
         return True
     if ansicht == ANSICHT_PYR:           # Pyramiden: jeder Benutzer in seinem eigenen Datenbereich
         return True
@@ -2991,6 +2997,19 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Durchschnittskurs-Rechner: {e}")
             notify_app_error("Tab-Durchschnittskurs", e)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_PRR:
+        try:
+            import pyramidenrechner_ui
+            rechner_vorbelegen("pyramidenrechner")
+            pyramidenrechner_ui.seite({"lesen": gh_read_cached_status, "aktualisiere": gh_aktualisiere,
+                                       "upfad": upfad, "speichern": GH_STATE_READY})
+            rechner_merken("pyramidenrechner")
+            rechner_leiste("pyramidenrechner", kompakt=True)
+        except Exception as e:
+            st.error(f"⚠️ Fehler im Pyramidenrechner: {e}")
+            notify_app_error("Tab-Pyramidenrechner", e)
         lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_ETP:
