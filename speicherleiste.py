@@ -123,13 +123,26 @@ CSS = """<style>
 </style>"""
 
 
-def leiste(st, bereich, modus="speicher", rueck=None, hinweis=None, anzahl=None):
+def leiste(st, bereich, modus="speicher", rueck=None, hinweis=None, anzahl=None, kompakt=False):
     """Statuszeile am Ende einer Eingabeseite. rueck: Funktion ohne Argumente, die die letzte Speicherung
     zuruecknimmt (z. B. lambda: zuruecknehmen(...) + Oberflaeche aktualisieren); None = kein Rueckgaengig.
-    anzahl: moegliche Rueckgaengig-Schritte, wenn die Seite ihren Verlauf selbst fuehrt (sonst der Stapel hier)."""
+    anzahl: moegliche Rueckgaengig-Schritte, wenn die Seite ihren Verlauf selbst fuehrt (sonst der Stapel hier).
+    kompakt: eine schmale Zeile ohne Hinweistext ("✓ Gespeichert 18:39" + kleiner Rueckgaengig-Knopf)."""
     import html
     symbol, text = statustext(st.session_state, bereich, modus)
     st.markdown(CSS, unsafe_allow_html=True)
+    if kompakt:
+        text = text.replace("Gespeichert um ", "Gespeichert ").replace(" Uhr", "")
+        n = (schritte(st.session_state, bereich) if anzahl is None else int(anzahl)) if rueck else 0
+        with st.container(key=f"sl_{bereich}", horizontal=True, wrap=False, vertical_alignment="center",
+                          gap="small"):
+            st.markdown(f'<div class="sl-status">{html.escape(symbol)} {html.escape(text)}</div>',
+                        unsafe_allow_html=True, width="stretch")
+            if rueck:
+                st.button("Rückgängig" + (f" ({n})" if n > 1 else ""), icon=":material/undo:",
+                          key=f"slundo_{bereich}", type="tertiary", disabled=n == 0, on_click=rueck,
+                          help="Nimmt die letzte Speicherung zurück" if n else "Noch nichts zum Zurücknehmen")
+        return
     with st.container(key=f"sl_{bereich}"):
         n = (schritte(st.session_state, bereich) if anzahl is None else int(anzahl)) if rueck else 0
         spalten = st.columns([3, 1]) if rueck else [st.container()]

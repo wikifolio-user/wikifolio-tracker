@@ -451,6 +451,3 @@ def seite(h=None):
             st.button("Zurücksetzen", icon=":material/refresh:", key=P + "reset_btn", type="tertiary",
                       on_click=_zuruecksetzen)
     _beispiel()
-    st.caption("Durchschnittskurs = Summe aller Kaufwerte (inkl. Gebühren, falls eingeschaltet) ÷ Summe aller "
-               "Stückzahlen. Bruchstücke und bis zu 8 Nachkommastellen, Dezimalkomma (0,5). Eingaben werden "
-               "automatisch gespeichert – dein Depot bleibt unverändert.")

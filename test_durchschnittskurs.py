@@ -340,5 +340,31 @@ class Oberflaeche(unittest.TestCase):
         self.assertNotIn("dk_daten", at.session_state)
 
 
+def _app_leiste():
+    import datetime
+    import streamlit as st
+    import speicherleiste as SL
+    ss = st.session_state
+    if "sl_init" not in ss:
+        ss["sl_init"] = True
+        SL.gespeichert(ss, "rechner_dk", {"a": 1}, zeit=datetime.datetime(2026, 11, 25, 18, 39))
+    SL.leiste(st, "rechner_dk", rueck=lambda: ss.__setitem__("zurueck", True), kompakt=True)
+
+
+@unittest.skipUnless(OBERFLAECHE, "Streamlit nicht installiert - laeuft im CI-Schritt der Oberflaeche (test_ui_rauch)")
+class KompakteLeiste(unittest.TestCase):
+    def test_kurz_ohne_hinweis(self):
+        at = AppTest.from_function(_app_leiste, default_timeout=30).run()
+        self.assertFalse(at.exception)
+        t = " ".join(x.value for x in at.markdown)
+        self.assertIn("Gespeichert 18:39", t)
+        self.assertNotIn("automatisch", t)                               # kein Hinweistext
+        self.assertNotIn(" Uhr", t)
+        b = at.button(key="slundo_rechner_dk")
+        self.assertEqual(b.label, "Rückgängig")
+        b.click().run()
+        self.assertTrue(at.session_state["zurueck"])
+
+
 if __name__ == "__main__":
     unittest.main()
