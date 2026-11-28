@@ -29,6 +29,7 @@ from test_opening_gaps import Oberflaeche as OpeningGapsOberflaeche  # noqa: E40
 from test_pyramide import Oberflaeche as PyramidenOberflaeche  # noqa: E402,F401
 from test_durchschnittskurs import Oberflaeche as DurchschnittskursOberflaeche  # noqa: E402,F401
 from test_pyramidenrechner import Oberflaeche as PyramidenrechnerOberflaeche  # noqa: E402,F401
+from test_antizyklisch import Oberflaeche as AntizyklischOberflaeche  # noqa: E402,F401
 from test_pyramide_backtest import BacktestOberflaeche as PyramidenBacktestOberflaeche  # noqa: E402,F401
 from test_pyramide_aktien import AktienOberflaeche as PyramidenAktienOberflaeche  # noqa: E402,F401
 from test_youtube import Oberflaeche as YoutubeOberflaeche  # noqa: E402,F401

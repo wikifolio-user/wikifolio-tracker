@@ -458,7 +458,7 @@ def _app():
     o = T.ohlc()
     pyramide_ui.seite({"ohlc": lambda: o, "sentiment": lambda: T.SENT, "indizes": lambda: {}, "lesen": sp.lesen,
                        "aktualisiere": sp.aktualisiere, "upfad": lambda b: "u/" + b, "speichern": True,
-                       "get": None, "oeffnen": lambda z: None})
+                       "get": None, "oeffnen": lambda z: None, "jetzt": T.Adapter.JETZT})
     st.markdown("SPEICHER:" + _json.dumps(sp.d.get("u/state/pyramiden.json") or {}))
 
 
