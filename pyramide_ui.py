@@ -456,7 +456,7 @@ def _verwalten(h, pyr):
 def seite(h):
     st.markdown(CSS, unsafe_allow_html=True)
     ss = st.session_state
-    jetzt = datetime.datetime.now(datetime.timezone.utc)
+    jetzt = h.get("jetzt") or datetime.datetime.now(datetime.timezone.utc)      # h["jetzt"]: feste Zeit fuer Tests
     st.markdown("### 🔺 Pyramidenmanager")
     st.caption("Gestaffelte Long-Käufe auf Nasdaq 100, DAX 40, S&P 500 und Dow Jones – Signale, Stops, Risiko und "
                "Buchführung. Es werden keine Orders ausgelöst. Keine Anlageberatung.")
