@@ -1385,11 +1385,12 @@ ANSICHT_GAP = "🕳️ Gap Analyzer"          # gap_analyzer_ui.py - Kursluecken
 ANSICHT_PYR = "🔺 Pyramiden"             # pyramide_ui.py - Pyramidenmanager, fuer alle (Daten je Benutzer)
 ANSICHT_YT = "🎬 Faceless YouTube"       # youtube_ui.py - Faceless YouTube Automation, nur Admin
 ANSICHT_DK = "🧮 Durchschnittskurs-Rechner"   # durchschnittskurs_ui.py - gewichteter Einkaufskurs, fuer alle
+ANSICHT_AZ = "📉 Antizyklische Einstiege"   # antizyklisch_ui.py - SMA 200, Fear & Greed, VIX, fuer alle
 ANSICHT_PRR = "🔢 Pyramidenrechner"   # pyramidenrechner_ui.py - Stueckzahl-Pyramide planen, fuer alle (Szenarien je Benutzer)
 APP_URL = "https://zzvuvqwe6.streamlit.app"     # fuer Permanentlinks, falls die Adresse nicht ermittelbar ist
 # Permanentlinks: ?ansicht=<kuerzel> oeffnet direkt die Ansicht
 ANSICHT_LINKS = {"zins": ANSICHT_ZINS, "abfindung": ANSICHT_ABFINDUNG, "rente": ANSICHT_ATZ,
-                 "durchschnittskurs": ANSICHT_DK, "pyramidenrechner": ANSICHT_PRR}
+                 "durchschnittskurs": ANSICHT_DK, "pyramidenrechner": ANSICHT_PRR, "antizyklisch": ANSICHT_AZ}
 PFAD_MUSTERDEPOT = "state/musterdepot.json"
 ANSICHTEN = [
     ANSICHT_DEPOT,
@@ -1427,6 +1428,7 @@ ANSICHTEN = [
     ANSICHT_YT,                 # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_DK,                 # hinten anhaengen (Kachel-Keys haengen am Index)
     ANSICHT_PRR,                # hinten anhaengen (Kachel-Keys haengen am Index)
+    ANSICHT_AZ,                 # hinten anhaengen (Kachel-Keys haengen am Index)
 ]
 ANSICHT_KURZ = {
     ANSICHT_DEPOT: "🏠 Depot",
@@ -1464,6 +1466,7 @@ ANSICHT_KURZ = {
     ANSICHT_YT: "🎬 YouTube",
     ANSICHT_DK: "🧮 Ø-Kurs",
     ANSICHT_PRR: "🔢 Pyramide",
+    ANSICHT_AZ: "📉 Antizyklisch",
 }
 # Anzeigenamen in Menue und Kopfleiste (die internen Schluessel bleiben gleich)
 NAV_NAMEN = {
@@ -1501,6 +1504,7 @@ NAV_NAMEN = {
     ANSICHT_YT: "🎬 Faceless YouTube Automation",
     ANSICHT_DK: "🧮 Durchschnittskurs-Rechner",
     ANSICHT_PRR: "🔢 Pyramidenrechner",
+    ANSICHT_AZ: "📉 Antizyklische Einstiege",
     ANSICHT_BENUTZER: "👥 Benutzer",
 }
 # Ausfuehrlicher Titel in der Kopfleiste (dort ist mehr Platz als auf der Kachel)
@@ -1528,7 +1532,7 @@ NAV_ZEILEN = [
                "📝 Trader-Log (Trades & Kommentare)", ANSICHT_EINST]),
     ("Planung & Analyse", ["🔮 Zukunfts-Prognose", "📊 Szenario-Simulator (5 Jahre)", "💼 Portfolio-Werkzeuge",
                            "🔎 Investment-Scanner", "🏆 Watchlist Top 50", ANSICHT_BEWERTUNG]),
-    ("Märkte", [ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR]),             # Marktstimmung und Index-Werkzeuge
+    ("Märkte", [ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_AZ]),             # Marktstimmung und Index-Werkzeuge
     ("Geschäftsideen", [ANSICHT_EKS, ANSICHT_YT]),      # eigene Gruppe - weitere Werkzeuge fuer Geschaeftsideen hier anhaengen
     ("Rechner", [ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_ATZ, ANSICHT_KO, ANSICHT_ETP, ANSICHT_DK, ANSICHT_PRR]),
     ("Gesundheit", [ANSICHT_GESUNDHEIT]),
@@ -1540,7 +1544,7 @@ LEICHTE_ANSICHTEN = {ANSICHT_ANALYSE_DEPOT, "💼 Portfolio-Planer", ANSICHT_BUI
                      "📝 Trader-Log (Trades & Kommentare)",
                      ANSICHT_BENUTZER, ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR,
                      ANSICHT_GESUNDHEIT, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT,
-                     ANSICHT_DK, ANSICHT_PRR}
+                     ANSICHT_DK, ANSICHT_PRR, ANSICHT_AZ}
 
 # Ansichten mit breiten Tabellen: duerfen auf grossen Monitoren breiter werden als UI.INHALT_MAX
 BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2, ANSICHT_BENUTZER}
@@ -1549,7 +1553,7 @@ BREITE_ANSICHTEN = {"🏆 Watchlist Top 50", ANSICHT_WIKI, ANSICHT_SCANNER, ANSI
 OHNE_KURSE = {"🏆 Watchlist Top 50", ANSICHT_ABFINDUNG, ANSICHT_ZINS, ANSICHT_BENUTZER,
               "📝 Trader-Log (Trades & Kommentare)", ANSICHT_SCANNER, ANSICHT_SCANNER_PRO, ANSICHT_SCANNER2,
               ANSICHT_BEWERTUNG, ANSICHT_ATZ, ANSICHT_WIKI, ANSICHT_EKS, ANSICHT_GLOSSAR, ANSICHT_GESUNDHEIT,
-              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT, ANSICHT_DK, ANSICHT_PRR}
+              ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_PYR, ANSICHT_YT, ANSICHT_DK, ANSICHT_PRR, ANSICHT_AZ}
 
 NAV_CSS = UI.CSS_NAV
 
@@ -1703,6 +1707,8 @@ RECHNER_EINGABEN = {
     "durchschnittskurs": ("dk_", re.compile(r"^dk_tab_|^dk_ver$|_btn$|^dk_meldung$|^dk_suche_letzter$|^dk_wahl$|^dk_kq$")),
     # Pyramidenrechner: Eingaben und eigene Stufenpreise merken; Szenarien liegen in state/pyramidenrechner.json
     "pyramidenrechner": ("prr_", re.compile(r"_btn$|^prr_meldung$|^prr_sz_|^prr_vgl|^prr_tab$|^prr_chart$|^prr_aktiv$")),
+    # Antizyklische Einstiege: Index, Horizont, Chart-Zeitraum merken; Signalwahl/Tabellen nicht
+    "antizyklisch": ("az_", re.compile(r"_btn$|^az_signal$|^az_tab$|^az_chart$|^az_verlauf$")),
     # Gap Analyzer: Definition, Zeitraum, Filter, Alerts und gesehene Meldungen merken
     "gap_analyzer": ("gap_", re.compile(r"_btn$|^gap_tab_|^gap_csv|^gap_xlsx|^gap_chart$|_weg$|^gap_reihe_|_tab$")),
 }
@@ -1978,7 +1984,7 @@ def _sichtbar(ansicht):
     nur fuer den Admin (Audit SEC-03) - auch nicht bei ausdruecklich deaktiviertem Login."""
     n = _nutzer()
     # Erklaerungen, Rechner und Marktdaten ohne eigene Daten - fuer alle
-    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_DK, ANSICHT_PRR):
+    if ansicht in (ANSICHT_GLOSSAR, ANSICHT_KO, ANSICHT_ETP, ANSICHT_FG, ANSICHT_GAP, ANSICHT_DK, ANSICHT_PRR, ANSICHT_AZ):
         return True
     if ansicht == ANSICHT_PYR:           # Pyramiden: jeder Benutzer in seinem eigenen Datenbereich
         return True
@@ -2997,6 +3003,17 @@ def render_dashboard():
         except Exception as e:
             st.error(f"⚠️ Fehler im Durchschnittskurs-Rechner: {e}")
             notify_app_error("Tab-Durchschnittskurs", e)
+        lade_fertig()
+
+    if gewaehlte_ansicht == ANSICHT_AZ:
+        try:
+            import antizyklisch_ui
+            rechner_vorbelegen("antizyklisch")
+            antizyklisch_ui.seite({"ohlc": lambda: kurs_vorrat().ohlc(), "sentiment": lambda: kurs_vorrat().sentiment()})
+            rechner_merken("antizyklisch")
+        except Exception as e:
+            st.error(f"⚠️ Fehler in Antizyklische Einstiege: {e}")
+            notify_app_error("Tab-Antizyklisch", e)
         lade_fertig()
 
     if gewaehlte_ansicht == ANSICHT_PRR:
